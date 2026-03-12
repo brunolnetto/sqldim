@@ -1,0 +1,24 @@
+[project]
+name = "sqldim"
+version = "0.1.0"
+description = "A Python toolkit for Dimensional Modeling (Kimball methodology) using SQLModel."
+readme = "README.md"
+requires-python = ">=3.13"
+dependencies = [
+    "sqlmodel>=0.0.34",
+    "pydantic-settings>=2.2.1",
+    "sqlalchemy[asyncio]>=2.0.29",
+    "alembic>=1.13.1",
+]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+asyncio_default_fixture_loop_scope = "function"
+
+[dependency-groups]
+dev = [
+    "pytest>=9.0.2",
+    "pytest-asyncio>=1.3.0",
+    "pytest-cov>=7.0.0",
+]
+
