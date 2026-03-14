@@ -31,9 +31,11 @@ class LazyTransactionLoader:
         Append all rows from *source* (Parquet path or DuckDB view) into
         *table_name* via the sink.  Returns rows written.
         """
+        from sqldim.sources import coerce_source
+        _sql = coerce_source(source).as_sql(self._con)
         self._con.execute(f"""
             CREATE OR REPLACE VIEW pending_facts AS
-            SELECT * FROM read_parquet('{source}')
+            SELECT * FROM ({_sql})
         """)
         return self.sink.write(self._con, "pending_facts", table_name, self.batch_size)
 
@@ -72,11 +74,13 @@ class LazySnapshotLoader:
         Returns rows written.
         """
         sd = self.snapshot_date
+        from sqldim.sources import coerce_source
+        _sql = coerce_source(source).as_sql(self._con)
         self._con.execute(f"""
             CREATE OR REPLACE VIEW snapshot_rows AS
             SELECT *,
                    '{sd}'::DATE AS {self.date_field}
-            FROM read_parquet('{source}')
+            FROM ({_sql})
         """)
         return self.sink.write(self._con, "snapshot_rows", table_name, self.batch_size)
 

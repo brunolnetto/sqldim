@@ -76,9 +76,11 @@ class LazyCumulativeLoader:
 
         yesterday_sql = self.sink.current_state_sql(tn)
 
+        from sqldim.sources import coerce_source
+        _src_sql = coerce_source(today_source).as_sql(self._con)
         self._con.execute(f"""
             CREATE OR REPLACE VIEW today_incoming AS
-            SELECT * FROM read_parquet('{today_source}')
+            SELECT * FROM ({_src_sql})
         """)
 
         # Build a struct_pack expression for today's metrics

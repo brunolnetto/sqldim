@@ -20,9 +20,9 @@ class DeltaLakeSink:
     extension's DML support.
     """
 
-    def __init__(self, path: str):
+    def __init__(self, path: str, natural_key: str = "id"):
         self._path = path
-        self._natural_key: str | None = None
+        self._natural_key = natural_key
         self._con: duckdb.DuckDBPyConnection | None = None
 
     # ── SinkAdapter core ──────────────────────────────────────────────────
@@ -37,7 +37,7 @@ class DeltaLakeSink:
         table_name: str,
         batch_size: int = 100_000,
     ) -> int:
-        nk = self._natural_key or "id"
+        nk = self._natural_key
         # Delta MERGE INTO: one statement handles new + changed rows
         con.execute(f"""
             MERGE INTO delta.`{self._path}/{table_name}` AS target

@@ -149,9 +149,11 @@ def lazy_backfill_scd2(
 
     _con = con or _duckdb.connect()
 
+    from sqldim.sources import coerce_source
+    _src_sql = coerce_source(source).as_sql(_con)
     _con.execute(f"""
         CREATE OR REPLACE VIEW backfill_source AS
-        SELECT * FROM read_parquet('{source}')
+        SELECT * FROM ({_src_sql})
     """)
 
     # Step 1: LAG columns

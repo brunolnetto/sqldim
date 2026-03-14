@@ -320,6 +320,8 @@ class LazySCDProcessor:
         return result
 
     def _register_source(self, source) -> None:
+        from sqldim.sources import coerce_source
+        _sql = coerce_source(source).as_sql(self._con)
         cols = " || '|' || ".join(
             f"coalesce(cast({c} as varchar), '')"
             for c in self.track_columns
@@ -328,7 +330,7 @@ class LazySCDProcessor:
             CREATE OR REPLACE VIEW incoming AS
             SELECT *,
                    md5({cols}) AS _checksum
-            FROM read_parquet('{source}')
+            FROM ({_sql})
         """)
 
     def _register_current_checksums(self, table_name: str) -> None:
@@ -435,6 +437,8 @@ class LazyType1Processor:
         return result
 
     def _register_source(self, source) -> None:
+        from sqldim.sources import coerce_source
+        _sql = coerce_source(source).as_sql(self._con)
         cols = " || '|' || ".join(
             f"coalesce(cast({c} as varchar), '')"
             for c in self.track_columns
@@ -443,7 +447,7 @@ class LazyType1Processor:
             CREATE OR REPLACE VIEW incoming AS
             SELECT *,
                    md5({cols}) AS _checksum
-            FROM read_parquet('{source}')
+            FROM ({_sql})
         """)
 
     def _register_current_checksums(self, table_name: str) -> None:
@@ -551,6 +555,8 @@ class LazyType3Processor:
         return result
 
     def _register_source(self, source) -> None:
+        from sqldim.sources import coerce_source
+        _sql = coerce_source(source).as_sql(self._con)
         cols = " || '|' || ".join(
             f"coalesce(cast({c} as varchar), '')"
             for c in self.track_cols
@@ -559,7 +565,7 @@ class LazyType3Processor:
             CREATE OR REPLACE VIEW incoming AS
             SELECT *,
                    md5({cols}) AS _checksum
-            FROM read_parquet('{source}')
+            FROM ({_sql})
         """)
 
     def _register_current_checksums(self, table_name: str) -> None:
@@ -682,6 +688,8 @@ class LazyType6Processor:
         return result
 
     def _register_source(self, source) -> None:
+        from sqldim.sources import coerce_source
+        _sql = coerce_source(source).as_sql(self._con)
         t1_hash = " || '|' || ".join(
             f"coalesce(cast({c} as varchar), '')" for c in self.type1_columns
         )
@@ -693,7 +701,7 @@ class LazyType6Processor:
             SELECT *,
                    md5({t1_hash}) AS _t1_checksum,
                    md5({t2_hash}) AS _t2_checksum
-            FROM read_parquet('{source}')
+            FROM ({_sql})
         """)
 
     def _register_current_state(self, table_name: str) -> None:

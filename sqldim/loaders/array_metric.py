@@ -66,9 +66,11 @@ class LazyArrayMetricLoader:
         pk         = self.partition_key
         vc         = self.value_column
 
+        from sqldim.sources import coerce_source
+        _sql = coerce_source(source).as_sql(self._con)
         self._con.execute(f"""
             CREATE OR REPLACE VIEW incoming AS
-            SELECT * FROM read_parquet('{source}')
+            SELECT * FROM ({_sql})
         """)
 
         # DuckDB list_transform: build [0.0, ..., value_at_offset, ..., 0.0]

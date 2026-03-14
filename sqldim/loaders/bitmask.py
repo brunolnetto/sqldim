@@ -70,9 +70,11 @@ class LazyBitmaskLoader:
         rd  = self.reference_date
         wd  = self.window_days
 
+        from sqldim.sources import coerce_source
+        _sql = coerce_source(source).as_sql(self._con)
         self._con.execute(f"""
             CREATE OR REPLACE VIEW incoming AS
-            SELECT * FROM read_parquet('{source}')
+            SELECT * FROM ({_sql})
         """)
 
         self._con.execute(f"""

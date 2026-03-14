@@ -83,9 +83,11 @@ class LazyEdgeProjectionLoader:
         Project *source* into edge rows and write to *table_name*.
         Returns rows written.
         """
+        from sqldim.sources import coerce_source
+        _sql = coerce_source(source).as_sql(self._con)
         self._con.execute(f"""
             CREATE OR REPLACE VIEW incoming AS
-            SELECT * FROM read_parquet('{source}')
+            SELECT * FROM ({_sql})
         """)
 
         if self.self_join:
