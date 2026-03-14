@@ -51,3 +51,40 @@ class TimeDimension(DimensionModel, table=True):
                 rows.append(row)
         session.commit()
         return rows
+
+    @classmethod
+    def generate_lazy(
+        cls,
+        table_name: str,
+        sink,
+        batch_size: int = 100_000,
+        con=None,
+    ) -> int:
+        """
+        Generate all 1440 minute-level rows using DuckDB ``generate_series``.
+        No Python loop — the full time spine is computed and written inside
+        DuckDB.  Returns the number of rows written.
+        """
+        import duckdb as _duckdb
+
+        _con = con or _duckdb.connect()
+
+        _con.execute(f"""
+            CREATE OR REPLACE VIEW time_spine AS
+            SELECT
+                printf('%02d:%02d', h, m)              AS time_value,
+                h                                      AS hour,
+                m                                      AS minute,
+                CASE WHEN h < 12 THEN 'AM' ELSE 'PM' END AS period,
+                CASE WHEN h % 12 = 0 THEN 12
+                     ELSE h % 12 END                   AS hour_12,
+                CASE
+                    WHEN h >= 5  AND h < 12 THEN 'Morning'
+                    WHEN h >= 12 AND h < 17 THEN 'Afternoon'
+                    WHEN h >= 17 AND h < 21 THEN 'Evening'
+                    ELSE 'Night'
+                END                                    AS time_of_day
+            FROM generate_series(0, 23) AS t1(h)
+            CROSS JOIN generate_series(0, 59) AS t2(m)
+        """)
+        return sink.write(_con, "time_spine", table_name, batch_size)

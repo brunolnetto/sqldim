@@ -1,9 +1,9 @@
 [project]
 name = "sqldim"
-version = "0.1.0"
+version = "0.1.1"
 description = "A Python toolkit for Dimensional Modeling (Kimball methodology) using SQLModel."
 readme = "README.md"
-requires-python = ">=3.13"
+requires-python = ">=3.11"
 dependencies = [
     "sqlmodel>=0.0.34",
     "pydantic-settings>=2.2.1",

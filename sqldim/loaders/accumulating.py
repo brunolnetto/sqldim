@@ -4,6 +4,102 @@ from sqlmodel import Session, select
 from sqldim.core.models import FactModel
 
 
+# ---------------------------------------------------------------------------
+# Lazy (DuckDB-first) loader — no Python data, no OOM risk
+# ---------------------------------------------------------------------------
+
+
+class LazyAccumulatingLoader:
+    """
+    Accumulating snapshot fact loader. Speaks only DuckDB SQL.
+
+    New rows are inserted via ``sink.write()``.
+    Existing rows have their milestone columns patched via
+    ``sink.update_milestones()`` — only non-null incoming values are written.
+
+    Usage::
+
+        with DuckDBSink("/tmp/dev.duckdb") as sink:
+            loader = LazyAccumulatingLoader(
+                table_name="fact_order_pipeline",
+                match_column="order_id",
+                milestone_columns=["approved_at", "shipped_at", "delivered_at"],
+                sink=sink,
+            )
+            result = loader.process("orders_batch.parquet")
+    """
+
+    def __init__(
+        self,
+        table_name: str,
+        match_column: str,
+        milestone_columns: List[str],
+        sink,
+        batch_size: int = 100_000,
+        con=None,
+    ):
+        import duckdb as _duckdb
+
+        self.table_name       = table_name
+        self.match_column     = match_column
+        self.milestone_columns = milestone_columns
+        self.sink             = sink
+        self.batch_size       = batch_size
+        self._con             = con or _duckdb.connect()
+
+    def process(self, source) -> Dict[str, int]:
+        """
+        Process incoming records.
+
+        - Rows whose match key is absent from the current state are INSERTed.
+        - Rows that already exist have their non-null milestone columns UPDATEd.
+
+        Returns ``{"inserted": n, "updated": n}``.
+        """
+        mc  = self.match_column
+        sql = self.sink.current_state_sql(self.table_name)
+
+        self._con.execute(f"""
+            CREATE OR REPLACE VIEW incoming AS
+            SELECT * FROM read_parquet('{source}')
+        """)
+
+        self._con.execute(f"""
+            CREATE OR REPLACE VIEW current_keys AS
+            SELECT {mc} FROM ({sql})
+        """)
+
+        # New rows: natural key is not in the current state
+        self._con.execute(f"""
+            CREATE OR REPLACE VIEW new_rows AS
+            SELECT i.*
+            FROM incoming i
+            LEFT JOIN current_keys c
+                   ON cast(i.{mc} as varchar) = cast(c.{mc} as varchar)
+            WHERE c.{mc} IS NULL
+        """)
+
+        # Update view: rows that match an existing record
+        mc_and_milestones = ", ".join(
+            [f"i.{mc}"] + [f"i.{c}" for c in self.milestone_columns]
+        )
+        self._con.execute(f"""
+            CREATE OR REPLACE VIEW update_rows AS
+            SELECT {mc_and_milestones}
+            FROM incoming i
+            INNER JOIN current_keys c
+                    ON cast(i.{mc} as varchar) = cast(c.{mc} as varchar)
+        """)
+
+        inserted = self.sink.write(
+            self._con, "new_rows", self.table_name, self.batch_size
+        )
+        updated = self.sink.update_milestones(
+            self._con, self.table_name, mc, "update_rows", self.milestone_columns
+        )
+        return {"inserted": inserted, "updated": updated}
+
+
 class AccumulatingLoader:
     """
     Loads Accumulating Snapshot Fact Tables — one row per business process instance,

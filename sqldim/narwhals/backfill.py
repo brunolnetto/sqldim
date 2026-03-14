@@ -98,3 +98,112 @@ def backfill_scd2_narwhals(
         return result
 
     return len(result)
+
+
+# ---------------------------------------------------------------------------
+# lazy_backfill_scd2 — DuckDB SQL, no Python data
+# ---------------------------------------------------------------------------
+
+
+def lazy_backfill_scd2(
+    source,
+    partition_by: str,
+    order_by: str,
+    track_columns: list[str],
+    table_name: str,
+    sink,
+    batch_size: int = 100_000,
+    con=None,
+) -> int:
+    """
+    DuckDB SQL-based SCD2 backfill using LAG + cumulative-sum-streak pattern.
+
+    Converts a flat snapshot table into SCD2 history rows without loading
+    any data into Python.
+
+    Steps (all inside DuckDB):
+
+    1. Register the source as a view.
+    2. Add LAG columns for each tracked column within the partition.
+    3. Derive a ``_did_change`` flag (any tracked column differs from lag).
+    4. Accumulate a ``_streak_id`` via a running SUM of ``_did_change``.
+    5. GROUP BY (partition, streak) to emit (valid_from, valid_to, …) rows.
+    6. Write the result via the sink.
+
+    Parameters
+    ----------
+    source : Parquet path (or any DuckDB-readable URI)
+    partition_by : column that identifies the entity
+    order_by : column that defines chronological ordering
+    track_columns : columns whose changes trigger a new SCD2 version
+    table_name : target table in the sink
+    sink : SinkAdapter implementation
+    batch_size : write buffer size hint
+    con : existing DuckDB connection (created if None)
+
+    Returns
+    -------
+    int — number of rows written
+    """
+    import duckdb as _duckdb
+
+    _con = con or _duckdb.connect()
+
+    _con.execute(f"""
+        CREATE OR REPLACE VIEW backfill_source AS
+        SELECT * FROM read_parquet('{source}')
+    """)
+
+    # Step 1: LAG columns
+    lag_exprs = ",\n               ".join(
+        f"LAG({c}) OVER (PARTITION BY {partition_by} ORDER BY {order_by}) AS _prev_{c}"
+        for c in track_columns
+    )
+    _con.execute(f"""
+        CREATE OR REPLACE VIEW backfill_with_lag AS
+        SELECT *,
+               {lag_exprs}
+        FROM backfill_source
+    """)
+
+    # Step 2: did_change flag
+    change_conds = " OR ".join(
+        f"({c} IS DISTINCT FROM _prev_{c})" for c in track_columns
+    )
+    _con.execute(f"""
+        CREATE OR REPLACE VIEW backfill_with_change AS
+        SELECT *,
+               CASE WHEN {change_conds} THEN 1 ELSE 0 END AS _did_change
+        FROM backfill_with_lag
+    """)
+
+    # Step 3: streak_id via running SUM
+    _con.execute(f"""
+        CREATE OR REPLACE VIEW backfill_with_streak AS
+        SELECT *,
+               SUM(_did_change) OVER (
+                   PARTITION BY {partition_by}
+                   ORDER BY {order_by}
+                   ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW
+               ) AS _streak_id
+        FROM backfill_with_change
+    """)
+
+    # Step 4: group by (partition, streak) → (valid_from, valid_to, tracked cols)
+    track_agg = ",\n               ".join(
+        f"LAST({c} ORDER BY {order_by}) AS {c}" for c in track_columns
+    )
+    _con.execute(f"""
+        CREATE OR REPLACE VIEW backfill_result AS
+        SELECT
+            {partition_by},
+            MIN({order_by}) AS valid_from,
+            MAX({order_by}) AS valid_to,
+            {track_agg},
+            TRUE            AS is_current
+        FROM backfill_with_streak
+        GROUP BY {partition_by}, _streak_id
+        ORDER BY {partition_by}, valid_from
+    """)
+
+    return sink.write(_con, "backfill_result", table_name, batch_size)

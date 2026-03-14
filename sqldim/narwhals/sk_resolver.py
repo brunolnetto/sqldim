@@ -163,3 +163,101 @@ class NarwhalsSKResolver:
     def invalidate_cache(self) -> None:
         """Clear the lookup cache (call between loader runs)."""
         self._cache.clear()
+
+
+# ---------------------------------------------------------------------------
+# LazySKResolver — DuckDB SQL LEFT JOIN, no Python data
+# ---------------------------------------------------------------------------
+
+
+class LazySKResolver:
+    """
+    Lazy natural-key → surrogate-key resolver via DuckDB LEFT JOIN.
+
+    Replaces the session-backed lookup with a single DuckDB SQL join
+    against ``sink.current_state_sql(dim_table)``.  The result is a
+    DuckDB VIEW — no rows ever enter Python memory.
+
+    Usage::
+
+        with DuckDBSink("/tmp/dev.duckdb") as sink:
+            resolver = LazySKResolver(sink, con)
+            # Register a fact view first, then resolve one FK:
+            resolved_view = resolver.resolve(
+                fact_view="pending_facts",
+                dim_table_name="dim_customer",
+                natural_key_col="customer_code",
+                surrogate_key_col="customer_id",
+                output_view="facts_with_customer_sk",
+            )
+            # Or resolve all FKs in one pass:
+            final_view = resolver.resolve_all(
+                fact_view="pending_facts",
+                key_map={
+                    "customer_id": ("dim_customer", "customer_code", "customer_id"),
+                    "product_id":  ("dim_product",  "product_code",  "product_id"),
+                },
+            )
+    """
+
+    def __init__(self, sink, con=None):
+        import duckdb as _duckdb
+
+        self.sink = sink
+        self._con = con or _duckdb.connect()
+
+    def resolve(
+        self,
+        fact_view: str,
+        dim_table_name: str,
+        natural_key_col: str,
+        surrogate_key_col: str,
+        output_view: str = "fact_with_sk",
+    ) -> str:
+        """
+        Left-join *fact_view* with the current dimension state to resolve
+        one natural key column to a surrogate key.
+
+        Rows without a matching dimension member receive ``NULL`` for the
+        surrogate key — the caller decides how to handle unresolved keys.
+
+        Returns the name of the output DuckDB view.
+        """
+        dim_sql = self.sink.current_state_sql(dim_table_name)
+        self._con.execute(f"""
+            CREATE OR REPLACE VIEW {output_view} AS
+            SELECT f.*,
+                   d.id AS {surrogate_key_col}
+            FROM {fact_view} f
+            LEFT JOIN ({dim_sql}) d
+                   ON cast(f.{natural_key_col} as varchar) = cast(d.{natural_key_col} as varchar)
+                  AND d.is_current = TRUE
+        """)
+        return output_view
+
+    def resolve_all(
+        self,
+        fact_view: str,
+        key_map: dict[str, tuple[str, str, str]],
+        output_view: str = "fact_with_all_sk",
+    ) -> str:
+        """
+        Resolve all FK columns in one chained pass.
+
+        Parameters
+        ----------
+        key_map : ``{fk_col: (dim_table_name, natural_key_col, surrogate_key_alias)}``
+
+        Returns the name of the final output DuckDB view.
+        """
+        current_view = fact_view
+        for i, (fk_col, (dim_table, nk_col, sk_alias)) in enumerate(key_map.items()):
+            intermediate = f"_sk_stage_{i}"
+            self.resolve(current_view, dim_table, nk_col, sk_alias, intermediate)
+            current_view = intermediate
+
+        self._con.execute(f"""
+            CREATE OR REPLACE VIEW {output_view} AS
+            SELECT * FROM {current_view}
+        """)
+        return output_view

@@ -48,7 +48,12 @@ class SCDHandler(Generic[T]):
         
         # In SQLModel/Pydantic, metadata is passed through sa_column_kwargs['info']
         kwargs = getattr(field, "sa_column_kwargs", {})
-        info = kwargs.get("info")
+        
+        # Handle PydanticUndefinedType which doesn't have .get()
+        if hasattr(kwargs, "get"):
+            info = kwargs.get("info")
+        else:
+            info = None
         if info:
             return info
             
@@ -130,6 +135,11 @@ class SCDHandler(Generic[T]):
                     existing.valid_to = datetime.now(timezone.utc)
                     self.session.add(existing)
                     new_data = record.copy()
+                    
+                    # Persist the columnar diff if the model supports metadata_diff
+                    if hasattr(self.model, "metadata_diff"):
+                        new_data["metadata_diff"] = diff.changed_columns
+                        
                     new_row = self.model(**new_data, checksum=checksum, is_current=True)
                     self.session.add(new_row)
                     result.versioned += 1

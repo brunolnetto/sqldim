@@ -4,6 +4,66 @@ from sqlmodel import Session, select
 from sqldim import DimensionModel, Field
 
 
+# ---------------------------------------------------------------------------
+# Lazy (DuckDB-first) population — no Python data, no OOM risk
+# ---------------------------------------------------------------------------
+
+
+def populate_junk_dimension_lazy(
+    flags: Dict[str, List[Any]],
+    table_name: str,
+    sink,
+    batch_size: int = 100_000,
+    con=None,
+) -> int:
+    """
+    Populate a junk dimension with all flag combinations using DuckDB
+    CROSS JOIN — no Python ``itertools.product`` or row-by-row inserts.
+
+    The Cartesian product is computed entirely inside DuckDB; data flows
+    directly from the query engine into the sink without touching Python.
+
+    Parameters
+    ----------
+    flags : ``{column_name: [value1, value2, ...]}``
+    table_name : target table in the sink
+    sink : SinkAdapter implementation
+    batch_size : write buffer hint
+    con : existing DuckDB connection (created if None)
+
+    Returns
+    -------
+    int — number of rows written
+    """
+    import duckdb as _duckdb
+
+    _con = con or _duckdb.connect()
+    cols = list(flags.keys())
+
+    # Register each flag column as a DuckDB VALUES-based view
+    for col in cols:
+        vals = flags[col]
+        value_rows = ", ".join(
+            f"('{v}')" if isinstance(v, str) else f"({str(v).upper() if isinstance(v, bool) else v})"
+            for v in vals
+        )
+        _con.execute(f"""
+            CREATE OR REPLACE VIEW _flag_{col} AS
+            SELECT {col} FROM (VALUES {value_rows}) AS t({col})
+        """)
+
+    # CROSS JOIN all flag views to produce the full Cartesian product
+    join_sql  = " CROSS JOIN ".join(f"_flag_{col}" for col in cols)
+    col_list  = ", ".join(cols)
+    _con.execute(f"""
+        CREATE OR REPLACE VIEW all_combos AS
+        SELECT {col_list}
+        FROM {join_sql}
+    """)
+
+    return sink.write(_con, "all_combos", table_name, batch_size)
+
+
 def make_junk_dimension(
     name: str,
     flags: Dict[str, List[Any]],
