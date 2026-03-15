@@ -1,4 +1,5 @@
 import pytest
+from sqlalchemy.pool import StaticPool
 import pandas as pd
 import polars as pl
 import narwhals as nw
@@ -7,14 +8,14 @@ from sqlmodel import Field, Session, SQLModel, create_engine, select, text
 from typing import Optional, List, Any, Union
 
 from sqldim import DimensionModel, FactModel, SCD2Mixin, DatelistMixin
-from sqldim.narwhals.sk_resolver import NarwhalsSKResolver
+from sqldim.processors.sk_resolver import NarwhalsSKResolver
 from sqldim.graph.registry import GraphModel
 from sqldim.graph.schema_graph import SchemaGraph
 from sqldim.graph.traversal import TraversalEngine
 from sqldim.models.graph import VertexModel, EdgeModel
 from sqldim.exceptions import SchemaError, TransformTypeError, LoadError
-from sqldim.narwhals.transforms import col, TransformPipeline
-from sqldim.narwhals.adapter import NarwhalsAdapter
+from sqldim.processors.transforms import col, TransformPipeline
+from sqldim.processors.adapter import NarwhalsAdapter
 
 # --- Fixtures ---
 
@@ -37,10 +38,15 @@ class GEdge(EdgeModel, table=True):
 
 @pytest.fixture
 def session():
-    engine = create_engine("sqlite://")
+    engine = create_engine(
+        "sqlite:///:memory:",
+        connect_args={"check_same_thread": False},
+        poolclass=StaticPool,
+    )
     SQLModel.metadata.create_all(engine)
     with Session(engine) as session:
         yield session
+    engine.dispose()
 
 # --- Graph Coverage (Registry/Traversal/SchemaGraph) ---
 

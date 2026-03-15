@@ -42,7 +42,7 @@ class PostgreSQLSink:
             INSERT INTO {self._alias}.{self._schema}.{table_name}
             SELECT * FROM {view_name}
         """)
-        return con.execute("SELECT changes()").fetchone()[0]
+        return con.execute(f"SELECT count(*) FROM {view_name}").fetchone()[0]
 
     def close_versions(
         self,
@@ -60,7 +60,7 @@ class PostgreSQLSink:
              WHERE t.{nk_col}   = n.{nk_col}
                AND t.is_current = TRUE
         """)
-        return con.execute("SELECT changes()").fetchone()[0]
+        return con.execute(f"SELECT count(*) FROM {nk_view}").fetchone()[0]
 
     # ── SinkAdapter extended ──────────────────────────────────────────────
 
@@ -73,7 +73,7 @@ class PostgreSQLSink:
         update_cols: list[str],
     ) -> int:
         set_clause = ",\n               ".join(
-            f"t.{c} = u.{c}" for c in update_cols
+            f"{c} = u.{c}" for c in update_cols
         )
         con.execute(f"""
             UPDATE {self._alias}.{self._schema}.{table_name} t
@@ -82,7 +82,7 @@ class PostgreSQLSink:
              WHERE t.{nk_col} = u.{nk_col}
                AND t.is_current = TRUE
         """)
-        return con.execute("SELECT changes()").fetchone()[0]
+        return con.execute(f"SELECT count(*) FROM {updates_view}").fetchone()[0]
 
     def rotate_attributes(
         self,
@@ -93,7 +93,7 @@ class PostgreSQLSink:
         column_pairs: list[tuple[str, str]],
     ) -> int:
         set_clause = ",\n               ".join(
-            f"t.{prev} = t.{curr},\n               t.{curr} = r.{curr}"
+            f"{prev} = t.{curr},\n               {curr} = r.{curr}"
             for curr, prev in column_pairs
         )
         con.execute(f"""
@@ -103,7 +103,7 @@ class PostgreSQLSink:
              WHERE t.{nk_col} = r.{nk_col}
                AND t.is_current = TRUE
         """)
-        return con.execute("SELECT changes()").fetchone()[0]
+        return con.execute(f"SELECT count(*) FROM {rotations_view}").fetchone()[0]
 
     def update_milestones(
         self,
@@ -114,7 +114,7 @@ class PostgreSQLSink:
         milestone_cols: list[str],
     ) -> int:
         set_clause = ",\n               ".join(
-            f"t.{c} = COALESCE(u.{c}, t.{c})" for c in milestone_cols
+            f"{c} = COALESCE(u.{c}, t.{c})" for c in milestone_cols
         )
         con.execute(f"""
             UPDATE {self._alias}.{self._schema}.{table_name} t
@@ -122,7 +122,7 @@ class PostgreSQLSink:
               FROM {updates_view} u
              WHERE t.{match_col} = u.{match_col}
         """)
-        return con.execute("SELECT changes()").fetchone()[0]
+        return con.execute(f"SELECT count(*) FROM {updates_view}").fetchone()[0]
 
     # ── Context manager ───────────────────────────────────────────────────
 

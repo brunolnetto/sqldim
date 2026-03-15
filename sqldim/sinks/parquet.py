@@ -73,11 +73,14 @@ class ParquetSink:
                 SELECT
                     * EXCLUDE (is_current, valid_to),
                     CASE WHEN {nk_col} IN (SELECT {nk_col} FROM {nk_view})
-                         THEN FALSE  ELSE is_current  END AS is_current,
+                         THEN FALSE
+                         ELSE TRY_CAST(is_current AS BOOLEAN)
+                    END AS is_current,
                     CASE WHEN {nk_col} IN (SELECT {nk_col} FROM {nk_view})
                          THEN '{valid_to}' ELSE valid_to END AS valid_to
-                FROM read_parquet('{self._table_path(table_name)}')
-                WHERE is_current = TRUE
+                FROM read_parquet('{self._table_path(table_name)}',
+                                  hive_partitioning=true)
+                WHERE TRY_CAST(is_current AS BOOLEAN) = TRUE
             )
             TO '{out}'
             (FORMAT parquet, PARTITION_BY (is_current), OVERWRITE_OR_IGNORE true)
@@ -107,10 +110,11 @@ class ParquetSink:
                 SELECT
                     {other_cols},
                     {col_exprs}
-                FROM read_parquet('{self._table_path(table_name)}') t
+                FROM read_parquet('{self._table_path(table_name)}',
+                                  hive_partitioning=true) t
                 LEFT JOIN {updates_view} u
                        ON t.{nk_col} = u.{nk_col}
-                      AND t.is_current = TRUE
+                      AND TRY_CAST(t.is_current AS BOOLEAN) = TRUE
             )
             TO '{out}'
             (FORMAT parquet, PARTITION_BY (is_current), OVERWRITE_OR_IGNORE true)
@@ -142,10 +146,11 @@ class ParquetSink:
                 SELECT
                     t.* EXCLUDE ({exclude_cols}),
                     {rotate_exprs}
-                FROM read_parquet('{self._table_path(table_name)}') t
+                FROM read_parquet('{self._table_path(table_name)}',
+                                  hive_partitioning=true) t
                 LEFT JOIN {rotations_view} u
                        ON t.{nk_col} = u.{nk_col}
-                      AND t.is_current = TRUE
+                      AND TRY_CAST(t.is_current AS BOOLEAN) = TRUE
             )
             TO '{out}'
             (FORMAT parquet, PARTITION_BY (is_current), OVERWRITE_OR_IGNORE true)
@@ -173,7 +178,8 @@ class ParquetSink:
                 SELECT
                     t.* EXCLUDE ({exclude}),
                     {col_exprs}
-                FROM read_parquet('{self._table_path(table_name)}') t
+                FROM read_parquet('{self._table_path(table_name)}',
+                                  hive_partitioning=true) t
                 LEFT JOIN {updates_view} u
                        ON t.{match_col} = u.{match_col}
             )

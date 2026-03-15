@@ -22,6 +22,122 @@ def _safe_subclass(cls: Any, base: type) -> bool:
         return False
 
 
+def _vertex_info(v: type) -> dict[str, Any]:
+    return {
+        "name": v.__name__,
+        "vertex_type": getattr(v, "__vertex_type__", v.__name__.lower()),
+        "natural_key": getattr(v, "__natural_key__", []),
+        "columns": list(v.model_fields.keys()),
+    }
+
+
+def _infer_endpoints_from_star(
+    e: type, dimensions: list
+) -> tuple[type | None, type | None]:
+    from sqldim.core.graph import SchemaGraph as _Core
+    star = _Core(list(dimensions)).get_star_schema(e)
+    dim_list = list(star.get("dimensions", {}).values())
+    subject_cls = dim_list[0] if len(dim_list) >= 1 else None
+    object_cls = dim_list[1] if len(dim_list) >= 2 else None
+    return subject_cls, object_cls
+
+
+def _resolve_edge_endpoints(
+    e: type, dimensions: list
+) -> tuple[type | None, type | None]:
+    subject_cls = getattr(e, "__subject__", None)
+    object_cls = getattr(e, "__object__", None)
+    if subject_cls is None or object_cls is None:
+        inferred_sub, inferred_obj = _infer_endpoints_from_star(e, dimensions)
+        if subject_cls is None:
+            subject_cls = inferred_sub
+        if object_cls is None:
+            object_cls = inferred_obj
+    return subject_cls, object_cls
+
+
+def _edge_info(e: type, dimensions: list) -> dict[str, Any]:
+    subject_cls, object_cls = _resolve_edge_endpoints(e, dimensions)
+    directed: bool = getattr(e, "__directed__", True)
+    return {
+        "name": e.__name__,
+        "edge_type": getattr(e, "__edge_type__", e.__name__.lower()),
+        "subject": subject_cls.__name__ if subject_cls else None,
+        "object": object_cls.__name__ if object_cls else None,
+        "directed": directed,
+        "self_referential": subject_cls is not None and subject_cls is object_cls,
+        "columns": list(e.model_fields.keys()),
+    }
+
+
+def _annotation_type(annotation: Any) -> str:
+    if annotation is int:
+        return "int"
+    if annotation is float:
+        return "float"
+    if annotation is bool:
+        return "bool"
+    return "string"
+
+
+def _render_graph_model(m: type, lines: list) -> None:
+    if hasattr(m, "_rendered_in_mermaid"):
+        return
+    lines.append(f"    {m.__name__} {{")
+    for col_name in m.model_fields:
+        annotation = m.__annotations__.get(col_name)
+        lines.append(f"        {_annotation_type(annotation)} {col_name}")
+    lines.append("    }")
+
+
+def _validate_endpoint(
+    fact_cls: type, attr_name: str, vertex_set: set
+) -> "SchemaError | None":
+    endpoint = getattr(fact_cls, attr_name, None)
+    if endpoint is not None and endpoint not in vertex_set:
+        return SchemaError(
+            f"{fact_cls.__name__}: {attr_name} {endpoint.__name__!r} "
+            f"is not a registered vertex."
+        )
+    return None
+
+
+def _validate_edge(
+    fact_cls: type, vertex_set: set
+) -> list["SchemaError"]:
+    subject = getattr(fact_cls, "__subject__", None)
+    obj = getattr(fact_cls, "__object__", None)
+    if subject is None and obj is None:
+        return []
+    errors = []
+    for attr in ("__subject__", "__object__"):
+        err = _validate_endpoint(fact_cls, attr, vertex_set)
+        if err:
+            errors.append(err)
+    return errors
+
+
+def _render_edge_lines(fact: type, lines: list, subject, obj, edge_label: str) -> None:
+    if subject:
+        lines.append(f"    {subject.__name__} ||--o{{ {fact.__name__} : \"{edge_label}\"")
+    if obj:
+        lines.append(f"    {fact.__name__} }}o--|| {obj.__name__} : \"\"")
+
+
+def _render_edge_relations(fact: type, lines: list, star: dict) -> None:
+    from sqldim.models.graph import EdgeModel
+    if _safe_subclass(fact, EdgeModel) and (
+        getattr(fact, "__subject__", None) or getattr(fact, "__object__", None)
+    ):
+        subject = getattr(fact, "__subject__", None)
+        obj = getattr(fact, "__object__", None)
+        edge_label = getattr(fact, "__edge_type__", fact.__name__.lower())
+        _render_edge_lines(fact, lines, subject, obj, edge_label)
+    else:
+        for fk_col, dim in star["dimensions"].items():
+            lines.append(f"    {fact.__name__} }}o--||  {dim.__name__} : \"{fk_col}\"")
+
+
 # ---------------------------------------------------------------------------
 # Data objects
 # ---------------------------------------------------------------------------
@@ -77,49 +193,9 @@ class SchemaGraph(_BaseSchemaGraph):
     def graph_schema(self) -> GraphSchema:
         """
         Return a GraphSchema describing all vertex and edge types.
-
-        For FactModels the subject/object are derived from __subject__/__object__
-        when explicitly set, otherwise inferred from FK column metadata
-        (``column.info["dimension"]``).
         """
-        vertex_info: list[dict[str, Any]] = []
-        for v in self.vertices:
-            vertex_info.append({
-                "name": v.__name__,
-                "vertex_type": getattr(v, "__vertex_type__", v.__name__.lower()),
-                "natural_key": getattr(v, "__natural_key__", []),
-                "columns": list(v.model_fields.keys()),
-            })
-
-        dim_by_name = {d.__name__: d for d in self.dimensions}
-
-        edge_info: list[dict[str, Any]] = []
-        for e in self.edges:
-            subject_cls = getattr(e, "__subject__", None)
-            object_cls = getattr(e, "__object__", None)
-
-            # Auto-derive subject/object from FK metadata when not explicit
-            if subject_cls is None or object_cls is None:
-                fk_dims = self._fk_dimensions(e)
-                dim_list = list(fk_dims.values())
-                if subject_cls is None and len(dim_list) >= 1:
-                    subject_cls = dim_list[0]
-                if object_cls is None and len(dim_list) >= 2:
-                    object_cls = dim_list[1]
-
-            directed: bool = getattr(e, "__directed__", True)
-            self_ref = (subject_cls is not None and subject_cls is object_cls)
-
-            edge_info.append({
-                "name": e.__name__,
-                "edge_type": getattr(e, "__edge_type__", e.__name__.lower()),
-                "subject": subject_cls.__name__ if subject_cls else None,
-                "object": object_cls.__name__ if object_cls else None,
-                "directed": directed,
-                "self_referential": self_ref,
-                "columns": list(e.model_fields.keys()),
-            })
-
+        vertex_info = [_vertex_info(v) for v in self.vertices]
+        edge_info = [_edge_info(e, self.dimensions) for e in self.edges]
         return GraphSchema(vertices=vertex_info, edges=edge_info)
 
     # ------------------------------------------------------------------
@@ -144,106 +220,37 @@ class SchemaGraph(_BaseSchemaGraph):
     def validate(self) -> list[SchemaError]:
         """
         Validate graph consistency.
-
-        Checks only models that explicitly declare __subject__/__object__
-        (i.e. EdgeModel subclasses with explicit FK references).
-        For implicit edges (plain FactModels), no graph validation is done —
-        FK integrity is already enforced at the DB level.
         """
-        errors: list[SchemaError] = []
         vertex_set = set(self.vertices)
-
+        errors: list[SchemaError] = []
         for fact_cls in self.edges:
-            subject = getattr(fact_cls, "__subject__", None)
-            obj = getattr(fact_cls, "__object__", None)
-
-            # Only validate models that explicitly declare __subject__/__object__
-            if subject is None and obj is None:
-                continue
-
-            if subject is not None and subject not in vertex_set:
-                errors.append(SchemaError(
-                    f"{fact_cls.__name__}: __subject__ {subject.__name__!r} "
-                    f"is not a registered vertex."
-                ))
-            if obj is not None and obj not in vertex_set:
-                errors.append(SchemaError(
-                    f"{fact_cls.__name__}: __object__ {obj.__name__!r} "
-                    f"is not a registered vertex."
-                ))
-
+            errors.extend(_validate_edge(fact_cls, vertex_set))
         return errors
 
     # ------------------------------------------------------------------
     # to_mermaid() — extended to render graph models
     # ------------------------------------------------------------------
 
+    def _render_models(self, models, lines: list, rendered: set) -> None:
+        for m in models:
+            if m.__name__ not in rendered:
+                rendered.add(m.__name__)
+                _render_graph_model(m, lines)
+
     def to_mermaid(self) -> str:
         """
         Render a Mermaid ER diagram that includes both the star schema
         (dimensions + facts) and graph relationships.
-
-        VertexModel subclasses with __vertex_type__ are labelled; plain
-        DimensionModels are rendered as standard rectangles.
         """
-        from sqldim.models.graph import VertexModel, EdgeModel
-
         lines = ["erDiagram"]
         rendered: set[str] = set()
-
-        def render_model(m: type) -> None:
-            if m.__name__ in rendered:
-                return
-            rendered.add(m.__name__)
-            lines.append(f"    {m.__name__} {{")
-            for col_name in m.model_fields:
-                annotation = m.__annotations__.get(col_name)
-                if annotation is int:
-                    col_type = "int"
-                elif annotation is float:
-                    col_type = "float"
-                elif annotation is bool:
-                    col_type = "bool"
-                else:
-                    col_type = "string"
-                lines.append(f"        {col_type} {col_name}")
-            lines.append("    }")
-
-        # Dimensions (includes VertexModel subclasses)
-        for d in self.dimensions:
-            render_model(d)
-
-        # Facts (includes EdgeModel subclasses)
-        for f in self.facts:
-            render_model(f)
-
-        # Star schema relationships
+        self._render_models(self.dimensions, lines, rendered)
+        self._render_models(self.facts, lines, rendered)
         for fact in self.facts:
-            # Prefer explicit __subject__/__object__ for graph edges
-            if _safe_subclass(fact, EdgeModel) and (
-                getattr(fact, "__subject__", None) or getattr(fact, "__object__", None)
-            ):
-                subject = getattr(fact, "__subject__", None)
-                obj = getattr(fact, "__object__", None)
-                edge_label = getattr(fact, "__edge_type__", fact.__name__.lower())
-                if subject:
-                    lines.append(
-                        f"    {subject.__name__} ||--o{{ {fact.__name__} : \"{edge_label}\""
-                    )
-                if obj:
-                    lines.append(
-                        f"    {fact.__name__} }}o--|| {obj.__name__} : \"\""
-                    )
-            else:
-                # Implicit: render FK → dimension relationships
-                star = self.get_star_schema(fact)
-                for fk_col, dim in star["dimensions"].items():
-                    lines.append(f"    {fact.__name__} }}o--||  {dim.__name__} : \"{fk_col}\"")
-
+            star = self.get_star_schema(fact)
+            _render_edge_relations(fact, lines, star)
         return "\n".join(lines)
 
-    # ------------------------------------------------------------------
-    # Private helpers
     # ------------------------------------------------------------------
 
     def _fk_dimensions(self, fact_cls: type[FactModel]) -> dict[str, type[DimensionModel]]:

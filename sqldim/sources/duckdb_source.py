@@ -15,10 +15,16 @@ class DuckDBSource:
     """
 
     def __init__(self, table_or_view: str, schema: str | None = None):
+        already_qualified = "." in table_or_view
+        if schema and already_qualified:
+            raise ValueError(
+                f"DuckDBSource: 'schema' was given ('{schema}') but '{table_or_view}' "
+                "is already schema-qualified.  Pass one or the other, not both."
+            )
         if schema:
             self._ref = f"{schema}.{table_or_view}"
         else:
             self._ref = table_or_view
 
     def as_sql(self, con) -> str:
-        return self._ref
+        return f"SELECT * FROM {self._ref}"

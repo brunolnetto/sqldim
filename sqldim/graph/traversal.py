@@ -24,6 +24,21 @@ class TraversalEngine:
     For analytical use-cases the recommended limit is 1–3 hops.
     """
 
+    def _both_direction_sql(
+        self,
+        table: str,
+        start_id: int,
+        filters: dict[str, Any] | None,
+    ) -> str:
+        parts = [
+            f"SELECT object_id AS neighbor_id FROM {table} WHERE subject_id = {start_id}",
+            f"SELECT subject_id AS neighbor_id FROM {table} WHERE object_id = {start_id}",
+        ]
+        if filters:
+            filter_sql = _build_filters(filters)
+            parts = [p + f" AND {filter_sql}" for p in parts]
+        return "\nUNION\n".join(parts)
+
     def neighbors_sql(
         self,
         edge_model: type["EdgeModel"],
@@ -33,34 +48,17 @@ class TraversalEngine:
     ) -> str:
         """
         Single-hop neighbor lookup — returns peer vertex IDs.
-
-        For directed edges the WHERE clause uses subject_id/object_id
-        according to *direction*.  For undirected edges (``__directed__ =
-        False``) direction is always treated as "both".
         """
         table = edge_model.__tablename__  # type: ignore[attr-defined]
         directed: bool = getattr(edge_model, "__directed__", True)
-
         if not directed:
             direction = "both"
-
         if direction == "out":
-            select_col = "object_id"
-            where_clause = f"subject_id = {start_id}"
+            select_col, where_clause = "object_id", f"subject_id = {start_id}"
         elif direction == "in":
-            select_col = "subject_id"
-            where_clause = f"object_id = {start_id}"
-        else:  # both
-            # Return all connected vertices; union out + in directions
-            parts = [
-                f"SELECT object_id AS neighbor_id FROM {table} WHERE subject_id = {start_id}",
-                f"SELECT subject_id AS neighbor_id FROM {table} WHERE object_id = {start_id}",
-            ]
-            if filters:
-                filter_sql = _build_filters(filters)
-                parts = [p + f" AND {filter_sql}" for p in parts]
-            return "\nUNION\n".join(parts)
-
+            select_col, where_clause = "subject_id", f"object_id = {start_id}"
+        else:
+            return self._both_direction_sql(table, start_id, filters)
         filter_sql = f" AND {_build_filters(filters)}" if filters else ""
         return f"SELECT {select_col} AS neighbor_id FROM {table} WHERE {where_clause}{filter_sql}"
 
@@ -97,13 +95,13 @@ class TraversalEngine:
 
         return f"""WITH RECURSIVE traversal(current_id, path, depth) AS (
     -- Base case: start at source vertex
-    SELECT {start_id}, ARRAY[{start_id}], 0
+    SELECT {start_id}, [{start_id}]::INTEGER[], 0
 
     UNION ALL
 
     -- Recursive case: follow edges one hop at a time
     SELECT {next_id},
-           t.path || {next_id},
+           list_append(t.path, {next_id}),
            t.depth + 1
     FROM traversal t
     {follow_join}

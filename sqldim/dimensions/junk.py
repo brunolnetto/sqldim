@@ -4,6 +4,14 @@ from sqlmodel import Session, select
 from sqldim import DimensionModel, Field
 
 
+def _flag_value_sql(v: Any) -> str:
+    if isinstance(v, str):
+        return f"('{v}')"
+    if isinstance(v, bool):
+        return f"({str(v).upper()})"
+    return f"({v})"
+
+
 # ---------------------------------------------------------------------------
 # Lazy (DuckDB-first) population — no Python data, no OOM risk
 # ---------------------------------------------------------------------------
@@ -43,10 +51,7 @@ def populate_junk_dimension_lazy(
     # Register each flag column as a DuckDB VALUES-based view
     for col in cols:
         vals = flags[col]
-        value_rows = ", ".join(
-            f"('{v}')" if isinstance(v, str) else f"({str(v).upper() if isinstance(v, bool) else v})"
-            for v in vals
-        )
+        value_rows = ", ".join(_flag_value_sql(v) for v in vals)
         _con.execute(f"""
             CREATE OR REPLACE VIEW _flag_{col} AS
             SELECT {col} FROM (VALUES {value_rows}) AS t({col})

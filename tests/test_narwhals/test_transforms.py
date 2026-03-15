@@ -4,7 +4,7 @@ import polars as pl
 import pandas as pd
 import narwhals as nw
 
-from sqldim.narwhals.transforms import (
+from sqldim.processors.transforms import (
     col, TransformPipeline, Transform,
     _types_compatible, _python_type_to_nw,
 )

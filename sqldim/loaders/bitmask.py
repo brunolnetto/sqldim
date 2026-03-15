@@ -141,8 +141,8 @@ class BitmaskerLoader:
             native["datelist_int"] = native["dates_active"].apply(calculate_mask)
         else:
             # polars
-            native = native.with_columns(
-                nw.col("dates_active").map_elements(calculate_mask, return_dtype=nw.Int64).alias("datelist_int")
-            )
+            import polars as pl
+            values = [calculate_mask(v) for v in native["dates_active"].to_list()]
+            native = native.with_columns(pl.Series("datelist_int", values))
             
         return nw.from_native(native, eager_only=True)

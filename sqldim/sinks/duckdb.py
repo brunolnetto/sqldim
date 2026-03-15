@@ -24,7 +24,7 @@ class DuckDBSink:
     # ── SinkAdapter core ──────────────────────────────────────────────────
 
     def current_state_sql(self, table_name: str) -> str:
-        return f"{self._alias}.{self._schema}.{table_name}"
+        return f"SELECT * FROM {self._alias}.{self._schema}.{table_name}"
 
     def write(
         self,
@@ -37,7 +37,7 @@ class DuckDBSink:
             INSERT INTO {self._alias}.{self._schema}.{table_name}
             SELECT * FROM {view_name}
         """)
-        return con.execute("SELECT changes()").fetchone()[0]
+        return con.execute(f"SELECT count(*) FROM {view_name}").fetchone()[0]
 
     def close_versions(
         self,
@@ -53,7 +53,7 @@ class DuckDBSink:
              WHERE {nk_col} IN (SELECT {nk_col} FROM {nk_view})
                AND is_current = TRUE
         """)
-        return con.execute("SELECT changes()").fetchone()[0]
+        return con.execute(f"SELECT count(*) FROM {nk_view}").fetchone()[0]
 
     # ── SinkAdapter extended ──────────────────────────────────────────────
 
@@ -75,7 +75,7 @@ class DuckDBSink:
              WHERE {nk_col} IN (SELECT {nk_col} FROM {updates_view})
                AND is_current = TRUE
         """)
-        return con.execute("SELECT changes()").fetchone()[0]
+        return con.execute(f"SELECT count(*) FROM {updates_view}").fetchone()[0]
 
     def rotate_attributes(
         self,
@@ -102,7 +102,7 @@ class DuckDBSink:
                AND {tbl}.is_current = TRUE
                AND t_old.is_current = TRUE
         """)
-        return con.execute("SELECT changes()").fetchone()[0]
+        return con.execute(f"SELECT count(*) FROM {rotations_view}").fetchone()[0]
 
     def update_milestones(
         self,
@@ -122,7 +122,62 @@ class DuckDBSink:
                SET {set_clause}
              WHERE {match_col} IN (SELECT {match_col} FROM {updates_view})
         """)
-        return con.execute("SELECT changes()").fetchone()[0]
+        return con.execute(f"SELECT count(*) FROM {updates_view}").fetchone()[0]
+
+    def _upsert_sql(
+        self,
+        tbl: str,
+        view_name: str,
+        output_view: str,
+        returning_col: str,
+        cols_str: str,
+        conflict_cols: list[str],
+        inner_join: str,
+        view_join: str,
+    ) -> tuple[str, str]:
+        src_cols = ", ".join(f"src.{c}" for c in conflict_cols)
+        t_cols = ", ".join(f"t.{c}" for c in conflict_cols)
+        insert_sql = (
+            f"INSERT INTO {tbl} ({returning_col}, {cols_str})\n"
+            f"SELECT (SELECT COALESCE(MAX({returning_col}), 0) FROM {tbl})"
+            f" + row_number() OVER () AS {returning_col}, {src_cols}\n"
+            f"FROM (SELECT DISTINCT {src_cols} FROM {view_name} src\n"
+            f" WHERE NOT EXISTS (SELECT 1 FROM {tbl} t WHERE {inner_join})) src"
+        )
+        view_sql = (
+            f"CREATE OR REPLACE VIEW {output_view} AS\n"
+            f"SELECT t.{returning_col}, {t_cols}\n"
+            f"FROM {tbl} t\n"
+            f"INNER JOIN (SELECT DISTINCT {cols_str} FROM {view_name}) v ON {view_join}"
+        )
+        return insert_sql, view_sql
+
+    def upsert(
+        self,
+        con: duckdb.DuckDBPyConnection,
+        view_name: str,
+        table_name: str,
+        conflict_cols: list[str],
+        returning_col: str,
+        output_view: str,
+    ) -> int:
+        """
+        Insert distinct combinations from *view_name* that do not yet exist in
+        *table_name*, auto-assigning integer IDs via MAX+row_number.  Register
+        *output_view* as a DuckDB view mapping (returning_col, *conflict_cols)
+        for every combination present in *view_name*.  Returns row count.
+        """
+        tbl = f"{self._alias}.{self._schema}.{table_name}"
+        cols_str   = ", ".join(conflict_cols)
+        inner_join = " AND ".join(f"src.{c} = t.{c}" for c in conflict_cols)
+        view_join  = " AND ".join(f"t.{c} = v.{c}" for c in conflict_cols)
+        insert_sql, view_sql = self._upsert_sql(
+            tbl, view_name, output_view, returning_col,
+            cols_str, conflict_cols, inner_join, view_join,
+        )
+        con.execute(insert_sql)
+        con.execute(view_sql)
+        return con.execute(f"SELECT count(*) FROM {output_view}").fetchone()[0]
 
     # ── Context manager ───────────────────────────────────────────────────
 

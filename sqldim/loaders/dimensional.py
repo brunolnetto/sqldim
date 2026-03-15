@@ -50,61 +50,51 @@ class DimensionalLoader:
         facts = [m for m in self._registry.keys() if issubclass(m, FactModel)]
         return dims + facts
 
+    async def _load_dimension(self, model: Type, data: list) -> None:
+        track_cols = [
+            name for name in model.model_fields.keys()
+            if name not in ["id", "valid_from", "valid_to", "is_current", "checksum"]
+        ]
+        handler = SCDHandler(model, self.session, track_columns=track_cols)
+        await handler.process(data)
+
+    def _resolve_fks(self, record: dict, key_map: dict) -> dict:
+        processed = record.copy()
+        for fk_col, (dim_model, nk_name) in key_map.items():
+            sk_value = self.resolver.resolve(dim_model, nk_name, record.get(fk_col))
+            if sk_value is not None:
+                processed[fk_col] = sk_value
+        return processed
+
+    def _insert_all(self, model: Type, records: list) -> None:
+        for row_data in records:
+            self.session.add(model(**row_data))
+        self.session.commit()
+
+    async def _execute_fact_strategy(self, model: Type, strategy_name: Optional[str], processed_data: list, key_map: dict) -> None:
+        nk = getattr(model, "__natural_key__", ["id"])[0]
+        if strategy_name == "bulk":
+            from sqldim.loaders.strategies import BulkInsertStrategy
+            BulkInsertStrategy().execute(self.session, model, processed_data)
+        elif strategy_name == "upsert":
+            from sqldim.loaders.strategies import UpsertStrategy
+            UpsertStrategy(conflict_column=nk).execute(self.session, model, processed_data)
+        elif strategy_name == "merge":
+            from sqldim.loaders.strategies import MergeStrategy
+            MergeStrategy(match_column=nk).execute(self.session, model, processed_data)
+        elif strategy_name == "accumulating":
+            from sqldim.loaders.accumulating import AccumulatingLoader
+            loader = AccumulatingLoader(model, getattr(model, "__match_column__", "id"), getattr(model, "__milestones__", []), self.session)
+            loader.process(processed_data)
+        else:
+            self._insert_all(model, processed_data)
+
     async def run(self):
         """Executes the load in the correct order with SK resolution."""
-        load_order = self._get_load_order()
-        
-        for model in load_order:
+        for model in self._get_load_order():
             data, key_map = self._registry[model]
-            
             if issubclass(model, DimensionModel):
-                track_cols = [
-                    name for name in model.model_fields.keys() 
-                    if name not in ["id", "valid_from", "valid_to", "is_current", "checksum"]
-                ]
-                handler = SCDHandler(model, self.session, track_columns=track_cols)
-                await handler.process(data)
+                await self._load_dimension(model, data)
             else:
-                # Fact Load with SK Resolution
-                processed_data = []
-                for record in data:
-                    processed_record = record.copy()
-                    
-                    # Resolve natural keys to surrogate keys
-                    for fk_col, (dim_model, nk_name) in key_map.items():
-                        nk_value = record.get(fk_col)
-                        sk_value = self.resolver.resolve(dim_model, nk_name, nk_value)
-                        if sk_value is not None:
-                            processed_record[fk_col] = sk_value
-                        else:
-                            # In a real system, we'd log this or handle "Inferred Members"
-                            pass
-                            
-                    processed_data.append(processed_record)
-
-                # Execute based on bound strategy
-                strategy_name = getattr(model, "__strategy__", None)
-                if strategy_name == "bulk":
-                    from sqldim.loaders.strategies import BulkInsertStrategy
-                    BulkInsertStrategy().execute(self.session, model, processed_data)
-                elif strategy_name == "upsert":
-                    from sqldim.loaders.strategies import UpsertStrategy
-                    # Assumes natural key is the conflict target
-                    nk = getattr(model, "__natural_key__", ["id"])[0]
-                    UpsertStrategy(conflict_column=nk).execute(self.session, model, processed_data)
-                elif strategy_name == "merge":
-                    from sqldim.loaders.strategies import MergeStrategy
-                    nk = getattr(model, "__natural_key__", ["id"])[0]
-                    MergeStrategy(match_column=nk).execute(self.session, model, processed_data)
-                elif strategy_name == "accumulating":
-                    from sqldim.loaders.accumulating import AccumulatingLoader
-                    # Expects specific metadata for accumulating facts
-                    match_col = getattr(model, "__match_column__", "id")
-                    milestones = getattr(model, "__milestones__", [])
-                    loader = AccumulatingLoader(model, match_col, milestones, self.session)
-                    loader.process(processed_data)
-                else:
-                    # Default: standard loop
-                    for row_data in processed_data:
-                        self.session.add(model(**row_data))
-                    self.session.commit()
+                processed_data = [self._resolve_fks(r, key_map) for r in data]
+                await self._execute_fact_strategy(model, getattr(model, "__strategy__", None), processed_data, key_map)

@@ -145,6 +145,8 @@ class CumulativeLoader:
         """
         Vectorized cumulative update.
         """
+        import math
+
         # 1. Full Join
         merged = yesterday_frame.join(
             today_frame, 
@@ -155,22 +157,32 @@ class CumulativeLoader:
         
         native = nw.to_native(merged)
         module = type(native).__module__.split(".")[0]
-        
+
+        def _is_present(v) -> bool:
+            """Return True only for values that are not None/NaN."""
+            if v is None:
+                return False
+            try:
+                return not (isinstance(v, float) and math.isnan(v))
+            except TypeError:  # pragma: no cover
+                return True  # pragma: no cover
+
         # We handle the row-level array construction deterministically 
         # using native mapping for complex nested structures.
         def merge_history(row):
-            # Extract historical array
+            # Extract historical array — may be None or NaN for brand-new players
             history = row.get(self.cumulative_column)
-            if history is None:
-                history = []
+            if isinstance(history, list):
+                pass
             elif isinstance(history, str):
                 history = json.loads(history)
-            
-            # Extract today's stats (assuming all non-partition columns in today_frame are stats)
-            # For simplicity, we assume today_frame was passed with just the stats
+            else:
+                history = []
+
+            # Extract today's stats (columns suffixed with _today from the join)
             today_stats = {k.replace("_today", ""): v for k, v in row.items() if k.endswith("_today")}
             
-            if today_stats and any(v is not None for v in today_stats.values()):
+            if today_stats and any(_is_present(v) for v in today_stats.values()):
                 # If active today, append
                 today_stats[self.current_period_column.replace("current_", "")] = target_period
                 history.append(today_stats)
@@ -179,7 +191,11 @@ class CumulativeLoader:
             else:
                 # If inactive today, increment counter
                 active = False
-                years_since = row.get("years_since_last_active", 0) + 1
+                raw_y = row.get("years_since_last_active", 0)
+                try:
+                    years_since = int(raw_y) + 1
+                except (TypeError, ValueError):
+                    years_since = 1
             
             return {
                 self.cumulative_column: history,
@@ -194,12 +210,9 @@ class CumulativeLoader:
                 native[col] = updates[col]
         else:
             # polars
-            structs = native.to_struct("merged_row").map_elements(merge_history, return_dtype=nw.Object)
-            # Unpack the resulting dicts (Polars implementation details usually vary here, 
-            # so we'll fallback to a robust conversion for the example)
-            res_dicts = [merge_history(r) for r in native.to_dicts()]
             import polars as pl
+            res_dicts = [merge_history(r) for r in native.to_dicts()]
             update_df = pl.from_dicts(res_dicts)
-            native = native.with_columns(update_df)
+            native = native.with_columns([update_df[c] for c in update_df.columns])
 
         return nw.from_native(native, eager_only=True)

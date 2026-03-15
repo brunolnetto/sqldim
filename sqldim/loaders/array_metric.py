@@ -132,10 +132,11 @@ class ArrayMetricLoader:
             native["month_start"] = self.month_start
         else:
             import polars as pl
+            values = [build_metric_array(v) for v in native["value"].to_list()]
             native = native.with_columns([
-                nw.col("value").map_elements(build_metric_array, return_dtype=nw.List(nw.Float64)).alias("metric_array"),
-                nw.lit(self.metric_name).alias("metric_name"),
-                nw.lit(self.month_start).alias("month_start")
+                pl.Series("metric_array", values),
+                pl.lit(self.metric_name).alias("metric_name"),
+                pl.lit(str(self.month_start)).alias("month_start"),
             ])
             
         return nw.from_native(native, eager_only=True)

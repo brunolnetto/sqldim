@@ -1,4 +1,5 @@
 import pytest
+from sqlalchemy.pool import StaticPool
 import pandas as pd
 import polars as pl
 import narwhals as nw
@@ -7,14 +8,14 @@ from sqlmodel import Field, Session, SQLModel, create_engine, select, text
 from typing import Optional, List, Any, Union
 
 from sqldim import DimensionModel, FactModel, SCD2Mixin, DatelistMixin
-from sqldim.narwhals.sk_resolver import NarwhalsSKResolver
+from sqldim.processors.sk_resolver import NarwhalsSKResolver
 from sqldim.scd.backfill import backfill_scd2
 from sqldim.graph.registry import GraphModel
 from sqldim.graph.schema_graph import SchemaGraph, _safe_subclass
 from sqldim.models.graph import VertexModel, EdgeModel
 from sqldim.exceptions import SchemaError, TransformTypeError, LoadError
-from sqldim.narwhals.transforms import _python_type_to_nw, TransformPipeline, col, Transform
-from sqldim.narwhals.scd_engine import NarwhalsSCDProcessor
+from sqldim.processors.transforms import _python_type_to_nw, TransformPipeline, col, Transform
+from sqldim.processors.scd_engine import NarwhalsSCDProcessor
 
 # --- Fixtures ---
 
@@ -35,10 +36,15 @@ class CoverageFactSale(FactModel, table=True):
 
 @pytest.fixture
 def session():
-    engine = create_engine("sqlite://")
+    engine = create_engine(
+        "sqlite:///:memory:",
+        connect_args={"check_same_thread": False},
+        poolclass=StaticPool,
+    )
     SQLModel.metadata.create_all(engine)
     with Session(engine) as session:
         yield session
+    engine.dispose()
 
 # --- Task: sqldim/core/mixins.py (Bitmask logic) ---
 

@@ -7,7 +7,7 @@ import narwhals as nw
 import polars as pl
 import pandas as pd
 
-from sqldim.narwhals.scd_engine import NarwhalsHashStrategy, NarwhalsSCDProcessor
+from sqldim.processors.scd_engine import NarwhalsHashStrategy, NarwhalsSCDProcessor
 from sqldim.scd.handler import SCDResult
 
 

@@ -3,7 +3,7 @@ import pytest
 import pandas as pd
 import polars as pl
 
-from sqldim.narwhals.adapter import NarwhalsAdapter, _is_dataframe, _dicts_to_native
+from sqldim.processors.adapter import NarwhalsAdapter, _is_dataframe, _dicts_to_native
 from sqldim.exceptions import LoadError
 
 

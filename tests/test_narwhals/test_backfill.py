@@ -4,7 +4,7 @@ import polars as pl
 import pandas as pd
 import narwhals as nw
 
-from sqldim.narwhals.backfill import backfill_scd2_narwhals
+from sqldim.processors.backfill import backfill_scd2_narwhals
 
 
 # ---------------------------------------------------------------------------

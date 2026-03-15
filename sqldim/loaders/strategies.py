@@ -25,22 +25,22 @@ class UpsertStrategy:
     def __init__(self, conflict_column: str):
         self.conflict_column = conflict_column
 
+    def _upsert_stmt(self, table, record: Dict[str, Any]):
+        stmt = sqlite_insert(table).values(**record)
+        update_dict = {k: v for k, v in record.items() if k != self.conflict_column}
+        if update_dict:
+            return stmt.on_conflict_do_update(
+                index_elements=[self.conflict_column],
+                set_=update_dict,
+            )
+        return stmt.on_conflict_do_nothing()
+
     def execute(self, session: Session, model: Type, records: List[Dict[str, Any]]) -> int:
         if not records:
             return 0
         table = model.__table__
         for record in records:
-            stmt = sqlite_insert(table).values(**record)
-            # Build update dict excluding the conflict column
-            update_dict = {k: v for k, v in record.items() if k != self.conflict_column}
-            if update_dict:
-                stmt = stmt.on_conflict_do_update(
-                    index_elements=[self.conflict_column],
-                    set_=update_dict,
-                )
-            else:
-                stmt = stmt.on_conflict_do_nothing()
-            session.execute(stmt)
+            session.execute(self._upsert_stmt(table, record))
         session.commit()
         return len(records)
 

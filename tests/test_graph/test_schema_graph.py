@@ -222,3 +222,38 @@ def test_validate_no_errors_for_implicit_facts_td001():
     sg = SchemaGraph([SGPlayer, SGFact])
     errors = sg.validate()
     assert errors == []
+
+
+def test_render_graph_model_skips_already_rendered():
+    # Line 85: _render_graph_model returns early if model has _rendered_in_mermaid
+    from sqldim.graph.schema_graph import _render_graph_model
+
+    class AlreadyRendered:
+        _rendered_in_mermaid = True
+
+    lines = []
+    _render_graph_model(AlreadyRendered, lines)
+    assert lines == []
+
+
+def test_fk_dimensions_returns_dimension_mapping():
+    # Lines 258-259: _fk_dimensions calls get_star_schema and returns dimensions dict
+    from sqldim.core.models import DimensionModel, FactModel
+    from sqldim import Field
+
+    class FKDimTest(DimensionModel, table=True):
+        __tablename__ = "fkdim_test"
+        __natural_key__ = ["code"]
+        id: int = Field(default=None, primary_key=True)
+        code: str
+
+    class FKFactTest(FactModel, table=True):
+        __tablename__ = "fkfact_test"
+        __grain__ = "test"
+        id: int = Field(default=None, primary_key=True)
+        dim_id: int = Field(foreign_key="fkdim_test.id", dimension=FKDimTest)
+
+    sg = SchemaGraph([FKDimTest, FKFactTest])
+    dims = sg._fk_dimensions(FKFactTest)
+    assert "dim_id" in dims
+    assert dims["dim_id"] is FKDimTest

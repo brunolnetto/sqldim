@@ -1,4 +1,5 @@
 import pytest
+from sqlalchemy.pool import StaticPool
 import pandas as pd
 import polars as pl
 import narwhals as nw
@@ -10,8 +11,8 @@ from unittest.mock import AsyncMock, MagicMock
 from sqldim import DimensionModel, FactModel, VertexModel, EdgeModel, DimensionalLoader
 from sqldim.graph.registry import GraphModel
 from sqldim.graph.schema_graph import SchemaGraph
-from sqldim.narwhals.sk_resolver import NarwhalsSKResolver
-from sqldim.narwhals.adapter import NarwhalsAdapter, _is_dataframe
+from sqldim.processors.sk_resolver import NarwhalsSKResolver
+from sqldim.processors.adapter import NarwhalsAdapter, _is_dataframe
 
 # --- Fixtures ---
 
@@ -31,10 +32,15 @@ class FinalFact(FactModel, table=True):
 
 @pytest.fixture
 def session():
-    engine = create_engine("sqlite://")
+    engine = create_engine(
+        "sqlite:///:memory:",
+        connect_args={"check_same_thread": False},
+        poolclass=StaticPool,
+    )
     SQLModel.metadata.create_all(engine)
     with Session(engine) as session:
         yield session
+    engine.dispose()
 
 # --- Graph Registry Missing Branches ---
 

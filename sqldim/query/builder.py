@@ -113,20 +113,7 @@ class DuckDBDimensionalQuery:
         lines.append(f"FROM {self._fact_table} f")
 
         for dim_table, fact_fk, dim_pk in self._joins:
-            alias = f"d_{dim_table}"
-            if self._as_of:
-                lines.append(
-                    f"LEFT JOIN {dim_table} {alias}"
-                    f" ON f.{fact_fk} = {alias}.{dim_pk}"
-                    f" AND {alias}.valid_from <= '{self._as_of}'::DATE"
-                    f" AND ({alias}.valid_to IS NULL OR {alias}.valid_to > '{self._as_of}'::DATE)"
-                )
-            else:
-                lines.append(
-                    f"LEFT JOIN {dim_table} {alias}"
-                    f" ON f.{fact_fk} = {alias}.{dim_pk}"
-                    f" AND {alias}.is_current = TRUE"
-                )
+            lines.append(self._join_clause(dim_table, fact_fk, dim_pk))
 
         if self._filters:
             lines.append("WHERE " + " AND ".join(self._filters))
@@ -135,6 +122,21 @@ class DuckDBDimensionalQuery:
             lines.append("GROUP BY " + ", ".join(self._group_by))
 
         return "\n".join(lines)
+
+    def _join_clause(self, dim_table: str, fact_fk: str, dim_pk: str) -> str:
+        alias = f"d_{dim_table}"
+        if self._as_of:
+            return (
+                f"LEFT JOIN {dim_table} {alias}"
+                f" ON f.{fact_fk} = {alias}.{dim_pk}"
+                f" AND {alias}.valid_from::DATE <= '{self._as_of}'::DATE"
+                f" AND ({alias}.valid_to IS NULL OR {alias}.valid_to::DATE > '{self._as_of}'::DATE)"
+            )
+        return (
+            f"LEFT JOIN {dim_table} {alias}"
+            f" ON f.{fact_fk} = {alias}.{dim_pk}"
+            f" AND {alias}.is_current = TRUE"
+        )
 
     def as_view(self, con, view_name: str) -> str:
         """
@@ -229,31 +231,32 @@ class DimensionalQuery:
             raise SemanticError("Query must have at least one .by() attribute or .sum()/.avg()/.count() measure.")
 
         stmt = select(*select_cols).select_from(self._fact)
-
-        # Auto-join required dimensions based on group_by attributes
-        joined_dims = set()
+        joined_dims: set = set()
         for attr in self._group_by:
-            # Derive the dimension model from the attribute's parent class
-            dim_model = attr.class_
-            if dim_model not in joined_dims and issubclass(dim_model, DimensionModel):
-                # Find the FK column linking fact to this dimension
-                for col in self._fact.__table__.columns:
-                    col_dim = col.info.get("dimension") if col.info else None
-                    if col_dim == dim_model:
-                        fk_col = getattr(self._fact, col.name)
-                        join_conds = self._build_dim_join(self._fact, dim_model, fk_col)
-                        stmt = stmt.join(dim_model, and_(*join_conds))
-                        joined_dims.add(dim_model)
-                        break
-
-        # Apply filters
+            stmt = self._auto_join_dim(stmt, attr, joined_dims)
         for f in self._filters:
             stmt = stmt.where(f)
-
-        # Apply group by
         if self._group_by:
             stmt = stmt.group_by(*self._group_by)
+        return stmt
 
+    def _find_fk_col(self, dim_model: type) -> Any:
+        for col in self._fact.__table__.columns:
+            col_dim = col.info.get("dimension") if col.info else None
+            if col_dim == dim_model:
+                return getattr(self._fact, col.name)
+        return None
+
+    def _auto_join_dim(self, stmt: Any, attr: Any, joined_dims: set) -> Any:
+        from sqlalchemy import and_
+        dim_model = attr.class_
+        if dim_model in joined_dims or not issubclass(dim_model, DimensionModel):
+            return stmt
+        fk_col = self._find_fk_col(dim_model)
+        if fk_col is not None:
+            join_conds = self._build_dim_join(self._fact, dim_model, fk_col)
+            stmt = stmt.join(dim_model, and_(*join_conds))
+            joined_dims.add(dim_model)
         return stmt
 
     async def execute(self, session: Session) -> List[Any]:

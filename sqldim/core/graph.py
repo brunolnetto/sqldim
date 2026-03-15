@@ -1,5 +1,58 @@
-from typing import List, Type, Dict, Any, Optional
-from sqldim.core.models import DimensionModel, FactModel
+from __future__ import annotations
+
+from typing import Any, Dict, List, Optional, Type, TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from sqldim.core.models import DimensionModel, FactModel
+else:
+    from sqldim.core.models import DimensionModel, FactModel
+
+
+def _col_dimension(fact_model: Type, name: str) -> Any:
+    """Look up dimension from SA column info."""
+    if not hasattr(fact_model, "__table__"):
+        return None
+    column = fact_model.__table__.columns.get(name)
+    if column is not None and column.info:
+        return column.info.get("dimension")
+    return None
+
+
+def _resolve_field_dim(fact_model: Type, name: str, field: Any) -> Any:
+    """Return the dimension class for a FK field, or None."""
+    if hasattr(field, "json_schema_extra") and field.json_schema_extra:
+        dim = field.json_schema_extra.get("dimension")
+        if dim:
+            return dim
+    return _col_dimension(fact_model, name)
+
+
+def _annotation_type(annotation: Any) -> str:
+    if annotation is int:
+        return "int"
+    if annotation is float:
+        return "float"
+    if annotation is bool:
+        return "bool"
+    return "string"
+
+
+def _render_mermaid_model(model: Type, lines: list) -> None:
+    lines.append(f"    {model.__name__} {{")
+    for col_name in model.model_fields:
+        col_type = _annotation_type(model.__annotations__.get(col_name))
+        lines.append(f"        {col_type} {col_name}")
+    lines.append("    }")
+
+
+def _role_ref_from_col(col: Any) -> "RolePlayingRef | None":
+    if not col.info:
+        return None
+    role = col.info.get("role")
+    dim = col.info.get("dimension")
+    if role and dim:
+        return RolePlayingRef(dimension=dim, role=role, fk_column=col.name)
+    return None
 
 
 class RolePlayingRef:
@@ -24,26 +77,12 @@ class SchemaGraph:
         return cls(models)
 
     def get_star_schema(self, fact_model: Type[FactModel]) -> Dict[str, Any]:
-        relationships = {}
-        for name, field in fact_model.model_fields.items():
-            dim = None
-
-            # Check for dimension in field attributes (pydantic side)
-            if hasattr(field, "json_schema_extra") and field.json_schema_extra:
-                dim = field.json_schema_extra.get("dimension")
-
-            # Check for dimension in sa_column (SQLAlchemy side)
-            if not dim and hasattr(fact_model, "__table__"):
-                column = fact_model.__table__.columns.get(name)
-                if column is not None and column.info:
-                    dim = column.info.get("dimension")
-
-            if dim:
-                relationships[name] = dim
-        return {
-            "fact": fact_model,
-            "dimensions": relationships
+        relationships = {
+            name: _resolve_field_dim(fact_model, name, field)
+            for name, field in fact_model.model_fields.items()
+            if _resolve_field_dim(fact_model, name, field) is not None
         }
+        return {"fact": fact_model, "dimensions": relationships}
 
     def get_role_playing_dimensions(self, fact_model: Type[FactModel]) -> List[RolePlayingRef]:
         """
@@ -55,15 +94,9 @@ class SchemaGraph:
         if not hasattr(fact_model, "__table__"):
             return refs
         for col in fact_model.__table__.columns:
-            if col.info:
-                role = col.info.get("role")
-                dim = col.info.get("dimension")
-                if role and dim:
-                    refs.append(RolePlayingRef(
-                        dimension=dim,
-                        role=role,
-                        fk_column=col.name,
-                    ))
+            ref = _role_ref_from_col(col)
+            if ref is not None:
+                refs.append(ref)
         return refs
 
     def to_dict(self) -> Dict[str, Any]:
@@ -99,37 +132,12 @@ class SchemaGraph:
     def to_mermaid(self) -> str:
         """Render the schema as a Mermaid ER diagram string."""
         lines = ["erDiagram"]
-
         for dim in self.dimensions:
-            lines.append(f"    {dim.__name__} {{")
-            for col_name, field in dim.model_fields.items():
-                col_type = "string"
-                annotation = dim.__annotations__.get(col_name)
-                if annotation in (int,):
-                    col_type = "int"
-                elif annotation in (float,):
-                    col_type = "float"
-                elif annotation in (bool,):
-                    col_type = "bool"
-                lines.append(f"        {col_type} {col_name}")
-            lines.append("    }")
-
+            _render_mermaid_model(dim, lines)
         for fact in self.facts:
-            lines.append(f"    {fact.__name__} {{")
-            for col_name, field in fact.model_fields.items():
-                col_type = "string"
-                annotation = fact.__annotations__.get(col_name)
-                if annotation in (int,):
-                    col_type = "int"
-                elif annotation in (float,):
-                    col_type = "float"
-                lines.append(f"        {col_type} {col_name}")
-            lines.append("    }")
-
-        # Relationships
+            _render_mermaid_model(fact, lines)
         for fact in self.facts:
             star = self.get_star_schema(fact)
             for fk_col, dim in star["dimensions"].items():
                 lines.append(f"    {fact.__name__} }}o--||  {dim.__name__} : \"{fk_col}\"")
-
         return "\n".join(lines)

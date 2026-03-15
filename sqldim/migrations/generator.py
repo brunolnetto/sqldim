@@ -3,6 +3,63 @@ from typing import Any, Dict, List, Optional, Type
 from sqldim.migrations.context import DimensionalMigrationContext, SchemaChange, CHANGE_SCD_UPGRADE, CHANGE_ADD_COLUMN, CHANGE_DROP_COLUMN, CHANGE_NK_CHANGE
 from sqldim.migrations.ops import add_backfill_hint, initialize_scd2_rows
 
+
+def _apply_add_column(change: SchemaChange, script: "MigrationScript") -> None:
+    table = change.details.get("table", "unknown")
+    col = change.details["column"]
+    script.upgrade_ops.append(f"op.add_column('{table}', sa.Column('{col}', sa.String()))")
+    script.downgrade_ops.append(f"op.drop_column('{table}', '{col}')")
+    script.backfill_hints.append(add_backfill_hint(table, col, f"Backfill '{col}' before marking NOT NULL"))
+
+
+def _apply_drop_column(change: SchemaChange, script: "MigrationScript") -> None:
+    table = change.details.get("table", "unknown")
+    col = change.details["column"]
+    script.warnings.append(f"DROP COLUMN '{col}' from '{table}' — historical data will be lost.")
+    script.upgrade_ops.append(f"op.drop_column('{table}', '{col}')")
+    script.downgrade_ops.append(f"op.add_column('{table}', sa.Column('{col}', sa.String()))")
+
+
+def _apply_scd_upgrade(change: SchemaChange, script: "MigrationScript") -> None:
+    table = change.details.get("table", "unknown")
+    for col_def in [
+        "'valid_from', sa.DateTime()",
+        "'valid_to', sa.DateTime(), nullable=True",
+        "'is_current', sa.Boolean()",
+        "'checksum', sa.String(32), nullable=True",
+    ]:
+        script.upgrade_ops.append(f"op.add_column('{table}', sa.Column({col_def}))")
+    script.upgrade_ops.append(initialize_scd2_rows(table))
+    for col_name in ("valid_from", "valid_to", "is_current", "checksum"):
+        script.downgrade_ops.append(f"op.drop_column('{table}', '{col_name}')")
+
+
+def _apply_nk_change(change: SchemaChange, script: "MigrationScript") -> None:
+    table = change.details.get("table", "unknown")
+    old_nk = change.details["from"]
+    new_nk = change.details["to"]
+    script.warnings.append(
+        f"Natural key changed from {old_nk} → {new_nk} on '{table}'. "
+        "Verify indexes and FK references before applying."
+    )
+    script.upgrade_ops.append(f"# op.drop_index('ix_{table}_{'_'.join(old_nk)}')")
+    script.upgrade_ops.append(f"# op.create_index('ix_{table}_{'_'.join(new_nk)}', '{table}', {new_nk})")
+
+
+_CHANGE_HANDLERS = {
+    CHANGE_ADD_COLUMN: _apply_add_column,
+    CHANGE_DROP_COLUMN: _apply_drop_column,
+    CHANGE_SCD_UPGRADE: _apply_scd_upgrade,
+    CHANGE_NK_CHANGE: _apply_nk_change,
+}
+
+
+def _apply_change_to_script(change: SchemaChange, script: "MigrationScript") -> None:
+    handler = _CHANGE_HANDLERS.get(change.change_type)
+    if handler:
+        handler(change, script)
+
+
 class MigrationScript:
     """Represents a generated dimensional migration."""
 
@@ -22,25 +79,19 @@ class MigrationScript:
             "",
             "def upgrade():",
         ]
-        if self.upgrade_ops:
-            for op in self.upgrade_ops:
-                lines.append(f"    # {op}")
-        else:
-            lines.append("    pass")
-
+        lines += self._render_ops_block(self.upgrade_ops)
         lines += ["", "def downgrade():"]
-        if self.downgrade_ops:
-            for op in self.downgrade_ops:
-                lines.append(f"    # {op}")
-        else:
-            lines.append("    pass")
-
+        lines += self._render_ops_block(self.downgrade_ops)
         if self.warnings:
             lines += ["", "# WARNINGS:"]
             for w in self.warnings:
                 lines.append(f"# ⚠️  {w}")
-
         return "\n".join(lines)
+
+    def _render_ops_block(self, ops: List[str]) -> List[str]:
+        if ops:
+            return [f"    # {op}" for op in ops]
+        return ["    pass"]
 
 
 def generate_migration(
@@ -54,45 +105,6 @@ def generate_migration(
     ctx = DimensionalMigrationContext(models)
     changes = ctx.diff(current_state)
     script = MigrationScript(message=message, changes=changes)
-
     for change in changes:
-        table = change.details.get("table", "unknown")
-
-        if change.change_type == CHANGE_ADD_COLUMN:
-            col = change.details["column"]
-            script.upgrade_ops.append(f"op.add_column('{table}', sa.Column('{col}', sa.String()))")
-            script.downgrade_ops.append(f"op.drop_column('{table}', '{col}')")
-            script.backfill_hints.append(
-                add_backfill_hint(table, col, f"Backfill '{col}' before marking NOT NULL")
-            )
-
-        elif change.change_type == CHANGE_DROP_COLUMN:
-            col = change.details["column"]
-            script.warnings.append(
-                f"DROP COLUMN '{col}' from '{table}' — historical data will be lost."
-            )
-            script.upgrade_ops.append(f"op.drop_column('{table}', '{col}')")
-            script.downgrade_ops.append(f"op.add_column('{table}', sa.Column('{col}', sa.String()))")
-
-        elif change.change_type == CHANGE_SCD_UPGRADE:
-            script.upgrade_ops.append(f"op.add_column('{table}', sa.Column('valid_from', sa.DateTime()))")
-            script.upgrade_ops.append(f"op.add_column('{table}', sa.Column('valid_to', sa.DateTime(), nullable=True))")
-            script.upgrade_ops.append(f"op.add_column('{table}', sa.Column('is_current', sa.Boolean()))")
-            script.upgrade_ops.append(f"op.add_column('{table}', sa.Column('checksum', sa.String(32), nullable=True))")
-            script.upgrade_ops.append(initialize_scd2_rows(table))
-            script.downgrade_ops.append(f"op.drop_column('{table}', 'valid_from')")
-            script.downgrade_ops.append(f"op.drop_column('{table}', 'valid_to')")
-            script.downgrade_ops.append(f"op.drop_column('{table}', 'is_current')")
-            script.downgrade_ops.append(f"op.drop_column('{table}', 'checksum')")
-
-        elif change.change_type == CHANGE_NK_CHANGE:
-            old_nk = change.details["from"]
-            new_nk = change.details["to"]
-            script.warnings.append(
-                f"Natural key changed from {old_nk} → {new_nk} on '{table}'. "
-                "Verify indexes and FK references before applying."
-            )
-            script.upgrade_ops.append(f"# op.drop_index('ix_{table}_{'_'.join(old_nk)}')")
-            script.upgrade_ops.append(f"# op.create_index('ix_{table}_{'_'.join(new_nk)}', '{table}', {new_nk})")
-
+        _apply_change_to_script(change, script)
     return script

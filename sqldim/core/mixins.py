@@ -14,6 +14,23 @@ class SCD2Mixin(SQLModel):
     is_current: bool = Field(default=True, index=True)
     checksum: Optional[str] = Field(default=None, index=True, nullable=True)
 
+_SCD3_SKIP = {"id", "is_current", "valid_from", "valid_to", "checksum"}
+
+
+def _validate_scd3_fields(cls: type) -> None:
+    field_names: set[str] = set(cls.__annotations__)
+    orphan_prevs = [
+        f for f in field_names
+        if f.startswith("prev_") and f[5:] not in field_names
+    ]
+    if orphan_prevs:
+        raise TypeError(
+            f"{cls.__name__}: SCD3Mixin found `prev_*` columns with no matching "
+            f"current column: {orphan_prevs}. Either add the current column or "
+            f"rename the previous column to match."
+        )
+
+
 class SCD3Mixin(SQLModel):
     """
     Marker mixin for SCD Type 3 (current + one prior value per tracked attribute).
@@ -47,33 +64,9 @@ class SCD3Mixin(SQLModel):
 
     def __init_subclass__(cls, **kwargs: object) -> None:
         super().__init_subclass__(**kwargs)
-        # Only validate concrete table classes that opted into SCD3
         if getattr(cls, "__scd_type__", None) != 3:
             return
-        # Collect all field names declared directly on cls (not inherited)
-        field_names: set[str] = set(cls.__annotations__)
-        # For each non-prev field that a prev_* sibling is expected for,
-        # check that the sibling exists.
-        tracked = [
-            f for f in field_names
-            if not f.startswith("prev_") and not f.startswith("_")
-            and f not in {"id", "is_current", "valid_from", "valid_to", "checksum"}
-        ]
-        for col in tracked:
-            if f"prev_{col}" in field_names:
-                continue  # partner exists — OK
-            # No partner declared — that's fine, not every column is tracked.
-            # We only raise if someone declared a prev_* without a matching current.
-        orphan_prevs = [
-            f for f in field_names
-            if f.startswith("prev_") and f[5:] not in field_names
-        ]
-        if orphan_prevs:
-            raise TypeError(
-                f"{cls.__name__}: SCD3Mixin found `prev_*` columns with no matching "
-                f"current column: {orphan_prevs}. Either add the current column or "
-                f"rename the previous column to match."
-            )
+        _validate_scd3_fields(cls)
 
 class CumulativeMixin(SQLModel):
     """

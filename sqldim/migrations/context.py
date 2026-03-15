@@ -31,73 +31,63 @@ class DimensionalMigrationContext:
         self.models = models
         self.graph = SchemaGraph.from_models(models)
 
+    def _detect_column_changes(
+        self, model: Type, table_name: str, model_cols: set, current_cols: set
+    ) -> List[SchemaChange]:
+        changes = []
+        for col in model_cols - current_cols:
+            changes.append(SchemaChange(CHANGE_ADD_COLUMN, model, {"column": col, "table": table_name}))
+        for col in current_cols - model_cols:
+            changes.append(SchemaChange(CHANGE_DROP_COLUMN, model, {"column": col, "table": table_name}))
+        return changes
+
+    def _detect_scd_upgrade(self, current_scd: int, new_scd: int, model, table_name: str):
+        if current_scd == 1 and new_scd == 2:
+            return SchemaChange(CHANGE_SCD_UPGRADE, model, {"from": 1, "to": 2, "table": table_name})
+        if current_scd == 2 and new_scd == 1:
+            return SchemaChange(CHANGE_SCD_DOWNGRADE, model, {"from": 2, "to": 1, "table": table_name})
+        return None
+
+    def _detect_scd_change(
+        self, model: Type, table_name: str, state: Dict[str, Any]
+    ) -> Optional[SchemaChange]:
+        if not issubclass(model, DimensionModel):
+            return None
+        return self._detect_scd_upgrade(
+            state.get("scd_type", 1),
+            getattr(model, "__scd_type__", 1),
+            model,
+            table_name,
+        )
+
+    def _detect_nk_change(
+        self, model: Type, table_name: str, state: Dict[str, Any]
+    ) -> Optional[SchemaChange]:
+        if not issubclass(model, DimensionModel):
+            return None
+        current_nk = set(state.get("natural_key", []))
+        new_nk = set(getattr(model, "__natural_key__", []))
+        if current_nk and current_nk != new_nk:
+            return SchemaChange(CHANGE_NK_CHANGE, model, {"from": list(current_nk), "to": list(new_nk), "table": table_name})
+        return None
+
+    def _diff_model(self, model: Type, current_state: Dict[str, Any]) -> List[SchemaChange]:
+        table_name = model.__tablename__ if hasattr(model, "__tablename__") else model.__name__.lower()
+        if table_name not in current_state:
+            return []
+        state = current_state[table_name]
+        model_cols = set(model.model_fields.keys())
+        changes = list(self._detect_column_changes(model, table_name, model_cols, set(state.get("columns", []))))
+        scd = self._detect_scd_change(model, table_name, state)
+        if scd:
+            changes.append(scd)
+        nk = self._detect_nk_change(model, table_name, state)
+        if nk:
+            changes.append(nk)
+        return changes
+
     def diff(self, current_state: Dict[str, Any]) -> List[SchemaChange]:
-        """
-        Compute schema changes between the current model definitions
-        and the provided current_state snapshot.
-
-        current_state format:
-        {
-            "TableName": {
-                "columns": ["col1", "col2", ...],
-                "scd_type": 1 | 2,
-                "natural_key": ["col_name"],
-            }
-        }
-
-        Returns a list of SchemaChange objects sorted by severity
-        (non-destructive first, destructive last).
-        """
         changes: List[SchemaChange] = []
-
         for model in self.models:
-            table_name = model.__tablename__ if hasattr(model, "__tablename__") else model.__name__.lower()
-            if table_name not in current_state:
-                continue  # New table — CREATE TABLE, handled by Alembic core
-
-            state = current_state[table_name]
-            current_cols = set(state.get("columns", []))
-            model_cols = set(model.model_fields.keys())
-
-            # Detect added columns
-            for col in model_cols - current_cols:
-                changes.append(SchemaChange(
-                    CHANGE_ADD_COLUMN, model,
-                    {"column": col, "table": table_name}
-                ))
-
-            # Detect dropped columns
-            for col in current_cols - model_cols:
-                changes.append(SchemaChange(
-                    CHANGE_DROP_COLUMN, model,
-                    {"column": col, "table": table_name}
-                ))
-
-            # Detect SCD type transitions (only for DimensionModel)
-            if issubclass(model, DimensionModel):
-                current_scd = state.get("scd_type", 1)
-                new_scd = getattr(model, "__scd_type__", 1)
-
-                if current_scd == 1 and new_scd == 2:
-                    changes.append(SchemaChange(
-                        CHANGE_SCD_UPGRADE, model,
-                        {"from": 1, "to": 2, "table": table_name}
-                    ))
-                elif current_scd == 2 and new_scd == 1:
-                    changes.append(SchemaChange(
-                        CHANGE_SCD_DOWNGRADE, model,
-                        {"from": 2, "to": 1, "table": table_name}
-                    ))
-
-            # Detect natural key changes
-            if issubclass(model, DimensionModel):
-                current_nk = set(state.get("natural_key", []))
-                new_nk = set(getattr(model, "__natural_key__", []))
-                if current_nk and current_nk != new_nk:
-                    changes.append(SchemaChange(
-                        CHANGE_NK_CHANGE, model,
-                        {"from": list(current_nk), "to": list(new_nk), "table": table_name}
-                    ))
-
-        # Sort: non-destructive first, destructive last
+            changes.extend(self._diff_model(model, current_state))
         return sorted(changes, key=lambda c: c.is_destructive)

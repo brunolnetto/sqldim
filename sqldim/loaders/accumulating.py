@@ -132,6 +132,29 @@ class AccumulatingLoader:
         self.milestone_columns = milestone_columns
         self.session = session
 
+    def _update_milestones(self, existing: Any, record: Dict[str, Any]) -> bool:
+        changed = False
+        for col in self.milestone_columns:
+            new_val = record.get(col)
+            if new_val is not None and getattr(existing, col, None) is None:
+                setattr(existing, col, new_val)
+                changed = True
+        return changed
+
+    def _update_attributes(self, existing: Any, record: Dict[str, Any]) -> bool:
+        changed = False
+        for col, val in record.items():
+            if col not in self.milestone_columns and col != self.match_column:
+                setattr(existing, col, val)
+                changed = True
+        return changed
+
+    def _update_existing(self, existing: Any, record: Dict[str, Any]) -> bool:
+        """Apply milestone and attribute updates; return True if any field changed."""
+        m = self._update_milestones(existing, record)
+        a = self._update_attributes(existing, record)
+        return m or a
+
     def process(self, records: List[Dict[str, Any]]) -> Dict[str, int]:
         """
         Process incoming records. For each:
@@ -142,35 +165,15 @@ class AccumulatingLoader:
         """
         inserted = 0
         updated = 0
-
         for record in records:
-            match_val = record.get(self.match_column)
             existing = self.session.exec(
-                select(self.fact).where(
-                    getattr(self.fact, self.match_column) == match_val
-                )
+                select(self.fact).where(getattr(self.fact, self.match_column) == record.get(self.match_column))
             ).first()
-
             if existing is None:
-                row = self.fact(**record)
-                self.session.add(row)
+                self.session.add(self.fact(**record))
                 inserted += 1
-            else:
-                # Only update milestone columns that are newly populated
-                changed = False
-                for col in self.milestone_columns:
-                    new_val = record.get(col)
-                    if new_val is not None and getattr(existing, col, None) is None:
-                        setattr(existing, col, new_val)
-                        changed = True
-                # Also allow updating any non-milestone, non-match columns
-                for col, val in record.items():
-                    if col not in self.milestone_columns and col != self.match_column:
-                        setattr(existing, col, val)
-                        changed = True
-                if changed:
-                    self.session.add(existing)
-                    updated += 1
-
+            elif self._update_existing(existing, record):
+                self.session.add(existing)
+                updated += 1
         self.session.commit()
         return {"inserted": inserted, "updated": updated}

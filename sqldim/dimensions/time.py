@@ -19,25 +19,25 @@ class TimeDimension(DimensionModel, table=True):
     time_of_day: str  # Morning | Afternoon | Evening | Night
 
     @classmethod
+    def _time_of_day(cls, h: int) -> str:
+        if 5 <= h < 12:
+            return "Morning"
+        if 12 <= h < 17:
+            return "Afternoon"
+        if 17 <= h < 21:
+            return "Evening"
+        return "Night"
+
+    @classmethod
     def _from_time(cls, h: int, m: int) -> "TimeDimension":
         t = time(h, m)
-        period = "AM" if h < 12 else "PM"
-        hour_12 = h % 12 or 12
-        if 5 <= h < 12:
-            tod = "Morning"
-        elif 12 <= h < 17:
-            tod = "Afternoon"
-        elif 17 <= h < 21:
-            tod = "Evening"
-        else:
-            tod = "Night"
         return cls(
             time_value=t.strftime("%H:%M"),
             hour=h,
             minute=m,
-            period=period,
-            hour_12=hour_12,
-            time_of_day=tod,
+            period="AM" if h < 12 else "PM",
+            hour_12=h % 12 or 12,
+            time_of_day=cls._time_of_day(h),
         )
 
     @classmethod

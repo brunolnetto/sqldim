@@ -122,7 +122,7 @@ class SnapshotLoader:
         """
         inserted = 0
         for record in records:
-            row_data = {**record, self.date_field: self.snapshot_date}
+            row_data = {**record, self.date_field: self.snapshot_date.isoformat()}
             row = self.fact(**row_data)
             self.session.add(row)
             inserted += 1

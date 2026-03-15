@@ -7,6 +7,12 @@ class CSVSource:
 
         CSVSource("data/empresa.csv")
         CSVSource("data/empresa/*.csv", delimiter=";", header=True)
+
+    Note on *encoding*: DuckDB's ``read_csv`` only supports encodings that
+    the underlying ICU library recognises (e.g. ``'utf-8'``, ``'latin-1'``,
+    ``'cp1252'``).  Exotic or Python-only codec names (e.g. ``'utf_8_sig'``)
+    will raise a DuckDB error at query time.  Normalise the encoding string
+    before constructing this object if necessary.
     """
 
     def __init__(

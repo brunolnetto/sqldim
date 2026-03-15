@@ -38,6 +38,14 @@ class GraphModel:
         opponents = await graph.neighbors(jordan, edge_type=PlaysAgainstEdge)
     """
 
+    def _register_model(self, m: type) -> None:
+        if isinstance(m, type) and issubclass(m, VertexModel):
+            self._vertex_models[m] = m.vertex_type()
+        elif isinstance(m, type) and issubclass(m, EdgeModel):
+            self._edge_models[m] = m.edge_type()
+        else:
+            raise SchemaError(f"{m} is neither a VertexModel nor an EdgeModel subclass.")
+
     def __init__(
         self,
         *models: type[VertexModel | EdgeModel],
@@ -45,19 +53,10 @@ class GraphModel:
     ) -> None:
         self._session = session
         self._engine = TraversalEngine()
-
         self._vertex_models: dict[type[VertexModel], str] = {}
         self._edge_models: dict[type[EdgeModel], str] = {}
-
         for m in models:
-            if isinstance(m, type) and issubclass(m, VertexModel):
-                self._vertex_models[m] = m.vertex_type()
-            elif isinstance(m, type) and issubclass(m, EdgeModel):
-                self._edge_models[m] = m.edge_type()
-            else:
-                raise SchemaError(
-                    f"{m} is neither a VertexModel nor an EdgeModel subclass."
-                )
+            self._register_model(m)
 
     # ------------------------------------------------------------------
     # Lookup
@@ -75,14 +74,10 @@ class GraphModel:
         table = vertex_type.__tablename__  # type: ignore[attr-defined]
         sql = text(f"SELECT * FROM {table} WHERE id = :id")
         
-        # Support both sync and async sessions
-        if hasattr(self._session, "execute"):
-            result = self._session.execute(sql, {"id": id})
-            if hasattr(result, "__await__"):
-                result = await result
-        else:
-            result = await self._session.execute(sql, {"id": id})
-            
+        result = self._session.execute(sql, {"id": id})
+        if hasattr(result, "__await__"):
+            result = await result
+
         row = result.mappings().first()
         if row is None:
             return None
@@ -91,6 +86,12 @@ class GraphModel:
     # ------------------------------------------------------------------
     # Traversal
     # ------------------------------------------------------------------
+
+    async def _execute_sql(self, sql_text: Any) -> Any:
+        result = self._session.execute(sql_text)
+        if hasattr(result, "__await__"):
+            result = await result
+        return result
 
     async def neighbors(
         self,
@@ -101,19 +102,6 @@ class GraphModel:
     ) -> list[VertexModel]:
         """
         Return neighboring vertices connected to *vertex*.
-
-        Parameters
-        ----------
-        edge_type:
-            If given, only traverse edges of this type.  If None and only
-            one edge type connects to this vertex type, that edge is used
-            automatically; otherwise a SchemaError is raised.
-        direction:
-            "out" = follow outbound edges only.
-            "in"  = follow inbound edges only.
-            "both" = follow both (default).
-        filters:
-            Optional ``{column: value}`` dict applied on the edge table.
         """
         from sqlalchemy import text
 
@@ -121,17 +109,9 @@ class GraphModel:
         start_id = getattr(vertex, "id")
         sql_str = self._engine.neighbors_sql(edge_model, start_id, direction, filters)
 
-        # Support both sync and async sessions
-        if hasattr(self._session, "execute"):
-            result = self._session.execute(text(sql_str))
-            if hasattr(result, "__await__"):
-                result = await result
-        else:
-            result = await self._session.execute(text(sql_str))
-            
+        result = await self._execute_sql(text(sql_str))
         neighbor_ids = [row[0] for row in result.fetchall()]
 
-        # Determine which vertex class to hydrate
         subject_cls = edge_model.__subject__
         object_cls = edge_model.__object__
         vertex_cls = self._pick_neighbor_class(vertex.__class__, subject_cls, object_cls, direction)
@@ -139,18 +119,11 @@ class GraphModel:
         if not neighbor_ids:
             return []
 
-        table = vertex_cls.__tablename__  # type: ignore[attr-defined]
         id_list = ", ".join(str(i) for i in neighbor_ids)
-        sql = text(f"SELECT * FROM {table} WHERE id IN ({id_list})")
-        
-        if hasattr(self._session, "execute"):
-            rows_result = self._session.execute(sql)
-            if hasattr(rows_result, "__await__"):
-                rows_result = await rows_result
-        else:
-            rows_result = await self._session.execute(sql)
-            
-        return [vertex_cls(**dict(r)) for r in rows_result.mappings().fetchall()]
+        rows_result = await self._execute_sql(
+            text(f"SELECT * FROM {vertex_cls.__tablename__} WHERE id IN ({id_list})")
+        )
+        return [vertex_cls(**dict(row)) for row in rows_result.mappings().fetchall()]
 
     async def paths(
         self,
@@ -280,6 +253,13 @@ class GraphModel:
                 f"{cls.__name__} is not registered in this GraphModel."
             )
 
+    def _find_candidate_edges(self, vertex_cls: type[VertexModel]) -> list[type[EdgeModel]]:
+        return [
+            e for e in self._edge_models
+            if getattr(e, "__subject__", None) is vertex_cls
+            or getattr(e, "__object__", None) is vertex_cls
+        ]
+
     def _resolve_edge(
         self,
         vertex_cls: type[VertexModel],
@@ -288,18 +268,11 @@ class GraphModel:
         if edge_type is not None:
             self._assert_edge_registered(edge_type)
             return edge_type
-        # Auto-resolve: find edges whose subject or object match vertex_cls
-        candidates = [
-            e for e in self._edge_models
-            if getattr(e, "__subject__", None) is vertex_cls
-            or getattr(e, "__object__", None) is vertex_cls
-        ]
+        candidates = self._find_candidate_edges(vertex_cls)
         if len(candidates) == 1:
             return candidates[0]
         if len(candidates) == 0:
-            raise SchemaError(
-                f"No edge type registered that connects to {vertex_cls.__name__}."
-            )
+            raise SchemaError(f"No edge type registered that connects to {vertex_cls.__name__}.")
         raise SchemaError(
             f"Multiple edge types connect to {vertex_cls.__name__}; "
             f"specify edge_type explicitly."
