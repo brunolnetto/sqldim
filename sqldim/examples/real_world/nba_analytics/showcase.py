@@ -18,12 +18,19 @@ from sqldim.graph.registry import GraphModel
 from sqldim.query.builder import DimensionalQuery
 
 def _print_scd_versions(scd_versions: list) -> None:
+    """Print each SCD2 version row in a human-readable format."""
     for v in scd_versions:
         status = "Active" if v.is_active else "Retired"
         print(f"     - {v.valid_from} to {v.valid_to or 'Present'}: {v.scoring_class} ({status})")
 
 
 async def run_showcase():
+    """Run the full NBA Michael Jordan career showcase.
+
+    Demonstrates cumulative array snapshots, SCD Type 2 versioning,
+    point-in-time semantic queries, and graph projection — all in a
+    single in-memory SQLite session.
+    """
     engine = create_engine("sqlite://", connect_args={"check_same_thread": False}, poolclass=StaticPool)
     SQLModel.metadata.create_all(engine)
     session = Session(engine)

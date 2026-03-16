@@ -2,7 +2,12 @@ from datetime import datetime
 from typing import Any, Optional
 
 class BackfillHint:
-    """Metadata record instructing operators to backfill a column before making it NOT NULL."""
+    """Metadata record instructing operators to backfill a column before making it NOT NULL.
+
+    Created by :func:`add_backfill_hint` and collected in the migration
+    script’s ``backfill_hints`` list so operators can act on them before
+    applying the generated ``ALTER TABLE`` statement.
+    """
     def __init__(self, table: str, column: str, note: str):
         self.table = table
         self.column = column
@@ -13,7 +18,11 @@ class BackfillHint:
 
 
 def add_backfill_hint(table: str, column: str, note: str) -> BackfillHint:
-    """Register a backfill hint for a newly added nullable column."""
+    """Register a backfill hint for a newly added nullable column.
+
+    Returns a :class:`BackfillHint` containing *table*, *column*, and a
+    human-readable *note* describing the required pre-upgrade backfill.
+    """
     hint = BackfillHint(table=table, column=column, note=note)
     return hint
 

@@ -1,3 +1,10 @@
+"""Storage sinks for sqldim dimensional loaders.
+
+Each sink implements the :class:`SinkAdapter` protocol so loaders
+are storage-agnostic.  Available backends: :class:`DuckDBSink`,
+:class:`PostgreSQLSink`, :class:`ParquetSink`, :class:`DeltaLakeSink`,
+:class:`MotherDuckSink`, and :class:`IcebergSink`.
+"""
 from sqldim.sinks.base import SinkAdapter
 from sqldim.sinks.duckdb import DuckDBSink
 from sqldim.sinks.postgresql import PostgreSQLSink

@@ -1,3 +1,10 @@
+"""NBA analytics staging table: raw player-season data.
+
+:class:`PlayerSeasons` is the source staging table that mirrors the
+``player_seasons.sql`` CTE from the original SQL data-engineering
+esercises, used as the starting point for the cumulative array and
+SCD-2 pipeline showcases.
+"""
 from typing import Optional
 from sqlmodel import SQLModel, Field
 

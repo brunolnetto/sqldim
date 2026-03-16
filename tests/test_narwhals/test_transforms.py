@@ -6,7 +6,7 @@ import narwhals as nw
 
 from sqldim.processors.transforms import (
     col, TransformPipeline, Transform,
-    _types_compatible, _python_type_to_nw,
+    _types_compatible, _python_type_to_nw, _AppliedTransform,
 )
 from sqldim.exceptions import TransformTypeError
 
@@ -267,3 +267,123 @@ def test_python_type_to_nw_optional():
     from typing import Optional
     result = _python_type_to_nw(Optional[str])
     assert result == nw.String
+
+
+# ---------------------------------------------------------------------------
+# Migrated from test_coverage_100.py, test_coverage_gap.py, test_coverage_gap_v2.py
+# ---------------------------------------------------------------------------
+
+class TestTransformsMissingLines:
+    def test_python_type_to_nw_all_none_args(self):
+        """_python_type_to_nw returns None when all Union args are NoneType."""
+        import typing
+
+        class AllNoneUnion:
+            __origin__ = typing.Union
+            __args__ = (type(None), type(None))
+
+        result = _python_type_to_nw(AllNoneUnion)
+        assert result is None
+
+    def test_applied_transform_cast_known_type(self):
+        """_AppliedTransform.cast() with known Python type."""
+        t = col("x").str.lowercase()
+        t2 = t.cast(str)
+        df = pd.DataFrame({"x": ["hello", "WORLD"]})
+        frame = nw.from_native(df, eager_only=True)
+        result = t2.apply(frame)
+        assert "x" in result.columns
+
+    def test_applied_transform_cast_unknown_type(self):
+        """_AppliedTransform.cast() else branch with narwhals type."""
+        t = col("x").str.lowercase()
+        t2 = t.cast(nw.String)
+        df = pd.DataFrame({"x": ["hello"]})
+        frame = nw.from_native(df, eager_only=True)
+        result = t2.apply(frame)
+        assert "x" in result.columns
+
+    def test_applied_transform_fill_null(self):
+        """_AppliedTransform.fill_null() body."""
+        t = col("x").str.lowercase()
+        t2 = t.fill_null("default")
+        df = pd.DataFrame({"x": [None, "hello"]})
+        frame = nw.from_native(df, eager_only=True)
+        result = t2.apply(frame)
+        assert "x" in result.columns
+
+    def test_applied_transform_is_null(self):
+        """_AppliedTransform.is_null() body."""
+        t = col("x").str.lowercase()
+        t2 = t.is_null()
+        df = pd.DataFrame({"x": [None, "hello"]})
+        frame = nw.from_native(df, eager_only=True)
+        result = t2.apply(frame)
+        assert "x" in result.columns
+
+    def test_col_transform_cast_narwhals_type(self):
+        """ColTransform.cast() else branch when dtype is narwhals type."""
+        t = col("x").cast(nw.String)
+        df = pd.DataFrame({"x": [1, 2, 3]})
+        frame = nw.from_native(df, eager_only=True)
+        result = t.apply(frame)
+        assert "x" in result.columns
+
+    def test_validate_schema_skips_unknown_type(self):
+        """_validate_schema continues when model type not in _PYTHON_TO_NW."""
+        from datetime import datetime as dt
+
+        class ModelWithDatetime:
+            __annotations__ = {"created_at": dt}
+
+        pipeline = TransformPipeline(model=ModelWithDatetime)
+        df = pd.DataFrame({"created_at": [dt.now()]})
+        frame = nw.from_native(df, eager_only=True)
+        result = pipeline.apply(frame)
+        assert "created_at" in result.columns
+
+
+def test_python_type_to_nw_list():
+    from typing import List
+    assert _python_type_to_nw(List[str]) == nw.String
+
+
+def test_python_type_to_nw_none_type():
+    assert _python_type_to_nw(None) is None
+
+
+def test_python_type_to_nw_unknown_class():
+    class UnkCov:
+        pass
+    assert _python_type_to_nw(UnkCov) is None
+
+
+def test_transform_abstract_apply_raises():
+    """Transform.apply() raises NotImplementedError."""
+    t = Transform()
+    with pytest.raises(NotImplementedError):
+        t.apply(None)
+
+
+def test_transform_pipeline_raw_and_type_error():
+    """TransformPipeline raises TransformTypeError on incompatible types."""
+    class MockModel:
+        __annotations__ = {"val": int}
+
+    df = pd.DataFrame({"val": ["not_an_int"]})
+    pipeline = TransformPipeline(model=MockModel)
+    with pytest.raises(TransformTypeError):
+        pipeline.apply(nw.from_native(df))
+
+
+def test_col_transforms_all_branches():
+    """Chain multiple col transforms including strip, lowercase, drop_nulls, is_null."""
+    df = pl.DataFrame({"s": [" a "], "i": [1], "n": [None]})
+    frame = nw.from_native(df)
+
+    c = col("s").str.strip().str.lowercase()
+    res = c.apply(frame)
+    assert nw.to_native(res)["s"][0] == "a"
+
+    assert col("n").drop_nulls().apply(frame).is_empty()
+    assert col("i").is_null().apply(frame)["i"][0] == False

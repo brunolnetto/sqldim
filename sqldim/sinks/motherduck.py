@@ -63,6 +63,7 @@ class MotherDuckSink:
     # ── SinkAdapter core ──────────────────────────────────────────────────
 
     def current_state_sql(self, table_name: str) -> str:
+        """Return a SQL fragment that reads the current dimension table from MotherDuck."""
         return f"SELECT * FROM {self._alias}.{self._schema}.{table_name}"
 
     def write(
@@ -72,6 +73,11 @@ class MotherDuckSink:
         table_name: str,
         batch_size: int = 100_000,
     ) -> int:
+        """Insert all rows from *view_name* into the MotherDuck table.
+
+        The ``INSERT INTO … SELECT *`` flows from the local DuckDB session into
+        MotherDuck via the ATTACH connection without Python-side serialisation.
+        """
         con.execute(
             f"INSERT INTO {self._alias}.{self._schema}.{table_name} "
             f"SELECT * FROM {view_name}"
@@ -86,6 +92,11 @@ class MotherDuckSink:
         nk_view: str,
         valid_to: str,
     ) -> int:
+        """Expire current rows whose natural key appears in *nk_view*.
+
+        Performs an ``UPDATE`` against MotherDuck via the ATTACH connection;
+        sets ``is_current = FALSE`` and ``valid_to`` for matching rows.
+        """
         tbl = f"{self._alias}.{self._schema}.{table_name}"
         con.execute(f"""
             UPDATE {tbl}
@@ -105,6 +116,12 @@ class MotherDuckSink:
         updates_view: str,
         update_cols: list[str],
     ) -> int:
+        """Apply SCD1-style attribute updates to the MotherDuck table.
+
+        Runs an ``UPDATE … SET`` against the fully-qualified MotherDuck table,
+        patching each *update_cols* column on the is_current rows whose natural
+        key appears in *updates_view*.
+        """
         tbl = f"{self._alias}.{self._schema}.{table_name}"
         set_clause = ",\n               ".join(
             f"{c} = (SELECT u.{c} FROM {updates_view} u WHERE u.{nk_col} = {tbl}.{nk_col})"
@@ -126,6 +143,11 @@ class MotherDuckSink:
         rotations_view: str,
         column_pairs: list[tuple[str, str]],
     ) -> int:
+        """Rotate SCD3 current/previous column pairs in the MotherDuck table.
+
+        Executes an ``UPDATE … SET`` that shifts each *current* column value to
+        its paired *previous* column and writes the new value from *rotations_view*.
+        """
         tbl = f"{self._alias}.{self._schema}.{table_name}"
         set_clause = ",\n               ".join(
             f"{prev} = t_old.{curr},\n               {curr} = r.{curr}"
@@ -151,6 +173,11 @@ class MotherDuckSink:
         updates_view: str,
         milestone_cols: list[str],
     ) -> int:
+        """Fill NULL milestone timestamps in the MotherDuck table.
+
+        Uses ``COALESCE`` to patch only the columns that are currently NULL,
+        leaving already-stamped milestones untouched.
+        """
         tbl = f"{self._alias}.{self._schema}.{table_name}"
         set_clause = ",\n               ".join(
             f"{c} = COALESCE("

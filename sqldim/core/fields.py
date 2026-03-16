@@ -1,3 +1,10 @@
+"""Dimensional-aware SQLModel Field factory.
+
+Extends :func:`sqlmodel.Field` with extra kwargs (``surrogate_key``,
+``natural_key``, ``measure``, ``dimension``, ``role``, ``scd``, etc.) that
+are persisted in the SA column's ``info`` dict for use by the schema graph,
+loaders, and SCD handlers.
+"""
 from typing import Any, Optional, Type
 from sqlmodel import Field as SQLModelField
 

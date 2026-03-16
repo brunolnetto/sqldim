@@ -66,6 +66,27 @@ class SinkAdapter(Protocol):
         """
         ...
 
+    def write_named(
+        self,
+        con: duckdb.DuckDBPyConnection,
+        view_name: str,
+        table_name: str,
+        columns: list[str],
+        batch_size: int = 100_000,
+    ) -> int:
+        """
+        Insert only the listed *columns* from *view_name* into *table_name*.
+
+        Unlike ``write`` (which does ``SELECT *``), this form is required when
+        the target table has auto-generated columns (e.g. ``sk BIGSERIAL``) that
+        must not appear in the INSERT column list.
+
+        All column names in *columns* must have already been validated by
+        ``_safe()`` before being passed here.
+        Returns rows written.
+        """
+        ...
+
     def close_versions(
         self,
         con: duckdb.DuckDBPyConnection,

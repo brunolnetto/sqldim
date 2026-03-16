@@ -815,6 +815,20 @@ class TestBitmaskerLoader:
         native = nw.to_native(result)
         assert native["datelist_int"].iloc[0] != 0
 
+    def test_polars_branch(self):
+        """BitmaskerLoader.process() polars branch (lines 144-146)."""
+        import polars as pl
+        from datetime import date
+        ref = date(2024, 3, 10)
+        df = pl.DataFrame({"user_id": [1], "dates_active": [["2024-03-10", "2024-03-08"]]})
+        frame = nw.from_native(df, eager_only=True)
+        loader = BitmaskerLoader(
+            source_model=None, target_model=None,
+            session=None, reference_date=ref, window_days=32,
+        )
+        result = loader.process(frame)
+        assert nw.to_native(result)["datelist_int"][0] != 0
+
 
 class TestArrayMetricLoader:
     """Tests for the narwhals ArrayMetricLoader (pandas path)."""
@@ -880,6 +894,23 @@ class TestArrayMetricLoader:
         arr = native["metric_array"].iloc[0]
         assert sum(arr) == 0.0
 
+    def test_polars_branch(self):
+        """ArrayMetricLoader.process() polars branch (lines 134-136)."""
+        import polars as pl
+        from datetime import date
+        month_start = date(2024, 3, 1)
+        target_date = date(2024, 3, 5)
+        df = pl.DataFrame({"entity_id": [1, 2], "value": [5.0, 10.0]})
+        frame = nw.from_native(df, eager_only=True)
+        loader = ArrayMetricLoader(
+            model=None, session=None,
+            metric_name="revenue", month_start=month_start,
+        )
+        result = loader.process(frame, target_date)
+        native = nw.to_native(result)
+        assert "metric_array" in native.columns
+        assert native["metric_name"][0] == "revenue"
+
 
 class TestCumulativeLoader:
     """Tests for the narwhals CumulativeLoader (pandas path)."""
@@ -930,6 +961,44 @@ class TestCumulativeLoader:
         row2 = native[native["player_id"] == 2]
         assert len(row2) == 1
         assert row2["years_since_last_active"].iloc[0] == 1
+
+    def test_polars_branch_all_missing_lines(self):
+        """Polars path covers lines 164, 178, 197-198, 213-216.
+
+        Player 1: present in both; seasons is a JSON string (line 178).
+        Player 2: in yesterday only; pts_today=None → _is_present(None)=False
+                  (line 164); years_since_last_active=None → int(None)
+                  TypeError → years_since=1 (lines 197-198).
+        Both players use polars frames (lines 213-216).
+        """
+        import json
+        import polars as pl
+
+        yesterday = pl.DataFrame({
+            "player_id": [1, 2],
+            "pts":       [10.0, 20.0],
+            # JSON string for player 1 → json.loads branch (line 178)
+            "seasons":   [json.dumps([{"pts": 10.0}]), None],
+            "is_active": [True, True],
+            # None → int(None) TypeError → years_since=1 (lines 197-198)
+            "years_since_last_active": pl.Series([0, None], dtype=pl.Int32),
+            "current_season": [None, None],
+        })
+        # Only player 1 active today; player 2 absent
+        today = pl.DataFrame({"player_id": [1], "pts": [25.0]})
+
+        loader = CumulativeLoader(
+            model=None, session=None,
+            partition_key="player_id",
+            cumulative_column="seasons",
+        )
+        result = loader.process(
+            nw.from_native(yesterday, eager_only=True),
+            nw.from_native(today, eager_only=True),
+            "2024",
+        )
+        native = nw.to_native(result)
+        assert len(native) == 2
 
 
 # ---------------------------------------------------------------------------

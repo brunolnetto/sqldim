@@ -1,3 +1,9 @@
+"""SCD Type 2 and cumulative backfill utilities.
+
+Provides SQL-generating helpers for converting flat snapshot tables into
+SCD-2 history rows and for bulk-loading cumulative window-aggregation data
+from a source staging table.
+"""
 from typing import Any, List, Type, Union
 from sqlmodel import Session, select, text
 from sqldim.core.models import DimensionModel

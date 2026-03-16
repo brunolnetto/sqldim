@@ -1,3 +1,9 @@
+"""Pre-built Time-of-Day Dimension for intra-day analytics.
+
+Generates all 1 440 minute-level rows (00:00 – 23:59) with
+period labels (AM/PM) and time-of-day buckets (Morning / Afternoon /
+Evening / Night).  Use :meth:`TimeDimension.generate` to populate.
+"""
 from datetime import time
 from typing import List
 from sqlmodel import Session
@@ -20,6 +26,7 @@ class TimeDimension(DimensionModel, table=True):
 
     @classmethod
     def _time_of_day(cls, h: int) -> str:
+        """Map the hour (0–23) to a human-readable time-of-day bucket."""
         if 5 <= h < 12:
             return "Morning"
         if 12 <= h < 17:
@@ -30,6 +37,11 @@ class TimeDimension(DimensionModel, table=True):
 
     @classmethod
     def _from_time(cls, h: int, m: int) -> "TimeDimension":
+        """Construct a ``TimeDimension`` instance for the given hour and minute.
+
+        Derives the 12-hour clock value, AM/PM period, and time-of-day bucket
+        from *h* and *m*, then returns an unsaved model instance.
+        """
         t = time(h, m)
         return cls(
             time_value=t.strftime("%H:%M"),

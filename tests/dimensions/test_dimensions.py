@@ -3,6 +3,8 @@ from sqlalchemy.pool import StaticPool
 from datetime import date
 from sqlmodel import Session, create_engine, SQLModel
 from sqldim.dimensions.date import DateDimension
+from sqldim.dimensions.time import TimeDimension
+from sqldim.dimensions.junk import populate_junk_dimension_lazy
 
 @pytest.fixture
 def session():
@@ -60,3 +62,48 @@ def test_quarter_boundaries(session):
     for ds, expected_q in cases:
         r = DateDimension._from_date(date.fromisoformat(ds))
         assert r.quarter == expected_q
+
+
+# ---------------------------------------------------------------------------
+# Lazy dimension generation (DuckDB sink)
+# ---------------------------------------------------------------------------
+
+class _SimpleSink:
+    """Minimal sink that writes a DuckDB VIEW to a Table and returns row count."""
+
+    def write(self, con, view_name: str, table_name: str, batch_size: int = 100_000) -> int:
+        con.execute(f"CREATE OR REPLACE TABLE {table_name} AS SELECT * FROM {view_name}")
+        return con.execute(f"SELECT count(*) FROM {table_name}").fetchone()[0]
+
+
+class TestLazyDimensions:
+    def test_date_dimension_generate_lazy(self):
+        import duckdb
+        con = duckdb.connect()
+        sink = _SimpleSink()
+        n = DateDimension.generate_lazy(
+            "2024-01-01", "2024-01-03", "test_lazy_date_dim", sink, con=con
+        )
+        assert n == 3
+        con.close()
+
+    def test_time_dimension_generate_lazy(self):
+        import duckdb
+        con = duckdb.connect()
+        sink = _SimpleSink()
+        n = TimeDimension.generate_lazy("test_lazy_time_dim", sink, con=con)
+        assert n == 1440
+        con.close()
+
+    def test_junk_dimension_populate_lazy(self):
+        import duckdb
+        con = duckdb.connect()
+        sink = _SimpleSink()
+        n = populate_junk_dimension_lazy(
+            {"promo": [True, False], "channel": ["web", "store"]},
+            "test_lazy_junk_dim",
+            sink,
+            con=con,
+        )
+        assert n == 4
+        con.close()

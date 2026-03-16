@@ -1,4 +1,5 @@
 """Tests for NarwhalsAdapter — Task 7.1."""
+import sys
 import pytest
 import pandas as pd
 import polars as pl
@@ -152,3 +153,33 @@ def test_adapter_list_to_dicts_roundtrip():
     assert len(result) == 2
     assert result[0]["a"] == 1
     assert result[1]["b"] == "y"
+
+
+# ---------------------------------------------------------------------------
+# Migrated from test_coverage_100.py and test_coverage_final.py
+# ---------------------------------------------------------------------------
+
+def test_adapter_empty_list():
+    """NarwhalsAdapter([]) has length 0."""
+    adapter = NarwhalsAdapter([])
+    assert len(adapter) == 0
+
+
+def test_adapter_errors_unsupported_object():
+    """NarwhalsAdapter(object()) raises LoadError."""
+    with pytest.raises(LoadError, match="Unsupported source type"):
+        NarwhalsAdapter(object())
+
+
+class TestAdapterImportError:
+    def test_dicts_to_native_empty_no_polars(self, monkeypatch):
+        """_dicts_to_native([]) falls back to pandas when polars unavailable."""
+        monkeypatch.setitem(sys.modules, "polars", None)
+        result = _dicts_to_native([])
+        assert hasattr(result, "to_dict") or hasattr(result, "shape")
+
+    def test_dicts_to_native_nonempty_no_polars(self, monkeypatch):
+        """_dicts_to_native([...]) falls back to pandas when polars unavailable."""
+        monkeypatch.setitem(sys.modules, "polars", None)
+        result = _dicts_to_native([{"x": 1, "y": "hello"}])
+        assert hasattr(result, "to_dict") or hasattr(result, "shape")

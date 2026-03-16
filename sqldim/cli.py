@@ -16,16 +16,28 @@ from typing import List
 # ── migration commands ────────────────────────────────────────────────────────
 
 def cmd_migrations_generate(args: argparse.Namespace) -> None:
-    """Generate a migration from a schema diff."""
+    """Generate a migration from a schema diff.
+
+    In practice, call ``generate_migration(models, current_state, message)``
+    directly from your project's migration script.
+    """
     print(f"[sqldim] Generating migration: '{args.message}'")
     print("[sqldim] Tip: call generate_migration(models, current_state, message) in your project.")
 
 def cmd_migrations_show(args: argparse.Namespace) -> None:
-    """Show pending migration info."""
+    """Show pending migration info.
+
+    Prints a human-readable summary of any schema changes detected
+    since the last applied migration.
+    """
     print("[sqldim] No pending migrations detected (run generate first).")
 
 def cmd_migrations_init(args: argparse.Namespace) -> None:
-    """Initialize sqldim migration environment."""
+    """Initialize sqldim migration environment.
+
+    Creates the migrations directory and an empty ``__init__.py`` so the
+    folder is importable by Alembic or the sqldim migration runner.
+    """
     import os
     migration_dir = getattr(args, "dir", "migrations")
     os.makedirs(migration_dir, exist_ok=True)
@@ -35,7 +47,11 @@ def cmd_migrations_init(args: argparse.Namespace) -> None:
     print(f"[sqldim] Migration directory initialized at '{migration_dir}/'")
 
 def cmd_schema_graph(args: argparse.Namespace) -> None:
-    """Print schema graph as JSON or Mermaid."""
+    """Print schema graph as JSON or Mermaid.
+
+    Pass your ``SchemaGraph`` instance to ``.to_dict()`` or ``.to_mermaid()``
+    to render the dimensional model as serialisable data or a diagram.
+    """
     print("[sqldim] Pass your SchemaGraph instance to .to_dict() or .to_mermaid()")
 
 # ── example commands ──────────────────────────────────────────────────────────
@@ -63,7 +79,11 @@ _EXAMPLES = {
 
 
 def cmd_example_list(args: argparse.Namespace) -> None:
-    """List all available real-world examples."""
+    """List all available real-world examples.
+
+    Prints each example name, title, and a one-line description so users
+    can choose which showcase to run with ``sqldim example run <name>``.
+    """
     print("[sqldim] Available examples (run with: sqldim example run <name>):\n")
     for name, (title, desc, _mod, _fn) in _EXAMPLES.items():
         print(f"  {name:<16} {title}")
@@ -71,7 +91,12 @@ def cmd_example_list(args: argparse.Namespace) -> None:
 
 
 def cmd_example_run(args: argparse.Namespace) -> int:
-    """Run a named real-world example showcase."""
+    """Run a named real-world example showcase.
+
+    Dynamically imports and invokes the showcase function for the given
+    example name, supporting both async and synchronous entry-points.
+    Returns 1 if the name is unrecognised, 0 on success.
+    """
     import asyncio, importlib
     name = args.name.lower()
     if name not in _EXAMPLES:
@@ -144,7 +169,11 @@ All heavy lifting stays inside DuckDB; Python is the orchestrator.
 
 
 def cmd_bigdata_features(args: argparse.Namespace) -> None:
-    """Print big-data capabilities summary."""
+    """Print big-data capabilities summary.
+
+    Summarises the lazy/vectorised processing, Narwhals compatibility,
+    and Iceberg/Delta/Parquet sink options available in sqldim.
+    """
     print(_BIGDATA_SUMMARY)
 
 

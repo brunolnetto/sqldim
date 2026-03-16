@@ -34,6 +34,7 @@ from sqldim.examples.utils import make_tmp_db
 # ── Star-schema builder ───────────────────────────────────────────────────────
 
 def _sql_to_nw(source, con: duckdb.DuckDBPyConnection):
+    """Execute *source* via DuckDB and return the result as a Narwhals DataFrame."""
     import narwhals as nw
     from sqldim.sources import coerce_source
     sql   = coerce_source(source).as_sql(con)
@@ -42,12 +43,14 @@ def _sql_to_nw(source, con: duckdb.DuckDBPyConnection):
 
 
 def _read_nw(table: str, con: duckdb.DuckDBPyConnection):
+    """Read a DuckDB in-memory table and return it as a Narwhals DataFrame."""
     import narwhals as nw
     arrow = con.execute(f"SELECT * FROM {table}").arrow()
     return nw.from_arrow(arrow, backend="pandas")
 
 
 def _to_pandas(df):
+    """Coerce a Narwhals or DuckDB frame to a plain pandas DataFrame."""
     import narwhals as nw
     import pandas as pd
     if isinstance(df, pd.DataFrame):
@@ -58,6 +61,7 @@ def _to_pandas(df):
 
 
 def _write_back(df, table: str, con: duckdb.DuckDBPyConnection) -> None:
+    """Insert rows from *df* into a DuckDB in-memory table, skipping the id column."""
     pd_df = _to_pandas(df)
     cols = [c for c in pd_df.columns if c != "id"]
     con.register("__tmp__", pd_df)
@@ -68,6 +72,7 @@ def _write_back(df, table: str, con: duckdb.DuckDBPyConnection) -> None:
 # ── Star-schema builder ───────────────────────────────────────────────────────
 
 def _close_scd2_rows(r1, T1, con: duckdb.DuckDBPyConnection) -> None:
+    """Close SCD2 rows flagged in *r1.to_close* by setting is_current=False."""
     if r1.to_close is None or len(r1.to_close) == 0:
         return
     to_close_df = _to_pandas(r1.to_close)
@@ -288,7 +293,12 @@ def example_12_point_in_time_query() -> None:
 # ── Entry point ───────────────────────────────────────────────────────────────
 
 def run_showcase() -> None:
-    print("Composition & Query Showcase")
+    """Run the composition showcase: star-schema and point-in-time examples.
+
+    Executes ``example_11_sales_star_schema`` and
+    ``example_12_point_in_time_query`` in sequence using a DuckDB in-memory
+    database to demonstrate dimensional composition patterns.
+    """
     print("============================")
     example_11_sales_star_schema()
     example_12_point_in_time_query()

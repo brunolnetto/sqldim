@@ -43,7 +43,11 @@ _COMPATIBLE_GROUPS: list[set] = [
 
 
 def _types_compatible(nw_dtype: Any, model_dtype: Any) -> bool:
-    """Return True when *nw_dtype* is a valid match for *model_dtype*."""
+    """Return True when *nw_dtype* is a valid match for *model_dtype*.
+
+    Considers both exact equality and membership in the same compatibility
+    group (e.g. any integer width is compatible with any other integer width).
+    """
     if nw_dtype == model_dtype:
         return True
     for group in _COMPATIBLE_GROUPS:
@@ -53,7 +57,11 @@ def _types_compatible(nw_dtype: Any, model_dtype: Any) -> bool:
 
 
 def _python_type_to_nw(annotation: Any) -> Any | None:
-    """Convert a Python type annotation to a narwhals dtype, or None."""
+    """Convert a Python type annotation to a narwhals dtype, or None.
+
+    Handles ``Optional[T]`` by unwrapping the inner type, and returns
+    ``None`` for annotations with no narwhals equivalent.
+    """
     if annotation is None:
         return None
     origin = getattr(annotation, "__origin__", None)
@@ -72,9 +80,13 @@ def _python_type_to_nw(annotation: Any) -> Any | None:
 # ---------------------------------------------------------------------------
 
 class Transform:
-    """Base class for a single column transformation."""
+    """Base class for a single column transformation.
+
+    Sub-classes implement :meth:`apply` to return a modified :class:`narwhals.DataFrame`.
+    """
 
     def apply(self, frame: nw.DataFrame) -> nw.DataFrame:
+        """Apply this transform to *frame* and return the modified DataFrame."""
         raise NotImplementedError
 
 

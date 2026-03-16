@@ -1,3 +1,10 @@
+"""Audit log for SCD version changes.
+
+:class:`AuditEntry` records a single change event (table, natural key,
+columns changed, timestamp, operation type) and :class:`AuditLog`
+collects them into an in-memory list that can be iterated, filtered,
+or bulk-written to an external audit table after a load run.
+"""
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional

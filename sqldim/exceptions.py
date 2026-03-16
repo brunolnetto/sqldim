@@ -1,3 +1,9 @@
+"""sqldim exception hierarchy.
+
+All sqldim errors inherit from :class:`SqldimError`, organised into
+four groups: schema-definition errors, SCD runtime errors, data-load
+errors, and migration errors.
+"""
 from typing import Any
 
 class SqldimError(Exception):

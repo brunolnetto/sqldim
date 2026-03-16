@@ -223,6 +223,12 @@ class IcebergSink:
     def _build_updated_cols(
         self, to_update, nk_col: str, update_cols: list[str], update_map: dict
     ) -> dict:
+        """Build a column dict applying *update_map* values for *update_cols*.
+
+        Walks every column in *to_update*; columns listed in *update_cols* are
+        replaced with the corresponding value from *update_map*, all others are
+        passed through unchanged.
+        """
         import pyarrow as pa
         updated = {}
         nk_list = to_update.column(nk_col).to_pylist()
@@ -274,6 +280,11 @@ class IcebergSink:
 
     @staticmethod
     def _rotation_col_value(col: str, nk_list: list, to_rot, rot_map: dict) -> list:
+        """Return a PyArrow array with the rotated values for a single column.
+
+        For each row keyed by *nk_list*, the new value comes from *rot_map* if
+        present; otherwise the existing value from *to_rot* is preserved.
+        """
         import pyarrow as pa
         return pa.array([
             rot_map.get(nk, {}).get(col, to_rot.column(col)[i].as_py())
@@ -282,6 +293,11 @@ class IcebergSink:
 
     @staticmethod
     def _rotation_name_maps(column_pairs: list[tuple[str, str]]) -> tuple[set, dict]:
+        """Derive lookup structures from *column_pairs* for SCD3 rotation.
+
+        Returns a set of current column names and a dict mapping each previous
+        column name to its corresponding current column name.
+        """
         curr_names = {curr for curr, _ in column_pairs}
         prev_names = {prev: curr for curr, prev in column_pairs}
         return curr_names, prev_names
@@ -289,6 +305,12 @@ class IcebergSink:
     def _build_rotation_cols(
         self, to_rot, nk_col: str, column_pairs: list[tuple[str, str]], rot_map: dict
     ) -> dict:
+        """Build a column dict that applies SCD3 rotations to *to_rot*.
+
+        Previous columns receive the old value of their paired current column;
+        current columns receive the fresh value from *rot_map*; all other
+        columns are passed through unchanged.
+        """
         curr_names, prev_names = self._rotation_name_maps(column_pairs)
         nk_list = to_rot.column(nk_col).to_pylist()
         updated: dict = {}
@@ -339,6 +361,12 @@ class IcebergSink:
     def _build_milestone_cols(
         self, to_upd, match_col: str, milestone_cols: list[str], upd_map: dict
     ) -> dict:
+        """Build a column dict patching NULL milestone values in *to_upd*.
+
+        For each row keyed by *match_col*, milestone columns receive the new
+        value from *upd_map* only when the existing value is ``None``; already-
+        stamped columns and non-milestone columns are passed through intact.
+        """
         import pyarrow as pa
         mk_list = to_upd.column(match_col).to_pylist()
         updated: dict = {}
@@ -354,11 +382,13 @@ class IcebergSink:
 
     @staticmethod
     def _milestone_val(existing_val, new_val):
+        """Return *new_val* only when *existing_val* is None, else keep *existing_val*."""
         return new_val if (existing_val is None and new_val is not None) else existing_val
 
     # ── Context manager ───────────────────────────────────────────────────
 
     def __enter__(self) -> "IcebergSink":
+        """Initialise the PyIceberg catalog and a DuckDB connection."""
         self._catalog = self._load_catalog()
         self._con = duckdb.connect()
         try:
@@ -368,6 +398,7 @@ class IcebergSink:
         return self
 
     def __exit__(self, *_) -> None:
+        """Close the DuckDB connection and release the catalog reference."""
         if self._con:
             self._con.close()
             self._con = None

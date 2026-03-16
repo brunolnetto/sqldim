@@ -1,3 +1,9 @@
+"""Dimensional-aware schema diff context.
+
+Detects column additions and removals, SCD-type upgrades / downgrades,
+and natural-key renames between a set of :class:`DimensionModel` /
+:class:`FactModel` definitions and the current database state.
+"""
 from typing import Any, Dict, List, Optional, Type
 from sqldim.core.models import DimensionModel, FactModel
 from sqldim.core.graph import SchemaGraph
@@ -10,7 +16,18 @@ CHANGE_SCD_DOWNGRADE = "scd_downgrade" # Type 2 → 1 (destructive)
 CHANGE_NK_CHANGE = "natural_key_change"
 
 class SchemaChange:
+    """Represents a single detected schema change with its type, owning model, and detail dict.
+
+    The ``is_destructive`` flag is set automatically for DROP_COLUMN and
+    SCD_DOWNGRADE change types so callers can gate on safety before applying.
+    """
+
     def __init__(self, change_type: str, model: Type, details: Dict[str, Any]):
+        """Initialise the change record, flagging destructive operations automatically.
+
+        Sets ``is_destructive = True`` for change types that delete data or
+        downgrade SCD complexity (DROP_COLUMN, SCD_DOWNGRADE).
+        """
         self.change_type = change_type
         self.model = model
         self.details = details
@@ -34,6 +51,12 @@ class DimensionalMigrationContext:
     def _detect_column_changes(
         self, model: Type, table_name: str, model_cols: set, current_cols: set
     ) -> List[SchemaChange]:
+        """Return add-column and drop-column changes between the model and current column sets.
+
+        Compares *model_cols* against *current_cols* and emits one
+        ADD_COLUMN ``SchemaChange`` per new column and one DROP_COLUMN per
+        column that was removed.
+        """
         changes = []
         for col in model_cols - current_cols:
             changes.append(SchemaChange(CHANGE_ADD_COLUMN, model, {"column": col, "table": table_name}))
@@ -42,6 +65,7 @@ class DimensionalMigrationContext:
         return changes
 
     def _detect_scd_upgrade(self, current_scd: int, new_scd: int, model, table_name: str):
+        """Return an SCD-type change when *current_scd* and *new_scd* differ, else None."""
         if current_scd == 1 and new_scd == 2:
             return SchemaChange(CHANGE_SCD_UPGRADE, model, {"from": 1, "to": 2, "table": table_name})
         if current_scd == 2 and new_scd == 1:
@@ -51,6 +75,7 @@ class DimensionalMigrationContext:
     def _detect_scd_change(
         self, model: Type, table_name: str, state: Dict[str, Any]
     ) -> Optional[SchemaChange]:
+        """Return an SCD change for dimension models; always None for fact models."""
         if not issubclass(model, DimensionModel):
             return None
         return self._detect_scd_upgrade(
@@ -63,6 +88,7 @@ class DimensionalMigrationContext:
     def _detect_nk_change(
         self, model: Type, table_name: str, state: Dict[str, Any]
     ) -> Optional[SchemaChange]:
+        """Return a natural-key-change record when the NK column set has shifted, else None."""
         if not issubclass(model, DimensionModel):
             return None
         current_nk = set(state.get("natural_key", []))
@@ -72,6 +98,7 @@ class DimensionalMigrationContext:
         return None
 
     def _diff_model(self, model: Type, current_state: Dict[str, Any]) -> List[SchemaChange]:
+        """Return all SchemaChange objects for a single model against its current-state entry."""
         table_name = model.__tablename__ if hasattr(model, "__tablename__") else model.__name__.lower()
         if table_name not in current_state:
             return []
@@ -87,6 +114,7 @@ class DimensionalMigrationContext:
         return changes
 
     def diff(self, current_state: Dict[str, Any]) -> List[SchemaChange]:
+        """Diff all registered models against *current_state* and return changes sorted by severity."""
         changes: List[SchemaChange] = []
         for model in self.models:
             changes.extend(self._diff_model(model, current_state))

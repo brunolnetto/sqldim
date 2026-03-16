@@ -3,8 +3,10 @@ import pytest
 from typing import Optional
 from sqlmodel import Field
 
+from typing import Optional
+from sqldim import Field, GraphSchemaGraph
 from sqldim.models.graph import VertexModel, EdgeModel
-from sqldim.graph.schema_graph import SchemaGraph, GraphSchema
+from sqldim.graph.schema_graph import SchemaGraph, GraphSchema, _safe_subclass
 from sqldim.core.models import DimensionModel, FactModel
 from sqldim.exceptions import SchemaError
 
@@ -239,7 +241,6 @@ def test_render_graph_model_skips_already_rendered():
 def test_fk_dimensions_returns_dimension_mapping():
     # Lines 258-259: _fk_dimensions calls get_star_schema and returns dimensions dict
     from sqldim.core.models import DimensionModel, FactModel
-    from sqldim import Field
 
     class FKDimTest(DimensionModel, table=True):
         __tablename__ = "fkdim_test"
@@ -257,3 +258,98 @@ def test_fk_dimensions_returns_dimension_mapping():
     dims = sg._fk_dimensions(FKFactTest)
     assert "dim_id" in dims
     assert dims["dim_id"] is FKDimTest
+
+
+# ---------------------------------------------------------------------------
+# Tests migrated from test_coverage_gap.py and test_coverage_100.py
+# ---------------------------------------------------------------------------
+
+class Cov100SgPlayer(VertexModel, table=True):
+    __tablename__ = "cov100_sg_player"
+    __natural_key__ = ["code"]
+    __vertex_type__ = "cov100_sg_player"
+    id: Optional[int] = Field(default=None, primary_key=True)
+    code: str
+    is_starter: bool = False
+
+
+class Cov100SgGame(VertexModel, table=True):
+    __tablename__ = "cov100_sg_game"
+    __natural_key__ = ["game_code"]
+    __vertex_type__ = "cov100_sg_game"
+    id: Optional[int] = Field(default=None, primary_key=True)
+    game_code: str
+
+
+class Cov100SgImplicitFact(FactModel, table=True):
+    """Plain FactModel with FK dimension metadata."""
+    __tablename__ = "cov100_sg_implicit_fact"
+    id: Optional[int] = Field(default=None, primary_key=True)
+    player_id: int = Field(foreign_key="cov100_sg_player.id", dimension=Cov100SgPlayer)
+    game_id: int = Field(foreign_key="cov100_sg_game.id", dimension=Cov100SgGame)
+
+
+class TestSafeSubclass:
+    def test_non_type_base_raises_type_error(self):
+        """_safe_subclass catches TypeError when base is not a class."""
+        result = _safe_subclass(int, "not_a_class")
+        assert result is False
+
+    def test_non_type_cls_returns_false(self):
+        """_safe_subclass returns False when cls is not a type."""
+        result = _safe_subclass(None, int)
+        assert result is False
+
+    def test_non_type_integer_returns_false(self):
+        """_safe_subclass returns False when cls is an integer (not a type)."""
+        assert _safe_subclass(123, VertexModel) is False
+
+
+class TestSchemaGraphFKAutoDerive:
+    def test_graph_schema_auto_derives_subject_object(self):
+        """graph_schema() auto-derives subject/object from FK metadata."""
+        sg = GraphSchemaGraph([Cov100SgPlayer, Cov100SgGame, Cov100SgImplicitFact])
+        schema = sg.graph_schema()
+        edge_infos = schema.edges
+        assert len(edge_infos) == 1
+        ei = edge_infos[0]
+        assert ei["subject"] is not None
+        assert ei["object"] is not None
+
+
+class TestSchemaGraphToMermaidExtended:
+    def test_duplicate_model_skips_render(self):
+        """render_model() skips already-rendered models."""
+        sg = GraphSchemaGraph([Cov100SgPlayer, Cov100SgPlayer, Cov100SgGame])
+        mermaid = sg.to_mermaid()
+        assert mermaid.count("Cov100SgPlayer {") == 1
+
+    def test_bool_field_rendered_as_bool(self):
+        """Bool-typed fields render as 'bool' in Mermaid."""
+        sg = GraphSchemaGraph([Cov100SgPlayer])
+        mermaid = sg.to_mermaid()
+        assert "bool is_starter" in mermaid
+
+    def test_implicit_fact_fk_rendered(self):
+        """Plain FactModel FK -> dimension rendered in else branch."""
+        sg = GraphSchemaGraph([Cov100SgPlayer, Cov100SgGame, Cov100SgImplicitFact])
+        mermaid = sg.to_mermaid()
+        assert "Cov100SgImplicitFact" in mermaid
+        assert "Cov100SgPlayer" in mermaid
+
+
+def test_schema_graph_validation_orphans_final():
+    """validate() flags orphan edges whose subject/object are not in the schema."""
+    class ExternalDim(DimensionModel):
+        pass
+
+    class OrphanEdge2(EdgeModel, table=True):
+        __tablename__ = "orphan_edge2"
+        __edge_type__ = "oe2"
+        __subject__ = ExternalDim
+        __object__ = ExternalDim
+        id: int = Field(primary_key=True)
+
+    sg = SchemaGraph([OrphanEdge2])
+    errors = sg.validate()
+    assert len(errors) >= 2

@@ -28,6 +28,7 @@ from sqldim.processors._lazy_type4_5 import (
     LazyType4Processor,
     LazyType5Processor,
 )
+from sqldim.processors._lazy_metadata import LazySCDMetadataProcessor
 
 __all__ = [
     "NarwhalsHashStrategy",
@@ -38,4 +39,5 @@ __all__ = [
     "LazyType6Processor",
     "LazyType4Processor",
     "LazyType5Processor",
+    "LazySCDMetadataProcessor",
 ]

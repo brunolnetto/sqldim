@@ -4,7 +4,7 @@ from typing import Optional
 from sqlmodel import Field
 
 from sqldim.models.graph import VertexModel, EdgeModel
-from sqldim.graph.traversal import TraversalEngine, _build_filters
+from sqldim.graph.traversal import TraversalEngine, DuckDBTraversalEngine, _build_filters
 
 
 # ---------------------------------------------------------------------------
@@ -179,3 +179,152 @@ def test_build_filters_multiple():
     assert "a = 1" in result
     assert "b = 'x'" in result
     assert "AND" in result
+
+
+# ---------------------------------------------------------------------------
+# Migrated from test_coverage_100.py and test_coverage_gap_v2.py
+# ---------------------------------------------------------------------------
+
+class TravPlayer(VertexModel, table=True):
+    __tablename__ = "trav_player"
+    __natural_key__ = ["code"]
+    __vertex_type__ = "trav_player"
+    id: Optional[int] = Field(default=None, primary_key=True)
+    code: str
+
+
+class TravGame(VertexModel, table=True):
+    __tablename__ = "trav_game"
+    __natural_key__ = ["game_code"]
+    __vertex_type__ = "trav_game"
+    id: Optional[int] = Field(default=None, primary_key=True)
+    game_code: str
+
+
+class TravDirectedEdge(EdgeModel, table=True):
+    __tablename__ = "trav_directed_edge"
+    __edge_type__ = "tde"
+    __subject__ = TravPlayer
+    __object__ = TravGame
+    __directed__ = True
+    id: Optional[int] = Field(default=None, primary_key=True)
+    subject_id: int = Field(foreign_key="trav_player.id")
+    object_id: int = Field(foreign_key="trav_game.id")
+    weight: float = 1.0
+
+
+class TravUndirectedEdge(EdgeModel, table=True):
+    __tablename__ = "trav_undirected_edge"
+    __edge_type__ = "tue"
+    __subject__ = TravPlayer
+    __object__ = TravGame
+    __directed__ = False
+    id: Optional[int] = Field(default=None, primary_key=True)
+    subject_id: int = Field(foreign_key="trav_player.id")
+    object_id: int = Field(foreign_key="trav_game.id")
+    weight: float = 1.0
+
+
+@pytest.fixture
+def ddb_trav_con():
+    """DuckDB connection with test edge data for DuckDBTraversalEngine."""
+    import duckdb
+    con = duckdb.connect()
+    con.execute(
+        "CREATE TABLE trav_directed_edge "
+        "(id INT, subject_id INT, object_id INT, weight DOUBLE)"
+    )
+    con.execute(
+        "INSERT INTO trav_directed_edge VALUES "
+        "(1,1,2,1.0),(2,1,3,2.0),(3,2,3,1.5)"
+    )
+    con.execute(
+        "CREATE TABLE trav_undirected_edge "
+        "(id INT, subject_id INT, object_id INT, weight DOUBLE)"
+    )
+    con.execute(
+        "INSERT INTO trav_undirected_edge VALUES "
+        "(1,1,2,1.0),(2,2,3,2.0)"
+    )
+    yield con
+    con.close()
+
+
+class TestTraversalEngineSQLExtended:
+    def test_neighbors_sql_undirected_with_filters(self):
+        """Undirected neighbors SQL with filters uses UNION."""
+        te = TraversalEngine()
+        sql = te.neighbors_sql(TravUndirectedEdge, 1, direction="both", filters={"weight": 1.0})
+        assert "UNION" in sql
+        assert "weight = 1.0" in sql
+
+    def test_aggregate_sql_undirected(self, ddb_trav_con):
+        """aggregate_sql with undirected edge uses OR clause."""
+        te = DuckDBTraversalEngine(ddb_trav_con)
+        sql = te.aggregate_sql(TravUndirectedEdge, 1, "weight", "sum")
+        assert "OR object_id" in sql
+
+    def test_degree_sql_delegates_to_aggregate(self, ddb_trav_con):
+        """degree_sql delegates to aggregate_sql with COUNT."""
+        te = DuckDBTraversalEngine(ddb_trav_con)
+        sql = te.degree_sql(TravDirectedEdge, 1, "out")
+        assert "COUNT" in sql.upper()
+
+
+class TestDuckDBTraversalEngine:
+    def test_neighbors_executes_query(self, ddb_trav_con):
+        """DuckDBTraversalEngine.neighbors() executes the query."""
+        te = DuckDBTraversalEngine(ddb_trav_con)
+        neighbors = te.neighbors(TravDirectedEdge, 1, direction="out")
+        assert isinstance(neighbors, list)
+        assert len(neighbors) == 2
+
+    def test_paths_returns_path_lists(self, ddb_trav_con):
+        """DuckDBTraversalEngine.paths() returns path lists."""
+        te = DuckDBTraversalEngine(ddb_trav_con)
+        paths = te.paths(TravDirectedEdge, 1, 3, max_hops=3)
+        assert isinstance(paths, list)
+        assert len(paths) >= 1
+
+    def test_aggregate_returns_scalar(self, ddb_trav_con):
+        """DuckDBTraversalEngine.aggregate() returns a scalar value."""
+        te = DuckDBTraversalEngine(ddb_trav_con)
+        total = te.aggregate(TravDirectedEdge, 1, "weight", "sum")
+        assert total == pytest.approx(3.0)
+
+    def test_degree_returns_edge_count(self, ddb_trav_con):
+        """DuckDBTraversalEngine.degree() returns edge count."""
+        te = DuckDBTraversalEngine(ddb_trav_con)
+        d = te.degree(TravDirectedEdge, 1, "out")
+        assert d == 2
+
+    def test_register_neighbor_view(self, ddb_trav_con):
+        """register_neighbor_view() creates a DuckDB VIEW."""
+        te = DuckDBTraversalEngine(ddb_trav_con)
+        view = te.register_neighbor_view(TravDirectedEdge, 1, "trav_nbrs_view")
+        assert view == "trav_nbrs_view"
+        rows = ddb_trav_con.execute("SELECT * FROM trav_nbrs_view").fetchall()
+        assert len(rows) >= 1
+
+    def test_register_paths_view(self, ddb_trav_con):
+        """register_paths_view() creates a DuckDB paths VIEW."""
+        te = DuckDBTraversalEngine(ddb_trav_con)
+        view = te.register_paths_view(TravDirectedEdge, 1, 3, "trav_paths_view")
+        assert view == "trav_paths_view"
+        rows = ddb_trav_con.execute("SELECT * FROM trav_paths_view").fetchall()
+        assert len(rows) >= 1
+
+
+def test_traversal_engine_undirected_sql():
+    """Undirected TraversalEngine generates UNION SQL."""
+    class UEdge2(EdgeModel, table=True):
+        __tablename__ = "uedge2"
+        __edge_type__ = "ue2"
+        __subject__ = TravPlayer
+        __object__ = TravGame
+        __directed__ = False
+        id: int = Field(primary_key=True)
+
+    te = TraversalEngine()
+    sql = te.neighbors_sql(UEdge2, start_id=1, direction="out")
+    assert "UNION" in sql

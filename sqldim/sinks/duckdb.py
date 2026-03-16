@@ -24,6 +24,7 @@ class DuckDBSink:
     # ── SinkAdapter core ──────────────────────────────────────────────────
 
     def current_state_sql(self, table_name: str) -> str:
+        """Return a DuckDB SQL fragment that reads the current dimension table."""
         return f"SELECT * FROM {self._alias}.{self._schema}.{table_name}"
 
     def write(
@@ -33,24 +34,83 @@ class DuckDBSink:
         table_name: str,
         batch_size: int = 100_000,
     ) -> int:
-        con.execute(f"""
-            INSERT INTO {self._alias}.{self._schema}.{table_name}
-            SELECT * FROM {view_name}
-        """)
-        return con.execute(f"SELECT count(*) FROM {view_name}").fetchone()[0]
+        """Stream all rows from *view_name* into *table_name*.
+
+        Executes a single ``INSERT INTO … SELECT *`` so DuckDB's vectorised
+        pipeline streams data without materialising the full result set.
+        The total row count is logged before and the elapsed time after.
+        """
+        import logging, time
+        _log = logging.getLogger(__name__)
+
+        target = f"{self._alias}.{self._schema}.{table_name}"
+        total  = con.execute(f"SELECT count(*) FROM {view_name}").fetchone()[0]
+        if total == 0:
+            return 0
+        _log.info(f"[sqldim] {table_name}: inserting {total:,} rows …")
+        t0 = time.perf_counter()
+        con.execute(f"INSERT INTO {target} SELECT * FROM {view_name}")
+        _log.info(
+            f"[sqldim] {table_name}: {total:,} rows written "
+            f"in {time.perf_counter()-t0:.1f}s"
+        )
+        return total
+
+    def write_named(
+        self,
+        con: duckdb.DuckDBPyConnection,
+        view_name: str,
+        table_name: str,
+        columns: list[str],
+        batch_size: int = 100_000,
+    ) -> int:
+        """Stream only the listed *columns* from *view_name* into *table_name*.
+
+        Executes a single ``INSERT INTO … SELECT cols`` so DuckDB streams data
+        without materialising the full result set.  Required when the target
+        table has auto-generated columns (e.g. ``sk BIGSERIAL``) that must not
+        appear in the ``INSERT`` column list.  All names in *columns* must have
+        been validated by ``_safe()`` before being passed here.
+        """
+        import logging, time
+        _log = logging.getLogger(__name__)
+
+        cols   = ", ".join(columns)
+        target = f"{self._alias}.{self._schema}.{table_name}"
+        total  = con.execute(f"SELECT count(*) FROM {view_name}").fetchone()[0]
+        if total == 0:
+            return 0
+        _log.info(f"[sqldim] {table_name}: inserting {total:,} rows …")
+        t0 = time.perf_counter()
+        con.execute(f"INSERT INTO {target} ({cols}) SELECT {cols} FROM {view_name}")
+        _log.info(
+            f"[sqldim] {table_name}: {total:,} rows written "
+            f"in {time.perf_counter()-t0:.1f}s"
+        )
+        return total
 
     def close_versions(
         self,
         con: duckdb.DuckDBPyConnection,
         table_name: str,
-        nk_col: str,
+        nk_col: str | list[str],
         nk_view: str,
         valid_to: str,
     ) -> int:
+        """Expire current rows whose natural key appears in *nk_view*, setting valid_to.
+
+        Supports both single-column and composite natural keys.
+        Performs a single SQL ``UPDATE`` — no Python-side loop over rows.
+        """
+        if isinstance(nk_col, list):
+            nk_select    = ", ".join(nk_col)
+            where_clause = f"({nk_select}) IN (SELECT {nk_select} FROM {nk_view})"
+        else:
+            where_clause = f"{nk_col} IN (SELECT {nk_col} FROM {nk_view})"
         con.execute(f"""
             UPDATE {self._alias}.{self._schema}.{table_name}
                SET is_current = FALSE, valid_to = '{valid_to}'
-             WHERE {nk_col} IN (SELECT {nk_col} FROM {nk_view})
+             WHERE {where_clause}
                AND is_current = TRUE
         """)
         return con.execute(f"SELECT count(*) FROM {nk_view}").fetchone()[0]
@@ -65,6 +125,7 @@ class DuckDBSink:
         updates_view: str,
         update_cols: list[str],
     ) -> int:
+        """Apply SCD-1 in-place attribute updates for rows matching *updates_view*."""
         set_clause = ",\n               ".join(
             f"{c} = (SELECT u.{c} FROM {updates_view} u WHERE u.{nk_col} = {self._alias}.{self._schema}.{table_name}.{nk_col})"
             for c in update_cols
@@ -85,7 +146,12 @@ class DuckDBSink:
         rotations_view: str,
         column_pairs: list[tuple[str, str]],
     ) -> int:
-        # DuckDB UPDATE … FROM is supported — use it for clean rotation
+        """Apply SCD-3 column rotation for rows whose current values changed.
+
+        For each ``(current_col, previous_col)`` pair, the existing current
+        value is shifted to ``previous_col`` and the incoming value written to
+        ``current_col``, all via a single ``UPDATE … FROM`` statement.
+        """
         set_clause = ",\n               ".join(
             f"{prev} = t_old.{curr},\n               {curr} = r.{curr}"
             for curr, prev in column_pairs
@@ -112,6 +178,11 @@ class DuckDBSink:
         updates_view: str,
         milestone_cols: list[str],
     ) -> int:
+        """Patch NULL milestone timestamps for accumulating-snapshot fact rows.
+
+        Only columns that are currently NULL are updated so previously
+        completed milestones are never overwritten.
+        """
         tbl = f"{self._alias}.{self._schema}.{table_name}"
         set_clause = ",\n               ".join(
             f"{c} = COALESCE((SELECT u.{c} FROM {updates_view} u WHERE u.{match_col} = {tbl}.{match_col}), {c})"

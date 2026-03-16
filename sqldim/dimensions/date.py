@@ -28,7 +28,12 @@ int — number of rows written
 """
 
 class DateDimension(DimensionModel, table=True):
-    """Pre-built Date Dimension — generate a full date spine for any range."""
+    """Pre-built Date Dimension — generate a full date spine for any range.
+
+    Use the lazy class method (``generate_lazy``) for large date ranges;
+    it delegates entirely to DuckDB’s ``generate_series`` so no Python
+    date loop is needed and memory stays constant.
+    """
     __natural_key__ = ["date_value"]
 
     id: int = Field(primary_key=True, surrogate_key=True)
@@ -46,6 +51,11 @@ class DateDimension(DimensionModel, table=True):
 
     @classmethod
     def _from_date(cls, d: date) -> "DateDimension":
+        """Construct a ``DateDimension`` instance from a single :class:`date`.
+
+        Derives all calendar attributes (quarter, week, day-name, leap-year
+        flag, etc.) from *d* and returns an unsaved model instance.
+        """
         return cls(
             date_value=d.isoformat(),
             year=d.year,

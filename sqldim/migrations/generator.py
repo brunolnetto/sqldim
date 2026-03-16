@@ -1,3 +1,9 @@
+"""Dimensional-aware migration script generator.
+
+Translates a :class:`~sqldim.migrations.context.DimensionalMigrationContext`
+diff into a :class:`MigrationScript` containing Alembic-style ``upgrade``
+and ``downgrade`` operations, backfill hints, and safety warnings.
+"""
 from datetime import datetime
 from typing import Any, Dict, List, Optional, Type
 from sqldim.migrations.context import DimensionalMigrationContext, SchemaChange, CHANGE_SCD_UPGRADE, CHANGE_ADD_COLUMN, CHANGE_DROP_COLUMN, CHANGE_NK_CHANGE
@@ -5,6 +11,11 @@ from sqldim.migrations.ops import add_backfill_hint, initialize_scd2_rows
 
 
 def _apply_add_column(change: SchemaChange, script: "MigrationScript") -> None:
+    """Append add-column upgrade/downgrade ops and a NULL-backfill hint.
+
+    The downgrade simply drops the column; the backfill hint reminds the
+    developer to populate ``NULL`` values before marking the column ``NOT NULL``.
+    """
     table = change.details.get("table", "unknown")
     col = change.details["column"]
     script.upgrade_ops.append(f"op.add_column('{table}', sa.Column('{col}', sa.String()))")
@@ -13,6 +24,11 @@ def _apply_add_column(change: SchemaChange, script: "MigrationScript") -> None:
 
 
 def _apply_drop_column(change: SchemaChange, script: "MigrationScript") -> None:
+    """Append drop-column ops and a data-loss warning to *script*.
+
+    The warning is recorded before the ops so it surfaces first when
+    the caller prints the generated migration.
+    """
     table = change.details.get("table", "unknown")
     col = change.details["column"]
     script.warnings.append(f"DROP COLUMN '{col}' from '{table}' — historical data will be lost.")
@@ -21,6 +37,11 @@ def _apply_drop_column(change: SchemaChange, script: "MigrationScript") -> None:
 
 
 def _apply_scd_upgrade(change: SchemaChange, script: "MigrationScript") -> None:
+    """Append the four SCD-2 columns (valid_from/to, is_current, checksum).
+
+    Also emits the ``initialize_scd2_rows`` backfill op so existing rows
+    receive a ``valid_from`` timestamp and ``is_current = TRUE``.
+    """
     table = change.details.get("table", "unknown")
     for col_def in [
         "'valid_from', sa.DateTime()",
@@ -35,6 +56,12 @@ def _apply_scd_upgrade(change: SchemaChange, script: "MigrationScript") -> None:
 
 
 def _apply_nk_change(change: SchemaChange, script: "MigrationScript") -> None:
+    """Emit a natural-key rename warning and commented index stubs.
+
+    Appends a human-readable warning to *script.warnings* noting the old and
+    new NK column names, and adds commented-out ``CREATE INDEX`` / ``DROP INDEX``
+    stub lines to the upgrade and downgrade blocks.
+    """
     table = change.details.get("table", "unknown")
     old_nk = change.details["from"]
     new_nk = change.details["to"]
@@ -73,6 +100,7 @@ class MigrationScript:
         self.warnings: List[str] = []
 
     def render(self) -> str:
+        """Render the script as a Python string with ``upgrade`` / ``downgrade`` functions."""
         lines = [
             f'"""Migration: {self.message}"""',
             f"# Generated: {self.created_at.isoformat()}",
@@ -89,6 +117,7 @@ class MigrationScript:
         return "\n".join(lines)
 
     def _render_ops_block(self, ops: List[str]) -> List[str]:
+        """Return indented op lines, or a single ``pass`` if there are none."""
         if ops:
             return [f"    # {op}" for op in ops]
         return ["    pass"]

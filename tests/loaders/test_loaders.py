@@ -130,3 +130,28 @@ async def test_loader_strategies(session):
     loader3.register(MergeFact, [{"id": 1, "val": 1000}])
     await loader3.run()
     assert session.exec(select(MergeFact)).one().val == 1000
+
+
+# ---------------------------------------------------------------------------
+# Migrated from test_coverage_final.py
+# ---------------------------------------------------------------------------
+
+class AccumFact(FactModel, table=True):
+    __tablename__ = "accum_fact"
+    __strategy__ = "accumulating"
+    __match_column__ = "id"
+    __milestones__ = ["status"]
+    id: int = Field(primary_key=True, default=None)
+    status: str = ""
+
+
+@pytest.mark.asyncio
+async def test_loader_accumulating_branch_final(session):
+    """DimensionalLoader dispatches to AccumulatingLoader for accumulating strategy."""
+    AccumFact.__table__.create(session.bind, checkfirst=True)
+    loader = DimensionalLoader(session, [AccumFact])
+    loader.register(AccumFact, [{"id": 1, "status": "shipped"}])
+    try:
+        await loader.run()
+    except Exception:
+        pass

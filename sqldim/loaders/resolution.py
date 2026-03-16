@@ -1,3 +1,9 @@
+"""Surrogate-key resolver with an in-process cache for fast batch dimension lookups.
+
+The :class:`SKResolver` caches every ``(model, column, value) → sk`` lookup
+so repeated resolutions within the same loader run never hit the database
+twice.
+"""
 from typing import Any, Dict, List, Optional, Tuple, Type
 from sqlmodel import Session, select
 from sqldim.core.models import DimensionModel
@@ -21,7 +27,11 @@ class SKResolver:
         natural_key_name: str,
         value: Any,
     ) -> Optional[Any]:
-        """Resolve a single natural key column to its surrogate key (id)."""
+        """Resolve a single natural key column to its surrogate key (id).
+
+        Checks the in-process cache first; falls back to a DB query and caches
+        the result.  Returns ``None`` (or raises) when the key is absent.
+        """
         cache_key = (model, natural_key_name, value)
         if cache_key in self._cache:
             return self._cache[cache_key]
@@ -45,7 +55,12 @@ class SKResolver:
         model: Type[DimensionModel],
         key_values: Dict[str, Any],
     ) -> Optional[Any]:
-        """Resolve a composite (multi-column) natural key to surrogate key."""
+        """Resolve a composite (multi-column) natural key to surrogate key.
+
+        Builds a compound WHERE clause from all items in *key_values*, checks
+        the cache, then falls back to a DB query.  Returns ``None`` or raises
+        ``SKResolutionError`` according to *raise_on_missing*.
+        """
         cache_key = (model, tuple(sorted(key_values.items())))
         if cache_key in self._cache:
             return self._cache[cache_key]

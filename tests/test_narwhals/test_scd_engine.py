@@ -1,13 +1,19 @@
 """Tests for NarwhalsHashStrategy and NarwhalsSCDProcessor — Task 7.2."""
 import hashlib
+import sys
 import pytest
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
+from typing import Optional
 
 import narwhals as nw
 import polars as pl
 import pandas as pd
+from sqlalchemy.pool import StaticPool
+from sqlmodel import Field, Session, SQLModel, create_engine
 
+from sqldim import DimensionModel, SCD2Mixin
 from sqldim.processors.scd_engine import NarwhalsHashStrategy, NarwhalsSCDProcessor
+from sqldim.processors.sk_resolver import NarwhalsSKResolver
 from sqldim.scd.handler import SCDResult
 
 
@@ -219,3 +225,76 @@ class TestNarwhalsSCDProcessor:
         ts = datetime(2024, 1, 15, tzinfo=timezone.utc)
         result = proc.process(_make_incoming_pl(), _make_current_pl(), as_of=ts)
         assert result.inserted + result.versioned + result.unchanged == 3
+
+
+# ---------------------------------------------------------------------------
+# Migrated from test_coverage_100.py, test_coverage_final.py, test_coverage_gap.py
+# ---------------------------------------------------------------------------
+
+class TestNarwhalsHashStrategyMissingLine:
+    def test_pandas_object_dtype_handling(self):
+        """pandas dict-valued column has dtype=object; apply(json.dumps) called."""
+        strategy = NarwhalsHashStrategy(
+            natural_key=["id"],
+            track_columns=["id", "data"],
+        )
+        df = pd.DataFrame({"id": [1, 2], "data": [{"key": "a"}, {"key": "b"}]})
+        assert df["data"].dtype == "object"
+        frame = nw.from_native(df, eager_only=True)
+        result = strategy.compute_checksums(frame)
+        assert "checksum" in result.columns
+        checksums = nw.to_native(result)["checksum"].tolist()
+        assert all(len(c) == 32 for c in checksums)
+
+
+def test_narwhals_scd_processor_no_is_current_column():
+    """NarwhalsSCDProcessor.process() handles current frame without is_current column."""
+    proc = NarwhalsSCDProcessor(["code"], ["name"])
+    incoming = nw.from_native(pd.DataFrame({"code": ["A"], "name": ["Alice"]}))
+    current = nw.from_native(pd.DataFrame({"code": ["A"], "name": ["Bob"]}))
+    result = proc.process(incoming, current)
+    assert result.versioned == 1
+
+
+class Cov100SCD2DimEngine(DimensionModel, SCD2Mixin, table=True):
+    __tablename__ = "cov100_scd2_engine"
+    __natural_key__ = ["code"]
+    id: Optional[int] = Field(default=None, primary_key=True)
+    code: str
+
+
+@pytest.fixture
+def scd2_engine_session():
+    engine = create_engine(
+        "sqlite:///:memory:",
+        connect_args={"check_same_thread": False},
+        poolclass=StaticPool,
+    )
+    SQLModel.metadata.create_all(engine)
+    with Session(engine) as s:
+        yield s
+    engine.dispose()
+
+
+def test_narwhals_sk_resolver_as_of_logic(scd2_engine_session):
+    """NarwhalsSKResolver._load_lookup with as_of filters by valid_from/valid_to."""
+    class SCD2DimLocal(DimensionModel, table=True):
+        __tablename__ = "scd2_lookup_engine"
+        id: Optional[int] = Field(default=None, primary_key=True)
+        code: str
+        is_current: bool = True
+        valid_from: date = date(2020, 1, 1)
+        valid_to: Optional[date] = None
+
+    SQLModel.metadata.create_all(scd2_engine_session.get_bind())
+
+    d1 = SCD2DimLocal(
+        code="X", is_current=False,
+        valid_from=date(2020, 1, 1), valid_to=date(2021, 1, 1)
+    )
+    scd2_engine_session.add(d1)
+    scd2_engine_session.commit()
+
+    resolver = NarwhalsSKResolver(scd2_engine_session)
+    lookup = resolver._load_lookup(SCD2DimLocal, as_of=date(2020, 6, 1), natural_key_col="code")
+    assert len(lookup) == 1

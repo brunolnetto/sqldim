@@ -26,15 +26,21 @@ class ParquetSink:
         self._base = base_path.rstrip("/")
 
     def _table_path(self, table_name: str) -> str:
+        """Return the glob pattern that matches all Parquet files for *table_name*."""
         return f"{self._base}/{table_name}/**/*.parquet"
 
     def _table_out(self, table_name: str) -> str:
+        """Return the root output directory for Parquet partitions of *table_name*."""
         return f"{self._base}/{table_name}"
 
     # ── SinkAdapter core ──────────────────────────────────────────────────
 
     def current_state_sql(self, table_name: str) -> str:
-        # read_parquet with glob — DuckDB streams, never loads all at once
+        """Return a DuckDB FROM-source expression for the current Parquet table.
+
+        Uses ``read_parquet`` with hive partitioning and a recursive glob so
+        DuckDB streams data without loading the entire dataset into memory.
+        """
         return (
             f"read_parquet('{self._table_path(table_name)}', "
             f"hive_partitioning=true)"
@@ -47,9 +53,36 @@ class ParquetSink:
         table_name: str,
         batch_size: int = 100_000,
     ) -> int:
+        """Write *view_name* rows to Parquet, partitioned by is_current.
+
+        Executes a single ``COPY … TO`` statement so DuckDB handles
+        partitioning and file creation without any Python-side buffering.
+        """
         out = self._table_out(table_name)
         con.execute(f"""
             COPY (SELECT * FROM {view_name})
+            TO '{out}'
+            (FORMAT parquet, PARTITION_BY (is_current), OVERWRITE_OR_IGNORE true)
+        """)
+        return con.execute(f"SELECT count(*) FROM {view_name}").fetchone()[0]
+
+    def write_named(
+        self,
+        con: duckdb.DuckDBPyConnection,
+        view_name: str,
+        table_name: str,
+        columns: list[str],
+        batch_size: int = 100_000,
+    ) -> int:
+        """Write only the listed *columns* from *view_name* to Parquet.
+
+        Selects only the specified columns before writing so that
+        auto-generated DB columns (e.g. ``sk``) do not appear in the output.
+        """
+        cols = ", ".join(columns)
+        out  = self._table_out(table_name)
+        con.execute(f"""
+            COPY (SELECT {cols} FROM {view_name})
             TO '{out}'
             (FORMAT parquet, PARTITION_BY (is_current), OVERWRITE_OR_IGNORE true)
         """)
@@ -89,7 +122,8 @@ class ParquetSink:
             f"SELECT count(*) FROM {nk_view}"
         ).fetchone()[0]
 
-    # ── SinkAdapter extended ──────────────────────────────────────────────
+
+    # ── SinkAdapter extended ───────────────────────────────────────
 
     def update_attributes(
         self,
@@ -99,7 +133,12 @@ class ParquetSink:
         updates_view: str,
         update_cols: list[str],
     ) -> int:
-        """Rewrite current partition with overwritten attribute columns."""
+        """Rewrite current partition with overwritten attribute columns.
+
+        Reads the current Parquet partition, applies the overwrite via
+        ``COALESCE(new, old)`` for each tracked column, and re-writes the
+        full partition in a single ``COPY`` statement.
+        """
         out = self._table_out(table_name)
         col_exprs = ",\n                    ".join(
             f"COALESCE(u.{c}, t.{c}) AS {c}" for c in update_cols

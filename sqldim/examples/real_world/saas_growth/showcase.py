@@ -10,6 +10,11 @@ from sqldim.loaders.bitmask import BitmaskerLoader
 from sqldim.processors.scd_engine import NarwhalsSCDProcessor
 
 async def run_saas_showcase():
+    """End-to-end SaaS growth analytics showcase.
+
+    Demonstrates vectorised SCD processing (Narwhals), hybrid SCD with graph
+    projection, bitmask datelist retention metrics, and async DB sessions.
+    """
     engine = create_engine("sqlite://", connect_args={"check_same_thread": False}, poolclass=StaticPool)
     SQLModel.metadata.create_all(engine)
     session = Session(engine)

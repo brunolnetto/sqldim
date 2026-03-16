@@ -39,6 +39,68 @@ class LazyTransactionLoader:
         """)
         return self.sink.write(self._con, "pending_facts", table_name, self.batch_size)
 
+    def load_stream(
+        self,
+        source,
+        table_name: str,
+        batch_size: int = 10_000,
+        max_batches: int | None = None,
+        on_batch=None,
+    ):
+        """Process a streaming source, appending each micro-batch to *table_name*.
+
+        Parameters
+        ----------
+        source      : :class:`~sqldim.sources.stream.StreamSourceAdapter`
+        table_name  : Target table in the sink.
+        batch_size  : Rows per micro-batch (passed to ``source.stream``).
+        max_batches : Stop after *N* batches; ``None`` = run until exhausted.
+        on_batch    : ``callback(batch_num: int, rows_written: int)`` invoked
+                      after each successful write.
+
+        Returns
+        -------
+        :class:`~sqldim.sources.stream.StreamResult`
+        """
+        import logging
+        from sqldim.sources.stream import StreamResult
+
+        _log = logging.getLogger(__name__)
+        result = StreamResult()
+
+        for i, sql_fragment in enumerate(source.stream(self._con, batch_size)):
+            if max_batches is not None and i >= max_batches:
+                break
+
+            try:
+                self._con.execute(f"""
+                    CREATE OR REPLACE VIEW pending_facts AS
+                    SELECT * FROM ({sql_fragment})
+                """)
+                rows_written = self.sink.write(
+                    self._con, "pending_facts", table_name, self.batch_size
+                )
+                offset = source.checkpoint()
+                source.commit(offset)
+
+                result.inserted += rows_written
+                result.batches_processed += 1
+
+                if on_batch:
+                    on_batch(i, rows_written)
+
+            except Exception as exc:
+                result.batches_failed += 1
+                _log.error("Batch %d failed: %s", i, exc)
+
+            finally:
+                try:
+                    self._con.execute("DROP VIEW IF EXISTS pending_facts")
+                except Exception:
+                    pass
+
+        return result
+
 
 class LazySnapshotLoader:
     """
@@ -83,6 +145,72 @@ class LazySnapshotLoader:
             FROM ({_sql})
         """)
         return self.sink.write(self._con, "snapshot_rows", table_name, self.batch_size)
+
+    def load_stream(
+        self,
+        source,
+        table_name: str,
+        batch_size: int = 10_000,
+        max_batches: int | None = None,
+        on_batch=None,
+    ):
+        """Process a streaming source, injecting *snapshot_date* into each micro-batch.
+
+        Parameters
+        ----------
+        source      : :class:`~sqldim.sources.stream.StreamSourceAdapter`
+        table_name  : Target table in the sink.
+        batch_size  : Rows per micro-batch (passed to ``source.stream``).
+        max_batches : Stop after *N* batches; ``None`` = run until exhausted.
+        on_batch    : ``callback(batch_num: int, rows_written: int)`` invoked
+                      after each successful write.
+
+        Returns
+        -------
+        :class:`~sqldim.sources.stream.StreamResult`
+        """
+        import logging
+        from sqldim.sources.stream import StreamResult
+
+        _log = logging.getLogger(__name__)
+        sd = self.snapshot_date
+        result = StreamResult()
+
+        for i, sql_fragment in enumerate(source.stream(self._con, batch_size)):
+            if max_batches is not None and i >= max_batches:
+                break
+
+            try:
+                self._con.execute(f"""
+                    CREATE OR REPLACE VIEW snapshot_rows AS
+                    SELECT *,
+                           '{sd}'::DATE AS {self.date_field}
+                    FROM ({sql_fragment})
+                """)
+                rows_written = self.sink.write(
+                    self._con, "snapshot_rows", table_name, self.batch_size
+                )
+                offset = source.checkpoint()
+                source.commit(offset)
+
+                result.inserted += rows_written
+                result.batches_processed += 1
+
+                if on_batch:
+                    on_batch(i, rows_written)
+
+            except Exception as exc:
+                result.batches_failed += 1
+                _log.error("Batch %d failed: %s", i, exc)
+
+            finally:
+                try:
+                    self._con.execute("DROP VIEW IF EXISTS snapshot_rows")
+                except Exception:
+                    pass
+
+        return result
+
 
 class SnapshotLoader:
     """

@@ -28,6 +28,11 @@ class DeltaLakeSink:
     # ── SinkAdapter core ──────────────────────────────────────────────────
 
     def current_state_sql(self, table_name: str) -> str:
+        """Return a DuckDB FROM-source expression for the current Delta table.
+
+        Uses DuckDB's built-in ``delta_scan()`` function so the table is read
+        lazily without loading the full dataset into memory.
+        """
         return f"delta_scan('{self._path}/{table_name}')"
 
     def write(
@@ -37,6 +42,11 @@ class DeltaLakeSink:
         table_name: str,
         batch_size: int = 100_000,
     ) -> int:
+        """Insert or update rows in the Delta table via a DuckDB ``MERGE INTO`` statement.
+
+        New rows are inserted; changed rows have their ``is_current`` flag
+        flipped and a new version record is added atomically.
+        """
         nk = self._natural_key
         # Delta MERGE INTO: one statement handles new + changed rows
         con.execute(f"""
@@ -59,6 +69,11 @@ class DeltaLakeSink:
         nk_view: str,
         valid_to: str,
     ) -> int:
+        """No-op for Delta Lake: version closing is handled inside :meth:`write`.
+
+        The ``MERGE INTO`` in :meth:`write` atomically flips ``is_current``
+        for changed rows, so a separate close step is not needed.
+        """
         # Handled inside write() via MERGE INTO — no-op here
         return 0
 
@@ -72,9 +87,12 @@ class DeltaLakeSink:
         updates_view: str,
         update_cols: list[str],
     ) -> int:
-        set_clause = ", ".join(
-            f"target.{c} = source.{c}" for c in update_cols
-        )
+        """Apply SCD1-style attribute updates to the Delta table.
+
+        Runs a ``MERGE INTO … WHEN MATCHED THEN UPDATE SET`` to overwrite
+        *update_cols* on the current rows whose natural key appears in *updates_view*.
+        """
+        set_clause = ", ".join(f"target.{c} = source.{c}" for c in update_cols)
         con.execute(f"""
             MERGE INTO delta.`{self._path}/{table_name}` AS target
             USING {updates_view} AS source
@@ -93,6 +111,11 @@ class DeltaLakeSink:
         rotations_view: str,
         column_pairs: list[tuple[str, str]],
     ) -> int:
+        """Rotate SCD3 current/previous column pairs in the Delta table.
+
+        Uses a ``MERGE INTO`` to shift each *current* value to its *previous*
+        column and write the fresh value from *rotations_view* in one pass.
+        """
         # Rotation: target.prev = target.curr, target.curr = source.curr
         # Delta MERGE INTO sees both sides — use a self-join trick via view
         set_clause = ", ".join(

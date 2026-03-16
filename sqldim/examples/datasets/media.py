@@ -25,6 +25,7 @@ from sqldim.examples.datasets.schema import DatasetSpec, EntitySchema, FieldSpec
 
 
 def _esc(s: str) -> str:
+    """Escape single quotes in *s* for safe embedding in SQL string literals."""
     return s.replace("'", "''")
 
 
@@ -104,9 +105,11 @@ class MoviesSource(BaseSource):
         return _MOVIES_SPEC.actors.oltp_ddl()
 
     def _actor_name(self, actor_id: int) -> str:
+        """Return the name string for the given actor id."""
         return next(a["name"] for a in self._actors if a["id"] == actor_id)
 
     def _build_cast(self) -> list[dict[str, Any]]:
+        """Randomly assign actors to movies and return the full cast list."""
         actor_ids = [a["id"] for a in self._actors]
         cast: list[dict[str, Any]] = []
         for movie in self._movies:
@@ -188,6 +191,7 @@ class MoviesSource(BaseSource):
         edge_table: str = "graph_coactor",
         actors_table: str = "actors",
     ) -> None:
+        """Drop both the edge-projection table and the actors lookup table."""
         con.execute(f"DROP TABLE IF EXISTS {edge_table}")
         con.execute(f"DROP TABLE IF EXISTS {actors_table}")
 
@@ -210,6 +214,7 @@ class MoviesSource(BaseSource):
         raise ValueError(f"MoviesSource has 1 event batch (requested n={n})")
 
     def _to_sql(self, rows: list[dict[str, Any]]) -> str:
+        """Render *rows* as a SQL ``VALUES`` expression using UNION ALL."""
         return " UNION ALL ".join(
             f"SELECT {r['actor_id']} AS actor_id,"
             f" '{_esc(r['actor_name'])}' AS actor_name,"
@@ -221,16 +226,20 @@ class MoviesSource(BaseSource):
     # ── Inspection ────────────────────────────────────────────────────────
 
     def actor_map(self) -> dict[int, str]:
+        """Return an id → name dict for all actors in this dataset."""
         return {a["id"]: a["name"] for a in self._actors}
 
     @property
     def actors(self) -> list[dict[str, Any]]:
+        """Return a copy of the full actors list."""
         return list(self._actors)
 
     @property
     def movies(self) -> list[dict[str, Any]]:
+        """Return a copy of the full movies list."""
         return list(self._movies)
 
     @property
     def cast(self) -> list[dict[str, Any]]:
+        """Return a copy of the full cast list."""
         return list(self._cast)

@@ -6,6 +6,12 @@ from typing import Any
 
 import narwhals as nw
 
+
+def _as_subquery(sql: str) -> str:
+    """Wrap *sql* for use in a DuckDB FROM clause (see _lazy_type2 for details)."""
+    return f"({sql})" if sql.strip().upper().startswith("SELECT") else sql
+
+
 class LazyType4Processor:
     """
     SCD Type 4 processor — mini-dimension split.
@@ -77,7 +83,7 @@ class LazyType4Processor:
         src_sql = coerce_source(source).as_sql(self._con)
 
         self._con.execute(f"""
-            CREATE OR REPLACE VIEW incoming AS SELECT * FROM ({src_sql})
+            CREATE OR REPLACE VIEW incoming AS SELECT * FROM {_as_subquery(src_sql)}
         """)
 
         # Step 1 — upsert distinct profile combos, resolve profile SKs
@@ -123,7 +129,7 @@ class LazyType4Processor:
         self._con.execute(f"""
             CREATE OR REPLACE VIEW current_checksums AS
             SELECT {nk}, checksum AS _checksum
-            FROM ({current_sql})
+            FROM {_as_subquery(current_sql)}
             WHERE is_current = TRUE
         """)
 

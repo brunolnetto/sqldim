@@ -1,3 +1,9 @@
+"""Low-level bulk-insert and upsert strategies for SQLModel sessions.
+
+:class:`BulkInsertStrategy` uses ``session.add_all()`` for fast initial loads.
+:class:`UpsertStrategy` uses SQLite’s ``INSERT … ON CONFLICT DO UPDATE``
+for idempotent re-runs.  Both implement the same :meth:`execute` interface.
+"""
 from typing import Any, Dict, List, Type
 from sqlmodel import Session
 from sqlalchemy.dialects.sqlite import insert as sqlite_insert

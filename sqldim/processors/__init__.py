@@ -3,6 +3,12 @@ Narwhals integration + lazy DuckDB-first processors.
 
 Optional accelerator: ``pip install sqldim[narwhals]``.
 Existing list[dict] paths are unchanged.
+
+Exports eager (``NarwhalsAdapter``, ``NarwhalsSCDProcessor``) and lazy
+(``LazySCDProcessor``, ``LazyType1Processor`` … ``LazyType6Processor``)
+processors.  The lazy variants speak only DuckDB SQL — no Python rows.
+Also exports ``NarwhalsSKResolver`` and ``LazySKResolver`` for
+surrogate-key resolution without a SQLModel session.
 """
 from sqldim.processors.adapter import NarwhalsAdapter
 from sqldim.processors.transforms import col, TransformPipeline
@@ -16,6 +22,7 @@ from sqldim.processors.scd_engine import (
     LazyType6Processor,
     LazyType4Processor,
     LazyType5Processor,
+    LazySCDMetadataProcessor,
 )
 from sqldim.processors.sk_resolver import NarwhalsSKResolver, LazySKResolver
 
@@ -33,6 +40,7 @@ __all__ = [
     "LazyType6Processor",
     "LazyType4Processor",
     "LazyType5Processor",
+    "LazySCDMetadataProcessor",
     "NarwhalsSKResolver",
     "LazySKResolver",
 ]

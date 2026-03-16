@@ -1,3 +1,4 @@
+"""Fluent dimensional query builders for DuckDB (SQL-string) and SQLAlchemy backends."""
 from __future__ import annotations
 from datetime import date
 from typing import Any, Dict, List, Optional, Type, TYPE_CHECKING
@@ -62,16 +63,19 @@ class DuckDBDimensionalQuery:
         return self
 
     def sum(self, measure: str) -> "DuckDBDimensionalQuery":
+        """Append a SUM aggregate for the given measure column."""
         col = measure.rsplit(".", 1)[-1]  # strip table qualifier for alias
         self._measures.append(f"SUM({measure}) AS sum_{col}")
         return self
 
     def avg(self, measure: str) -> "DuckDBDimensionalQuery":
+        """Append an AVG aggregate for the given measure column."""
         col = measure.rsplit(".", 1)[-1]
         self._measures.append(f"AVG({measure}) AS avg_{col}")
         return self
 
     def count(self) -> "DuckDBDimensionalQuery":
+        """Append a COUNT(*) aggregate."""
         self._measures.append("COUNT(*) AS count")
         return self
 
@@ -155,6 +159,8 @@ class SemanticError(Exception):
     pass
 
 class DimensionalQuery:
+    """SQLAlchemy-backed fluent query builder for star-schema dimensional analytics."""
+
     def __init__(self, fact: Type[FactModel]):
         self._fact = fact
         self._group_by: List[Any] = []

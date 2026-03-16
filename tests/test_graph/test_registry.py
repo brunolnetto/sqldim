@@ -2,7 +2,8 @@
 import pytest
 from typing import Any, Optional
 from unittest.mock import AsyncMock, MagicMock
-from sqlmodel import Field
+from sqlalchemy.pool import StaticPool
+from sqlmodel import Field, Session, SQLModel, create_engine
 
 from sqldim.models.graph import VertexModel, EdgeModel
 from sqldim.graph.registry import GraphModel
@@ -241,3 +242,159 @@ def test_explain_unknown_operation_raises():
     g = GraphModel(RPlayer, session=AsyncMock())
     with pytest.raises(SchemaError):
         g.explain("nonexistent_op")
+
+
+# ---------------------------------------------------------------------------
+# Models and fixture for tests needing a real SQLite session
+# ---------------------------------------------------------------------------
+
+class RegGVertex(VertexModel, table=True):
+    __tablename__ = "reg_gvertex"
+    __vertex_type__ = "reg_gv"
+    id: int = Field(primary_key=True)
+    name: str = "test"
+
+
+class RegHeteroVertex(VertexModel, table=True):
+    __tablename__ = "reg_hetero_vertex"
+    __vertex_type__ = "reg_hv"
+    id: int = Field(primary_key=True)
+
+
+class RegGEdge(EdgeModel, table=True):
+    __tablename__ = "reg_gedge"
+    __edge_type__ = "reg_ge"
+    __subject__ = RegGVertex
+    __object__ = RegGVertex
+    id: int = Field(primary_key=True)
+    subject_id: int = Field(foreign_key="reg_gvertex.id")
+    object_id: int = Field(foreign_key="reg_gvertex.id")
+
+
+@pytest.fixture
+def sqlite_session():
+    engine = create_engine(
+        "sqlite:///:memory:",
+        connect_args={"check_same_thread": False},
+        poolclass=StaticPool,
+    )
+    SQLModel.metadata.create_all(engine)
+    with Session(engine) as s:
+        yield s
+    engine.dispose()
+
+
+# ---------------------------------------------------------------------------
+# Multi-edge / no-edge error branches
+# ---------------------------------------------------------------------------
+
+@pytest.mark.asyncio
+async def test_graph_registry_multi_edge_error(sqlite_session):
+    class ExtraEdge(EdgeModel, table=True):
+        __tablename__ = "reg_extra_edge"
+        __edge_type__ = "reg_ee"
+        __subject__ = RegGVertex
+        __object__ = RegGVertex
+        id: int = Field(primary_key=True)
+        subject_id: int = Field(foreign_key="reg_gvertex.id")
+        object_id: int = Field(foreign_key="reg_gvertex.id")
+
+    graph = GraphModel(RegGVertex, RegGEdge, ExtraEdge, session=sqlite_session)
+    v = RegGVertex(id=1)
+    with pytest.raises(SchemaError, match="Multiple edge types connect"):
+        await graph.neighbors(v)
+
+
+@pytest.mark.asyncio
+async def test_graph_registry_no_edge_error(sqlite_session):
+    graph = GraphModel(RegGVertex, session=sqlite_session)
+    v = RegGVertex(id=1)
+    with pytest.raises(SchemaError, match="No edge type registered"):
+        await graph.neighbors(v)
+
+
+def test_pick_neighbor_class_hetero():
+    cls = GraphModel._pick_neighbor_class(RegGVertex, RegGVertex, RegHeteroVertex, "both")
+    assert cls == RegHeteroVertex
+    cls2 = GraphModel._pick_neighbor_class(RegHeteroVertex, RegGVertex, RegHeteroVertex, "both")
+    assert cls2 == RegGVertex
+
+
+# ---------------------------------------------------------------------------
+# _assert_edge_registered error branch
+# ---------------------------------------------------------------------------
+
+@pytest.mark.asyncio
+async def test_graph_registry_assert_edge_unregistered(sqlite_session):
+    class GVUnique(VertexModel, table=True):
+        __tablename__ = "reg_gvu"
+        __vertex_type__ = "reg_gvu"
+        id: int = Field(primary_key=True)
+
+    class GEUnique(EdgeModel, table=True):
+        __tablename__ = "reg_geu"
+        __edge_type__ = "reg_geu"
+        __subject__ = GVUnique
+        __object__ = GVUnique
+        id: int = Field(primary_key=True)
+        subject_id: int = Field(foreign_key="reg_gvu.id")
+        object_id: int = Field(foreign_key="reg_gvu.id")
+
+    class Unregistered(EdgeModel, table=True):
+        __tablename__ = "reg_unregistered"
+        __edge_type__ = "reg_unregistered"
+        __subject__ = GVUnique
+        __object__ = GVUnique
+        id: int = Field(primary_key=True)
+        subject_id: int = Field(foreign_key="reg_gvu.id")
+        object_id: int = Field(foreign_key="reg_gvu.id")
+
+    graph = GraphModel(GVUnique, GEUnique, session=sqlite_session)
+    with pytest.raises(SchemaError, match="not registered in this GraphModel"):
+        graph._assert_edge_registered(Unregistered)
+
+    cls = graph._pick_neighbor_class(GVUnique, GVUnique, GVUnique, "both")
+    assert cls == GVUnique
+
+
+# ---------------------------------------------------------------------------
+# _pick_neighbor_class direction branches
+# ---------------------------------------------------------------------------
+
+def test_pick_neighbor_class_in_direction():
+    cls_in = GraphModel._pick_neighbor_class(RegGVertex, RegGVertex, RegGVertex, "in")
+    assert cls_in == RegGVertex
+
+    cls_self = GraphModel._pick_neighbor_class(RegGVertex, RegGVertex, RegGVertex, "both")
+    assert cls_self == RegGVertex
+
+
+# ---------------------------------------------------------------------------
+# paths() with mocked async session
+# ---------------------------------------------------------------------------
+
+@pytest.mark.asyncio
+async def test_graph_paths_execution():
+    class PVertex(VertexModel, table=True):
+        __tablename__ = "reg_pv"
+        __vertex_type__ = "reg_pv"
+        id: int = Field(primary_key=True)
+
+    class PEdge(EdgeModel, table=True):
+        __tablename__ = "reg_pe"
+        __edge_type__ = "reg_pe"
+        __subject__ = PVertex
+        __object__ = PVertex
+        id: int = Field(primary_key=True)
+        subject_id: int = Field(foreign_key="reg_pv.id")
+        object_id: int = Field(foreign_key="reg_pv.id")
+
+    mock_session = AsyncMock()
+    mock_result = MagicMock()
+    mock_result.fetchall.return_value = [([1, 2, 3],)]
+    mock_session.execute.return_value = mock_result
+
+    graph = GraphModel(PVertex, PEdge, session=mock_session)
+    v1, v2 = PVertex(id=1), PVertex(id=3)
+    paths = await graph.paths(v1, v2)
+    assert paths == [[1, 2, 3]]

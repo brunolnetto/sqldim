@@ -1,4 +1,10 @@
-"""SCD Type 3 and Type 6 lazy processors."""
+"""SCD Type 3 and Type 6 lazy processors built on DuckDB SQL.
+
+:class:`LazyType3Processor` rotates ``(current_col, previous_col)`` pairs
+in place.  :class:`LazyType6Processor` applies Type-1 overwrite for slow-
+changing attributes and Type-2 versioning for fast-changing ones.  Both
+delegate all storage to a :class:`SinkAdapter`.
+"""
 from __future__ import annotations
 
 from datetime import datetime, timezone
@@ -7,6 +13,12 @@ from typing import Any
 import narwhals as nw
 
 from sqldim.scd.handler import SCDResult
+
+
+def _as_subquery(sql: str) -> str:
+    """Wrap *sql* for use in a DuckDB FROM clause (see _lazy_type2 for details)."""
+    return f"({sql})" if sql.strip().upper().startswith("SELECT") else sql
+
 
 class LazyType3Processor:
     """
@@ -38,6 +50,11 @@ class LazyType3Processor:
         self._con         = con or _duckdb.connect()
 
     def process(self, source, table_name: str) -> SCDResult:
+        """Detect changes and rotate column history; insert new rows into *table_name*.
+
+        Returns an :class:`~sqldim.scd.handler.SCDResult` with inserted /
+        versioned / unchanged row counts.
+        """
         self._register_source(source)
         self._register_current_checksums(table_name)
         self._classify()
@@ -49,6 +66,11 @@ class LazyType3Processor:
         return result
 
     def _register_source(self, source) -> None:
+        """Register *source* as a DuckDB ``incoming`` view with an MD5 ``_checksum`` column.
+
+        The checksum is computed over all ``track_cols`` so unchanged rows
+        are never re-processed by the SCD logic.
+        """
         from sqldim.sources import coerce_source
         _sql = coerce_source(source).as_sql(self._con)
         cols = " || '|' || ".join(
@@ -63,6 +85,11 @@ class LazyType3Processor:
         """)
 
     def _register_current_checksums(self, table_name: str) -> None:
+        """Build a ``current_checksums`` view of natural keys and their current checksums.
+
+        Filters to ``is_current = TRUE`` to ignore expired SCD-2 rows
+        when computing which incoming records represent actual changes.
+        """
         nk = self.natural_key
         sql = self.sink.current_state_sql(table_name)
         self._con.execute(f"""
@@ -73,6 +100,11 @@ class LazyType3Processor:
         """)
 
     def _classify(self) -> None:
+        """Classify each incoming row as ``new``, ``changed``, or ``unchanged``.
+
+        Results land in a ``classified`` DuckDB table used by all downstream
+        writer methods.
+        """
         nk = self.natural_key
         self._con.execute(f"""
             CREATE OR REPLACE TABLE classified AS
@@ -110,6 +142,11 @@ class LazyType3Processor:
         return self.sink.write(self._con, "new_rows", table_name, self.batch_size)
 
     def _rotate_changed(self, table_name: str) -> int:
+        """Apply column rotation to rows where tracked attributes changed.
+
+        Delegates to :meth:`SinkAdapter.rotate_attributes`, which executes
+        a single ``UPDATE … SET prev_col = curr_col, curr_col = incoming``.
+        """
         nk = self.natural_key
         curr_cols = ", ".join(f"{c}" for c, _ in self.column_pairs)
         self._con.execute(f"""
@@ -123,9 +160,103 @@ class LazyType3Processor:
         )
 
     def _count_unchanged(self) -> int:
+        """Return the count of rows that had no attribute changes."""
         return self._con.execute(
             "SELECT count(*) FROM classified WHERE _scd_class = 'unchanged'"
         ).fetchone()[0]
+
+    # ── streaming helpers ──────────────────────────────────────────────────
+
+    def _register_source_from_sql(self, sql_fragment: str) -> None:
+        """Register an already-resolved SQL fragment as the ``incoming`` view."""
+        cols = " || '|' || ".join(
+            f"coalesce(cast({c} as varchar), '')"
+            for c in self.track_cols
+        )
+        self._con.execute(f"""
+            CREATE OR REPLACE VIEW incoming AS
+            SELECT *, md5({cols}) AS _checksum
+            FROM ({sql_fragment})
+        """)
+
+    def _drop_stream_views(self) -> None:
+        """Clean up working views and tables between micro-batches."""
+        for v in [
+            "incoming", "current_checksums",
+            "new_rows", "changed_rotations",
+        ]:
+            try:
+                self._con.execute(f"DROP VIEW IF EXISTS {v}")
+            except Exception:
+                pass
+        try:
+            self._con.execute("DROP TABLE IF EXISTS classified")
+        except Exception:
+            pass
+
+    def process_stream(
+        self,
+        source,
+        table_name: str,
+        batch_size: int = 10_000,
+        max_batches: int | None = None,
+        on_batch=None,
+        deduplicate_by: str | None = None,
+    ):
+        """Process a streaming source micro-batch by micro-batch (Type 3 — rotate).
+
+        Returns
+        -------
+        :class:`~sqldim.sources.stream.StreamResult`
+        """
+        import logging
+        from sqldim.sources.stream import StreamResult
+        from sqldim.scd.handler import SCDResult as _SCDResult
+
+        _log = logging.getLogger(__name__)
+        result = StreamResult()
+
+        for i, sql_fragment in enumerate(source.stream(self._con, batch_size)):
+            if max_batches is not None and i >= max_batches:
+                break
+
+            if deduplicate_by:
+                nk = self.natural_key
+                dedup_sql = (
+                    f"SELECT * FROM ({sql_fragment})"
+                    f" QUALIFY ROW_NUMBER() OVER ("
+                    f"PARTITION BY {nk} ORDER BY {deduplicate_by} DESC) = 1"
+                )
+            else:
+                dedup_sql = sql_fragment
+
+            try:
+                self._register_source_from_sql(dedup_sql)
+                self._register_current_checksums(table_name)
+                self._classify()
+
+                batch_result           = _SCDResult()
+                batch_result.inserted  = self._write_new(table_name)
+                batch_result.versioned = self._rotate_changed(table_name)
+                batch_result.unchanged = self._count_unchanged()
+
+                offset = source.checkpoint()
+                source.commit(offset)
+
+                result.accumulate(batch_result)
+                result.batches_processed += 1
+
+                if on_batch:
+                    on_batch(i, batch_result)
+
+            except Exception as exc:
+                result.batches_failed += 1
+                _log.error("Batch %d failed for table %s: %s", i, table_name, exc)
+
+            finally:
+                self._drop_stream_views()
+
+        return result
 
 
 # ---------------------------------------------------------------------------
@@ -166,6 +297,12 @@ class LazyType6Processor:
         self._con           = con or _duckdb.connect()
 
     def process(self, source, table_name: str) -> SCDResult:
+        """Detect type1/type2 changes and apply correct versioning strategy.
+
+        Type-1-only changes are applied in place; type-2 changes close the
+        current row and insert a new version.  Returns an
+        :class:`~sqldim.scd.handler.SCDResult` with row counts.
+        """
         from datetime import datetime, timezone
 
         now = datetime.now(timezone.utc).isoformat()
@@ -182,6 +319,11 @@ class LazyType6Processor:
         return result
 
     def _register_source(self, source) -> None:
+        """Register *source* as a DuckDB view with separate Type-1 and Type-2 checksums.
+
+        Two MD5 columns (``_t1_checksum``, ``_t2_checksum``) are computed so
+        the classifier can distinguish which change type applies per row.
+        """
         from sqldim.sources import coerce_source
         _sql = coerce_source(source).as_sql(self._con)
         t1_hash = " || '|' || ".join(
@@ -195,7 +337,7 @@ class LazyType6Processor:
             SELECT *,
                    md5({t1_hash}) AS _t1_checksum,
                    md5({t2_hash}) AS _t2_checksum
-            FROM ({_sql})
+            FROM {_as_subquery(_sql)}
         """)
 
     def _register_current_state(self, table_name: str) -> None:
@@ -212,11 +354,12 @@ class LazyType6Processor:
             SELECT {nk},
                    md5({t1_hash}) AS _t1_checksum,
                    md5({t2_hash}) AS _t2_checksum
-            FROM ({sql})
+            FROM {_as_subquery(sql)}
             WHERE is_current = TRUE
         """)
 
     def _classify(self) -> None:
+        """Classify each row as ``new``, ``type2_changed``, ``type1_only``, or ``unchanged``."""
         nk = self.natural_key
         self._con.execute(f"""
             CREATE OR REPLACE TABLE classified AS
@@ -235,6 +378,11 @@ class LazyType6Processor:
         """)
 
     def _write_new(self, table_name: str, now: str) -> int:
+        """Insert brand-new natural keys as SCD-2 rows into *table_name*.
+
+        All type-1 and type-2 columns are written; ``valid_from`` is set to
+        *now* with ``is_current = TRUE``.
+        """
         nk = self.natural_key
         all_cols = self.type1_columns + self.type2_columns
         full_hash = " || '|' || ".join(
@@ -253,6 +401,11 @@ class LazyType6Processor:
         return self.sink.write(self._con, "new_rows", table_name, self.batch_size)
 
     def _write_type2_changed(self, table_name: str, now: str) -> int:
+        """Close current row and insert a new version for type-2 attribute changes.
+
+        Calls :meth:`SinkAdapter.close_versions` then writes a new row with
+        the updated attribute values and ``is_current = TRUE``.
+        """
         nk = self.natural_key
         all_cols = self.type1_columns + self.type2_columns
         full_hash = " || '|' || ".join(
@@ -276,6 +429,11 @@ class LazyType6Processor:
         return self.sink.write(self._con, "new_versions", table_name, self.batch_size)
 
     def _apply_type1_only(self, table_name: str) -> int:
+        """Overwrite type-1 columns for rows where only type-1 attributes changed.
+
+        No version row is created; the existing current row is updated via
+        :meth:`SinkAdapter.update_attributes`.
+        """
         nk = self.natural_key
         t1_cols = self.type1_columns
         col_list = ", ".join(t1_cols)
@@ -290,9 +448,115 @@ class LazyType6Processor:
         )
 
     def _count_unchanged(self) -> int:
+        """Return the count of rows with no type-1 or type-2 attribute changes."""
         return self._con.execute(
             "SELECT count(*) FROM classified WHERE _scd_class = 'unchanged'"
         ).fetchone()[0]
+
+    # ── streaming helpers ──────────────────────────────────────────────────
+
+    def _register_source_from_sql(self, sql_fragment: str) -> None:
+        """Register an already-resolved SQL fragment as the ``incoming`` view.
+
+        Computes separate type-1 and type-2 checksum columns so the Type-6
+        classifier can distinguish which kind of change applies per row.
+        """
+        t1_hash = " || '|' || ".join(
+            f"coalesce(cast({c} as varchar), '')" for c in self.type1_columns
+        )
+        t2_hash = " || '|' || ".join(
+            f"coalesce(cast({c} as varchar), '')" for c in self.type2_columns
+        )
+        self._con.execute(f"""
+            CREATE OR REPLACE VIEW incoming AS
+            SELECT *,
+                   md5({t1_hash}) AS _t1_checksum,
+                   md5({t2_hash}) AS _t2_checksum
+            FROM ({sql_fragment})
+        """)
+
+    def _drop_stream_views(self) -> None:
+        """Clean up working views and tables between micro-batches."""
+        for v in [
+            "incoming", "current_state",
+            "new_rows", "new_versions", "t2_nks", "type1_updates",
+        ]:
+            try:
+                self._con.execute(f"DROP VIEW IF EXISTS {v}")
+            except Exception:
+                pass
+        try:
+            self._con.execute("DROP TABLE IF EXISTS classified")
+        except Exception:
+            pass
+
+    def process_stream(
+        self,
+        source,
+        table_name: str,
+        batch_size: int = 10_000,
+        max_batches: int | None = None,
+        on_batch=None,
+        deduplicate_by: str | None = None,
+    ):
+        """Process a streaming source micro-batch by micro-batch (Type 6 — hybrid).
+
+        Returns
+        -------
+        :class:`~sqldim.sources.stream.StreamResult`
+        """
+        import logging
+        from datetime import datetime, timezone
+        from sqldim.sources.stream import StreamResult
+        from sqldim.scd.handler import SCDResult as _SCDResult
+
+        _log = logging.getLogger(__name__)
+        result = StreamResult()
+
+        for i, sql_fragment in enumerate(source.stream(self._con, batch_size)):
+            if max_batches is not None and i >= max_batches:
+                break
+
+            now = datetime.now(timezone.utc).isoformat()
+
+            if deduplicate_by:
+                nk = self.natural_key
+                dedup_sql = (
+                    f"SELECT * FROM ({sql_fragment})"
+                    f" QUALIFY ROW_NUMBER() OVER ("
+                    f"PARTITION BY {nk} ORDER BY {deduplicate_by} DESC) = 1"
+                )
+            else:
+                dedup_sql = sql_fragment
+
+            try:
+                self._register_source_from_sql(dedup_sql)
+                self._register_current_state(table_name)
+                self._classify()
+
+                batch_result           = _SCDResult()
+                batch_result.inserted  = self._write_new(table_name, now)
+                batch_result.versioned = self._write_type2_changed(table_name, now)
+                batch_result.versioned += self._apply_type1_only(table_name)
+                batch_result.unchanged = self._count_unchanged()
+
+                offset = source.checkpoint()
+                source.commit(offset)
+
+                result.accumulate(batch_result)
+                result.batches_processed += 1
+
+                if on_batch:
+                    on_batch(i, batch_result)
+
+            except Exception as exc:
+                result.batches_failed += 1
+                _log.error("Batch %d failed for table %s: %s", i, table_name, exc)
+
+            finally:
+                self._drop_stream_views()
+
+        return result
 
 
 # ---------------------------------------------------------------------------

@@ -1,5 +1,8 @@
 import pytest
-from sqldim import DimensionModel, FactModel, Field, SchemaGraph
+from typing import List, Optional
+from datetime import date
+from sqlmodel import SQLModel
+from sqldim import DimensionModel, FactModel, Field, SchemaGraph, SCD3Mixin, CumulativeMixin, DatelistMixin
 
 class MockDimension(DimensionModel, table=True):
     id: int = Field(primary_key=True, surrogate_key=True)
@@ -63,3 +66,78 @@ def test_role_ref_from_col_no_info():
         info = {}
         name = "col"
     assert _role_ref_from_col(FakeCol()) is None
+
+
+# ---------------------------------------------------------------------------
+# DatelistMixin — bitmask helpers
+# ---------------------------------------------------------------------------
+
+class _CovActivityUser(DatelistMixin, SQLModel):
+    dates_active: List[date] = []
+
+
+def test_datelist_mixin_bitmask():
+    user = _CovActivityUser(dates_active=[date(2024, 1, 1), date(2024, 1, 5)])
+    ref = date(2024, 1, 7)
+    assert bin(user.to_bitmask(ref, window=10)).count("1") == 2
+    assert user.l7(ref) == 2
+    assert user.l28(ref) == 2
+    assert user.activity_in_window(7, ref) is True
+    empty = _CovActivityUser(dates_active=[])
+    assert empty.to_bitmask(ref) == 0
+
+
+class TestDatelistMixinStringDates:
+    def test_string_dates_converted(self):
+        """DatelistMixin.to_bitmask converts ISO string dates."""
+        class DL(DatelistMixin, SQLModel):
+            dates_active: Optional[list] = None
+
+        obj = DL()
+        obj.dates_active = ["2024-01-01", "2024-01-03"]
+        mask = obj.to_bitmask(date(2024, 1, 5), window=10)
+        assert mask > 0
+
+
+# ---------------------------------------------------------------------------
+# SCD3Mixin corner cases
+# ---------------------------------------------------------------------------
+
+class TestSCD3MixinLines:
+    def test_non_scd3_subclass_returns_early(self):
+        """SCD3Mixin.__init_subclass__ returns early when __scd_type__ != 3."""
+        class NonSCD3(SCD3Mixin, SQLModel):
+            __scd_type__ = 2
+            x: str = ""
+        assert getattr(NonSCD3, "__scd_type__", None) == 2
+
+    def test_orphan_prev_column_raises(self):
+        """SCD3Mixin raises TypeError for prev_* without matching current column."""
+        with pytest.raises(TypeError, match="prev_ghost"):
+            class BadSCD3(SCD3Mixin, SQLModel):
+                __scd_type__ = 3
+                prev_ghost: Optional[str] = None
+
+
+# ---------------------------------------------------------------------------
+# CumulativeMixin corner cases
+# ---------------------------------------------------------------------------
+
+class TestCumulativeMixinLines:
+    def test_current_value(self):
+        class CumDim(CumulativeMixin, SQLModel):
+            seasons: Optional[list] = None
+
+        obj = CumDim()
+        obj.seasons = [{"pts": 10}, {"pts": 20}]
+        assert obj.current_value("seasons") == {"pts": 20}
+        assert obj.current_value("nonexistent") is None
+
+    def test_first_value(self):
+        class CumDim2(CumulativeMixin, SQLModel):
+            seasons: Optional[list] = None
+
+        obj = CumDim2()
+        obj.seasons = [{"pts": 5}, {"pts": 15}]
+        assert obj.first_value("seasons") == {"pts": 5}
+        assert obj.first_value("empty_col") is None
