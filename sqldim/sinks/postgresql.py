@@ -38,16 +38,15 @@ class PostgreSQLSink:
         con: duckdb.DuckDBPyConnection,
         view_name: str,
         table_name: str,
-        batch_size: int = 100_000,
     ) -> int:
-        """Stream all rows from *view_name* into the PostgreSQL table.
+        """Insert all rows from *view_name* into the PostgreSQL table.
 
-        Materialises *view_name* into a local DuckDB temp table first, then
-        inserts into PostgreSQL in *batch_size*-row chunks.  This two-step
-        approach prevents a single enormous ``INSERT … SELECT`` from exhausting
-        DuckDB's memory budget (DuckDB can spill the temp table via
-        ``temp_directory``; a streaming INSERT cannot be spilled the same way).
-        The total row count is logged before and the elapsed time after.
+        Uses DuckDB's ``pg_use_binary_copy`` streaming protocol — DuckDB reads
+        the source in its internal 2 048-row vector batches and forwards them
+        to PostgreSQL via binary COPY without ever materialising the full
+        result set in Python memory.  All intermediate tables (``incoming``,
+        ``current_hashes``, ``classified``) are already spill-eligible DuckDB
+        TABLEs, so memory pressure is bounded regardless of row count.
         """
         import logging, time
         _log = logging.getLogger(__name__)
@@ -55,26 +54,10 @@ class PostgreSQLSink:
         total = con.execute(f"SELECT count(*) FROM {view_name}").fetchone()[0]
         if total == 0:
             return 0
-
-        target  = f"{self._alias}.{self._schema}.{table_name}"
-        tmp     = f"_sqldim_write_{table_name}"
-        _log.info(f"[sqldim] {table_name}: materialising {total:,} rows …")
+        target = f"{self._alias}.{self._schema}.{table_name}"
+        _log.info(f"[sqldim] {table_name}: inserting {total:,} rows …")
         t0 = time.perf_counter()
-        con.execute(f"CREATE OR REPLACE TEMP TABLE {tmp} AS SELECT * FROM {view_name}")
-        try:
-            _log.info(
-                f"[sqldim] {table_name}: inserting {total:,} rows "
-                f"in batches of {batch_size:,} …"
-            )
-            offset = 0
-            while offset < total:
-                con.execute(
-                    f"INSERT INTO {target} "
-                    f"SELECT * FROM {tmp} LIMIT {batch_size} OFFSET {offset}"
-                )
-                offset += batch_size
-        finally:
-            con.execute(f"DROP TABLE IF EXISTS {tmp}")
+        con.execute(f"INSERT INTO {target} SELECT * FROM {view_name}")
         _log.info(
             f"[sqldim] {table_name}: {total:,} rows written "
             f"in {time.perf_counter()-t0:.1f}s"
@@ -87,18 +70,26 @@ class PostgreSQLSink:
         view_name: str,
         table_name: str,
         columns: list[str],
-        batch_size: int = 100_000,
+        batch_size: int = 500_000,
     ) -> int:
         """Insert only the listed *columns* from *view_name* into the PostgreSQL table.
 
-        Materialises *view_name* into a local DuckDB temp table first, then
-        inserts into PostgreSQL in *batch_size*-row chunks.  Batching prevents
-        a single enormous ``INSERT … SELECT`` from exhausting DuckDB's memory
-        budget for large dimension tables (e.g. ``estabelecimento``, 50M rows).
-        DuckDB can spill the temp table via ``temp_directory`` when necessary.
+        Uses DuckDB's ``pg_use_binary_copy`` streaming protocol — DuckDB reads
+        the source in its internal 2 048-row vector batches and forwards them
+        to PostgreSQL via binary COPY without ever materialising the full
+        result set in Python memory.  All intermediate tables (``incoming``,
+        ``current_hashes``, ``classified``) are already spill-eligible DuckDB
+        TABLEs, so memory pressure is bounded regardless of row count.
+
         Required when the target table has auto-generated columns (e.g.
         ``sk BIGSERIAL``) that must not appear in the ``INSERT`` list.
         All names in *columns* must have been validated by ``_safe()``.
+
+        *batch_size* is accepted for API compatibility but is not used — the
+        source is a VIEW over a materialised TABLE, so LIMIT/OFFSET chunking
+        would re-scan the VIEW from offset 0 on every chunk (O(n) per chunk).
+        Binary COPY streams the full result in one transaction at negligible
+        memory cost.
         """
         import logging, time
         _log = logging.getLogger(__name__)
@@ -106,27 +97,11 @@ class PostgreSQLSink:
         total = con.execute(f"SELECT count(*) FROM {view_name}").fetchone()[0]
         if total == 0:
             return 0
-
         cols   = ", ".join(columns)
         target = f"{self._alias}.{self._schema}.{table_name}"
-        tmp    = f"_sqldim_write_named_{table_name}"
-        _log.info(f"[sqldim] {table_name}: materialising {total:,} rows …")
+        _log.info(f"[sqldim] {table_name}: inserting {total:,} rows …")
         t0 = time.perf_counter()
-        con.execute(f"CREATE OR REPLACE TEMP TABLE {tmp} AS SELECT {cols} FROM {view_name}")
-        try:
-            _log.info(
-                f"[sqldim] {table_name}: inserting {total:,} rows "
-                f"in batches of {batch_size:,} …"
-            )
-            offset = 0
-            while offset < total:
-                con.execute(
-                    f"INSERT INTO {target} ({cols}) "
-                    f"SELECT {cols} FROM {tmp} LIMIT {batch_size} OFFSET {offset}"
-                )
-                offset += batch_size
-        finally:
-            con.execute(f"DROP TABLE IF EXISTS {tmp}")
+        con.execute(f"INSERT INTO {target} ({cols}) SELECT {cols} FROM {view_name}")
         _log.info(
             f"[sqldim] {table_name}: {total:,} rows written "
             f"in {time.perf_counter()-t0:.1f}s"

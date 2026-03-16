@@ -370,3 +370,354 @@ class TestSourcesInit:
     def test_debezium_source_importable_from_sources(self):
         from sqldim.sources import DebeziumSource
         assert DebeziumSource is not None
+
+
+# ---------------------------------------------------------------------------
+# KafkaSource._stream_native() — mock DuckDB connection
+# ---------------------------------------------------------------------------
+
+class TestKafkaStreamNative:
+    def _make_src(self):
+        return KafkaSource(brokers="b:9092", topic="t", group_id="g")
+
+    def _mock_con(self, count_seq, offset_seq):
+        """Build a MagicMock DuckDB connection that returns count_seq then
+        offset_seq in alternating fetchone() calls."""
+        from unittest.mock import MagicMock
+        con = MagicMock()
+        results = []
+        for count, offset in zip(count_seq, offset_seq):
+            results.append(MagicMock(**{"fetchone.return_value": (count,)}))
+            results.append(MagicMock(**{"fetchone.return_value": (offset,)}))
+        # Append a final count==0 sentinel to stop the loop
+        results.append(MagicMock(**{"fetchone.return_value": (0,)}))
+        con.execute.side_effect = results
+        return con
+
+    def test_yields_one_sql_fragment_per_non_empty_batch(self):
+        from unittest.mock import MagicMock
+        src = self._make_src()
+        con = self._mock_con(count_seq=[5], offset_seq=[42])
+        fragments = list(src._stream_native(con, batch_size=10))
+        assert len(fragments) == 1
+        assert "kafka_scan" in fragments[0]
+
+    def test_updates_offset_after_each_batch(self):
+        src = self._make_src()
+        con = self._mock_con(count_seq=[3], offset_seq=[99])
+        list(src._stream_native(con, batch_size=10))
+        assert src._offset == 99
+
+    def test_stops_when_count_is_zero(self):
+        from unittest.mock import MagicMock
+        src = self._make_src()
+        # First batch has 0 rows → stop immediately
+        con = MagicMock()
+        con.execute.return_value.fetchone.return_value = (0,)
+        fragments = list(src._stream_native(con, batch_size=10))
+        assert fragments == []
+
+    def test_yields_multiple_batches(self):
+        src = self._make_src()
+        con = self._mock_con(count_seq=[5, 3], offset_seq=[10, 20])
+        fragments = list(src._stream_native(con, batch_size=10))
+        assert len(fragments) == 2
+        assert src._offset == 20
+
+    def test_sql_contains_brokers_and_topic(self):
+        src = self._make_src()
+        con = self._mock_con(count_seq=[1], offset_seq=[0])
+        fragment = next(iter(src._stream_native(con, batch_size=1)))
+        assert "b:9092" in fragment
+        assert "'t'" in fragment
+
+
+# ---------------------------------------------------------------------------
+# KafkaSource._stream_consumer() — mock confluent_kafka + polars
+# ---------------------------------------------------------------------------
+
+class TestKafkaStreamConsumer:
+    def _make_src(self):
+        return KafkaSource(brokers="b:9092", topic="events", group_id="g")
+
+    def _make_mock_msg(self, payload: dict, offset_val: int):
+        from unittest.mock import MagicMock
+        import json
+        msg = MagicMock()
+        msg.error.return_value = None
+        msg.value.return_value = json.dumps(payload).encode()
+        msg.offset.return_value = offset_val
+        return msg
+
+    def test_yields_sql_fragment_for_non_empty_batch(self):
+        import sys
+        from unittest.mock import MagicMock, patch
+
+        msg = self._make_mock_msg({"id": 1, "name": "Alice"}, 7)
+
+        mock_consumer = MagicMock()
+        mock_consumer.consume.side_effect = [[msg], []]  # batch then empty
+
+        mock_confluent = MagicMock()
+        mock_confluent.Consumer.return_value = mock_consumer
+
+        mock_polars = MagicMock()
+        mock_arrow_table = MagicMock()
+        mock_polars.from_dicts.return_value.to_arrow.return_value = mock_arrow_table
+
+        con = MagicMock()
+
+        src = self._make_src()
+        with patch.dict(sys.modules, {"confluent_kafka": mock_confluent, "polars": mock_polars}):
+            fragments = list(src._stream_consumer(con, batch_size=10))
+
+        assert len(fragments) == 1
+        assert "_kafka_batch" in fragments[0]
+
+    def test_updates_offset_from_last_message(self):
+        import sys
+        from unittest.mock import MagicMock, patch
+
+        msg = self._make_mock_msg({"id": 5}, offset_val=99)
+
+        mock_consumer = MagicMock()
+        mock_consumer.consume.side_effect = [[msg], []]
+
+        mock_confluent = MagicMock()
+        mock_confluent.Consumer.return_value = mock_consumer
+
+        mock_polars = MagicMock()
+
+        src = self._make_src()
+        with patch.dict(sys.modules, {"confluent_kafka": mock_confluent, "polars": mock_polars}):
+            list(src._stream_consumer(MagicMock(), batch_size=10))
+
+        assert src._offset == 99
+
+    def test_stops_on_empty_consume(self):
+        import sys
+        from unittest.mock import MagicMock, patch
+
+        mock_consumer = MagicMock()
+        mock_consumer.consume.return_value = []  # immediately empty
+
+        mock_confluent = MagicMock()
+        mock_confluent.Consumer.return_value = mock_consumer
+
+        src = self._make_src()
+        with patch.dict(sys.modules, {"confluent_kafka": mock_confluent, "polars": MagicMock()}):
+            fragments = list(src._stream_consumer(MagicMock(), batch_size=10))
+
+        assert fragments == []
+
+    def test_consumer_close_called_in_finally(self):
+        import sys
+        from unittest.mock import MagicMock, patch
+
+        mock_consumer = MagicMock()
+        mock_consumer.consume.return_value = []
+
+        mock_confluent = MagicMock()
+        mock_confluent.Consumer.return_value = mock_consumer
+
+        src = self._make_src()
+        with patch.dict(sys.modules, {"confluent_kafka": mock_confluent, "polars": MagicMock()}):
+            list(src._stream_consumer(MagicMock(), batch_size=10))
+
+        mock_consumer.close.assert_called_once()
+
+    def test_skips_messages_with_errors(self):
+        """Messages where m.error() is not None should be skipped."""
+        import sys
+        import json
+        from unittest.mock import MagicMock, patch
+
+        # One error message, one good message
+        bad_msg = MagicMock()
+        bad_msg.error.return_value = MagicMock()  # truthy error
+        bad_msg.value.return_value = b'{"id": 99}'
+        bad_msg.offset.return_value = 1
+
+        good_msg = self._make_mock_msg({"id": 1}, offset_val=2)
+
+        mock_consumer = MagicMock()
+        mock_consumer.consume.side_effect = [[bad_msg, good_msg], []]
+
+        mock_confluent = MagicMock()
+        mock_confluent.Consumer.return_value = mock_consumer
+
+        mock_polars = MagicMock()
+
+        src = self._make_src()
+        with patch.dict(sys.modules, {"confluent_kafka": mock_confluent, "polars": mock_polars}):
+            list(src._stream_consumer(MagicMock(), batch_size=10))
+
+        # from_dicts should only have been called with the good message's data
+        call_args = mock_polars.from_dicts.call_args[0][0]
+        assert call_args == [{"id": 1}]
+
+
+# ---------------------------------------------------------------------------
+# KafkaSource.stream() — try/except: native → consumer fallback
+# ---------------------------------------------------------------------------
+
+class TestKafkaStream:
+    def test_stream_falls_back_to_consumer_when_load_fails(self):
+        """If 'LOAD kafka;' raises, stream() delegates to _stream_consumer."""
+        import sys
+        from unittest.mock import MagicMock, patch
+        import json
+
+        msg_data = {"id": 1}
+        msg = MagicMock()
+        msg.error.return_value = None
+        msg.value.return_value = json.dumps(msg_data).encode()
+        msg.offset.return_value = 5
+
+        mock_consumer = MagicMock()
+        mock_consumer.consume.side_effect = [[msg], []]
+        mock_confluent = MagicMock()
+        mock_confluent.Consumer.return_value = mock_consumer
+
+        mock_polars = MagicMock()
+
+        # MagicMock connection — execute("LOAD kafka;") raises to trigger fallback
+        con = MagicMock()
+        con.execute.side_effect = Exception("kafka extension not found")
+
+        src = KafkaSource(brokers="b:9092", topic="events", group_id="g")
+        with patch.dict(sys.modules, {"confluent_kafka": mock_confluent, "polars": mock_polars}):
+            fragments = list(src.stream(con, batch_size=10))
+
+        assert len(fragments) == 1
+        assert "_kafka_batch" in fragments[0]
+
+
+# ---------------------------------------------------------------------------
+# KinesisSource.stream() — mock boto3 + polars
+# ---------------------------------------------------------------------------
+
+class TestKinesisStream:
+    def _make_src(self):
+        return KinesisSource(stream_name="my-stream", region="us-east-1")
+
+    def test_yields_one_fragment_per_shard_batch(self):
+        import sys
+        import json
+        from unittest.mock import MagicMock, patch
+
+        record = {"Data": json.dumps({"id": 1}).encode(), "SequenceNumber": "seq-1"}
+
+        mock_client = MagicMock()
+        mock_client.list_shards.return_value = {"Shards": [{"ShardId": "shard-000"}]}
+        mock_client.get_shard_iterator.return_value = {"ShardIterator": "iter-0"}
+        mock_client.get_records.side_effect = [
+            {"Records": [record], "NextShardIterator": "iter-1"},
+            {"Records": [], "NextShardIterator": None},
+        ]
+
+        mock_boto3 = MagicMock()
+        mock_boto3.client.return_value = mock_client
+
+        mock_polars = MagicMock()
+
+        con = MagicMock()
+        src = self._make_src()
+        with patch.dict(sys.modules, {"boto3": mock_boto3, "polars": mock_polars}):
+            fragments = list(src.stream(con, batch_size=100))
+
+        assert len(fragments) == 1
+        assert "_kinesis_batch" in fragments[0]
+
+    def test_updates_sequence_number_after_batch(self):
+        import sys
+        import json
+        from unittest.mock import MagicMock, patch
+
+        record = {"Data": json.dumps({"x": 1}).encode(), "SequenceNumber": "seq-42"}
+
+        mock_client = MagicMock()
+        mock_client.list_shards.return_value = {"Shards": [{"ShardId": "shard-000"}]}
+        mock_client.get_shard_iterator.return_value = {"ShardIterator": "iter-0"}
+        mock_client.get_records.side_effect = [
+            {"Records": [record], "NextShardIterator": None},
+        ]
+
+        mock_boto3 = MagicMock()
+        mock_boto3.client.return_value = mock_client
+
+        src = self._make_src()
+        with patch.dict(sys.modules, {"boto3": mock_boto3, "polars": MagicMock()}):
+            list(src.stream(MagicMock(), batch_size=100))
+
+        assert src._seq == "seq-42"
+
+    def test_stops_when_no_records(self):
+        import sys
+        from unittest.mock import MagicMock, patch
+
+        mock_client = MagicMock()
+        mock_client.list_shards.return_value = {"Shards": [{"ShardId": "shard-000"}]}
+        mock_client.get_shard_iterator.return_value = {"ShardIterator": "iter-0"}
+        mock_client.get_records.return_value = {"Records": [], "NextShardIterator": "iter-1"}
+
+        mock_boto3 = MagicMock()
+        mock_boto3.client.return_value = mock_client
+
+        src = self._make_src()
+        with patch.dict(sys.modules, {"boto3": mock_boto3, "polars": MagicMock()}):
+            fragments = list(src.stream(MagicMock(), batch_size=100))
+
+        assert fragments == []
+
+    def test_iterates_multiple_shards(self):
+        import sys
+        import json
+        from unittest.mock import MagicMock, patch
+
+        r1 = {"Data": json.dumps({"id": 1}).encode(), "SequenceNumber": "s1"}
+        r2 = {"Data": json.dumps({"id": 2}).encode(), "SequenceNumber": "s2"}
+
+        mock_client = MagicMock()
+        mock_client.list_shards.return_value = {
+            "Shards": [{"ShardId": "shard-000"}, {"ShardId": "shard-001"}]
+        }
+        mock_client.get_shard_iterator.return_value = {"ShardIterator": "iter-X"}
+        mock_client.get_records.side_effect = [
+            {"Records": [r1], "NextShardIterator": None},
+            {"Records": [r2], "NextShardIterator": None},
+        ]
+
+        mock_boto3 = MagicMock()
+        mock_boto3.client.return_value = mock_client
+
+        src = self._make_src()
+        with patch.dict(sys.modules, {"boto3": mock_boto3, "polars": MagicMock()}):
+            fragments = list(src.stream(MagicMock(), batch_size=100))
+
+        assert len(fragments) == 2
+        assert src._seq == "s2"
+
+    def test_stops_when_next_shard_iterator_is_none(self):
+        """When NextShardIterator is falsy (None/''), the while loop stops."""
+        import sys
+        import json
+        from unittest.mock import MagicMock, patch
+
+        r = {"Data": json.dumps({"x": 1}).encode(), "SequenceNumber": "s"}
+        mock_client = MagicMock()
+        mock_client.list_shards.return_value = {"Shards": [{"ShardId": "shard-000"}]}
+        mock_client.get_shard_iterator.return_value = {"ShardIterator": "iter-0"}
+        # Return records then NextShardIterator=None → loop stops
+        mock_client.get_records.side_effect = [
+            {"Records": [r], "NextShardIterator": None},
+        ]
+
+        mock_boto3 = MagicMock()
+        mock_boto3.client.return_value = mock_client
+
+        src = self._make_src()
+        with patch.dict(sys.modules, {"boto3": mock_boto3, "polars": MagicMock()}):
+            fragments = list(src.stream(MagicMock(), batch_size=100))
+
+        assert len(fragments) == 1

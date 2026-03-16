@@ -463,6 +463,34 @@ class TestLazyType1ProcessorStream:
         assert result.batches_failed == 1
         assert result.batches_processed == 0
 
+    def test_deduplicate_by_keeps_latest_per_nk(self):
+        """Two events for the same NK in one batch; dedup by price (DESC) keeps the higher-priced row."""
+        con = duckdb.connect()
+        _empty_scd_table(con, "dim_t1", "sku", ["name", "price"])
+        con.execute("""
+            CREATE OR REPLACE VIEW b_dedup_t1 AS
+            SELECT 'A' AS sku, 'OldName' AS name, '1.00' AS price
+            UNION ALL
+            SELECT 'A' AS sku, 'NewName' AS name, '2.00' AS price
+        """)
+        proc, _ = self._make(con)
+        result = proc.process_stream(
+            StubStreamSource(["b_dedup_t1"]), "dim_t1",
+            deduplicate_by="price",
+        )
+        assert result.inserted == 1
+        row = con.execute("SELECT name FROM dim_t1 WHERE sku = 'A'").fetchone()
+        assert row[0] == "NewName"
+
+    def test_drop_stream_views_exception_swallowed(self):
+        """_drop_stream_views must not propagate exceptions from DROP statements."""
+        from unittest.mock import MagicMock
+        proc, _ = self._make(duckdb.connect())
+        mock_con = MagicMock()
+        mock_con.execute.side_effect = Exception("Simulated DROP failure")
+        proc._con = mock_con
+        proc._drop_stream_views()  # must not raise
+
 
 # ---------------------------------------------------------------------------
 # LazyType3Processor.process_stream()  (SCD Type 3 — current + previous)
@@ -534,6 +562,34 @@ class TestLazyType3ProcessorStream:
             StubStreamSource(["b1", "b2"]), "dim_emp", max_batches=1
         )
         assert result.batches_processed == 1
+
+    def test_deduplicate_by_keeps_latest_per_nk(self):
+        """Two events for same NK in one batch; dedup by region (DESC α) keeps last alphabetically."""
+        con = duckdb.connect()
+        self._empty_t3_table(con, "dim_emp")
+        con.execute("""
+            CREATE OR REPLACE VIEW b_dedup_t3 AS
+            SELECT 'E1' AS emp_id, 'East' AS region
+            UNION ALL
+            SELECT 'E1' AS emp_id, 'West' AS region
+        """)
+        proc, _ = self._make(con)
+        result = proc.process_stream(
+            StubStreamSource(["b_dedup_t3"]), "dim_emp",
+            deduplicate_by="region",
+        )
+        assert result.inserted == 1
+        row = con.execute("SELECT region FROM dim_emp WHERE emp_id='E1'").fetchone()
+        assert row[0] == "West"
+
+    def test_drop_stream_views_exception_swallowed(self):
+        """_drop_stream_views must not propagate exceptions from DROP statements."""
+        from unittest.mock import MagicMock
+        proc, _ = self._make(duckdb.connect())
+        mock_con = MagicMock()
+        mock_con.execute.side_effect = Exception("Simulated DROP failure")
+        proc._con = mock_con
+        proc._drop_stream_views()  # must not raise
 
 
 # ---------------------------------------------------------------------------
@@ -627,6 +683,51 @@ class TestLazyType6ProcessorStream:
             on_batch=lambda i, r: calls.append(i),
         )
         assert calls == [0]
+
+    def test_deduplicate_by_keeps_latest_per_nk(self):
+        """Two events for same NK in one batch; dedup by tier (DESC α) keeps 'silver' over 'gold'."""
+        con = duckdb.connect()
+        self._empty_t6_table(con, "dim_cust")
+        con.execute("""
+            CREATE OR REPLACE VIEW b_dedup_t6 AS
+            SELECT 'C1' AS cust_id, 'a@x.com' AS email, 'gold'   AS tier
+            UNION ALL
+            SELECT 'C1' AS cust_id, 'a@x.com' AS email, 'silver' AS tier
+        """)
+        proc, _ = self._make(con)
+        result = proc.process_stream(
+            StubStreamSource(["b_dedup_t6"]), "dim_cust",
+            deduplicate_by="tier",
+        )
+        assert result.inserted == 1
+        row = con.execute("SELECT tier FROM dim_cust WHERE cust_id='C1'").fetchone()
+        assert row[0] == "silver"
+
+    def test_drop_stream_views_exception_swallowed(self):
+        """_drop_stream_views must not propagate exceptions from DROP statements."""
+        from unittest.mock import MagicMock
+        proc, _ = self._make(duckdb.connect())
+        mock_con = MagicMock()
+        mock_con.execute.side_effect = Exception("Simulated DROP failure")
+        proc._con = mock_con
+        proc._drop_stream_views()  # must not raise
+
+
+# ---------------------------------------------------------------------------
+# LazySCDProcessor (Type 2) _drop_stream_views exception path
+# ---------------------------------------------------------------------------
+
+class TestSCDType2DropStreamViewsException:
+    def test_drop_stream_views_exception_swallowed(self):
+        """_drop_stream_views on LazySCDProcessor must not propagate DROP errors."""
+        from unittest.mock import MagicMock
+        con = duckdb.connect()
+        sink = InMemorySink()
+        proc = LazySCDProcessor("sku", ["name", "price"], sink=sink, con=con)
+        mock_con = MagicMock()
+        mock_con.execute.side_effect = Exception("DROP error")
+        proc._con = mock_con
+        proc._drop_stream_views()  # must not raise
 
 
 # ---------------------------------------------------------------------------

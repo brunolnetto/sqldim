@@ -130,7 +130,7 @@ class LazySCDMetadataProcessor:
         natural_key: str | list[str],
         metadata_columns: list[str],
         sink,
-        batch_size: int = 100_000,
+        batch_size: int = 50_000,
         con: duckdb.DuckDBPyConnection | None = None,
     ):
         raw_nk = [natural_key] if isinstance(natural_key, str) else list(natural_key)
@@ -168,11 +168,17 @@ class LazySCDMetadataProcessor:
         _safe(table_name)
 
         _log.info(f"[sqldim] {table_name}: registering source …")
-        self._register_source(source)
-        self._register_current_hashes(table_name)
-        self._classify()
+        self._register_source(source)        # TABLE: incoming (parquet → NK + metadata + hash)
+        self._register_current_hashes(table_name)  # TABLE: current_hashes (PG → NK + hash, once)
+        self._classify()                     # TABLE: classified (hash join, once; spill-eligible)
 
-        # Single scan for all three counts — one pass over the VIEW.
+        # Drop source tables as soon as classified is built to free memory.
+        # classified has everything we need; incoming and current_hashes are no
+        # longer referenced by any downstream step.
+        self._con.execute("DROP TABLE IF EXISTS incoming")
+        self._con.execute("DROP TABLE IF EXISTS current_hashes")
+
+        # Single scan over the already-materialised classified TABLE.
         stats = self._con.execute("""
             SELECT countif(_scd_class = 'new')       AS n_new,
                    countif(_scd_class = 'changed')   AS n_changed,
@@ -189,12 +195,15 @@ class LazySCDMetadataProcessor:
         result.inserted  = self._write_new(table_name, now, n_new)
         result.versioned = self._write_changed(table_name, now, n_changed)
         result.unchanged = n_unchanged
+
+        # Drop classified after all writes are done.
+        self._con.execute("DROP TABLE IF EXISTS classified")
         return result
 
     # ── Pipeline steps ────────────────────────────────────────────────────
 
     def _register_source(self, source) -> None:
-        """Register an ``incoming`` DuckDB view over *source*.
+        """Materialise the source into a DuckDB TABLE named ``incoming``.
 
         Projected columns:
 
@@ -205,6 +214,18 @@ class LazySCDMetadataProcessor:
 
         Rows where any NK column is NULL are silently dropped: such entities
         cannot be identified or versioned in an SCD2 dimension.
+
+        A TABLE (not a VIEW) is used so that:
+
+        1. The Parquet file is scanned and ``struct_pack`` / ``md5`` are
+           computed **exactly once**.  With a VIEW, every downstream reference
+           to ``incoming`` (from ``classified``, from ``countif``, from
+           ``_write_new``, from ``_write_changed``) would repeat the full scan
+           and hash computation.
+
+        2. The materialised TABLE is **spill-eligible** — DuckDB can page it
+           through ``temp_directory`` when memory is tight, which is not
+           possible for a lazy VIEW pipeline.
         """
         from sqldim.sources import coerce_source
 
@@ -221,7 +242,7 @@ class LazySCDMetadataProcessor:
         nk_not_null = " AND ".join(f"{c} IS NOT NULL" for c in self._nk_cols)
 
         self._con.execute(f"""
-            CREATE OR REPLACE VIEW incoming AS
+            CREATE OR REPLACE TABLE incoming AS
             WITH _src AS (
                 SELECT {nk_select},
                        {meta_sql} AS _metadata
@@ -264,13 +285,15 @@ class LazySCDMetadataProcessor:
         """)
 
     def _classify(self) -> None:
-        """Register a ``classified`` DuckDB **view** tagging each row.
+        """Materialise a ``classified`` DuckDB TABLE tagging each incoming row.
 
-        Kept as a VIEW — never a TABLE — so that DuckDB can stream rows through
-        the pipeline without materialising all of them in memory at once.  For
-        large tables (millions of rows) a TABLE would exhaust the memory limit
-        and cause a segfault.  Callers that need counts should issue a single
-        ``countif(...)`` query against the view rather than materialising it.
+        Tables are used for both sides of the join (``incoming`` and
+        ``current_hashes`` are both already TABLEs) so DuckDB can execute the
+        hash join once and cache the result.  Keeping this as a TABLE rather
+        than a VIEW means the classification result is computed exactly once and
+        is spill-eligible, so downstream references to ``classified``
+        (``countif``, ``_write_new``, ``_write_changed``) all read from local
+        storage instead of re-executing the join.
 
         Tags: ``'new'`` (NK absent in DB), ``'changed'`` (hash differs),
         ``'unchanged'`` (hash identical).
@@ -281,7 +304,7 @@ class LazySCDMetadataProcessor:
         )
         null_check = f"c.{self._nk_cols[0]} IS NULL"
         self._con.execute(f"""
-            CREATE OR REPLACE VIEW classified AS
+            CREATE OR REPLACE TABLE classified AS
             SELECT
                 i.*,
                 CASE
@@ -318,7 +341,7 @@ class LazySCDMetadataProcessor:
             WHERE _scd_class = 'new'
         """)
         return self.sink.write_named(
-            self._con, "new_rows", table_name, cols, count
+            self._con, "new_rows", table_name, cols, self.batch_size
         )
 
     def _write_changed(self, table_name: str, now: str, count: int) -> int:
@@ -326,28 +349,27 @@ class LazySCDMetadataProcessor:
 
         Steps in strict order:
 
-        1. Build ``changed_nks`` view — NKs whose hash changed.
-        2. Materialise ``old_metadata_snapshot`` TABLE — captures the current
-           ``metadata`` from the DB *before* any expiry.  This is always a
-           small subset (changed rows only), so materialisation is safe.
+        1. Extract ``changed_nks`` TABLE — NKs whose hash changed (small subset).
+        2. Fetch ``old_metadata_snapshot`` TABLE — only the NKs in step 1 are
+           read from PostgreSQL, so this is a small targeted fetch.
         3. Call :meth:`~sqldim.sinks.base.SinkAdapter.close_versions` to
            expire old rows.
         4. Insert new versions; ``metadata_diff`` is set to the snapshotted
-           old metadata.  *count* is the pre-computed row count for the log.
+           old metadata.  Intermediate tables are dropped immediately after use.
         """
         if count == 0:
             return 0
         nk_select = ", ".join(self._nk_cols)
 
-        # Step 1 — identify NKs that changed
+        # Step 1 — materialise changed NKs (small subset of classified)
         self._con.execute(f"""
-            CREATE OR REPLACE VIEW changed_nks AS
+            CREATE OR REPLACE TABLE changed_nks AS
             SELECT {nk_select}
             FROM classified
             WHERE _scd_class = 'changed'
         """)
 
-        # Step 2 — snapshot current metadata for those NKs BEFORE close
+        # Step 2 — fetch old metadata only for changed NKs (targeted PG read)
         db_sql   = self.sink.current_state_sql(table_name)
         nk_d_sel = ", ".join(f"d.{c}" for c in self._nk_cols)
         join_cnd = " AND ".join(f"d.{c} = c.{c}" for c in self._nk_cols)
@@ -365,6 +387,7 @@ class LazySCDMetadataProcessor:
         self.sink.close_versions(
             self._con, table_name, self._nk_cols, "changed_nks", now
         )
+        self._con.execute("DROP TABLE IF EXISTS changed_nks")
 
         # Step 4 — insert new versions with metadata_diff = old snapshot
         cols      = self._nk_cols + self._EXTRA_COLS
@@ -384,6 +407,8 @@ class LazySCDMetadataProcessor:
               ON {cl_join}
             WHERE cl._scd_class = 'changed'
         """)
-        return self.sink.write_named(
-            self._con, "new_versions", table_name, cols, count
+        written = self.sink.write_named(
+            self._con, "new_versions", table_name, cols, self.batch_size
         )
+        self._con.execute("DROP TABLE IF EXISTS old_metadata_snapshot")
+        return written

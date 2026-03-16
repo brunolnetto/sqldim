@@ -279,3 +279,52 @@ class TestParquetSinkUpdateMilestones:
             ["approved_at", "shipped_at"],
         )
         assert n == 1
+
+
+# ---------------------------------------------------------------------------
+# write_named
+# ---------------------------------------------------------------------------
+
+class TestParquetSinkWriteNamed:
+    def test_write_named_writes_subset_of_columns(self, tmp_path):
+        """write_named() must write only listed columns and return row count."""
+        import os
+        base = str(tmp_path)
+        os.makedirs(f"{base}/dim_product/is_current=True", exist_ok=True)
+        os.makedirs(f"{base}/dim_product/is_current=False", exist_ok=True)
+        con = duckdb.connect()
+        sink = ParquetSink(base)
+        # View with an extra 'sk' column not wanted in the output
+        con.execute("""
+            CREATE OR REPLACE VIEW src_named AS
+            SELECT 'SKU1' AS sku, 'Widget' AS name, '9.99' AS price,
+                   'abc' AS checksum, TRUE AS is_current,
+                   '2024-01-01' AS valid_from, NULL::VARCHAR AS valid_to,
+                   42 AS sk
+        """)
+        n = sink.write_named(
+            con, "src_named", "dim_product",
+            ["sku", "name", "price", "checksum", "is_current", "valid_from", "valid_to"],
+        )
+        assert n == 1
+
+    def test_write_named_multiple_rows(self, tmp_path):
+        import os
+        base = str(tmp_path)
+        os.makedirs(f"{base}/dim_product/is_current=True", exist_ok=True)
+        os.makedirs(f"{base}/dim_product/is_current=False", exist_ok=True)
+        con = duckdb.connect()
+        sink = ParquetSink(base)
+        con.execute("""
+            CREATE OR REPLACE VIEW src_multi AS
+            SELECT 'S1' AS sku, 'A' AS name, '1.0' AS price,
+                   'h1' AS checksum, TRUE AS is_current,
+                   '2024-01-01' AS valid_from, NULL::VARCHAR AS valid_to
+            UNION ALL
+            SELECT 'S2', 'B', '2.0', 'h2', FALSE, '2024-01-01', '2024-06-01'
+        """)
+        n = sink.write_named(
+            con, "src_multi", "dim_product",
+            ["sku", "name", "price", "checksum", "is_current", "valid_from", "valid_to"],
+        )
+        assert n == 2

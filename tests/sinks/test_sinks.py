@@ -141,6 +141,73 @@ class TestDuckDBSinkWrite:
 
 
 # ---------------------------------------------------------------------------
+# DuckDBSink — write_named
+# ---------------------------------------------------------------------------
+
+class TestDuckDBSinkWriteNamed:
+    def test_write_named_inserts_only_listed_columns(self, tmp_path):
+        """write_named() must insert a subset of columns from a view."""
+        db = str(tmp_path / "test.duckdb")
+        _setup_ddb_file(db)
+        with DuckDBSink(db) as sink:
+            con = sink._con
+            # View has an extra 'sk' column not present in dim_product schema
+            con.execute("""
+                CREATE OR REPLACE VIEW pending_named AS
+                SELECT 'SKU1' AS sku, 'Widget' AS name, 9.99 AS price,
+                       'abc' AS checksum, TRUE AS is_current,
+                       '2024-01-01' AS valid_from, NULL AS valid_to,
+                       42 AS sk
+            """)
+            n = sink.write_named(
+                con, "pending_named", "dim_product",
+                ["sku", "name", "price", "checksum", "is_current", "valid_from", "valid_to"],
+            )
+            assert n == 1
+            count = con.execute(
+                f"SELECT count(*) FROM {sink._alias}.main.dim_product"
+            ).fetchone()[0]
+            assert count == 1
+
+    def test_write_named_returns_zero_for_empty_view(self, tmp_path):
+        db = str(tmp_path / "test.duckdb")
+        _setup_ddb_file(db)
+        with DuckDBSink(db) as sink:
+            con = sink._con
+            con.execute("""
+                CREATE OR REPLACE VIEW empty_v AS
+                SELECT 'SKU1' AS sku, 'W' AS name, 1.0 AS price,
+                       'h' AS checksum, TRUE AS is_current,
+                       '2024-01-01' AS valid_from, NULL AS valid_to
+                WHERE 1 = 0
+            """)
+            n = sink.write_named(
+                con, "empty_v", "dim_product",
+                ["sku", "name", "price", "checksum", "is_current", "valid_from", "valid_to"],
+            )
+            assert n == 0
+
+    def test_write_named_multiple_rows(self, tmp_path):
+        db = str(tmp_path / "test.duckdb")
+        _setup_ddb_file(db)
+        with DuckDBSink(db) as sink:
+            con = sink._con
+            con.execute("""
+                CREATE OR REPLACE VIEW pending_multi AS
+                SELECT 'S1' AS sku, 'A' AS name, 1.0 AS price,
+                       'h1' AS checksum, TRUE AS is_current,
+                       '2024-01-01' AS valid_from, NULL AS valid_to
+                UNION ALL
+                SELECT 'S2', 'B', 2.0, 'h2', TRUE, '2024-01-01', NULL
+            """)
+            n = sink.write_named(
+                con, "pending_multi", "dim_product",
+                ["sku", "name", "price", "checksum", "is_current", "valid_from", "valid_to"],
+            )
+            assert n == 2
+
+
+# ---------------------------------------------------------------------------
 # DuckDBSink — close_versions
 # ---------------------------------------------------------------------------
 

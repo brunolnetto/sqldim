@@ -186,6 +186,28 @@ class TestLazyTransactionLoaderStream:
         result = loader.load_stream(StubStreamSource(["b1"]), "fact_t")
         assert isinstance(result, StreamResult)
 
+    def test_drop_view_exception_in_finally_is_swallowed(self):
+        """DROP VIEW exception raised in finally block must not propagate."""
+        con = duckdb.connect()
+        _register_batch(con, "b1", [{"v": "1"}])
+        loader, _ = self._make(con)
+
+        class _DroppingFails:
+            """Wraps real connection but raises on DROP VIEW."""
+            def __init__(self, real):
+                self._real = real
+            def __getattr__(self, name):
+                return getattr(self._real, name)
+            def execute(self, sql, *args, **kwargs):
+                if "DROP VIEW" in sql:
+                    raise Exception("DROP failed")
+                return self._real.execute(sql, *args, **kwargs)
+
+        loader._con = _DroppingFails(con)
+        result = loader.load_stream(StubStreamSource(["b1"]), "fact_t")
+        # Batch should still complete despite DROP raising in finally
+        assert result.batches_processed == 1
+
 
 # ---------------------------------------------------------------------------
 # LazySnapshotLoader.load_stream()
@@ -275,3 +297,24 @@ class TestLazySnapshotLoaderStream:
         loader, _ = self._make(con)
         result = loader.load_stream(StubStreamSource(["b1"]), "fact_snap")
         assert isinstance(result, StreamResult)
+
+    def test_drop_view_exception_in_finally_is_swallowed(self):
+        """DROP VIEW exception raised in finally block must not propagate."""
+        con = duckdb.connect()
+        _register_batch(con, "b1", [{"id": "1", "v": "x"}])
+        loader, _ = self._make(con)
+
+        class _DroppingFails:
+            def __init__(self, real):
+                self._real = real
+            def __getattr__(self, name):
+                return getattr(self._real, name)
+            def execute(self, sql, *args, **kwargs):
+                if "DROP VIEW" in sql:
+                    raise Exception("DROP failed")
+                return self._real.execute(sql, *args, **kwargs)
+
+        loader._con = _DroppingFails(con)
+        result = loader.load_stream(StubStreamSource(["b1"]), "fact_snap")
+        # Batch should still complete despite DROP raising in finally
+        assert result.batches_processed == 1
