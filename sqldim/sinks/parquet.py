@@ -59,6 +59,8 @@ class ParquetSink:
         partitioning and file creation without any Python-side buffering.
         """
         out = self._table_out(table_name)
+        if "://" not in out:
+            Path(out).mkdir(parents=True, exist_ok=True)
         con.execute(f"""
             COPY (SELECT * FROM {view_name})
             TO '{out}'

@@ -614,7 +614,7 @@ class TestNoGapPeriods:
 class TestFreshness:
     def test_passes_recent_timestamp(self):
         import datetime
-        now = datetime.datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S")
+        now = datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%d %H:%M:%S")
         con = duckdb.connect()
         con.execute(f"CREATE TABLE t AS SELECT TIMESTAMP '{now}' AS loaded_at")
         v = _view(con, "SELECT * FROM t")

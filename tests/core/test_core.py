@@ -141,3 +141,34 @@ class TestCumulativeMixinLines:
         obj.seasons = [{"pts": 5}, {"pts": 15}]
         assert obj.first_value("seasons") == {"pts": 5}
         assert obj.first_value("empty_col") is None
+
+
+# ---------------------------------------------------------------------------
+# SchemaGraph base — to_mermaid() coverage (float, bool, relationships)
+# ---------------------------------------------------------------------------
+
+def test_base_schema_graph_to_mermaid_all_types():
+    """Covers _annotation_type (float/bool/string), _render_mermaid_model,
+    and to_mermaid() relationship rendering in sqldim.core.kimball.schema_graph."""
+    from sqldim.core.kimball.schema_graph import SchemaGraph as BaseSchemaGraph
+
+    class MetricsDim(DimensionModel, table=True):
+        __tablename__ = "metrics_dim_base"
+        __natural_key__ = ["code"]
+        id: int = Field(primary_key=True, surrogate_key=True)
+        code: str
+        score: float
+        active: bool
+
+    class MetricsFact(FactModel, table=True):
+        __tablename__ = "metrics_fact_base"
+        id: int = Field(primary_key=True)
+        value: float
+
+    g = BaseSchemaGraph.from_models([MetricsDim, MetricsFact])
+    diagram = g.to_mermaid()
+    assert "erDiagram" in diagram
+    assert "MetricsDim" in diagram
+    assert "MetricsFact" in diagram
+    assert "float" in diagram
+    assert "bool" in diagram
