@@ -163,7 +163,7 @@ class EventsSource(SchematicSource):
 
         import duckdb
         from sqldim.examples.real_world.user_activity.dataset import EventsSource
-        from sqldim.loaders.bitmask import BitmaskerLoader
+        from sqldim.core.loaders.bitmask import BitmaskerLoader
         from sqldim.sinks import DuckDBSink
 
         con = duckdb.connect()

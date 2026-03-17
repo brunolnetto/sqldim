@@ -11,7 +11,7 @@ from typing import Any, Iterator, Protocol, runtime_checkable
 
 import duckdb
 
-from sqldim.scd.handler import SCDResult
+from sqldim.core.kimball.dimensions.scd.handler import SCDResult
 
 
 @runtime_checkable

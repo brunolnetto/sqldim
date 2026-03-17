@@ -17,7 +17,7 @@ from __future__ import annotations
 import duckdb
 import pytest
 
-from sqldim.processors.scd_engine import (
+from sqldim.core.kimball.dimensions.scd.processors.scd_engine import (
     LazySCDProcessor,
     LazyType1Processor,
     LazyType3Processor,
@@ -591,6 +591,28 @@ class TestLazyType3ProcessorStream:
         proc._con = mock_con
         proc._drop_stream_views()  # must not raise
 
+    def test_on_batch_callback_called(self):
+        """on_batch is invoked once per successful batch (covers line 274)."""
+        con = duckdb.connect()
+        self._empty_t3_table(con, "dim_emp")
+        _register_batch(con, "b1", [{"emp_id": "E1", "region": "East"}])
+        calls = []
+        proc, _ = self._make(con)
+        proc.process_stream(
+            StubStreamSource(["b1"]), "dim_emp",
+            on_batch=lambda i, r: calls.append(i),
+        )
+        assert calls == [0]
+
+    def test_failed_batch_increments_batches_failed(self):
+        """Exception during batch processing increments batches_failed (covers lines 276-278)."""
+        con = duckdb.connect()
+        self._empty_t3_table(con, "dim_emp")
+        proc, _ = self._make(con)
+        result = proc.process_stream(StubStreamSource(["no_such_view"]), "dim_emp")
+        assert result.batches_failed == 1
+        assert result.batches_processed == 0
+
 
 # ---------------------------------------------------------------------------
 # LazyType6Processor.process_stream()  (SCD Type 6 — hybrid Type 1 + Type 2)
@@ -771,3 +793,155 @@ class TestDropStreamViews:
 
 def test_stub_satisfies_protocol():
     assert isinstance(StubStreamSource([]), StreamSourceAdapter)
+
+
+# ---------------------------------------------------------------------------
+# LazyType3Processor cross-batch changed rows
+# (covers _update_local_fingerprint_after_batch UPDATE branch)
+# ---------------------------------------------------------------------------
+
+class TestLazyType3CrossBatchUpdates:
+    """
+    Ensure the UPDATE branch of _update_local_fingerprint_after_batch is exercised:
+    batch 1 inserts a row, batch 2 presents the same NK with a changed column.
+    For the fingerprint to detect the change cross-batch, the UPDATE must run.
+    """
+
+    def _empty_t3(self, con, name):
+        con.execute(f"""
+            CREATE TABLE IF NOT EXISTS {name} (
+                emp_id      VARCHAR,
+                region      VARCHAR,
+                prev_region VARCHAR,
+                checksum    VARCHAR,
+                is_current  BOOLEAN,
+                valid_from  VARCHAR,
+                valid_to    VARCHAR
+            )
+        """)
+
+    def test_third_batch_sees_second_batch_change(self):
+        """
+        b1: inserts E1/East  → local fingerprint: E1→hash('East')
+        b2: rotates E1 to West → UPDATE fingerprint: E1→hash('West')
+        b3: same E1/West → unchanged (proves fingerprint was synced)
+        """
+        con = duckdb.connect()
+        self._empty_t3(con, "dim_emp_xb")
+        _register_batch(con, "xb1", [{"emp_id": "E1", "region": "East"}])
+        _register_batch(con, "xb2", [{"emp_id": "E1", "region": "West"}])
+        _register_batch(con, "xb3", [{"emp_id": "E1", "region": "West"}])
+        sink = InMemorySink()
+        proc = LazyType3Processor(
+            natural_key="emp_id",
+            column_pairs=[("region", "prev_region")],
+            sink=sink,
+            con=con,
+        )
+        result = proc.process_stream(StubStreamSource(["xb1", "xb2", "xb3"]), "dim_emp_xb")
+        # b1 inserts 1, b2 rotates 1, b3 nothing
+        assert result.inserted == 1
+        assert result.versioned == 1  # b2 rotated once via rotate_attributes
+        assert result.unchanged == 1  # b3 unchanged (fingerprint correctly synced)
+        assert result.batches_processed == 3
+
+    def test_changed_nk_in_batch2_re_changed_in_batch3(self):
+        """Two successive changes to the same NK across three batches."""
+        con = duckdb.connect()
+        self._empty_t3(con, "dim_emp_3ch")
+        _register_batch(con, "ch1", [{"emp_id": "X", "region": "North"}])
+        _register_batch(con, "ch2", [{"emp_id": "X", "region": "South"}])
+        _register_batch(con, "ch3", [{"emp_id": "X", "region": "East"}])
+        sink = InMemorySink()
+        proc = LazyType3Processor(
+            natural_key="emp_id",
+            column_pairs=[("region", "prev_region")],
+            sink=sink,
+            con=con,
+        )
+        result = proc.process_stream(StubStreamSource(["ch1", "ch2", "ch3"]), "dim_emp_3ch")
+        assert result.inserted == 1
+        # Two rotation events: North→South, South→East
+        assert result.versioned == 2
+        assert result.batches_processed == 3
+
+
+# ---------------------------------------------------------------------------
+# LazyType6Processor cross-batch type1_only and type2_changed branches
+# (covers _update_local_state_after_batch UPDATE branches)
+# ---------------------------------------------------------------------------
+
+class TestLazyType6CrossBatchUpdates:
+    """
+    Ensure both UPDATE branches of _update_local_state_after_batch are covered:
+    - type2_changed: tier changes → new version
+    - type1_only: email changes → in-place update
+    """
+
+    def _empty_t6(self, con, name):
+        con.execute(f"""
+            CREATE TABLE IF NOT EXISTS {name} (
+                cust_id    VARCHAR,
+                email      VARCHAR,
+                tier       VARCHAR,
+                checksum   VARCHAR,
+                is_current BOOLEAN,
+                valid_from VARCHAR,
+                valid_to   VARCHAR
+            )
+        """)
+
+    def test_type2_change_then_unchanged(self):
+        """
+        b1: insert C1 gold/a@x.com
+        b2: tier changes to platinum (type2_changed) → _update stores new both checksums
+        b3: same platinum/a@x.com → unchanged (proves _update was correct)
+        """
+        con = duckdb.connect()
+        self._empty_t6(con, "dim_t6_xb")
+        _register_batch(con, "t6_b1", [{"cust_id": "C1", "email": "a@x.com", "tier": "gold"}])
+        _register_batch(con, "t6_b2", [{"cust_id": "C1", "email": "a@x.com", "tier": "platinum"}])
+        _register_batch(con, "t6_b3", [{"cust_id": "C1", "email": "a@x.com", "tier": "platinum"}])
+        sink = InMemorySink()
+        proc = LazyType6Processor(
+            natural_key="cust_id",
+            type1_columns=["email"],
+            type2_columns=["tier"],
+            sink=sink,
+            con=con,
+        )
+        result = proc.process_stream(StubStreamSource(["t6_b1", "t6_b2", "t6_b3"]), "dim_t6_xb")
+        assert result.inserted == 1
+        assert result.versioned == 1   # b2 created new version
+        assert result.unchanged == 1   # b3 unchanged
+        assert result.batches_processed == 3
+
+    def test_type1_only_change_then_unchanged(self):
+        """
+        b1: insert C2 gold/old@x.com
+        b2: email changes only (type1_only) → in-place update, no new SCD2 version
+        b3: same new email/tier → unchanged (proves t1_checksum updated correctly)
+        """
+        con = duckdb.connect()
+        self._empty_t6(con, "dim_t6_t1")
+        _register_batch(con, "t1_b1", [{"cust_id": "C2", "email": "old@x.com", "tier": "silver"}])
+        _register_batch(con, "t1_b2", [{"cust_id": "C2", "email": "new@x.com", "tier": "silver"}])
+        _register_batch(con, "t1_b3", [{"cust_id": "C2", "email": "new@x.com", "tier": "silver"}])
+        sink = InMemorySink()
+        proc = LazyType6Processor(
+            natural_key="cust_id",
+            type1_columns=["email"],
+            type2_columns=["tier"],
+            sink=sink,
+            con=con,
+        )
+        result = proc.process_stream(StubStreamSource(["t1_b1", "t1_b2", "t1_b3"]), "dim_t6_t1")
+        assert result.inserted == 1
+        # type1_only contributes 1 to versioned (via _apply_type1_only count)
+        assert result.versioned == 1
+        assert result.unchanged == 1   # b3 correctly identified as unchanged
+        assert result.batches_processed == 3
+        # Verify only one row exists (no SCD2 version split for type1-only change)
+        total_rows = con.execute("SELECT count(*) FROM dim_t6_t1 WHERE cust_id='C2'").fetchone()[0]
+        assert total_rows == 1
+

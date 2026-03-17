@@ -21,8 +21,8 @@ import types
 
 import duckdb
 
-from sqldim.loaders.edge_projection import LazyEdgeProjectionLoader
-from sqldim.graph.traversal import DuckDBTraversalEngine
+from sqldim.core.loaders.edge_projection import LazyEdgeProjectionLoader
+from sqldim.core.graph.traversal import DuckDBTraversalEngine
 from sqldim.sinks import DuckDBSink
 
 from sqldim.examples.datasets.media import MoviesSource

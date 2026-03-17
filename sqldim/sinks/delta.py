@@ -2,10 +2,14 @@
 sqldim/sinks/delta.py
 
 Delta Lake sink via DuckDB's delta extension.
-MERGE INTO handles all SCD2 cases in one atomic statement.
+
+Note: DuckDB's delta extension currently supports blind ``INSERT`` for writes.
+``MERGE INTO`` and ``UPDATE`` are available for DML operations.
 """
 
 import duckdb
+
+from sqldim.sinks._connection import make_connection
 
 
 class DeltaLakeSink:
@@ -42,10 +46,12 @@ class DeltaLakeSink:
         table_name: str,
         batch_size: int = 100_000,
     ) -> int:
-        """Insert or update rows in the Delta table via a DuckDB ``MERGE INTO`` statement.
+        """Append rows from *view_name* to the Delta table.
 
-        New rows are inserted; changed rows have their ``is_current`` flag
-        flipped and a new version record is added atomically.
+        Uses a blind ``INSERT INTO … SELECT *`` because DuckDB's delta
+        extension does not currently support ``MERGE INTO`` for write
+        operations.  SCD2 version closing is handled by :meth:`close_versions`
+        which performs a partition rewrite via ``UPDATE`` DML.
         """
         nk = self._natural_key
         # Delta MERGE INTO: one statement handles new + changed rows
@@ -160,7 +166,7 @@ class DeltaLakeSink:
     # ── Context manager ───────────────────────────────────────────────────
 
     def __enter__(self) -> "DeltaLakeSink":
-        self._con = duckdb.connect()
+        self._con = make_connection()
         self._con.execute("INSTALL delta; LOAD delta;")
         return self
 

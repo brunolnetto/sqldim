@@ -4,8 +4,8 @@ from unittest.mock import MagicMock
 from sqlalchemy.pool import StaticPool
 from sqlmodel import Field, Session, SQLModel, create_engine, select, text
 from sqldim import DimensionModel, Field, SCD2Mixin
-from sqldim.scd.handler import SCDHandler
-from sqldim.scd.backfill import backfill_scd2, backfill_cumulative
+from sqldim.core.kimball.dimensions.scd.handler import SCDHandler
+from sqldim.core.kimball.dimensions.scd.backfill import backfill_scd2, backfill_cumulative
 
 class UserDim(DimensionModel, SCD2Mixin, table=True):
     __natural_key__ = ["user_code"]

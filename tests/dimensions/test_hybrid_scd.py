@@ -6,7 +6,7 @@ import narwhals as nw
 from typing import Optional, Dict, Any
 from sqlmodel import Field, Session, SQLModel, create_engine, JSON, Column, select
 from sqldim import DimensionModel, SCDHandler, SCD2Mixin
-from sqldim.processors.scd_engine import NarwhalsSCDProcessor
+from sqldim.core.kimball.dimensions.scd.processors.scd_engine import NarwhalsSCDProcessor
 
 # --- Fixtures ---
 
@@ -87,7 +87,7 @@ def test_narwhals_scd_jsonb_vectorized():
     assert len(result.to_insert) == 1
 
 def test_narwhals_jsonb_checksum_determinism():
-    from sqldim.processors.scd_engine import NarwhalsHashStrategy
+    from sqldim.core.kimball.dimensions.scd.processors.scd_engine import NarwhalsHashStrategy
     strategy = NarwhalsHashStrategy(["code"], ["properties"])
     
     df1_dict = pl.DataFrame({"code": ["A"], "properties": [{"a": 1, "b": 2}]})

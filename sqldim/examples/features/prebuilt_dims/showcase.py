@@ -18,9 +18,9 @@ import os
 
 import duckdb
 
-from sqldim.dimensions.date import DateDimension
-from sqldim.dimensions.time import TimeDimension
-from sqldim.dimensions.junk import populate_junk_dimension_lazy
+from sqldim.core.kimball.dimensions.date import DateDimension
+from sqldim.core.kimball.dimensions.time import TimeDimension
+from sqldim.core.kimball.dimensions.junk import populate_junk_dimension_lazy
 from sqldim.sinks import DuckDBSink
 from sqldim.examples.utils import make_tmp_db
 

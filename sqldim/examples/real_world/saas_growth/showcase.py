@@ -5,9 +5,9 @@ from datetime import date, timedelta
 from sqlmodel import Session, SQLModel, create_engine
 from sqlalchemy.pool import StaticPool
 from sqldim.examples.real_world.saas_growth.models import User, ReferralEdge, UserActivity
-from sqldim.graph import GraphModel
-from sqldim.loaders.bitmask import BitmaskerLoader
-from sqldim.processors.scd_engine import NarwhalsSCDProcessor
+from sqldim.core.graph import GraphModel
+from sqldim.core.loaders.bitmask import BitmaskerLoader
+from sqldim.core.kimball.dimensions.scd.processors.scd_engine import NarwhalsSCDProcessor
 
 async def run_saas_showcase():
     """End-to-end SaaS growth analytics showcase.

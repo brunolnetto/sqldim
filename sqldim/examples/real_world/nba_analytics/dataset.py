@@ -135,7 +135,7 @@ class PlayerSeasonsSource(SchematicSource):
 
         import duckdb
         from sqldim.examples.real_world.nba_analytics.dataset import PlayerSeasonsSource
-        from sqldim.processors.scd_engine import LazySCDProcessor
+        from sqldim.core.kimball.dimensions.scd.processors.scd_engine import LazySCDProcessor
 
         con = duckdb.connect()
         src = PlayerSeasonsSource(n=100, seed=7)

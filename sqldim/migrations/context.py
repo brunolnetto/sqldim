@@ -5,8 +5,8 @@ and natural-key renames between a set of :class:`DimensionModel` /
 :class:`FactModel` definitions and the current database state.
 """
 from typing import Any, Dict, List, Optional, Type
-from sqldim.core.models import DimensionModel, FactModel
-from sqldim.core.graph import SchemaGraph
+from sqldim.core.kimball.models import DimensionModel, FactModel
+from sqldim.core.kimball.schema_graph import SchemaGraph
 
 # Change types detected by dimensional diff
 CHANGE_ADD_COLUMN = "add_column"

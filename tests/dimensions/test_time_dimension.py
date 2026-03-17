@@ -1,7 +1,7 @@
 import pytest
 from sqlalchemy.pool import StaticPool
 from sqlmodel import Session, create_engine, SQLModel
-from sqldim.dimensions.time import TimeDimension
+from sqldim.core.kimball.dimensions.time import TimeDimension
 
 @pytest.fixture
 def session():

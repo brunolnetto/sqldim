@@ -43,6 +43,8 @@ from __future__ import annotations
 
 import duckdb
 
+from sqldim.sinks._connection import make_connection
+
 
 class IcebergSink:
     """
@@ -72,6 +74,7 @@ class IcebergSink:
         namespace: str,
         catalog_config: dict | None = None,
         table_location_base: str | None = None,
+        max_python_rows: int = 500_000,
     ) -> None:
         self._catalog_name   = catalog_name
         self._namespace      = namespace
@@ -79,8 +82,27 @@ class IcebergSink:
         self._location_base  = table_location_base
         self._catalog        = None
         self._con: duckdb.DuckDBPyConnection | None = None
+        self._max_python_rows = max_python_rows
 
     # ── Internal helpers ──────────────────────────────────────────────────
+
+    def _check_table_row_count(self, iceberg_table, table_name: str) -> int:
+        """Raise MemoryError if the table exceeds ``_max_python_rows``.
+
+        Mutation methods that load the full table via ``scan().to_arrow()``
+        call this first to prevent OOM.  Returns the row count so callers
+        can skip the guard result.
+        """
+        row_count = iceberg_table.scan().count()
+        if row_count > self._max_python_rows:
+            raise MemoryError(
+                f"IcebergSink: table '{table_name}' has {row_count:,} rows which "
+                f"exceeds the safe Python-materialisation limit of "
+                f"{self._max_python_rows:,}. "
+                f"Use IcebergSink(max_python_rows=N) to raise the limit or "
+                f"migrate to a DuckDB-native write path."
+            )
+        return row_count
 
     def _table_location(self, table_name: str) -> str:
         """Derive the underlying file-system location for a table."""
@@ -146,6 +168,7 @@ class IcebergSink:
             raise ImportError("IcebergSink requires pyarrow") from exc
 
         iceberg_table = self._catalog.load_table(f"{self._namespace}.{table_name}")
+        self._check_table_row_count(iceberg_table, table_name)
         df = iceberg_table.scan().to_arrow()
 
         # Natural keys that need version closure
@@ -199,6 +222,7 @@ class IcebergSink:
             raise ImportError("IcebergSink requires pyarrow") from exc
 
         iceberg_table = self._catalog.load_table(f"{self._namespace}.{table_name}")
+        self._check_table_row_count(iceberg_table, table_name)
         existing = iceberg_table.scan().to_arrow()
 
         updates_df = con.execute(
@@ -258,6 +282,7 @@ class IcebergSink:
             raise ImportError("IcebergSink requires pyarrow") from exc
 
         iceberg_table = self._catalog.load_table(f"{self._namespace}.{table_name}")
+        self._check_table_row_count(iceberg_table, table_name)
         existing = iceberg_table.scan().to_arrow()
 
         curr_cols = [curr for curr, _ in column_pairs]
@@ -339,6 +364,7 @@ class IcebergSink:
             raise ImportError("IcebergSink requires pyarrow") from exc
 
         iceberg_table = self._catalog.load_table(f"{self._namespace}.{table_name}")
+        self._check_table_row_count(iceberg_table, table_name)
         existing = iceberg_table.scan().to_arrow()
 
         updates_df = con.execute(
@@ -390,7 +416,7 @@ class IcebergSink:
     def __enter__(self) -> "IcebergSink":
         """Initialise the PyIceberg catalog and a DuckDB connection."""
         self._catalog = self._load_catalog()
-        self._con = duckdb.connect()
+        self._con = make_connection()
         try:
             self._con.execute("LOAD iceberg")
         except Exception:

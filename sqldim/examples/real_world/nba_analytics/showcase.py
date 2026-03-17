@@ -13,9 +13,9 @@ from sqlalchemy.pool import StaticPool
 from sqldim.examples.real_world.nba_analytics.models import (
     Player, PlayerSCD, ScoringClass, SeasonStats, Game, PlaysInEdge,
 )
-from sqldim.scd.backfill import backfill_scd2
-from sqldim.graph.registry import GraphModel
-from sqldim.query.builder import DimensionalQuery
+from sqldim.core.kimball.dimensions.scd.backfill import backfill_scd2
+from sqldim.core.graph.registry import GraphModel
+from sqldim.core.query.builder import DimensionalQuery
 
 def _print_scd_versions(scd_versions: list) -> None:
     """Print each SCD2 version row in a human-readable format."""

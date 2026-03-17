@@ -22,7 +22,7 @@ import os
 
 import duckdb
 
-from sqldim.processors.scd_engine import LazySCDProcessor
+from sqldim.core.kimball.dimensions.scd.processors.scd_engine import LazySCDProcessor
 from sqldim.sinks import DuckDBSink, MotherDuckSink, SinkAdapter
 from sqldim.sources import _DatasetSource
 

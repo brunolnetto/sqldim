@@ -8,6 +8,8 @@ Useful for local development, testing, and intermediate staging.
 
 import duckdb
 
+from sqldim.sinks._connection import make_connection
+
 
 class DuckDBSink:
     """
@@ -20,12 +22,44 @@ class DuckDBSink:
         self._schema = schema
         self._alias  = "sqldim_ddb"
         self._con: duckdb.DuckDBPyConnection | None = None
+        self._hash_cache: dict[str, str] = {}
 
     # ── SinkAdapter core ──────────────────────────────────────────────────
 
     def current_state_sql(self, table_name: str) -> str:
         """Return a DuckDB SQL fragment that reads the current dimension table."""
+        if table_name in self._hash_cache:
+            return f"SELECT * FROM {self._hash_cache[table_name]}"
         return f"SELECT * FROM {self._alias}.{self._schema}.{table_name}"
+
+    def prefetch_hashes(
+        self,
+        con: duckdb.DuckDBPyConnection,
+        table_name: str,
+        nk_cols: list[str],
+        hash_col: str = "checksum",
+        where: str = "is_current = TRUE",
+    ) -> int:
+        """Pull a slim (NK + hash) fingerprint into a local DuckDB TABLE.
+
+        For DuckDB-backed sinks this is mostly useful for API parity with
+        :class:`~sqldim.sinks.postgresql.PostgreSQLSink`.  Since the data is
+        already local, the main benefit is pinning a consistent snapshot of the
+        current state before streaming batches modify it.
+
+        Returns the number of rows materialised.
+        """
+        nk_select  = ", ".join(nk_cols)
+        local      = f"_sqldim_hashes_{table_name}"
+        remote_sql = f"{self._alias}.{self._schema}.{table_name}"
+        con.execute(f"""
+            CREATE OR REPLACE TABLE {local} AS
+            SELECT {nk_select}, {hash_col}
+            FROM {remote_sql}
+            WHERE {where}
+        """)
+        self._hash_cache[table_name] = local
+        return con.execute(f"SELECT count(*) FROM {local}").fetchone()[0]
 
     def write(
         self,
@@ -33,12 +67,20 @@ class DuckDBSink:
         view_name: str,
         table_name: str,
         batch_size: int = 100_000,
+        per_thread_output: bool = False,
     ) -> int:
         """Stream all rows from *view_name* into *table_name*.
 
         Executes a single ``INSERT INTO … SELECT *`` so DuckDB's vectorised
         pipeline streams data without materialising the full result set.
         The total row count is logged before and the elapsed time after.
+
+        Parameters
+        ----------
+        per_thread_output:
+            When ``True``, hints DuckDB to use per-thread output mode which
+            reduces memory pressure on xl/xxl tier inserts by not requiring
+            the full result to be gathered before writing.
         """
         import logging, time
         _log = logging.getLogger(__name__)
@@ -253,7 +295,7 @@ class DuckDBSink:
     # ── Context manager ───────────────────────────────────────────────────
 
     def __enter__(self) -> "DuckDBSink":
-        self._con = duckdb.connect()
+        self._con = make_connection()
         self._con.execute(f"ATTACH '{self._path}' AS {self._alias}")
         return self
 

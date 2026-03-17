@@ -21,7 +21,7 @@ import os
 
 import duckdb
 
-from sqldim.processors.scd_engine import (
+from sqldim.core.kimball.dimensions.scd.processors.scd_engine import (
     LazySCDProcessor,
     LazyType3Processor,
     LazyType6Processor,

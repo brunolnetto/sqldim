@@ -115,3 +115,37 @@ class TestWriteNamedHappyPath:
         # Should not raise; n_chunks=1 means the debug branch is skipped
         result = sink.write_named(con, "new_rows", "dim_emp", ["emp_id"], batch_size=100)
         assert result == 5
+
+
+class TestCloseVersions:
+    """Covers postgresql.py line 172 (single-column else branch) and the
+    composite-key isinstance branch."""
+
+    def _mock_con(self, count=2):
+        from unittest.mock import MagicMock
+        con = MagicMock()
+        con.execute.return_value.fetchone.return_value = (count,)
+        return con
+
+    def test_single_column_nk_string_uses_simple_join(self):
+        """String nk_col → else branch: join_cond = 't.col = n.col' (line 172)."""
+        sink = PostgreSQLSink("dsn=ignored")
+        con = self._mock_con(2)
+        result = sink.close_versions(con, "dim_emp", "emp_id", "changed_nks", "2099-01-01")
+        assert result == 2
+        all_sql = [c[0][0] for c in con.execute.call_args_list]
+        update_sql = next(s for s in all_sql if "UPDATE" in s)
+        assert "t.emp_id = n.emp_id" in update_sql
+
+    def test_composite_nk_list_uses_and_join(self):
+        """List nk_col → isinstance branch: conditions joined with AND."""
+        sink = PostgreSQLSink("dsn=ignored")
+        con = self._mock_con(1)
+        result = sink.close_versions(
+            con, "dim_ol", ["order_id", "line_no"], "chg", "2099-01-01"
+        )
+        assert result == 1
+        all_sql = [c[0][0] for c in con.execute.call_args_list]
+        update_sql = next(s for s in all_sql if "UPDATE" in s)
+        assert "t.order_id = n.order_id" in update_sql
+        assert "t.line_no = n.line_no" in update_sql

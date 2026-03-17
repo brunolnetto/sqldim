@@ -1,6 +1,6 @@
 import pytest
-from sqldim.scd.detection import HashDetection, ColumnarDetection, ChangeRecord
-from sqldim.scd.audit import AuditLog, AuditEntry
+from sqldim.core.kimball.dimensions.scd.detection import HashDetection, ColumnarDetection, ChangeRecord
+from sqldim.core.kimball.dimensions.scd.audit import AuditLog, AuditEntry
 
 # ── HashDetection ─────────────────────────────────────────────────────────────
 

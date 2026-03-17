@@ -2,7 +2,7 @@ import pytest
 from sqlalchemy.pool import StaticPool
 from sqlmodel import Session, create_engine, SQLModel
 from sqldim import DimensionModel, Field, SCD2Mixin
-from sqldim.loaders.resolution import SKResolver
+from sqldim.core.loaders.resolution import SKResolver
 from sqldim.exceptions import SKResolutionError
 
 class VendorDim(DimensionModel, SCD2Mixin, table=True):

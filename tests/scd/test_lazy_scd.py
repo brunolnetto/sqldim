@@ -1,5 +1,5 @@
 """
-Tests for the lazy SCD processors and LazySKResolver in sqldim.processors.
+Tests for the lazy SCD processors and LazySKResolver in sqldim.core.processors.
 
 Coverage targets
 ----------------
@@ -10,13 +10,13 @@ from __future__ import annotations
 import duckdb
 import pytest
 
-from sqldim.processors.scd_engine import (
+from sqldim.core.kimball.dimensions.scd.processors.scd_engine import (
     LazySCDProcessor,
     LazyType1Processor,
     LazyType3Processor,
     LazyType6Processor,
 )
-from sqldim.processors.sk_resolver import LazySKResolver
+from sqldim.core.kimball.dimensions.scd.processors.sk_resolver import LazySKResolver
 
 
 # ---------------------------------------------------------------------------

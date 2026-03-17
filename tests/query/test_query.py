@@ -4,7 +4,7 @@ import duckdb
 from datetime import date, datetime, timezone
 from sqlmodel import Session, create_engine, SQLModel, select
 from sqldim import DimensionModel, FactModel, Field, SCD2Mixin
-from sqldim.query.builder import DimensionalQuery, DuckDBDimensionalQuery, SemanticError
+from sqldim.core.query.builder import DimensionalQuery, DuckDBDimensionalQuery, SemanticError
 
 class RegionDim(DimensionModel, SCD2Mixin, table=True):
     __natural_key__ = ["region_code"]

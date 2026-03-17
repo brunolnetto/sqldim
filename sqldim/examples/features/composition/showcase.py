@@ -23,8 +23,8 @@ from datetime import datetime, timezone
 
 import duckdb
 
-from sqldim.processors.scd_engine import NarwhalsSCDProcessor
-from sqldim.query.builder import DuckDBDimensionalQuery
+from sqldim.core.kimball.dimensions.scd.processors.scd_engine import NarwhalsSCDProcessor
+from sqldim.core.query.builder import DuckDBDimensionalQuery
 from sqldim.sinks import DuckDBSink
 
 from sqldim.examples.datasets.ecommerce import ProductsSource, CustomersSource

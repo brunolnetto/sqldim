@@ -14,7 +14,7 @@ from __future__ import annotations
 import duckdb
 import pytest
 
-from sqldim.loaders.snapshot import LazyTransactionLoader, LazySnapshotLoader
+from sqldim.core.loaders.snapshot import LazyTransactionLoader, LazySnapshotLoader
 from sqldim.sources.stream import StreamResult
 
 

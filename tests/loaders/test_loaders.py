@@ -2,7 +2,7 @@ import pytest
 from sqlalchemy.pool import StaticPool
 from sqlmodel import Session, create_engine, SQLModel, select
 from sqldim import DimensionModel, FactModel, Field, SCD2Mixin
-from sqldim.loaders.dimensional import DimensionalLoader
+from sqldim.core.loaders.dimensional import DimensionalLoader
 
 class ProductDim(DimensionModel, SCD2Mixin, table=True):
     __natural_key__ = ["sku"]
@@ -55,7 +55,7 @@ async def test_dimensional_load_with_sk_resolution(session):
 
 @pytest.mark.asyncio
 async def test_sk_resolver_cache(session):
-    from sqldim.loaders.dimensional import SKResolver
+    from sqldim.core.loaders.dimensional import SKResolver
     
     # Setup dimension
     p = ProductDim(sku="P2", price=20.0, is_current=True)

@@ -10,6 +10,9 @@ from sqldim.sources.stream        import StreamSourceAdapter, StreamResult
 from sqldim.sources.kafka         import KafkaSource
 from sqldim.sources.kinesis       import KinesisSource
 from sqldim.sources.cdc           import DebeziumSource
+from sqldim.sources.csv_stream    import CSVStreamSource
+from sqldim.sources.parquet_stream import ParquetStreamSource
+from sqldim.sources.iceberg       import IcebergSource
 
 __all__ = [
     "SourceAdapter",
@@ -27,6 +30,9 @@ __all__ = [
     "KafkaSource",
     "KinesisSource",
     "DebeziumSource",
+    "CSVStreamSource",
+    "ParquetStreamSource",
+    "IcebergSource",
 ]
 
 

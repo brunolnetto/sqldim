@@ -5,7 +5,7 @@ from unittest.mock import MagicMock
 from sqlmodel import Session, SQLModel, create_engine, select
 from sqldim.examples.real_world.nba_analytics.staging import PlayerSeasons
 from sqldim.examples.real_world.nba_analytics.models import Player, PlayerSCD, ScoringClass, SeasonStats, Game, PlaysInEdge
-from sqldim.scd.backfill import backfill_scd2, backfill_cumulative
+from sqldim.core.kimball.dimensions.scd.backfill import backfill_scd2, backfill_cumulative
 
 @pytest.fixture
 def session():
@@ -70,7 +70,7 @@ async def test_nba_full_pipeline(session):
     session.commit()
 
     # Verify graph link
-    from sqldim.graph.registry import GraphModel
+    from sqldim.core.graph.registry import GraphModel
     graph = GraphModel(Player, Game, PlaysInEdge, session=session)
     jordan = await graph.get_vertex(Player, p1.id)
     neighbors = await graph.neighbors(jordan, edge_type=PlaysInEdge)

@@ -9,7 +9,7 @@ from datetime import date, timedelta
 from sqlmodel import Session, SQLModel, create_engine, select
 from sqlalchemy.pool import StaticPool
 from sqldim.examples.real_world.user_activity.models import Device, Event, UserCumulated
-from sqldim.loaders.bitmask import BitmaskerLoader
+from sqldim.core.loaders.bitmask import BitmaskerLoader
 import narwhals as nw
 
 async def run_activity_showcase():

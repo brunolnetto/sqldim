@@ -17,7 +17,7 @@ from sqldim.sources.stream import StreamSourceAdapter, StreamResult
 from sqldim.sources.kafka import KafkaSource
 from sqldim.sources.kinesis import KinesisSource
 from sqldim.sources.cdc import DebeziumSource
-from sqldim.scd.handler import SCDResult
+from sqldim.core.kimball.dimensions.scd.handler import SCDResult
 
 
 # ---------------------------------------------------------------------------
@@ -721,3 +721,134 @@ class TestKinesisStream:
             fragments = list(src.stream(MagicMock(), batch_size=100))
 
         assert len(fragments) == 1
+
+
+# ---------------------------------------------------------------------------
+# KafkaSource fallback path  (kafka.py lines 70, 140)
+# ---------------------------------------------------------------------------
+
+class TestKafkaSourceFallback:
+    """Covers lines 70 (consumer fallback) and 140 (yield in _stream_consumer)."""
+
+    def _make_src(self):
+        return KafkaSource(
+            brokers="localhost:9092",
+            topic="test_topic",
+            group_id="test_group",
+        )
+
+    def test_stream_falls_back_to_consumer_when_kafka_extension_missing(self):
+        """When 'LOAD kafka' raises, stream() falls back to _stream_consumer (line 70)."""
+        from unittest.mock import MagicMock, patch
+
+        src = self._make_src()
+        mock_con = MagicMock()
+        mock_con.execute.side_effect = Exception("Extension 'kafka' not found")
+
+        # Stub _stream_consumer so we don't need the real confluent-kafka library.
+        def _stub_consumer(con, batch_size):
+            yield "SELECT 1 AS id"
+
+        with patch.object(src, "_stream_consumer", _stub_consumer):
+            fragments = list(src.stream(mock_con, batch_size=100))
+
+        assert fragments == ["SELECT 1 AS id"]
+
+    def test_stream_uses_native_path_when_kafka_loads(self):
+        """When 'LOAD kafka' succeeds, stream() uses _stream_native (line 74)."""
+        from unittest.mock import MagicMock, patch
+
+        src = self._make_src()
+        mock_con = MagicMock()
+        # execute("LOAD kafka;") does not raise → native = True
+        mock_con.execute.return_value = MagicMock()
+
+        def _stub_native(con, batch_size):
+            yield "NATIVE_FRAG"
+
+        with patch.object(src, "_stream_native", _stub_native):
+            fragments = list(src.stream(mock_con, batch_size=100))
+
+        assert fragments == ["NATIVE_FRAG"]
+
+    def test_stream_consumer_yields_batch_fragment(self):
+        """_stream_consumer yields 'SELECT * FROM _kafka_batch' for each message
+        batch (line 140), and updates self._offset to the last message offset."""
+        import json
+        import sys
+        from unittest.mock import MagicMock, patch
+
+        src = self._make_src()
+
+        # Build a fake Kafka message.
+        msg = MagicMock()
+        msg.error.return_value = None
+        msg.value.return_value = json.dumps({"id": 1, "name": "test"}).encode()
+        msg.offset.return_value = 42
+
+        mock_consumer = MagicMock()
+        # First consume() returns [msg], second returns [] → loop stops.
+        mock_consumer.consume.side_effect = [[msg], []]
+
+        mock_confluent = MagicMock()
+        mock_confluent.Consumer.return_value = mock_consumer
+
+        mock_df = MagicMock()
+        mock_df.to_arrow.return_value = "arrow_table"
+        mock_polars = MagicMock()
+        mock_polars.from_dicts.return_value = mock_df
+
+        mock_con = MagicMock()
+
+        with patch.dict(sys.modules, {
+            "confluent_kafka": mock_confluent,
+            "polars": mock_polars,
+        }):
+            fragments = list(src._stream_consumer(mock_con, batch_size=100))
+
+        assert fragments == ["SELECT * FROM _kafka_batch"]
+        assert src._offset == 42
+        mock_con.register.assert_called_once_with("_kafka_batch", "arrow_table")
+
+    def test_stream_consumer_skips_error_messages(self):
+        """When all messages in a poll have errors, rows is empty and the
+        'continue' branch at line 140 is taken without yielding a fragment."""
+        import json
+        import sys
+        from unittest.mock import MagicMock, patch
+
+        src = self._make_src()
+
+        bad_msg = MagicMock()
+        bad_msg.error.return_value = "kafka-error"   # truthy → filtered out
+
+        good_msg = MagicMock()
+        good_msg.error.return_value = None
+        good_msg.value.return_value = json.dumps({"id": 2}).encode()
+        good_msg.offset.return_value = 7
+
+        mock_consumer = MagicMock()
+        # Batch 1: only error message → rows=[] → continue (line 140)
+        # Batch 2: good message → yields fragment
+        # Batch 3: empty → loop breaks
+        mock_consumer.consume.side_effect = [[bad_msg], [good_msg], []]
+
+        mock_confluent = MagicMock()
+        mock_confluent.Consumer.return_value = mock_consumer
+
+        mock_df = MagicMock()
+        mock_df.to_arrow.return_value = "arrow2"
+        mock_polars = MagicMock()
+        mock_polars.from_dicts.return_value = mock_df
+
+        mock_con = MagicMock()
+
+        with patch.dict(sys.modules, {
+            "confluent_kafka": mock_confluent,
+            "polars": mock_polars,
+        }):
+            fragments = list(src._stream_consumer(mock_con, batch_size=100))
+
+        # Only the good batch yielded a fragment; error batch hit continue
+        assert fragments == ["SELECT * FROM _kafka_batch"]
+        assert src._offset == 7

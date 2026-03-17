@@ -3,7 +3,7 @@ from sqlalchemy.pool import StaticPool
 from sqlmodel import Session, create_engine, SQLModel, select
 from typing import Optional
 from sqldim import FactModel, Field
-from sqldim.loaders.accumulating import AccumulatingLoader
+from sqldim.core.loaders.accumulating import AccumulatingLoader
 
 class OrderPipeline(FactModel, table=True):
     __grain__ = "one row per order"

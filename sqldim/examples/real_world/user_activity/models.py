@@ -10,7 +10,7 @@ from typing import List, Optional
 from sqlmodel import Field, Column, JSON
 
 from sqldim import DimensionModel, FactModel
-from sqldim.core.mixins import DatelistMixin
+from sqldim.core.kimball.mixins import DatelistMixin
 
 
 class Device(DimensionModel, table=True):

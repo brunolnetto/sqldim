@@ -3,7 +3,7 @@ from sqlalchemy.pool import StaticPool
 from sqlmodel import Session, create_engine, SQLModel, select
 from typing import Optional
 from sqldim import DimensionModel, Field
-from sqldim.dimensions.junk import make_junk_dimension, populate_junk_dimension, _flag_value_sql
+from sqldim.core.kimball.dimensions.junk import make_junk_dimension, populate_junk_dimension, _flag_value_sql
 
 # Static model for DB-level tests (make_junk_dimension produces non-table dynamic models)
 class SalesFlagsDim(DimensionModel, table=True):

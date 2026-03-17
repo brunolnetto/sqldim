@@ -65,10 +65,14 @@ class KafkaSource:
         Attempts the DuckDB native ``kafka_scan`` first; falls back to
         the ``confluent-kafka`` consumer if the extension is unavailable.
         """
+        native = True
         try:
             con.execute("LOAD kafka;")
-            yield from self._stream_native(con, batch_size)
         except Exception:
+            native = False
+        if native:
+            yield from self._stream_native(con, batch_size)
+        else:
             yield from self._stream_consumer(con, batch_size)
 
     def commit(self, offset: Any) -> None:

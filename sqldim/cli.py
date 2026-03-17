@@ -127,7 +127,7 @@ All heavy lifting stays inside DuckDB; Python is the orchestrator.
   DuckDBSource        arbitrary SQL against a local/MotherDuck DB
   PostgreSQLSource    streaming SELECT from PostgreSQL
 
-  Layer 2 — Processors (sqldim.processors)
+  Layer 2 — Processors (sqldim.core.processors)
   ─────────────────────────────────────────
   LazySCDProcessor    SCD Type 2 — 100% SQL, zero Python rows in memory
   LazyType1Processor  SCD Type 1 overwrite — pure SQL UPDATE

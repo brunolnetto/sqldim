@@ -20,13 +20,13 @@ from datetime import date
 import duckdb
 import pytest
 
-from sqldim.loaders.snapshot       import LazyTransactionLoader, LazySnapshotLoader
-from sqldim.loaders.accumulating   import LazyAccumulatingLoader
-from sqldim.loaders.cumulative     import LazyCumulativeLoader
-from sqldim.loaders.bitmask        import LazyBitmaskLoader
-from sqldim.loaders.array_metric   import LazyArrayMetricLoader
-from sqldim.loaders.edge_projection import LazyEdgeProjectionLoader, EdgeProjectionLoader
-from sqldim.processors.backfill      import lazy_backfill_scd2
+from sqldim.core.loaders.snapshot       import LazyTransactionLoader, LazySnapshotLoader
+from sqldim.core.loaders.accumulating   import LazyAccumulatingLoader
+from sqldim.core.loaders.cumulative     import LazyCumulativeLoader
+from sqldim.core.loaders.bitmask        import LazyBitmaskLoader
+from sqldim.core.loaders.array_metric   import LazyArrayMetricLoader
+from sqldim.core.loaders.edge_projection import LazyEdgeProjectionLoader, EdgeProjectionLoader
+from sqldim.core.kimball.dimensions.scd.processors.backfill      import lazy_backfill_scd2
 
 
 # ---------------------------------------------------------------------------
@@ -750,9 +750,9 @@ class TestLazyBackfillScd2:
 import pandas as pd
 import narwhals as nw
 
-from sqldim.loaders.bitmask      import BitmaskerLoader
-from sqldim.loaders.array_metric import ArrayMetricLoader
-from sqldim.loaders.cumulative   import CumulativeLoader
+from sqldim.core.loaders.bitmask      import BitmaskerLoader
+from sqldim.core.loaders.array_metric import ArrayMetricLoader
+from sqldim.core.loaders.cumulative   import CumulativeLoader
 
 
 class TestBitmaskerLoader:
@@ -1021,7 +1021,7 @@ class TestEdgeProjectionLoader:
 
     def _build_loader(self, **kwargs):
         from unittest.mock import MagicMock
-        from sqldim.models.graph import EdgeModel
+        from sqldim.core.graph import EdgeModel
         session      = MagicMock()
         source_model = MagicMock()
 
@@ -1049,7 +1049,7 @@ class TestEdgeProjectionLoader:
         assert len(loader.edge_models) == 1
 
     def test_init_accepts_list_of_edge_models(self):
-        from sqldim.models.graph import EdgeModel
+        from sqldim.core.graph import EdgeModel
 
         class E1(EdgeModel): pass
         class E2(EdgeModel): pass

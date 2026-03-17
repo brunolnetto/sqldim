@@ -14,8 +14,8 @@ from pydantic import BaseModel
 from sqlmodel import Field, Column, JSON
 
 from sqldim import DimensionModel, FactModel, SCD2Mixin
-from sqldim.models.graph import VertexModel, EdgeModel
-from sqldim.core.mixins import CumulativeMixin
+from sqldim.core.graph import VertexModel, EdgeModel
+from sqldim.core.kimball.mixins import CumulativeMixin
 
 
 # ---------------------------------------------------------------------------

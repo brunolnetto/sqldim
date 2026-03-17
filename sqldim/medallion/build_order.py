@@ -60,8 +60,8 @@ class SilverBuildOrder:
 
         Raises ``TypeError`` when the class is not a recognised Silver model.
         """
-        from sqldim.core.models import DimensionModel, FactModel, BridgeModel
-        from sqldim.graph.schema_graph import SchemaGraph
+        from sqldim.core.kimball.models import DimensionModel, FactModel, BridgeModel
+        from sqldim.core.graph.schema_graph import SchemaGraph
 
         try:
             if issubclass(model_cls, DimensionModel):

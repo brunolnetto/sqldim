@@ -101,7 +101,7 @@ class SaaSUsersSource(SchematicSource):
 
         import duckdb
         from sqldim.examples.real_world.saas_growth.dataset import SaaSUsersSource
-        from sqldim.processors.scd_engine import LazySCDProcessor
+        from sqldim.core.kimball.dimensions.scd.processors.scd_engine import LazySCDProcessor
         from sqldim.sinks import DuckDBSink
 
         con = duckdb.connect()

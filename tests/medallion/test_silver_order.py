@@ -8,8 +8,8 @@ from __future__ import annotations
 import pytest
 
 from sqldim.medallion.build_order import ModelKind, SilverBuildOrder
-from sqldim.core.models import DimensionModel, FactModel, BridgeModel
-from sqldim.graph.schema_graph import SchemaGraph
+from sqldim.core.kimball.models import DimensionModel, FactModel, BridgeModel
+from sqldim.core.graph.schema_graph import SchemaGraph
 
 
 # ---------------------------------------------------------------------------

@@ -27,6 +27,8 @@ import os
 
 import duckdb
 
+from sqldim.sinks._connection import make_connection
+
 
 class MotherDuckSink:
     """
@@ -59,11 +61,43 @@ class MotherDuckSink:
         self._schema = schema
         self._alias  = "sqldim_md"
         self._con: duckdb.DuckDBPyConnection | None = None
+        self._hash_cache: dict[str, str] = {}
 
     # ── SinkAdapter core ──────────────────────────────────────────────────
 
+    def prefetch_hashes(
+        self,
+        con: duckdb.DuckDBPyConnection,
+        table_name: str,
+        nk_cols: list[str],
+        hash_col: str = "checksum",
+        where: str = "is_current = TRUE",
+    ) -> int:
+        """Pull a slim (NK + hash) fingerprint from MotherDuck into a local DuckDB TABLE.
+
+        Call once per run before ``process()`` / ``process_stream()``.
+        After calling this, ``current_state_sql()`` returns a reference to the
+        local TABLE so all downstream joins read from local DuckDB storage, not
+        MotherDuck.
+
+        Returns the number of rows materialised.
+        """
+        nk_select  = ", ".join(nk_cols)
+        local      = f"_sqldim_hashes_{table_name}"
+        remote_sql = f"{self._alias}.{self._schema}.{table_name}"
+        con.execute(f"""
+            CREATE OR REPLACE TABLE {local} AS
+            SELECT {nk_select}, {hash_col}
+            FROM {remote_sql}
+            WHERE {where}
+        """)
+        self._hash_cache[table_name] = local
+        return con.execute(f"SELECT count(*) FROM {local}").fetchone()[0]
+
     def current_state_sql(self, table_name: str) -> str:
         """Return a SQL fragment that reads the current dimension table from MotherDuck."""
+        if table_name in self._hash_cache:
+            return f"SELECT * FROM {self._hash_cache[table_name]}"
         return f"SELECT * FROM {self._alias}.{self._schema}.{table_name}"
 
     def write(
@@ -245,7 +279,7 @@ class MotherDuckSink:
     # ── Context manager ───────────────────────────────────────────────────
 
     def __enter__(self) -> "MotherDuckSink":
-        self._con = duckdb.connect()
+        self._con = make_connection()
         self._con.execute(f"ATTACH '{self._path}' AS {self._alias}")
         return self
 

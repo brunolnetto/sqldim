@@ -2,7 +2,7 @@ import pytest
 from sqlalchemy.pool import StaticPool
 from sqlmodel import Session, create_engine, SQLModel, select
 from sqldim import DimensionModel, Field
-from sqldim.loaders.strategies import BulkInsertStrategy, UpsertStrategy, MergeStrategy
+from sqldim.core.loaders.strategies import BulkInsertStrategy, UpsertStrategy, MergeStrategy
 
 class WidgetDim(DimensionModel, table=True):
     __natural_key__ = ["code"]

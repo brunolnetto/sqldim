@@ -19,8 +19,8 @@ import os
 
 import duckdb
 
-from sqldim.loaders.accumulating import LazyAccumulatingLoader
-from sqldim.loaders.snapshot import LazySnapshotLoader
+from sqldim.core.loaders.accumulating import LazyAccumulatingLoader
+from sqldim.core.loaders.snapshot import LazySnapshotLoader
 from sqldim.sinks import DuckDBSink
 
 from sqldim.examples.datasets.ecommerce  import OrdersSource

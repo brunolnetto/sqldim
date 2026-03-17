@@ -7,6 +7,8 @@ Every read and write is expressed as DuckDB SQL — no psycopg2 in the hot path.
 
 import duckdb
 
+from sqldim.sinks._connection import make_connection
+
 
 class PostgreSQLSink:
     """
@@ -21,10 +23,56 @@ class PostgreSQLSink:
         self._schema = schema
         self._alias  = "sqldim_pg"
         self._con: duckdb.DuckDBPyConnection | None = None
+        self._hash_cache: dict[str, str] = {}
 
     # ── SinkAdapter core ──────────────────────────────────────────────────
 
+    def prefetch_hashes(
+        self,
+        con: duckdb.DuckDBPyConnection,
+        table_name: str,
+        nk_cols: list[str],
+        hash_col: str = "checksum",
+        where: str = "is_current = TRUE",
+    ) -> int:
+        """Pull a slim (NK + hash) fingerprint from PostgreSQL into a local DuckDB TABLE.
+
+        Call this once per run before any ``process()`` or ``process_stream()``
+        call.  After calling this, ``current_state_sql()`` returns a reference
+        to the local TABLE so all downstream joins read from DuckDB, not
+        PostgreSQL.
+
+        Parameters
+        ----------
+        con        : Shared DuckDB connection (must have the postgres extension loaded).
+        table_name : Remote PostgreSQL table to fingerprint.
+        nk_cols    : Natural-key column names to include in the fingerprint.
+        hash_col   : Hash column name (``"checksum"`` for SCD processors,
+                     ``"row_hash"`` for :class:`LazySCDMetadataProcessor`).
+        where      : SQL filter applied to the remote table (default: ``is_current = TRUE``).
+
+        Returns the number of rows materialised.
+        """
+        nk_select  = ", ".join(nk_cols)
+        local      = f"_sqldim_hashes_{table_name}"
+        remote_sql = (
+            f"{self._alias}.{self._schema}.{table_name}"
+            if self._con is not None
+            else f"postgres_scan('{self._dsn}', '{self._schema}', '{table_name}')"
+        )
+        con.execute(f"""
+            CREATE OR REPLACE TABLE {local} AS
+            SELECT {nk_select}, {hash_col}
+            FROM {remote_sql}
+            WHERE {where}
+        """)
+        self._hash_cache[table_name] = local
+        return con.execute(f"SELECT count(*) FROM {local}").fetchone()[0]
+
     def current_state_sql(self, table_name: str) -> str:
+        # Prefer a locally-cached slim fingerprint TABLE when available.
+        if table_name in self._hash_cache:
+            return f"SELECT * FROM {self._hash_cache[table_name]}"
         # When a shared DuckDB connection is attached, use the alias form so
         # all operations go through the same session (consistent snapshot).
         # Without an attached connection, fall back to the standalone
@@ -212,8 +260,9 @@ class PostgreSQLSink:
     # ── Context manager ───────────────────────────────────────────────────
 
     def __enter__(self) -> "PostgreSQLSink":
-        self._con = duckdb.connect()
+        self._con = make_connection()
         self._con.execute("INSTALL postgres; LOAD postgres;")
+        self._con.execute("SET pg_use_binary_copy = true")
         self._con.execute(
             f"ATTACH '{self._dsn}' AS {self._alias} (TYPE postgres)"
         )
