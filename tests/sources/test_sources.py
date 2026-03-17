@@ -213,19 +213,19 @@ class TestDeltaSource:
     def _mock_con(self):
         return MagicMock()
 
-    def test_returns_delta_scan(self):
+    def test_returns_delta_scan_when_use_attach_false(self):
         con = self._mock_con()
-        src = DeltaSource("/data/lakehouse/my_table")
+        src = DeltaSource("/data/lakehouse/my_table", use_attach=False)
         assert "delta_scan(" in src.as_sql(con)
 
-    def test_local_path_in_sql(self):
+    def test_local_path_in_sql_when_use_attach_false(self):
         con = self._mock_con()
-        src = DeltaSource("/data/lakehouse/my_table")
+        src = DeltaSource("/data/lakehouse/my_table", use_attach=False)
         assert "/data/lakehouse/my_table" in src.as_sql(con)
 
-    def test_s3_path_in_sql(self):
+    def test_s3_path_in_sql_when_use_attach_false(self):
         con = self._mock_con()
-        src = DeltaSource("s3://bucket/delta/tbl")
+        src = DeltaSource("s3://bucket/delta/tbl", use_attach=False)
         assert "s3://bucket/delta/tbl" in src.as_sql(con)
 
     def test_loads_extension(self):
@@ -233,6 +233,31 @@ class TestDeltaSource:
         src = DeltaSource("/some/path")
         src.as_sql(con)
         con.execute.assert_called()
+
+    def test_default_use_attach_true(self):
+        src = DeltaSource("/data/lakehouse/my_table")
+        assert src._use_attach is True
+
+    def test_attach_mode_returns_select(self):
+        con = self._mock_con()
+        src = DeltaSource("/data/lakehouse/my_table", use_attach=True)
+        sql = src.as_sql(con)
+        # ATTACH mode: returns SELECT * FROM <alias>
+        assert "SELECT" in sql or "sqldim_delta" in sql
+
+    def test_attach_failure_falls_back_to_delta_scan(self):
+        """When ATTACH raises, as_sql falls back to delta_scan()."""
+        con = self._mock_con()
+        # Make ATTACH raise but INSTALL/LOAD succeed
+        def _execute_side_effect(sql, *args, **kwargs):
+            if sql.startswith("ATTACH"):
+                raise RuntimeError("delta not supported")
+        con.execute.side_effect = _execute_side_effect
+
+        src = DeltaSource("/some/delta/path", use_attach=True)
+        sql = src.as_sql(con)
+        assert "delta_scan" in sql
+        assert "/some/delta/path" in sql
 
 
 # ---------------------------------------------------------------------------

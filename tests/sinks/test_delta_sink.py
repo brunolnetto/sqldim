@@ -243,7 +243,7 @@ class TestDeltaLakeSinkContextManager:
         with patch("sqldim.sinks.delta.duckdb.connect", return_value=mock_con):
             with sink:
                 assert sink._con is mock_con
-                mock_con.execute.assert_called_once_with("INSTALL delta; LOAD delta;")
+                mock_con.execute.assert_any_call("INSTALL delta; LOAD delta;")
 
     def test_exit_closes_connection(self):
         sink = DeltaLakeSink("/data/lake")

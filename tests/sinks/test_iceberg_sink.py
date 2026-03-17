@@ -32,6 +32,9 @@ def _mock_catalog(tables: dict):
             mock_table.location.return_value = f"/tmp/iceberg/{table_name}"
             if arrow_data is not None:
                 mock_table.scan.return_value.to_arrow.return_value = arrow_data
+                mock_table.scan.return_value.count.return_value = len(arrow_data)
+            else:
+                mock_table.scan.return_value.count.return_value = 0
             _cache[table_name] = mock_table
         return _cache[table_name]
 

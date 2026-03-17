@@ -31,7 +31,6 @@ def _seed_parquet(path: str, rows: list[dict]) -> None:
          for k in schema.names},
         schema=schema,
     )
-    import deltalake as _dl  # only for reference — use parquet write directly
     import os
     os.makedirs(f"{path}/is_current=True",  exist_ok=True)
     os.makedirs(f"{path}/is_current=False", exist_ok=True)
