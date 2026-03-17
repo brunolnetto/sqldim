@@ -16,13 +16,13 @@ from sqldim.core.mixins import SCD2Mixin, SCD3Mixin, DatelistMixin, CumulativeMi
 from sqldim.core.facts import TransactionFact, PeriodicSnapshotFact, AccumulatingFact, CumulativeFact, ActivityFact
 from sqldim.scd.backfill import backfill_scd2
 from sqldim.core.graph import SchemaGraph
-from sqldim.models.graph import VertexModel, EdgeModel, Vertex
+from sqldim.graph.models import VertexModel, EdgeModel, Vertex
 from sqldim.graph import GraphModel, TraversalEngine
 from sqldim.graph.schema_graph import SchemaGraph as GraphSchemaGraph, GraphSchema
-from sqldim.processors.adapter import NarwhalsAdapter
-from sqldim.processors.transforms import col, TransformPipeline
-from sqldim.processors.backfill import backfill_scd2_narwhals
-from sqldim.processors.scd_engine import NarwhalsHashStrategy, NarwhalsSCDProcessor
+from sqldim.scd.processors.adapter import NarwhalsAdapter
+from sqldim.scd.processors.transforms import col, TransformPipeline
+from sqldim.scd.processors.backfill import backfill_scd2_narwhals
+from sqldim.scd.processors.scd_engine import NarwhalsHashStrategy, NarwhalsSCDProcessor
 from sqldim.loaders.cumulative import CumulativeLoader
 from sqldim.loaders.bitmask import BitmaskerLoader
 from sqldim.loaders.array_metric import ArrayMetricLoader

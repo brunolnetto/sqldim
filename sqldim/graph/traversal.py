@@ -7,7 +7,7 @@ from __future__ import annotations
 from typing import Any, Literal, TYPE_CHECKING
 
 if TYPE_CHECKING:
-    from sqldim.models.graph import EdgeModel
+    from sqldim.graph.models import EdgeModel
 
 
 class TraversalEngine:

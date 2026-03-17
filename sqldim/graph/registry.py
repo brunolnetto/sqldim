@@ -10,7 +10,7 @@ from typing import Any, Literal, Optional, TYPE_CHECKING
 
 from sqldim.exceptions import SchemaError
 from sqldim.graph.traversal import TraversalEngine
-from sqldim.models.graph import EdgeModel, VertexModel
+from sqldim.graph.models import EdgeModel, VertexModel
 
 if TYPE_CHECKING:
     from sqlalchemy.ext.asyncio import AsyncSession

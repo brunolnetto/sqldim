@@ -125,7 +125,7 @@ def _render_edge_lines(fact: type, lines: list, subject, obj, edge_label: str) -
 
 
 def _render_edge_relations(fact: type, lines: list, star: dict) -> None:
-    from sqldim.models.graph import EdgeModel
+    from sqldim.graph.models import EdgeModel
     if _safe_subclass(fact, EdgeModel) and (
         getattr(fact, "__subject__", None) or getattr(fact, "__object__", None)
     ):

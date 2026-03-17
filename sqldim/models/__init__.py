@@ -1,8 +1,4 @@
-"""Graph-oriented model base classes: VertexModel and EdgeModel.
+"""Backward-compatible shim — canonical location is sqldim.graph.models."""
+from sqldim.graph.models import VertexModel, EdgeModel, Vertex  # noqa: F401
 
-Both classes extend SQLModel and register their schema with the global
-:class:`GraphSchemaGraph` on first instantiation.
-"""
-from sqldim.models.graph import VertexModel, EdgeModel
-
-__all__ = ["VertexModel", "EdgeModel"]
+__all__ = ["VertexModel", "EdgeModel", "Vertex"]
