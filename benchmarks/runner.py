@@ -43,6 +43,11 @@ from benchmarks.suite import (
     group_f_processor_comparison,
     group_g_beyond_memory,
     group_h_source_sink_matrix,
+    group_i_scd_type_variety,
+    group_j_dim_generation,
+    group_k_graph_query,
+    group_l_narwhals_backfill,
+    group_m_loaders_medallion,
 )
 
 
@@ -463,6 +468,11 @@ GROUP_MAP: dict[str, Callable] = {
     "F": group_f_processor_comparison,
     "G": group_g_beyond_memory,
     "H": group_h_source_sink_matrix,
+    "I": group_i_scd_type_variety,
+    "J": group_j_dim_generation,
+    "K": group_k_graph_query,
+    "L": group_l_narwhals_backfill,
+    "M": group_m_loaders_medallion,
 }
 
 GROUP_DESCRIPTIONS = {
@@ -474,6 +484,11 @@ GROUP_DESCRIPTIONS = {
     "F": "Processor comparison (SCD2 vs Metadata vs Type6)",
     "G": "Beyond-memory / spill-to-disk simulation",
     "H": "Source adapter comparison (parquet vs csv)",
+    "I": "SCD Type3 and Type4 processor throughput",
+    "J": "Prebuilt dimension generation (DateDimension / TimeDimension)",
+    "K": "Graph traversal and dimensional query builder",
+    "L": "Narwhals SCD2 backfill throughput",
+    "M": "ORM loader throughput and Medallion registry compute",
 }
 
 
