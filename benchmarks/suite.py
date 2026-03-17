@@ -163,7 +163,7 @@ def _run_scd2_batch(
     source_name: str = "parquet",
 ) -> BenchmarkResult:
     from sqldim.sinks.duckdb import DuckDBSink
-    from sqldim.core.processors._lazy_type2 import LazySCDProcessor
+    from sqldim.core.kimball.dimensions.scd.processors._lazy_type2 import LazySCDProcessor
 
     tname   = table_name or f"dim_{artifact.profile}"
     db_path = os.path.join(temp_dir, f"{case_id}.duckdb")
@@ -235,7 +235,7 @@ def _run_metadata_batch(
     source_name: str = "parquet",
 ) -> BenchmarkResult:
     from sqldim.sinks.duckdb import DuckDBSink
-    from sqldim.core.processors._lazy_metadata import LazySCDMetadataProcessor
+    from sqldim.core.kimball.dimensions.scd.processors._lazy_metadata import LazySCDMetadataProcessor
 
     tname     = table_name or f"dim_{artifact.profile}"
     db_path   = os.path.join(temp_dir, f"{case_id}.duckdb")
@@ -357,7 +357,7 @@ def group_c_throughput_scaling(gen: BenchmarkDatasetGenerator, temp_dir: str, ma
 
 def group_d_stream_vs_batch(gen: BenchmarkDatasetGenerator, temp_dir: str, **_) -> list[BenchmarkResult]:
     from sqldim.sinks.duckdb import DuckDBSink
-    from sqldim.core.processors._lazy_type2 import LazySCDProcessor
+    from sqldim.core.kimball.dimensions.scd.processors._lazy_type2 import LazySCDProcessor
     from sqldim.sources.sql import SQLSource
     from sqldim.sources.csv_stream import CSVStreamSource
 
@@ -490,7 +490,7 @@ def group_e_change_rate_sensitivity(gen: BenchmarkDatasetGenerator, temp_dir: st
 
 def group_f_processor_comparison(gen: BenchmarkDatasetGenerator, temp_dir: str, **_) -> list[BenchmarkResult]:
     from sqldim.sinks.duckdb import DuckDBSink
-    from sqldim.core.processors._lazy_type3_6 import LazyType6Processor
+    from sqldim.core.kimball.dimensions.scd.processors._lazy_type3_6 import LazyType6Processor
     from sqldim.sources.parquet import ParquetSource
 
     results = []
