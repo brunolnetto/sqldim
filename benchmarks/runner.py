@@ -30,7 +30,10 @@ from typing import Callable
 import psutil
 
 from benchmarks.dataset_gen import BenchmarkDatasetGenerator, SCALE_TIERS
-from benchmarks.memory_probe import SAFE_PCT, ABORT_FLOOR_GB
+from benchmarks.memory_probe import (
+    SAFE_PCT, ABORT_FLOOR_GB, HARD_CEILING_PCT,
+    auto_max_tier, MemoryProbe,
+)
 from benchmarks.suite import (
     BenchmarkResult,
     SOURCE_NAMES,
@@ -63,9 +66,8 @@ def _dim(s: str) -> str:    return f"\033[2m{s}\033[0m"
 # ── Inter-group safety ────────────────────────────────────────────────────
 
 def _check_memory_before_group(group_id: str) -> None:
-    """Re-check available RAM before starting a group and abort the whole
-    run if we are below the safety floor.  Cumulative allocations from
-    previous groups may not have been reclaimed yet."""
+    """Re-check available RAM before starting a group.  Aborts the whole run if
+    below ABORT_FLOOR_GB; warns if below twice that threshold."""
     available_gb = psutil.virtual_memory().available / 1e9
     if available_gb < ABORT_FLOOR_GB:
         raise RuntimeError(
@@ -73,7 +75,7 @@ def _check_memory_before_group(group_id: str) -> None:
             f"floor ({ABORT_FLOOR_GB:.1f} GB) before Group {group_id} — "
             f"aborting run to prevent OOM kill."
         )
-    if available_gb < 3.0:
+    if available_gb < ABORT_FLOOR_GB * 2:
         print(_yellow(
             f"  ⚠️   Low RAM before Group {group_id}: "
             f"{available_gb:.1f} GB available — large tiers will be skipped."
@@ -503,8 +505,12 @@ def build_parser() -> argparse.ArgumentParser:
         help="Groups to run (default: all)",
     )
     p.add_argument(
-        "--max-tier", choices=list(SCALE_TIERS.keys()), default="m",
-        help="Maximum scale tier for throughput and spill groups (default: m = 1M rows)",
+        "--max-tier", choices=[*SCALE_TIERS.keys(), "auto"], default="auto",
+        help=(
+            "Maximum scale tier (default: auto — selected from available RAM). "
+            "'auto' picks the largest tier whose minimum RAM requirement is met, "
+            "preventing OOM kills on small VMs.  Pass an explicit tier to override."
+        ),
     )
     p.add_argument(
         "--report", choices=["none", "json", "csv"], default="json",
@@ -537,9 +543,20 @@ def build_parser() -> argparse.ArgumentParser:
     return p
 
 
+_TIER_ORDER = ["xs", "s", "m", "l", "xl", "xxl"]
+
+
 def main(argv=None) -> int:
     args = build_parser().parse_args(argv)
-    print_system_info()
+
+    # ── Resolve effective max tier ──────────────────────────────────────────
+    avail_gb = psutil.virtual_memory().available / 1e9
+    if args.max_tier == "auto":
+        effective_max_tier = auto_max_tier(avail_gb)
+    else:
+        effective_max_tier = args.max_tier
+
+    print_system_info(effective_max_tier=effective_max_tier if args.max_tier == "auto" else "")
 
     all_results: list[BenchmarkResult] = []
 
@@ -547,6 +564,10 @@ def main(argv=None) -> int:
         with BenchmarkDatasetGenerator(tmp_root=tmp_dir) as gen:
 
             for group_id in args.groups:
+                # Clear any hard-abort left over from the previous group so
+                # a breach in group N does not permanently block group N+1.
+                MemoryProbe.reset_hard_abort()
+
                 fn   = GROUP_MAP[group_id]
                 desc = GROUP_DESCRIPTIONS[group_id]
 
@@ -568,7 +589,7 @@ def main(argv=None) -> int:
                 t0 = time.perf_counter()
 
                 try:
-                    results = fn(gen, tmp_dir, max_tier=args.max_tier,
+                    results = fn(gen, tmp_dir, max_tier=effective_max_tier,
                                  source_name=args.source)
                 except Exception as exc:
                     import traceback as _tb
@@ -591,6 +612,19 @@ def main(argv=None) -> int:
                 # Release DuckDB and Python allocations before next group.
                 gc.collect()
                 time.sleep(2)
+
+                # In auto mode, re-evaluate the tier cap after each group.
+                # If available RAM dropped (e.g. after a spill-heavy group)
+                # lower the cap for all remaining groups automatically.
+                if args.max_tier == "auto":
+                    new_avail = psutil.virtual_memory().available / 1e9
+                    new_tier  = auto_max_tier(new_avail)
+                    if _TIER_ORDER.index(new_tier) < _TIER_ORDER.index(effective_max_tier):
+                        effective_max_tier = new_tier
+                        print(_yellow(
+                            f"  ⚠️  RAM dropped to {new_avail:.1f} GB after Group {group_id}. "
+                            f"Auto-capping remaining groups at tier '{effective_max_tier}'."
+                        ))
 
     summary = print_summary(all_results)
     print_critical_analysis(all_results)

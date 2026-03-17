@@ -36,9 +36,38 @@ import psutil
 
 # ── Constants ─────────────────────────────────────────────────────────────
 
-SAFE_PCT          = 0.65   # never allow sqldim to use more than 65% of total RAM
-ABORT_FLOOR_GB    = 1.5    # refuse to start a benchmark if less than this is free
-SAMPLE_INTERVAL_S = 0.5    # memory polling interval (increased from 0.25 to reduce overhead)
+SAFE_PCT          = 0.65   # flag breach when process RSS exceeds this fraction of total RAM
+ABORT_FLOOR_GB    = 2.5    # refuse to start a case if available RAM is below this
+HARD_CEILING_PCT  = 0.90   # set hard-abort event when RSS exceeds this fraction of total RAM
+SAMPLE_INTERVAL_S = 0.5    # memory polling interval
+
+# Minimum available RAM to safely execute each tier.
+# Used by auto_max_tier() to select the highest tier that won't OOM.
+_TIER_MIN_AVAIL_GB: dict[str, float] = {
+    "xs":  1.5,
+    "s":   3.0,
+    "m":   6.0,
+    "l":  14.0,
+    "xl": 30.0,
+    "xxl": 64.0,
+}
+
+# Module-level hard-abort event.  Set by MemoryProbe background thread when
+# RSS exceeds HARD_CEILING_PCT.  Checked by check_safe_to_run() so the *next*
+# case in the same group is aborted before it starts.  Cleared by
+# reset_hard_abort() at the beginning of each group in the runner.
+_HARD_ABORT_EVENT: threading.Event = threading.Event()
+
+
+def auto_max_tier(available_gb: float) -> str:
+    """Return the highest scale tier that is safe to run given *available_gb* of
+    free RAM.  Iterates from largest to smallest and returns the first tier
+    whose minimum requirement is met.
+    """
+    for tier in ["xxl", "xl", "l", "m", "s", "xs"]:
+        if available_gb >= _TIER_MIN_AVAIL_GB[tier]:
+            return tier
+    return "xs"
 
 
 # ── Data containers ───────────────────────────────────────────────────────
@@ -175,6 +204,7 @@ class MemoryProbe:
         self._spill_baseline = _spill_bytes(temp_dir)
         self._total_ram_gb  = psutil.virtual_memory().total / (1024 ** 3)
         self._safe_ceiling  = self._total_ram_gb * safe_pct
+        self._hard_ceiling  = self._total_ram_gb * HARD_CEILING_PCT
 
     # ── Context manager ───────────────────────────────────────────────────
 
@@ -217,7 +247,16 @@ class MemoryProbe:
             )
             self.report.samples.append(sample)
 
-            if rss_gb > self._safe_ceiling:
+            if rss_gb > self._hard_ceiling and not _HARD_ABORT_EVENT.is_set():
+                _HARD_ABORT_EVENT.set()
+                self.report.safety_breach = True
+                self.report.breach_detail = (
+                    f"HARD ABORT: RSS {rss_gb:.2f}GB exceeded hard ceiling "
+                    f"{self._hard_ceiling:.2f}GB "
+                    f"({HARD_CEILING_PCT*100:.0f}% of {self._total_ram_gb:.1f}GB). "
+                    f"Remaining cases in this group will be skipped."
+                )
+            elif rss_gb > self._safe_ceiling and not self.report.safety_breach:
                 self.report.safety_breach = True
                 self.report.breach_detail = (
                     f"RSS {rss_gb:.2f}GB exceeded safe ceiling "
@@ -239,7 +278,14 @@ class MemoryProbe:
 
     @staticmethod
     def check_safe_to_run(label: str = "") -> None:
-        """Raise RuntimeError if available system RAM is below ABORT_FLOOR_GB."""
+        """Raise RuntimeError if the hard-abort event is set or if available
+        system RAM is below ABORT_FLOOR_GB."""
+        if _HARD_ABORT_EVENT.is_set():
+            raise RuntimeError(
+                f"[sqldim-bench] ABORTED{' — ' + label if label else ''}. "
+                f"Hard memory ceiling ({HARD_CEILING_PCT*100:.0f}% of total RAM) "
+                f"was breached in a previous case — skipping to protect the system."
+            )
         avail = psutil.virtual_memory().available / (1024 ** 3)
         if avail < ABORT_FLOOR_GB:
             raise RuntimeError(
@@ -247,6 +293,12 @@ class MemoryProbe:
                 f"Only {avail:.2f}GB RAM available; "
                 f"minimum required is {ABORT_FLOOR_GB:.1f}GB."
             )
+
+    @staticmethod
+    def reset_hard_abort() -> None:
+        """Clear the hard-abort event.  Call once before each group so that a
+        breach in group N does not permanently block groups N+1 … M."""
+        _HARD_ABORT_EVENT.clear()
 
     @staticmethod
     def recommended_memory_limit_gb(safe_pct: float = SAFE_PCT) -> float:
