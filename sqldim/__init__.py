@@ -40,6 +40,7 @@ from sqldim.exceptions import (
     MigrationError, DestructiveMigrationError,
     SemanticError, InvalidJoinError,
 )
+from sqldim.medallion import Layer, MedallionRegistry, ModelKind, SilverBuildOrder
 
 __all__ = [
     # Core schema
@@ -95,4 +96,9 @@ __all__ = [
     "LoadError", "SKResolutionError", "IdempotencyError",
     "MigrationError", "DestructiveMigrationError",
     "SemanticError", "InvalidJoinError",
+    # Medallion
+    "Layer",
+    "MedallionRegistry",
+    "ModelKind",
+    "SilverBuildOrder",
 ]
