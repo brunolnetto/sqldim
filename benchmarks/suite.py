@@ -1279,9 +1279,10 @@ def group_m_loaders_medallion(
         quantity:   int   = SqdimField(default=0)
 
     tier_order   = ["xs", "s"]
+    effective_max = max_tier if max_tier in tier_order else tier_order[-1]
     active_tiers = [t for t in tier_order
                     if t in _LOADER_TIERS
-                    and tier_order.index(t) <= tier_order.index(max_tier)]
+                    and tier_order.index(t) <= tier_order.index(effective_max)]
     results: list[BenchmarkResult] = []
 
     # ── DimensionalLoader bulk-insert throughput ───────────────────────────

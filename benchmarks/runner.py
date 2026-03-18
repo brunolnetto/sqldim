@@ -556,7 +556,9 @@ def main(argv=None) -> int:
     else:
         effective_max_tier = args.max_tier
 
-    print_system_info(effective_max_tier=effective_max_tier if args.max_tier == "auto" else "")
+    print_system_info()
+    if args.max_tier == "auto":
+        print(f"  Effective max tier: {effective_max_tier}")
 
     all_results: list[BenchmarkResult] = []
 
