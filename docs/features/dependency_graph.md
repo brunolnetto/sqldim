@@ -13,13 +13,13 @@ graph TD
     %% ── nodes ──────────────────────────────────────────────────────────
     ML["🥉🥈🥇 Medallion Layers<br/><sub>Bronze · Silver · Gold</sub>"]
     DC["📄 Data Contracts<br/><sub>Schema · SLA · Versioning · Lineage</sub>"]
-    OB["🔭 Observability<br/><sub>OTel Collector · OTel Medallion · SLO Aggregates</sub>"]
+    OB["🔭 Observability<br/><sub>OTel Collector · Exporters · Instruments</sub>"]
     NO["🔔 Notifications<br/><sub>P1–P4 rules · Multi-channel · Escalation</sub>"]
 
     QG_BS["⛩ Quality Gate<br/>Bronze → Silver"]
     QG_SG["⛩ Quality Gate<br/>Silver → Gold"]
 
-    OL["🔗 OpenLineage Bus"]
+    OL["🔗 Lineage Bus<br/><sub>Console · OpenLineage</sub>"]
 
     CHL_PD["PagerDuty"]
     CHL_SL["Slack"]
@@ -70,9 +70,9 @@ graph TD
 | Feature | Hard dependencies | Soft / runtime dependencies |
 |---|---|---|
 | **Medallion Layers** | *(none — foundation layer)* | Observability (monitoring layer health) |
-| **Data Contracts** | Medallion Layers (layer anchoring) | OpenLineage bus (lineage emission) |
-| **Quality Gates** | Data Contracts (check definitions), Medallion Layers (layer transitions) | Notifications (breach alerting) |
-| **Observability** | Medallion Layers (own OTel medallion), Data Contracts (OTel contracts) | Notifications (P3/P4 anomaly alerts) |
+| **Data Contracts** | Medallion Layers (layer anchoring) | Lineage bus (opt-in emission at gate enforcement) |
+| **Quality Gates** | Data Contracts (check definitions), Medallion Layers (layer transitions) | Lineage bus (run lifecycle events), Notifications (breach alerting) |
+| **Observability** | *(none — zero-dep collector)* | OTLP exporters (`sqldim[otel]`), Notifications (P3/P4 anomaly alerts) |
 | **Notifications** | Data Contracts (breach events), Observability (OTel Gold metrics), Medallion Layers (severity routing) | PagerDuty · Slack · Jira · Email · Webhook |
 
 ---
@@ -86,9 +86,9 @@ predecessors are ready:
 1.  Medallion Layers        (storage, no upstream dependencies)
 2.  Data Contracts          (requires layer catalogue)
 3.  Quality Gates           (requires contracts + layers)
-4.  Observability           (requires layers + contracts for OTel medallion)
-5.  Notifications           (requires contracts + observability)
-6.  OpenLineage bus         (passive — receives events from contracts + observability)
+4.  Observability           (zero-dep collector; OTLP exporters require sqldim[otel])
+5.  Lineage bus             (zero-dep console emitter; OpenLineage requires sqldim[lineage])
+6.  Notifications           (requires contracts + observability)
 ```
 
 ---
@@ -106,9 +106,8 @@ Source
   → Silver→Gold Gate (Quality Gates ← Data Contracts)
   → Gold (Medallion Layers)
   → SLA check (Data Contracts)
-  → OpenLineage event (OpenLineage bus)
-  → OTel metric emitted (Observability)
-  → Anomaly detection (Observability Gold)
+  → Lineage event emitted (Lineage bus — ConsoleEmitter or OpenLineageEmitter)
+  → OTel span + metric emitted (Observability — in-memory or OTLP exporters)
   → Alert routing (Notifications)
   → Consumer unblocked
 ```
@@ -125,13 +124,14 @@ failure degrades visibility and alerting but does not block data promotion.
 Contract enforcement event
     ├── schema_violation  ─────────────────────────► Notifications (P1/P2)
     ├── sla_miss          ─────────────────────────► Notifications (P1/P4)
-    └── RunEvent          ─────────────────────────► OpenLineage bus
+    └── LineageEvent      ─────────────────────────► Lineage bus (Console / OpenLineage)
 
 Quality gate failure
-    └── quarantine write  ─────────────────────────► Notifications (P2)
+    ├── quarantine write  ─────────────────────────► Notifications (P2)
+    └── LineageEvent(FAIL) ────────────────────────► Lineage bus
 
-Observability anomaly (OTel Gold)
-    └── 3σ latency drift  ─────────────────────────► Notifications (P3)
+Observability span completed
+    └── OTLP export       ─────────────────────────► External collector (Jaeger / Prometheus)
 
 Source ingestion lag
     └── freshness > 110%  ─────────────────────────► Notifications (P4)

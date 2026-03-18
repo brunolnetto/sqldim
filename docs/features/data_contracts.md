@@ -1,117 +1,104 @@
 # Feature: Data Contracts
 
-## Summary
+Data Contracts enforce schema rules, quality checks, and SLAs at layer promotion boundaries. Every dataset crossing a layer boundary must satisfy its contract before being promoted.
 
-Data Contracts are the trust boundary of the platform. Every dataset that
-crosses a layer boundary — or is consumed by an external team — must be
-backed by a contract that declares its schema, ownership, quality SLA, and
-lineage events.
+## Quick Start
 
----
+```python
+from sqldim.contracts import DataContract, ColumnSpec, SLASpec, QualityGate
+from sqldim.contracts.rules import NotNull, NoDuplicates, NullRate, Freshness
+from sqldim.contracts.layer import Layer
 
-## Core responsibilities
+# Define a contract
+contract = DataContract(
+    name="orders",
+    version="2.1.0",
+    owner="data-platform",
+    layer=Layer.SILVER,
+    columns=[
+        ColumnSpec("order_id", "uuid"),
+        ColumnSpec("customer_id", "uuid"),
+        ColumnSpec("amount", "decimal(18,2)"),
+        ColumnSpec("created_at", "timestamp"),
+    ],
+    sla=SLASpec(freshness="< 30m", completeness="> 99.5%"),
+)
 
-| Concern | Mechanism |
-|---|---|
-| **Schema** | Column types, nullability, PK/FK constraints validated at ingestion and at every layer promotion |
-| **Ownership** | `owner` field ties every dataset to a responsible team; routes alerts on breach |
-| **SLA** | Freshness threshold, completeness percentage, and p99 latency declared and monitored continuously |
-| **Versioning** | Backward-compatible changes → minor bump; breaking changes → major bump + dataset fork |
-| **Lineage** | Every schema event emits an OpenLineage `RunEvent` to the metadata bus |
-
----
-
-## Contract schema
-
-```yaml
-contract: orders_v2
-  version: "2.1.0"
-  owner:   "data-platform"
-  layer:   "silver"
-
-  schema:
-    order_id:    uuid       PK
-    customer_id: uuid       FK → customers_v1.customer_id
-    amount:      decimal(18,2)
-    created_at:  timestamp
-
-  sla:
-    freshness:     "< 30m"
-    completeness:  "> 99.5%"
-    latency_p99:   "< 5m"
+# Check for breaking changes when evolving
+contract.is_breaking_change_from(previous_contract)  # → True/False
 ```
 
-A contract lives alongside the dataset definition in version control.
-Schema changes are reviewed like code — a diff that removes a column or
-changes a type is automatically flagged as a breaking change.
+## Quality Gates
 
----
+A `QualityGate` enforces checks at a specific layer transition (e.g., Bronze → Silver). It validates rules as DuckDB SQL queries and aggregates results.
 
-## Enforcement points
+```python
+from sqldim.contracts import QualityGate
+from sqldim.contracts.rules import NotNull, NoDuplicates, NullRate, Freshness
+from sqldim.contracts.layer import Layer
 
-### 1 — Ingestion gate (Source → Bronze)
-`schema_on_read` is permissive by design; the Bronze layer accepts raw data
-without transformation.  The contract is *registered* here but enforcement
-is deferred to the Bronze → Silver gate.
+gate = QualityGate("bronze_to_silver", Layer.BRONZE, Layer.SILVER)
 
-### 2 — Promotion gate (Bronze → Silver)
-The strictest checkpoint.  All four contract dimensions are verified:
+# Add built-in rules
+gate.add_check(NotNull("order_id"))
+gate.add_check(NoDuplicates("order_id"))
+gate.add_check(NullRate("customer_id", max_pct=0.1))
+gate.add_check(Freshness("created_at", max_age_hours=0.5))
 
-```yaml
-checks:
-  - row_count         > 0
-  - null_rate(order_id) < 0.001
-  - schema_match(contract=orders_v2)
-  - duplicate_rate    < 0.005
-on_fail: quarantine + alert(P2)
+# Run the gate against a DuckDB view
+result = gate.run(view="bronze.raw_orders")
+print(result.ok)       # True if all checks pass
+print(result.violations)  # list of failed check details
 ```
 
-### 3 — Promotion gate (Silver → Gold)
-Business-logic checks replace structural ones:
+### Built-in Rules
 
-```yaml
-checks:
-  - completeness       > 99.5%
-  - referential_integrity(FK)
-  - freshness          < "30m"
-  - statistical_drift  < 3σ
-on_fail: hold + alert(P1)
+All rules extend `Rule` and implement `.as_sql(view) -> str` to produce DuckDB-native validation queries.
+
+| Rule | Parameters | Severity | SQL Logic |
+|---|---|---|---|
+| `NotNull(column)` | Column name | ERROR | `WHERE column IS NULL` |
+| `NoDuplicates(column)` | Column name | ERROR | `GROUP BY HAVING COUNT(*) > 1` |
+| `NullRate(column, max_pct)` | Column, max null percentage | WARNING | Null rate exceeds threshold |
+| `Freshness(ts_col, max_age_hours)` | Timestamp column, max age | WARNING | `NOW() - ts_col > interval` |
+| `RowCountDelta(baseline, max_pct)` | Expected row count, max deviation | WARNING | Row count drift from baseline |
+
+### Custom Rules
+
+Implement the `Rule` protocol to add domain-specific checks:
+
+```python
+from sqldim.contracts import Rule
+
+class ReferentialIntegrity(Rule):
+    def __init__(self, fk_col: str, ref_table: str, ref_col: str):
+        self.fk_col = fk_col
+        self.ref_table = ref_table
+        self.ref_col = ref_col
+
+    def as_sql(self, view: str) -> str:
+        return f"""
+            SELECT '{self.fk_col}' as violation
+            FROM {view} f
+            LEFT JOIN {self.ref_table} r ON f.{self.fk_col} = r.{self.ref_col}
+            WHERE r.{self.ref_col} IS NULL
+        """
 ```
 
-### 4 — Consumer registration
-Any BI tool, ML model, or downstream pipeline that reads a Gold dataset
-registers as a *consumer* of that contract version.  When a contract is
-deprecated, all registered consumers receive a migration notice.
+## Layer Promotion Flow
 
----
-
-## OpenLineage integration
-
-Every contract enforcement event emits a structured `RunEvent`:
-
-```json
-{
-  "eventType": "COMPLETE",
-  "run":  { "runId": "<uuid>" },
-  "job":  { "namespace": "bronze→silver", "name": "orders_transform" },
-  "inputs":  [{ "namespace": "bronze", "name": "raw_orders" }],
-  "outputs": [{
-    "namespace": "silver",
-    "name":      "orders_v2",
-    "facets": {
-      "schema":      "<contract_schema>",
-      "dataQuality": "<gate_results>"
-    }
-  }]
-}
+```
+Source → [Bronze] --gate: bronze_to_silver-→ [Silver] --gate: silver_to_gold-→ [Gold]
+            ↓                                  ↓                                    ↓
+      Contract registered                Strictest checks              Business-logic checks
+      (permissive)                      (structural + SLA)            (drift + integrity)
 ```
 
-The lineage graph is therefore built automatically from contract enforcement
-rather than from hand-crafted metadata.
+- **Bronze**: `schema_on_read` is permissive. The contract is registered but enforcement is deferred.
+- **Silver**: All structural rules run — null rates, duplicates, schema match, SLA freshness.
+- **Gold**: Business-logic rules — referential integrity, statistical drift, completeness.
 
----
-
-## Versioning strategy
+## Versioning
 
 | Change type | Example | Action |
 |---|---|---|
@@ -121,10 +108,85 @@ rather than from hand-crafted metadata.
 | **SLA relaxation** | Raise freshness to 60 min | Minor bump + owner approval |
 | **SLA tightening** | Lower latency SLA | Major bump (consumers must re-validate) |
 
----
+```python
+# Detect breaking changes programmatically
+new_contract = DataContract(name="orders", version="3.0.0", ...)
+if new_contract.is_breaking_change_from(old_contract):
+    # Alert consumers, fork dataset, require migration plan
+    ...
+```
+
+## Lineage
+
+sqldim emits structured lineage events at contract enforcement points (quality gates) and pipeline runs. Lineage is opt-in — install the extra and wire an emitter.
+
+### Event model
+
+```python
+from sqldim.lineage import LineageEvent, RunState, DatasetRef
+
+event = LineageEvent(
+    run_id="run-abc-123",
+    job_name="bronze_to_silver",
+    inputs=[DatasetRef(name="bronze.raw_orders", namespace="sqldim")],
+    outputs=[DatasetRef(name="silver.orders", namespace="sqldim")],
+    state=RunState.COMPLETE,
+)
+```
+
+| Class | Description |
+|---|---|
+| `LineageEvent` | Run lifecycle event with `run_id`, `job_name`, `inputs`, `outputs`, `state`, `facets` |
+| `RunState` | Enum: `START`, `RUNNING`, `COMPLETE`, `FAIL`, `ABORT` |
+| `DatasetRef` | Logical reference to a table/topic with optional namespace and facets |
+
+### Emitters
+
+Two emitters are provided — a zero-dependency console logger and an OpenLineage transmitter:
+
+```python
+from sqldim.lineage import ConsoleLineageEmitter, OpenLineageEmitter
+
+# Zero-dep: JSON lines to stderr (default for development)
+console = ConsoleLineageEmitter()
+console.emit(event)
+
+# OpenLineage: requires pip install sqldim[lineage]
+ol = OpenLineageEmitter(url="http://marquez:5000", namespace="sqldim")
+ol.emit(event)  # translates to official OpenLineage RunEvent
+```
+
+### Quality Gate integration
+
+`QualityGate.run()` automatically emits lineage events when an emitter is provided:
+
+```python
+from sqldim.lineage import ConsoleLineageEmitter
+
+gate = QualityGate("bronze_to_silver", Layer.BRONZE, Layer.SILVER)
+gate.add_check(NotNull("order_id"))
+
+result = gate.run(
+    view="bronze.raw_orders",
+    lineage_emitter=ConsoleLineageEmitter(),  # opt-in
+    job_name="bronze_to_silver",
+    inputs=[DatasetRef(name="bronze.raw_orders")],
+    outputs=[DatasetRef(name="silver.orders")],
+)
+# Emits START → COMPLETE (or FAIL) events automatically
+```
+
+### DimensionalLoader integration
+
+`DimensionalLoader.run()` also accepts a `lineage_emitter` to track per-model pipeline runs with input/output dataset references.
+
+### Static metadata
+
+For schema-level documentation (ER diagrams, data dictionaries), use [`SchemaGraph.to_dict()`](../reference/schema_graph.md) and [`SchemaGraph.to_mermaid()`](../reference/schema_graph.md).
 
 ## Dependencies
 
-- **Medallion Layers** — contracts are anchored to a specific layer (`bronze`, `silver`, `gold`).
-- **Observability** — SLA breach events feed directly into the OTel metrics pipeline.
-- **Notifications** — contract violations trigger P1 (Gold) or P2 (Silver) alerts.
+- **[Medallion Layers](medallion_layers.md)** — contracts are anchored to a specific layer (`bronze`, `silver`, `gold`)
+- **[Observability](observability.md)** — SLA breach events feed into the OTel metrics pipeline
+- **[Notifications](notifications.md)** — contract violations trigger P1 (Gold) or P2 (Silver) alerts
+- **[Lineage](../reference/lineage.md)** — structured event emission and OpenLineage integration

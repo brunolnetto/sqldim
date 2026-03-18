@@ -8,9 +8,12 @@ both BI star schemas and network traversal queries.
 
 | Section | Contents |
 |---|---|
+| **[Getting Started](./getting-started.md)** | New-user tutorial — install, define models, load data |
 | [Architecture](./architecture/overview.md) | Design choices — Medallion, Kimball, graph projection, quality design |
 | [Features](./features/data_contracts.md) | Per-feature reference: contracts, observability, graph, medallion, notifications |
-| [Runbook](./runbook/big_data.md) | Operational guides: big-data patterns, vectorised ETL, semantic layer |
+| **[Guides](./guides/lazy_loaders.md)** | How-to guides: lazy loaders, vectorised ETL, semantic layer |
+| **[Reference](./reference/fact_types.md)** | API reference: fact types, sinks, CLI, exceptions |
+| [Guides (big data)](./guides/big_data.md) | How-to: big-data scaling, vectorised ETL, semantic layer |
 | [Patterns](./patterns/dual_paradigm.md) | Good practices: hybrid SCD, dual-paradigm modelling |
 | [Development](./development/theoretical.md) | Theory, deep research, design rationale |
 
@@ -33,11 +36,11 @@ both BI star schemas and network traversal queries.
 - **Dimensional Core** — SCD Types 1–6, surrogate-key resolution, grain validation.
 - **Graph Extension** — vertex/edge projection, recursive-CTE traversal, `SchemaGraph`.
 - **Vectorised ETL** — Narwhals adapters for Polars, Pandas, DuckDB, PySpark.
-  See [runbook/vectorized_etl.md](./runbook/vectorized_etl.md).
+  See [guides/vectorized_etl.md](./guides/vectorized_etl.md).
 - **Semantic Layer** — fluent query builder with automatic point-in-time resolution.
-  See [runbook/semantic_layer.md](./runbook/semantic_layer.md).
+  See [guides/semantic_layer.md](./guides/semantic_layer.md).
 - **Open Table Formats** — Apache Iceberg and Delta Lake sinks and sources.
-  See [runbook/big_data.md](./runbook/big_data.md).
+  See [guides/big_data.md](./guides/big_data.md).
 
 ---
 

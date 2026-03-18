@@ -1,15 +1,41 @@
 # Feature: Notifications
 
-## Summary
+The notification system routes alerts from contract violations, quality gate failures, and observability anomalies to the right team at the right severity.
 
-The Notification system is the operational spine of the platform.  It routes
-alerts from contract violations, quality gate failures, and observability
-anomalies to the right team, at the right severity, through the right channel
-— with a defined escalation path for every rule.
+## Quick Start
 
----
+```python
+from sqldim.notifications import NotificationRouter, Severity
+from sqldim.notifications.channels import MemoryChannel
 
-## Severity model
+# Create a router and register channels
+router = NotificationRouter()
+router.add_channel("slack", MemoryChannel())       # swap for SlackChannel in production
+router.add_channel("pagerduty", MemoryChannel())   # swap for PagerDutyChannel in production
+
+# Define routing rules
+router.add_rule(lambda event: event.severity >= Severity.P1)
+router.add_rule(lambda event: event.severity >= Severity.P2 and event.layer == "silver")
+
+# Route an event
+router.route(NotificationEvent(
+    title="Gold contract breach: orders_v2",
+    severity=Severity.P1,
+    layer="gold",
+    contract_id="orders_v2",
+))
+```
+
+## Severity Model
+
+```python
+from sqldim.notifications import Severity
+
+Severity.P1  # Critical — immediate pager
+Severity.P2  # High — 2 minute response
+Severity.P3  # Medium — 15 minute response
+Severity.P4  # Low — daily digest
+```
 
 | Level | Name | Response target | Trigger examples |
 |---|---|---|---|
@@ -18,120 +44,81 @@ anomalies to the right team, at the right severity, through the right channel
 | **P3** | Medium | 15 minutes | OTel latency 3σ drift, Silver freshness warning |
 | **P4** | Low | Daily digest | Bronze source lag > 10% of SLA |
 
----
+## NotificationRouter
 
-## Notification rules
+```python
+router = NotificationRouter()
 
-### P1 — Contract breach on Gold layer
+# Register delivery channels
+router.add_channel("slack", SlackChannel(webhook_url="https://hooks.slack.com/..."))
+router.add_channel("pagerduty", PagerDutyChannel(routing_key="..."))
+router.add_channel("email", EmailChannel(smtp_config=...))
 
-**Trigger:** Schema violation *or* SLA miss on any Gold dataset.
+# Add routing rules (callables that return True to match)
+router.add_rule(lambda e: e.severity == Severity.P1 and e.layer == "gold")
+router.add_rule(lambda e: e.severity >= Severity.P2 and e.event_type == "quality_gate_fail")
 
-**Actions:**
-1. Page on-call engineer via PagerDuty (immediate).
-2. Notify dataset owner via Slack DM.
-3. Auto-halt all registered downstream consumers of the affected contract
-   version until the breach is resolved or the contract is rolled back.
-
-```yaml
-rule: gold_contract_breach
-  severity:   P1
-  trigger:
-    event:    contract_violation
-    layer:    gold
-  actions:
-    - pagerduty: { policy: data-platform-oncall }
-    - slack:     { channel: "@owner", template: gold_breach }
-    - pipeline:  { action: halt_consumers, contract: "{{ contract_id }}" }
+# Route events
+router.route(event)
 ```
 
----
+## Channels
 
-### P2 — Quality gate failure on Silver promotion
+Implement the `NotificationChannel` protocol to add delivery backends:
 
-**Trigger:** Bronze → Silver gate fails `completeness` or `duplicate_rate`
-check.
+```python
+from sqldim.notifications import NotificationChannel
 
-**Actions:**
-1. Quarantine the failing batch (move to `quarantine/` partition, tag with
-   `run_id` and failing check name).
-2. Post to `#data-platform` Slack channel within 2 minutes.
-3. Other pipelines sharing the Bronze source continue unaffected.
+class SlackChannel(NotificationChannel):
+    def __init__(self, webhook_url: str):
+        self.webhook_url = webhook_url
 
-```yaml
-rule: silver_gate_failure
-  severity:   P2
-  trigger:
-    event:    quality_gate_fail
-    gate:     bronze_to_silver
-  actions:
-    - slack:     { channel: "#data-platform", template: gate_failure }
-    - pipeline:  { action: quarantine, partition: "failed/{{ date }}" }
+    def send(self, event: NotificationEvent) -> None:
+        # POST to Slack webhook
+        ...
 ```
 
----
-
-### P3 — OTel anomaly: latency drift
-
-**Trigger:** p99 latency in `slo_aggregates` exceeds 3σ from its 7-day
-rolling baseline for ≥ 3 consecutive evaluation windows (15 min cadence).
-
-**Actions:**
-1. Create a Jira ticket in `DATA` project (auto-assigned to on-call).
-2. Post a summary to `#data-platform` Slack channel.
-3. Suppressed if a P1 or P2 is already active for the same service.
-
-```yaml
-rule: otel_latency_drift
-  severity:   P3
-  trigger:
-    metric:   slo_aggregates.p99_latency_ms
-    condition: rolling_zscore(7d) > 3
-    for:      3 windows
-  actions:
-    - jira:  { project: DATA, assignee: oncall }
-    - slack: { channel: "#data-platform", template: latency_anomaly }
-  suppress_if: [P1, P2]
-```
-
----
-
-### P4 — Freshness warning on Bronze ingestion
-
-**Trigger:** Source lag exceeds the Bronze contract's freshness SLA by > 10%.
-
-**Actions:**
-1. Batch into a daily digest email to the pipeline owner.
-2. Escalate to P2 if the lag exceeds 2× the SLA threshold.
-
-```yaml
-rule: bronze_freshness_warning
-  severity:   P4
-  trigger:
-    event:    freshness_sla_exceeded
-    layer:    bronze
-    threshold: 1.10          # 10% over SLA
-  actions:
-    - email: { to: owner, digest: daily }
-  escalate:
-    when:      threshold > 2.0
-    to:        P2
-```
-
----
-
-## Notification channels
-
-| Channel | Used by | Notes |
+| Channel | Severity | Notes |
 |---|---|---|
-| **PagerDuty** | P1 | Integrates with on-call rotation; auto-acks on resolution |
-| **Slack** | P1, P2, P3 | Per-rule channel targeting; templated messages |
-| **Jira** | P3 | Auto-creates `DATA` project ticket; links to OTel trace |
-| **Email** | P4 | Daily digest only; no real-time delivery |
-| **Webhook** | All | Generic egress for custom ITSM or chat systems |
+| `PagerDutyChannel` | P1 | Integrates with on-call rotation |
+| `SlackChannel` | P1, P2, P3 | Per-rule channel targeting |
+| `MemoryChannel` | All | In-process buffer for testing |
+| `WebhookChannel` | All | Generic egress for custom ITSM |
 
----
+Use `MemoryChannel` in tests to capture notifications without external dependencies:
 
-## Escalation policy
+```python
+router = NotificationRouter()
+memory = MemoryChannel()
+router.add_channel("test", memory)
+router.route(event)
+assert len(memory.events) == 1
+```
+
+## Contract-Triggered Events
+
+Events from the [Data Contracts](data_contracts.md) enforcement points map to severity by layer:
+
+```python
+# After a quality gate failure
+if not gate_result.ok:
+    router.route(NotificationEvent(
+        title=f"Gate failed: {gate.name}",
+        severity=Severity.P2 if gate.layer_to == Layer.SILVER else Severity.P1,
+        layer=gate.layer_to.value,
+        event_type="quality_gate_fail",
+        violations=gate_result.violations,
+    ))
+```
+
+| Contract event | Severity | Layer |
+|---|---|---|
+| `schema_violation` | P1 (Gold), P2 (Silver/Bronze) | Any |
+| `sla_miss.freshness` | P1 (Gold), P4 (Bronze) | Any |
+| `sla_miss.completeness` | P1 (Gold), P2 (Silver) | Gold / Silver |
+| `version_breaking_change` | P2 | Any |
+
+## Escalation
 
 ```
 P4 ──(lag > 2×)──► P2 ──(no ack in 10 min)──► P1
@@ -142,31 +129,18 @@ P4 ──(lag > 2×)──► P2 ──(no ack in 10 min)──► P1
                         P1 + auto-freeze Bronze source
 ```
 
-Every escalation creates a new notification with a fresh `incident_id` that
-links back to the original P4 event for full audit trail.
+Implement escalation by re-routing events with increased severity:
 
----
-
-## Contract-triggered events
-
-Contract events (emitted by the enforcement points — see
-[data_contracts.md](./data_contracts.md)) map to severity levels directly:
-
-| Contract event | Severity | Layer |
-|---|---|---|
-| `schema_violation` | P1 (Gold), P2 (Silver/Bronze) | Any |
-| `sla_miss.freshness` | P1 (Gold), P4 (Bronze) | Any |
-| `sla_miss.completeness` | P1 (Gold), P2 (Silver) | Gold / Silver |
-| `version_breaking_change` | P2 | Any |
-| `consumer_on_deprecated_version` | P3 | Any |
-
----
+```python
+def escalate_if_repeated(event, history):
+    recent_failures = [e for e in history if e.contract_id == event.contract_id]
+    if len(recent_failures) >= 3:
+        event.severity = Severity.P1
+    router.route(event)
+```
 
 ## Dependencies
 
-- **Data Contracts** — all P1/P2 rules are triggered by contract enforcement
-  events; every breach payload includes the `contract_id` and `version`.
-- **Observability** — P3 is sourced from OTel Gold aggregates; P4 is sourced
-  from Bronze ingestion lag metrics.
-- **Medallion Layers** — severity is partly a function of which layer the
-  event originates in (Gold breach = always P1).
+- **[Data Contracts](data_contracts.md)** — P1/P2 rules triggered by contract enforcement events
+- **[Observability](observability.md)** — P3 sourced from OTel metrics; P4 from ingestion lag
+- **[Medallion Layers](medallion_layers.md)** — severity is a function of the originating layer
