@@ -24,6 +24,12 @@ streaming    = [
     "boto3>=1.34",
     "polars>=0.20",
 ]
+otel         = [
+    "opentelemetry-api>=1.24",
+    "opentelemetry-sdk>=1.24",
+    "opentelemetry-exporter-otlp>=1.24",
+]
+lineage      = ["openlineage-python>=1.15"]
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
