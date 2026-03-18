@@ -55,6 +55,8 @@ class SilverBuildOrder:
     # classify
     # -----------------------------------------------------------------
 
+    _KIND_CHECKS: list = []
+
     def classify(self, model_cls: type) -> ModelKind:
         """Return the ``ModelKind`` for *model_cls*.
 
@@ -63,16 +65,18 @@ class SilverBuildOrder:
         from sqldim.core.kimball.models import DimensionModel, FactModel, BridgeModel
         from sqldim.core.graph.schema_graph import SchemaGraph
 
+        if not SilverBuildOrder._KIND_CHECKS:
+            SilverBuildOrder._KIND_CHECKS = [
+                (DimensionModel, ModelKind.DIMENSION),
+                (BridgeModel,    ModelKind.BRIDGE),
+                (FactModel,      ModelKind.FACT),
+                (SchemaGraph,    ModelKind.GRAPH),
+            ]
+
         try:
-            if issubclass(model_cls, DimensionModel):
-                return ModelKind.DIMENSION
-            if issubclass(model_cls, BridgeModel):
-                # Bridge check BEFORE Fact because BridgeModel is not a FactModel
-                return ModelKind.BRIDGE
-            if issubclass(model_cls, FactModel):
-                return ModelKind.FACT
-            if issubclass(model_cls, SchemaGraph):
-                return ModelKind.GRAPH
+            for base, kind in SilverBuildOrder._KIND_CHECKS:
+                if issubclass(model_cls, base):
+                    return kind
         except TypeError:
             pass
         raise TypeError(f"Cannot classify {model_cls!r} as a Silver model kind")

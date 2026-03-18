@@ -12,6 +12,16 @@ import os
 import duckdb
 
 
+def _default_memory_limit() -> str:
+    """Return 70 % of system RAM as a DuckDB-style string, or ``'4GB'`` as fallback."""
+    try:
+        import psutil
+        total_gb = psutil.virtual_memory().total / (1024 ** 3)
+        return f"{total_gb * 0.70:.0f}GB"
+    except (ImportError, Exception):
+        return "4GB"
+
+
 def make_connection(
     memory_limit: str | None = None,
     temp_directory: str | None = None,
@@ -41,14 +51,7 @@ def make_connection(
         pressure significantly at xl/xxl tier.  Safe for all sqldim operations
         which never rely on insertion order.
     """
-    try:
-        import psutil
-        total_gb = psutil.virtual_memory().total / (1024 ** 3)
-        default_limit = f"{total_gb * 0.70:.0f}GB"
-    except (ImportError, Exception):
-        default_limit = "4GB"
-
-    resolved_limit = memory_limit or os.environ.get("SQLDIM_MEMORY_LIMIT", default_limit)
+    resolved_limit = memory_limit or os.environ.get("SQLDIM_MEMORY_LIMIT", _default_memory_limit())
     resolved_tmp   = temp_directory or os.environ.get("SQLDIM_TEMP_DIR", "/tmp/sqldim_spill")
 
     os.makedirs(resolved_tmp, exist_ok=True)

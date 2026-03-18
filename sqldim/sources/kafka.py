@@ -109,6 +109,11 @@ class KafkaSource:
             ).fetchone()[0]
             yield sql
 
+    @staticmethod
+    def _parse_messages(msgs, json) -> list:
+        """Deserialize a batch of kafka messages, skipping errored ones."""
+        return [json.loads(m.value()) for m in msgs if not m.error()]
+
     def _stream_consumer(
         self,
         con: duckdb.DuckDBPyConnection,
@@ -134,15 +139,9 @@ class KafkaSource:
                 msgs = consumer.consume(batch_size, timeout=1.0)
                 if not msgs:
                     break
-
-                rows = [
-                    json.loads(m.value())
-                    for m in msgs
-                    if not m.error()
-                ]
+                rows = self._parse_messages(msgs, json)
                 if not rows:
                     continue
-
                 batch_df = pl.from_dicts(rows)
                 con.register("_kafka_batch", batch_df.to_arrow())
                 self._offset = msgs[-1].offset()

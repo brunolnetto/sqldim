@@ -172,3 +172,26 @@ def test_base_schema_graph_to_mermaid_all_types():
     assert "MetricsFact" in diagram
     assert "float" in diagram
     assert "bool" in diagram
+
+
+def test_base_schema_graph_to_mermaid_renders_fk_relationships():
+    """to_mermaid() renders fact-to-dimension FK relationship lines (L168 in schema_graph.py)."""
+    from sqldim.core.kimball.schema_graph import SchemaGraph as BaseSchemaGraph
+
+    class FKMermaidDim(DimensionModel, table=True):
+        __tablename__ = "fk_mermaid_dim"
+        __natural_key__ = ["code"]
+        id: int = Field(primary_key=True, surrogate_key=True)
+        code: str
+
+    class FKMermaidFact(FactModel, table=True):
+        __tablename__ = "fk_mermaid_fact"
+        id: int = Field(primary_key=True)
+        dim_id: int = Field(dimension=FKMermaidDim)
+
+    g = BaseSchemaGraph.from_models([FKMermaidDim, FKMermaidFact])
+    diagram = g.to_mermaid()
+    # The FK relationship line: "FactName }o--|| DimName : fk_col"
+    assert "}o--||" in diagram
+    assert "FKMermaidDim" in diagram
+    assert "FKMermaidFact" in diagram

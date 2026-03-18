@@ -19,6 +19,14 @@ class ContractEngine:
     overhead is O(1 scan) regardless of rule count.
     """
 
+    @staticmethod
+    def _build_violations(rows: list) -> list:
+        """Convert raw DuckDB result rows into ContractViolation objects."""
+        return [
+            ContractViolation(rule=row[0], severity=row[1], count=row[2], detail=row[3])
+            for row in rows
+        ]
+
     def validate(
         self,
         con: duckdb.DuckDBPyConnection,
@@ -42,8 +50,6 @@ class ContractEngine:
         rows = con.execute(union_sql).fetchall()
         elapsed = time.perf_counter() - t0
 
-        violations = [
-            ContractViolation(rule=row[0], severity=row[1], count=row[2], detail=row[3])
-            for row in rows
-        ]
-        return ContractReport(violations=violations, view=view, elapsed_s=elapsed)
+        return ContractReport(
+            violations=self._build_violations(rows), view=view, elapsed_s=elapsed
+        )

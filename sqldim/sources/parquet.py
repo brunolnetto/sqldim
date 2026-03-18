@@ -46,7 +46,8 @@ class ParquetSource:
         self._filename = filename
         self._remote_threads = remote_threads if remote_threads else None
 
-    def as_sql(self, con) -> str:
+    def _parquet_opts(self) -> list:
+        """Build the list of read_parquet option strings from instance flags."""
         opts = []
         if self._hive:
             opts.append("hive_partitioning=true")
@@ -56,5 +57,9 @@ class ParquetSource:
             opts.append("filename=true")
         if self._remote_threads:
             opts.append(f"threads={self._remote_threads}")
+        return opts
+
+    def as_sql(self, con) -> str:
+        opts = self._parquet_opts()
         opts_str = (", " + ", ".join(opts)) if opts else ""
         return f"read_parquet({self._expr}{opts_str})"

@@ -1,4 +1,7 @@
 """Tests for Quality Gates — checked in RED, implemented to GREEN."""
+import io
+import json
+
 import pytest
 
 from sqldim.medallion import Layer
@@ -152,3 +155,88 @@ class TestQualityGate:
         """A gate that crosses non-adjacent layers should raise ValueError."""
         with pytest.raises(ValueError):
             QualityGate("skip", Layer.BRONZE, Layer.GOLD)
+
+
+# ---------------------------------------------------------------------------
+# QualityGate — lineage integration
+# ---------------------------------------------------------------------------
+
+class TestQualityGateLineage:
+    def _make_emitter(self):
+        from sqldim.lineage import ConsoleLineageEmitter
+        buf = io.StringIO()
+        emitter = ConsoleLineageEmitter(stream=buf)
+        return emitter, buf
+
+    def test_no_lineage_when_emitter_is_none(self):
+        gate = QualityGate("g", Layer.BRONZE, Layer.SILVER, lineage_emitter=None)
+        gate.add_check(lambda: CheckResult("x", True))
+        gate.run()
+        # No assertion needed — just ensures no crash
+
+    def test_emits_start_and_complete_on_pass(self):
+        emitter, buf = self._make_emitter()
+        gate = QualityGate("bronze_to_silver", Layer.BRONZE, Layer.SILVER, lineage_emitter=emitter)
+        gate.add_check(lambda: CheckResult("schema", True))
+        gate.run()
+
+        lines = [json.loads(l) for l in buf.getvalue().strip().split("\n")]
+        assert len(lines) == 2
+        assert lines[0]["eventType"] == "START"
+        assert lines[1]["eventType"] == "COMPLETE"
+        # Same run_id
+        assert lines[0]["run"]["runId"] == lines[1]["run"]["runId"]
+
+    def test_emits_start_and_fail_on_failure(self):
+        emitter, buf = self._make_emitter()
+        gate = QualityGate("g", Layer.BRONZE, Layer.SILVER, lineage_emitter=emitter)
+        gate.add_check(lambda: CheckResult("freshness", False, "stale"))
+        gate.run()
+
+        lines = [json.loads(l) for l in buf.getvalue().strip().split("\n")]
+        assert lines[0]["eventType"] == "START"
+        assert lines[1]["eventType"] == "FAIL"
+
+    def test_lineage_job_name_includes_gate_name(self):
+        emitter, buf = self._make_emitter()
+        gate = QualityGate("my_gate", Layer.BRONZE, Layer.SILVER, lineage_emitter=emitter)
+        gate.run()
+
+        data = json.loads(buf.getvalue().strip().split("\n")[0])
+        assert data["job"]["name"] == "gate.my_gate"
+
+    def test_lineage_inputs_outputs_use_layer_namespaces(self):
+        emitter, buf = self._make_emitter()
+        gate = QualityGate("g", Layer.SILVER, Layer.GOLD, lineage_emitter=emitter)
+        gate.run()
+
+        data = json.loads(buf.getvalue().strip().split("\n")[0])
+        assert data["inputs"][0]["namespace"] == "sqldim.silver"
+        assert data["outputs"][0]["namespace"] == "sqldim.gold"
+
+    def test_lineage_facets_include_check_counts(self):
+        emitter, buf = self._make_emitter()
+        gate = QualityGate("g", Layer.BRONZE, Layer.SILVER, lineage_emitter=emitter)
+        gate.add_check(lambda: CheckResult("a", True))
+        gate.add_check(lambda: CheckResult("b", False, "oops"))
+        gate.run()
+
+        lines = [json.loads(l) for l in buf.getvalue().strip().split("\n")]
+        facets = lines[1]["run"]["facets"]
+        assert facets["check_count"] == 2
+        assert facets["pass_count"] == 1
+        assert facets["fail_count"] == 1
+        assert len(facets["failing_checks"]) == 1
+        assert facets["failing_checks"][0]["name"] == "b"
+
+    def test_lineage_facets_no_failing_checks_on_pass(self):
+        emitter, buf = self._make_emitter()
+        gate = QualityGate("g", Layer.BRONZE, Layer.SILVER, lineage_emitter=emitter)
+        gate.add_check(lambda: CheckResult("a", True))
+        gate.run()
+
+        lines = [json.loads(l) for l in buf.getvalue().strip().split("\n")]
+        facets = lines[1]["run"]["facets"]
+        assert "failing_checks" not in facets
+        assert facets["pass_count"] == 1
+        assert facets["fail_count"] == 0

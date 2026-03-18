@@ -3,11 +3,16 @@
 Provides :class:`SKResolver` (cached surrogate-key lookup) and
 :class:`DimensionalLoader` (register models, resolve FKs, then load).
 """
-from typing import Any, Dict, List, Type, Optional, Tuple
+from __future__ import annotations
+
+from typing import TYPE_CHECKING, Any, Dict, List, Type, Optional, Tuple
 from sqlmodel import Session, select
 from sqldim.core.kimball.schema_graph import SchemaGraph
 from sqldim.core.kimball.models import DimensionModel, FactModel
 from sqldim.core.kimball.dimensions.scd.handler import SCDHandler
+
+if TYPE_CHECKING:
+    from sqldim.lineage.emitter import LineageEmitter
 
 
 class SKResolver:
@@ -52,13 +57,25 @@ class DimensionalLoader:
         Active SQLModel session.
     models:
         All dimension and fact model classes that form the star schema.
+    lineage_emitter:
+        Optional :class:`~sqldim.lineage.LineageEmitter`.  When provided,
+        ``START`` / ``COMPLETE`` / ``FAIL`` lineage events are emitted for
+        the overall load and for each individual model.  Pass ``None``
+        (default) to skip lineage tracking.
     """
 
-    def __init__(self, session: Session, models: List[Type[Any]]):
+    def __init__(
+        self,
+        session: Session,
+        models: List[Type[Any]],
+        *,
+        lineage_emitter: LineageEmitter | None = None,
+    ) -> None:
         self.session = session
         self.graph = SchemaGraph.from_models(models)
         self._registry: Dict[Type[Any], Tuple[List[Dict[str, Any]], Dict[str, Tuple[Type[DimensionModel], str]]]] = {}
         self.resolver = SKResolver(session)
+        self._lineage_emitter = lineage_emitter
 
     def register(
         self, 
@@ -102,6 +119,63 @@ class DimensionalLoader:
             self.session.add(model(**row_data))
         self.session.commit()
 
+    def _emit(self, event: Any) -> None:
+        """Forward *event* to the lineage emitter when one is configured."""
+        if self._lineage_emitter is not None:
+            self._lineage_emitter.emit(event)
+
+    def _pipeline_outputs(self, loaded_models: list[str]) -> list:
+        """Return DatasetRef list for *loaded_models* (deferred import to avoid circulars)."""
+        from sqldim.lineage.events import DatasetRef
+        return [DatasetRef(namespace="sqldim.silver", name=m) for m in loaded_models]
+
+    async def _load_single_model(
+        self,
+        model: Type,
+        data: list,
+        key_map: dict,
+        run_id: "str | None",
+    ) -> str:
+        """Load one model and emit per-model lineage START / COMPLETE / FAIL events."""
+        from sqldim.lineage.events import DatasetRef, LineageEvent, RunState
+
+        model_label = model.__name__
+        model_type = "dimension" if issubclass(model, DimensionModel) else "fact"
+        self._emit(
+            LineageEvent(
+                run_id=run_id,
+                job_name=f"load.{model_label}",
+                state=RunState.START,
+                facets={"model_type": model_type, "rows": len(data)},
+            )
+        )
+        try:
+            if issubclass(model, DimensionModel):
+                await self._load_dimension(model, data)
+            else:
+                processed_data = [self._resolve_fks(r, key_map) for r in data]
+                await self._execute_fact_strategy(
+                    model, getattr(model, "__strategy__", None), processed_data, key_map
+                )
+            self._emit(
+                LineageEvent(
+                    run_id=run_id,
+                    job_name=f"load.{model_label}",
+                    state=RunState.COMPLETE,
+                    outputs=[DatasetRef(namespace="sqldim.silver", name=model_label)],
+                )
+            )
+        except Exception:  # noqa: BLE001
+            self._emit(
+                LineageEvent(
+                    run_id=run_id,
+                    job_name=f"load.{model_label}",
+                    state=RunState.FAIL,
+                )
+            )
+            raise
+        return model_label
+
     async def _execute_fact_strategy(self, model: Type, strategy_name: Optional[str], processed_data: list, key_map: dict) -> None:
         nk = getattr(model, "__natural_key__", ["id"])[0]
         if strategy_name == "bulk":
@@ -120,12 +194,58 @@ class DimensionalLoader:
         else:
             self._insert_all(model, processed_data)
 
+    def _start_pipeline_lineage(self, model_names: list) -> "str | None":
+        """Emit pipeline START event (if emitter configured) and return run_id."""
+        from sqldim.lineage.events import LineageEvent, RunState
+        if self._lineage_emitter is None:
+            return None
+        run_id = LineageEvent(job_name="load.pipeline").run_id
+        self._emit(
+            LineageEvent(
+                run_id=run_id,
+                job_name="load.pipeline",
+                state=RunState.START,
+                facets={"models": model_names},
+            )
+        )
+        return run_id
+
+    def _finish_pipeline_lineage(self, run_id: "str | None", failed: bool, loaded_models: list) -> None:
+        """Emit pipeline COMPLETE/FAIL event when run_id is set."""
+        from sqldim.lineage.events import LineageEvent, RunState
+        if run_id is None:
+            return
+        state = RunState.FAIL if failed else RunState.COMPLETE
+        self._emit(
+            LineageEvent(
+                run_id=run_id,
+                job_name="load.pipeline",
+                state=state,
+                facets={"loaded_models": loaded_models},
+                outputs=self._pipeline_outputs(loaded_models),
+            )
+        )
+
     async def run(self):
-        """Executes the load in the correct order with SK resolution."""
-        for model in self._get_load_order():
-            data, key_map = self._registry[model]
-            if issubclass(model, DimensionModel):
-                await self._load_dimension(model, data)
-            else:
-                processed_data = [self._resolve_fks(r, key_map) for r in data]
-                await self._execute_fact_strategy(model, getattr(model, "__strategy__", None), processed_data, key_map)
+        """Executes the load in the correct order with SK resolution.
+
+        If a *lineage_emitter* was provided at construction, lineage events
+        are emitted for the overall load and for each individual model load.
+        """
+        load_order = self._get_load_order()
+        model_names = list(map(lambda m: m.__name__, load_order))
+        run_id = self._start_pipeline_lineage(model_names)
+
+        failed = False
+        loaded_models: list[str] = []
+        try:
+            for model in load_order:
+                data, key_map = self._registry[model]
+                loaded_models.append(
+                    await self._load_single_model(model, data, key_map, run_id)
+                )
+        except Exception:  # noqa: BLE001
+            failed = True
+            raise
+        finally:
+            self._finish_pipeline_lineage(run_id, failed, loaded_models)

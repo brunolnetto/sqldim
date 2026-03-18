@@ -345,6 +345,182 @@ class TestDebeziumSource:
         deleted_ids = con.execute("SELECT id FROM deleted_nks").fetchall()
         assert (3,) in deleted_ids
 
+    def test_multiple_cdc_batches(self):
+        """DebeziumSource should process multiple Kafka batches, each
+        creating fresh _cdc_upserts and deleted_nks views."""
+        con = duckdb.connect()
+
+        # Batch 1 data
+        con.execute("""
+            CREATE TABLE _batch1 (
+                op     VARCHAR,
+                after  STRUCT(id INT, name VARCHAR),
+                before STRUCT(id INT, name VARCHAR)
+            )
+        """)
+        con.execute("""
+            INSERT INTO _batch1 VALUES
+              ('c', {'id': 1, 'name': 'Alice'}, NULL),
+              ('d', NULL, {'id': 5, 'name': 'Removed'})
+        """)
+
+        # Batch 2 data
+        con.execute("""
+            CREATE TABLE _batch2 (
+                op     VARCHAR,
+                after  STRUCT(id INT, name VARCHAR),
+                before STRUCT(id INT, name VARCHAR)
+            )
+        """)
+        con.execute("""
+            INSERT INTO _batch2 VALUES
+              ('u', {'id': 1, 'name': 'AliceUpdated'}, {'id': 1, 'name': 'Alice'}),
+              ('r', {'id': 2, 'name': 'Snapshot'}, NULL)
+        """)
+
+        class FakeKafka:
+            def stream(self, _con, batch_size=10_000):
+                yield "SELECT * FROM _batch1"
+                yield "SELECT * FROM _batch2"
+
+            def commit(self, offset):
+                pass
+
+            def checkpoint(self):
+                return 2
+
+        src = DebeziumSource(kafka_source=FakeKafka(), natural_key="id")
+        fragments = list(src.stream(con))
+
+        assert len(fragments) == 2
+        for f in fragments:
+            assert "_cdc_upserts" in f
+
+        # Final state of deleted_nks should reflect last batch only
+        deleted = con.execute("SELECT id FROM deleted_nks").fetchall()
+        assert deleted == []  # batch 2 had no deletes
+
+    def test_all_deletes_batch_yields_empty_upserts(self):
+        """When a batch contains only deletes, _cdc_upserts has zero rows
+        but the fragment is still yielded."""
+        con = duckdb.connect()
+        con.execute("""
+            CREATE TABLE _del_only (
+                op     VARCHAR,
+                after  STRUCT(id INT),
+                before STRUCT(id INT)
+            )
+        """)
+        con.execute("""
+            INSERT INTO _del_only VALUES
+              ('d', NULL, {'id': 10}),
+              ('d', NULL, {'id': 20})
+        """)
+
+        class FakeKafka:
+            def stream(self, _con, batch_size=10_000):
+                yield "SELECT * FROM _del_only"
+            def commit(self, offset): pass
+            def checkpoint(self): return 1
+
+        src = DebeziumSource(kafka_source=FakeKafka(), natural_key="id")
+        fragments = list(src.stream(con))
+
+        assert len(fragments) == 1
+        # The upserts view exists but has zero rows
+        count = con.execute("SELECT count(*) FROM _cdc_upserts").fetchone()[0]
+        assert count == 0
+        # deleted_nks has both keys
+        deleted = con.execute("SELECT id FROM deleted_nks ORDER BY id").fetchall()
+        assert deleted == [(10,), (20,)]
+
+    def test_snapshot_read_included_in_upserts(self):
+        """Debezium 'r' (read/snapshot) rows should appear in _cdc_upserts."""
+        con = duckdb.connect()
+        con.execute("""
+            CREATE TABLE _snap (
+                op     VARCHAR,
+                after  STRUCT(id INT, val VARCHAR),
+                before STRUCT(id INT, val VARCHAR)
+            )
+        """)
+        con.execute("""
+            INSERT INTO _snap VALUES
+              ('r', {'id': 1, 'val': 'snap1'}, NULL),
+              ('r', {'id': 2, 'val': 'snap2'}, NULL),
+              ('c', {'id': 3, 'val': 'new'},    NULL)
+        """)
+
+        class FakeKafka:
+            def stream(self, _con, batch_size=10_000):
+                yield "SELECT * FROM _snap"
+            def commit(self, offset): pass
+            def checkpoint(self): return 1
+
+        src = DebeziumSource(kafka_source=FakeKafka(), natural_key="id")
+        list(src.stream(con))
+
+        rows = con.execute(
+            "SELECT id, val FROM _cdc_upserts ORDER BY id"
+        ).fetchall()
+        assert len(rows) == 3
+        assert rows[0] == (1, "snap1")
+        assert rows[1] == (2, "snap2")
+        assert rows[2] == (3, "new")
+
+    def test_update_overwrites_in_upserts_view(self):
+        """Multiple ops for the same key in one batch — upserts shows
+        the 'after' of each create/update/read, not deduplicated."""
+        con = duckdb.connect()
+        con.execute("""
+            CREATE TABLE _upd (
+                op     VARCHAR,
+                after  STRUCT(id INT, status VARCHAR),
+                before STRUCT(id INT, status VARCHAR)
+            )
+        """)
+        con.execute("""
+            INSERT INTO _upd VALUES
+              ('c', {'id': 1, 'status': 'new'},      NULL),
+              ('u', {'id': 1, 'status': 'updated'},  {'id': 1, 'status': 'new'})
+        """)
+
+        class FakeKafka:
+            def stream(self, _con, batch_size=10_000):
+                yield "SELECT * FROM _upd"
+            def commit(self, offset): pass
+            def checkpoint(self): return 1
+
+        src = DebeziumSource(kafka_source=FakeKafka(), natural_key="id")
+        list(src.stream(con))
+
+        rows = con.execute(
+            "SELECT id, status FROM _cdc_upserts ORDER BY id"
+        ).fetchall()
+        # Both rows appear — the view doesn't deduplicate; that's the
+        # caller's responsibility (e.g., via MERGE in the dimension loader).
+        assert len(rows) == 2
+
+    def test_commit_and_checkpoint_delegation(self):
+        """commit() and checkpoint() pass through to the underlying KafkaSource."""
+        call_log = []
+
+        class TrackingKafka:
+            def stream(self, _con, batch_size=10_000):
+                yield "SELECT 1 AS id"
+            def commit(self, offset):
+                call_log.append(("commit", offset))
+            def checkpoint(self):
+                call_log.append(("checkpoint",))
+                return 42
+
+        src = DebeziumSource(kafka_source=TrackingKafka(), natural_key="id")
+        src.commit(100)
+        result = src.checkpoint()
+
+        assert call_log == [("commit", 100), ("checkpoint",)]
+        assert result == 42
+
 
 # ---------------------------------------------------------------------------
 # __init__.py re-exports
@@ -697,6 +873,104 @@ class TestKinesisStream:
 
         assert len(fragments) == 2
         assert src._seq == "s2"
+
+    def test_multiple_batches_from_single_shard(self):
+        """A single shard can yield multiple batches before NextShardIterator is None."""
+        import sys
+        import json
+        from unittest.mock import MagicMock, patch
+
+        r1 = {"Data": json.dumps({"id": 1}).encode(), "SequenceNumber": "s1"}
+        r2 = {"Data": json.dumps({"id": 2}).encode(), "SequenceNumber": "s2"}
+
+        mock_client = MagicMock()
+        mock_client.list_shards.return_value = {"Shards": [{"ShardId": "shard-000"}]}
+        mock_client.get_shard_iterator.return_value = {"ShardIterator": "iter-0"}
+        mock_client.get_records.side_effect = [
+            {"Records": [r1], "NextShardIterator": "iter-1"},
+            {"Records": [r2], "NextShardIterator": None},
+        ]
+
+        mock_boto3 = MagicMock()
+        mock_boto3.client.return_value = mock_client
+
+        src = self._make_src()
+        with patch.dict(sys.modules, {"boto3": mock_boto3, "polars": MagicMock()}):
+            fragments = list(src.stream(MagicMock(), batch_size=100))
+
+        assert len(fragments) == 2
+        assert src._seq == "s2"
+
+    def test_empty_shards_list_yields_nothing(self):
+        """When the stream has zero shards, stream() yields nothing."""
+        import sys
+        from unittest.mock import MagicMock, patch
+
+        mock_client = MagicMock()
+        mock_client.list_shards.return_value = {"Shards": []}
+
+        mock_boto3 = MagicMock()
+        mock_boto3.client.return_value = mock_client
+
+        src = self._make_src()
+        with patch.dict(sys.modules, {"boto3": mock_boto3, "polars": MagicMock()}):
+            fragments = list(src.stream(MagicMock(), batch_size=100))
+
+        assert fragments == []
+        mock_client.get_shard_iterator.assert_not_called()
+
+    def test_batch_size_passed_to_get_records(self):
+        """The batch_size parameter must be forwarded to get_records(Limit=...)."""
+        import sys
+        import json
+        from unittest.mock import MagicMock, patch
+
+        r = {"Data": json.dumps({"x": 1}).encode(), "SequenceNumber": "s"}
+        mock_client = MagicMock()
+        mock_client.list_shards.return_value = {"Shards": [{"ShardId": "shard-000"}]}
+        mock_client.get_shard_iterator.return_value = {"ShardIterator": "iter-0"}
+        mock_client.get_records.side_effect = [
+            {"Records": [r], "NextShardIterator": None},
+        ]
+
+        mock_boto3 = MagicMock()
+        mock_boto3.client.return_value = mock_client
+
+        src = self._make_src()
+        with patch.dict(sys.modules, {"boto3": mock_boto3, "polars": MagicMock()}):
+            list(src.stream(MagicMock(), batch_size=500))
+
+        mock_client.get_records.assert_called_once_with(
+            ShardIterator="iter-0", Limit=500
+        )
+
+    def test_registers_arrow_table_as_kinesis_batch(self):
+        """stream() must call con.register('_kinesis_batch', arrow_table)."""
+        import sys
+        import json
+        from unittest.mock import MagicMock, patch
+
+        r = {"Data": json.dumps({"id": 1}).encode(), "SequenceNumber": "s"}
+        mock_client = MagicMock()
+        mock_client.list_shards.return_value = {"Shards": [{"ShardId": "shard-000"}]}
+        mock_client.get_shard_iterator.return_value = {"ShardIterator": "iter-0"}
+        mock_client.get_records.side_effect = [
+            {"Records": [r], "NextShardIterator": None},
+        ]
+
+        mock_boto3 = MagicMock()
+        mock_boto3.client.return_value = mock_client
+
+        fake_arrow = MagicMock()
+        mock_polars = MagicMock()
+        mock_polars.from_dicts.return_value.to_arrow.return_value = fake_arrow
+
+        con = MagicMock()
+        src = self._make_src()
+        with patch.dict(sys.modules, {"boto3": mock_boto3, "polars": mock_polars}):
+            list(src.stream(con, batch_size=100))
+
+        con.register.assert_called_once_with("_kinesis_batch", fake_arrow)
 
     def test_stops_when_next_shard_iterator_is_none(self):
         """When NextShardIterator is falsy (None/''), the while loop stops."""

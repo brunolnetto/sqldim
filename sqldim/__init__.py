@@ -38,7 +38,7 @@ from sqldim.exceptions import (
     SCDError, DestructiveOperationError,
     LoadError, SKResolutionError, IdempotencyError,
     MigrationError, DestructiveMigrationError,
-    SemanticError, InvalidJoinError,
+    SemanticError, InvalidJoinError, GrainCompatibilityError,
 )
 from sqldim.medallion import Layer, MedallionRegistry, ModelKind, SilverBuildOrder
 

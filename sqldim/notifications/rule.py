@@ -38,15 +38,19 @@ class NotificationRule:
     min_severity: Severity | None
     channels: list[str]
 
+    def _type_matches(self, event: NotificationEvent) -> bool:
+        return "*" in self.event_types or event.event_type in self.event_types
+
+    def _layer_matches(self, event: NotificationEvent) -> bool:
+        return self.layers is None or event.layer in self.layers
+
+    def _severity_matches(self, event: NotificationEvent) -> bool:
+        return self.min_severity is None or event.severity <= self.min_severity
+
     def matches(self, event: NotificationEvent) -> bool:
         """Return ``True`` if *event* satisfies every filter in this rule."""
-        # Event-type filter — "*" acts as wildcard
-        if "*" not in self.event_types and event.event_type not in self.event_types:
-            return False
-        # Layer filter
-        if self.layers is not None and event.layer not in self.layers:
-            return False
-        # Severity filter — event must be at least as critical as threshold
-        if self.min_severity is not None and event.severity > self.min_severity:
-            return False
-        return True
+        return (
+            self._type_matches(event)
+            and self._layer_matches(event)
+            and self._severity_matches(event)
+        )

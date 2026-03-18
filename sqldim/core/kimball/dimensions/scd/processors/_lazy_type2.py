@@ -254,6 +254,42 @@ class LazySCDProcessor:
         except Exception:
             pass
 
+    def _resolve_dedup_sql(self, sql_fragment: str, deduplicate_by: "str | None") -> str:
+        """Return *sql_fragment* wrapped in a deduplication QUALIFY clause when requested."""
+        if not deduplicate_by:
+            return sql_fragment
+        nk = ", ".join(self._nk_cols)
+        return (
+            f"SELECT * FROM ({sql_fragment})"
+            f" QUALIFY ROW_NUMBER() OVER ("
+            f"PARTITION BY {nk} ORDER BY {deduplicate_by} DESC) = 1"
+        )
+
+    def _run_stream_batch(self, i, dedup_sql, table_name, now, on_batch, source, result, _log):
+        """Process one micro-batch inside the streaming loop (SCD-2)."""
+        from sqldim.core.kimball.dimensions.scd.handler import SCDResult as _SCDResult
+        try:
+            self._register_source_from_sql(dedup_sql)
+            self._classify()
+
+            batch_result           = _SCDResult()
+            batch_result.inserted  = self._write_new(table_name, now)
+            batch_result.versioned = self._write_changed(table_name, now)
+            batch_result.unchanged = self._count_unchanged()
+
+            self._update_local_fingerprint_after_batch()
+            source.commit(source.checkpoint())
+            result.accumulate(batch_result)
+            result.batches_processed += 1
+
+            if on_batch:
+                on_batch(i, batch_result)
+        except Exception as exc:
+            result.batches_failed += 1
+            _log.error("Batch %d failed for table %s: %s", i, table_name, exc)
+        finally:
+            self._drop_stream_views()
+
     def process_stream(
         self,
         source,
@@ -284,61 +320,21 @@ class LazySCDProcessor:
         import logging
         from datetime import datetime, timezone
         from sqldim.sources.stream import StreamResult
-        from sqldim.core.kimball.dimensions.scd.handler import SCDResult as _SCDResult
 
         _log = logging.getLogger(__name__)
         result = StreamResult()
 
-        # Phase 1: Bootstrap slim fingerprint once — remote source scanned exactly once.
         self._register_current_checksums(table_name)
 
-        # Phase 2: Stream batches, each classified against the local TABLE.
         for i, sql_fragment in enumerate(source.stream(self._con, batch_size)):
             if max_batches is not None and i >= max_batches:
                 break
-
             now = datetime.now(timezone.utc).isoformat()
+            self._run_stream_batch(
+                i, self._resolve_dedup_sql(sql_fragment, deduplicate_by),
+                table_name, now, on_batch, source, result, _log,
+            )
 
-            if deduplicate_by:
-                nk = ", ".join(self._nk_cols)
-                dedup_sql = (
-                    f"SELECT * FROM ({sql_fragment})"
-                    f" QUALIFY ROW_NUMBER() OVER ("
-                    f"PARTITION BY {nk} ORDER BY {deduplicate_by} DESC) = 1"
-                )
-            else:
-                dedup_sql = sql_fragment
-
-            try:
-                self._register_source_from_sql(dedup_sql)
-                self._classify()
-
-                batch_result           = _SCDResult()
-                batch_result.inserted  = self._write_new(table_name, now)
-                batch_result.versioned = self._write_changed(table_name, now)
-                batch_result.unchanged = self._count_unchanged()
-
-                # Keep local fingerprint in sync so subsequent batches
-                # correctly classify already-processed NKs.
-                self._update_local_fingerprint_after_batch()
-
-                offset = source.checkpoint()
-                source.commit(offset)
-
-                result.accumulate(batch_result)
-                result.batches_processed += 1
-
-                if on_batch:
-                    on_batch(i, batch_result)
-
-            except Exception as exc:
-                result.batches_failed += 1
-                _log.error("Batch %d failed for table %s: %s", i, table_name, exc)
-
-            finally:
-                self._drop_stream_views()
-
-        # Phase 3: Drop bootstrap TABLE after all batches.
         self._con.execute("DROP TABLE IF EXISTS current_checksums")
         return result
 
@@ -511,6 +507,42 @@ class LazyType1Processor:
         except Exception:
             pass
 
+    def _resolve_dedup_sql(self, sql_fragment: str, deduplicate_by: "str | None") -> str:
+        """Return *sql_fragment* wrapped in a deduplication QUALIFY clause when requested."""
+        if not deduplicate_by:
+            return sql_fragment
+        nk = self.natural_key
+        return (
+            f"SELECT * FROM ({sql_fragment})"
+            f" QUALIFY ROW_NUMBER() OVER ("
+            f"PARTITION BY {nk} ORDER BY {deduplicate_by} DESC) = 1"
+        )
+
+    def _run_stream_batch(self, i, dedup_sql, table_name, on_batch, source, result, _log):
+        """Process one micro-batch inside the streaming loop (Type 1)."""
+        from sqldim.core.kimball.dimensions.scd.handler import SCDResult as _SCDResult
+        try:
+            self._register_source_from_sql(dedup_sql)
+            self._classify()
+
+            batch_result           = _SCDResult()
+            batch_result.inserted  = self._write_new(table_name)
+            batch_result.versioned = self._overwrite_changed(table_name)
+            batch_result.unchanged = self._count_unchanged()
+
+            self._update_local_fingerprint_after_batch()
+            source.commit(source.checkpoint())
+            result.accumulate(batch_result)
+            result.batches_processed += 1
+
+            if on_batch:
+                on_batch(i, batch_result)
+        except Exception as exc:
+            result.batches_failed += 1
+            _log.error("Batch %d failed for table %s: %s", i, table_name, exc)
+        finally:
+            self._drop_stream_views()
+
     def process_stream(
         self,
         source,
@@ -529,60 +561,21 @@ class LazyType1Processor:
         :class:`~sqldim.sources.stream.StreamResult`
         """
         import logging
-        from datetime import datetime, timezone
         from sqldim.sources.stream import StreamResult
-        from sqldim.core.kimball.dimensions.scd.handler import SCDResult as _SCDResult
 
         _log = logging.getLogger(__name__)
         result = StreamResult()
 
-        # Phase 1: Bootstrap slim fingerprint once — remote source scanned exactly once.
         self._register_current_checksums(table_name)
 
-        # Phase 2: Stream batches, each classified against the local TABLE.
         for i, sql_fragment in enumerate(source.stream(self._con, batch_size)):
             if max_batches is not None and i >= max_batches:
                 break
+            self._run_stream_batch(
+                i, self._resolve_dedup_sql(sql_fragment, deduplicate_by),
+                table_name, on_batch, source, result, _log,
+            )
 
-            if deduplicate_by:
-                nk = self.natural_key
-                dedup_sql = (
-                    f"SELECT * FROM ({sql_fragment})"
-                    f" QUALIFY ROW_NUMBER() OVER ("
-                    f"PARTITION BY {nk} ORDER BY {deduplicate_by} DESC) = 1"
-                )
-            else:
-                dedup_sql = sql_fragment
-
-            try:
-                self._register_source_from_sql(dedup_sql)
-                self._classify()
-
-                batch_result           = _SCDResult()
-                batch_result.inserted  = self._write_new(table_name)
-                batch_result.versioned = self._overwrite_changed(table_name)
-                batch_result.unchanged = self._count_unchanged()
-
-                # Keep local fingerprint in sync for cross-batch NK detection.
-                self._update_local_fingerprint_after_batch()
-
-                offset = source.checkpoint()
-                source.commit(offset)
-
-                result.accumulate(batch_result)
-                result.batches_processed += 1
-
-                if on_batch:
-                    on_batch(i, batch_result)
-
-            except Exception as exc:
-                result.batches_failed += 1
-                _log.error("Batch %d failed for table %s: %s", i, table_name, exc)
-
-            finally:
-                self._drop_stream_views()
-
-        # Phase 3: Drop bootstrap TABLE after all batches.
         self._con.execute("DROP TABLE IF EXISTS current_checksums")
         return result
 

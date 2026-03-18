@@ -1,10 +1,11 @@
-"""In-memory OTel-compatible collector — swap for a real SDK in production."""
+"""In-memory OTel-compatible collector with pluggable exporters."""
 from __future__ import annotations
 
 from contextlib import contextmanager
 from datetime import datetime, timezone
 from typing import Any, Generator
 
+from sqldim.observability.exporters import SpanExporter, MetricExporter
 from sqldim.observability.metrics import MetricSample
 from sqldim.observability.span import PipelineSpan, SpanStatus
 
@@ -12,14 +13,30 @@ from sqldim.observability.span import PipelineSpan, SpanStatus
 class OTelCollector:
     """Stores spans and metrics in-memory; zero external dependencies.
 
-    Intended for testing, local development, and environments where a real
-    OTel SDK is not available.  Replace with an SDK-backed implementation
-    by subclassing or injecting at the call-site.
+    Optionally accepts exporter callables that are invoked every time a span
+    or metric is recorded.  Pass ``None`` (default) for pure in-memory
+    behaviour suitable for testing.
+
+    Parameters
+    ----------
+    span_exporter:
+        Optional :class:`~sqldim.observability.exporters.SpanExporter`
+        called after each span is finalised.
+    metric_exporter:
+        Optional :class:`~sqldim.observability.exporters.MetricExporter`
+        called after each metric is recorded.
     """
 
-    def __init__(self) -> None:
+    def __init__(
+        self,
+        *,
+        span_exporter: SpanExporter | None = None,
+        metric_exporter: MetricExporter | None = None,
+    ) -> None:
         self._spans: list[PipelineSpan] = []
         self._metrics: list[MetricSample] = []
+        self._span_exporter = span_exporter
+        self._metric_exporter = metric_exporter
 
     @contextmanager
     def start_span(
@@ -42,10 +59,14 @@ class OTelCollector:
             span.end_time = datetime.now(timezone.utc)
             span.duration_s = (span.end_time - span.start_time).total_seconds()
             self._spans.append(span)
+            if self._span_exporter is not None:
+                self._span_exporter.export(span)
 
     def record_metric(self, sample: MetricSample) -> None:
-        """Append a :class:`MetricSample` to the in-memory store."""
+        """Append a :class:`MetricSample` to the in-memory store and export."""
         self._metrics.append(sample)
+        if self._metric_exporter is not None:
+            self._metric_exporter.export(sample)
 
     def spans(self) -> list[PipelineSpan]:
         """Return all recorded spans in insertion order."""

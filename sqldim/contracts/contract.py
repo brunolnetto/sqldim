@@ -30,6 +30,10 @@ class DataContract:
 
     # ── breaking change detection ─────────────────────────────────────────────
 
+    @staticmethod
+    def _columns_by_name(cols: list) -> dict:
+        return {c.name: c for c in cols}
+
     def is_breaking_change_from(self, old: "DataContract") -> bool:
         """Return True when *self* (new) introduces a breaking change vs *old*.
 
@@ -37,8 +41,8 @@ class DataContract:
         - a column present in *old* is absent in *new*
         - a shared column is a breaking change per ``ColumnSpec.is_breaking_change``
         """
-        old_by_name = {c.name: c for c in old.columns}
-        new_by_name = {c.name: c for c in self.columns}
+        old_by_name = self._columns_by_name(old.columns)
+        new_by_name = self._columns_by_name(self.columns)
 
         for col_name, old_col in old_by_name.items():
             if col_name not in new_by_name:

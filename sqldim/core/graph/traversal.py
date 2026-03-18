@@ -10,6 +10,27 @@ if TYPE_CHECKING:
     from sqldim.core.graph.models import EdgeModel
 
 
+def _temporal_filter_clause(vertex_cls: type, as_of: Any, alias: str = "v") -> str:
+    """
+    Generate a temporal WHERE/JOIN predicate for SCD2 vertex models.
+
+    Returns an empty string for SCD Type 1 (or untyped) vertices, since
+    those have no versioning history and need no temporal filter.
+
+    For SCD Type 2 vertices with ``as_of`` provided the predicate filters
+    to the single version active at that instant:
+        effective_from <= as_of AND (effective_to > as_of OR effective_to IS NULL)
+    """
+    scd_type = getattr(vertex_cls, "__scd_type__", 1)
+    if scd_type != 2 or as_of is None:
+        return ""
+    as_of_str = as_of.isoformat() if hasattr(as_of, "isoformat") else str(as_of)
+    return (
+        f" AND {alias}.effective_from <= '{as_of_str}'"
+        f" AND ({alias}.effective_to > '{as_of_str}' OR {alias}.effective_to IS NULL)"
+    )
+
+
 class TraversalEngine:
     """
     Generates SQL strings for graph traversal operations.
@@ -119,9 +140,18 @@ WHERE current_id = {target_id}"""
         measure: str,
         agg: str,
         direction: Literal["out", "in", "both"] = "both",
+        weighted: bool = False,
     ) -> str:
         """
         Aggregate a numeric measure across all edges incident to a vertex.
+
+        Parameters
+        ----------
+        weighted:
+            When ``True`` and ``measure != "*"``, the expression becomes
+            ``AGG(measure * weight)`` to support bridge-table allocation
+            semantics (prevents double-counting in multi-valued dimensions).
+            ``COUNT(*)`` is never affected by this flag.
         """
         table = edge_model.__tablename__  # type: ignore[attr-defined]
         directed: bool = getattr(edge_model, "__directed__", True)
@@ -130,14 +160,91 @@ WHERE current_id = {target_id}"""
         if not directed:
             direction = "both"
 
-        if direction == "out":
-            where_clause = f"subject_id = {start_id}"
-        elif direction == "in":
-            where_clause = f"object_id = {start_id}"
-        else:
-            where_clause = f"subject_id = {start_id} OR object_id = {start_id}"
+        where_clause = _direction_where(direction, start_id)
 
-        return f"SELECT {agg_upper}({measure}) AS result FROM {table} WHERE {where_clause}"
+        # Weighted expression: multiply measure by weight column, except for COUNT(*)
+        if weighted and measure != "*":
+            agg_expr = f"{agg_upper}({measure} * weight)"
+        else:
+            agg_expr = f"{agg_upper}({measure})"
+
+        return f"SELECT {agg_expr} AS result FROM {table} WHERE {where_clause}"
+
+    # ------------------------------------------------------------------
+    # Temporal (SCD-aware) traversal
+    # ------------------------------------------------------------------
+
+    def _build_temporal_sql(
+        self,
+        edge_table: str,
+        vertex_table: str,
+        temporal_cond: str,
+        start_id: int,
+        filter_sql: str,
+        direction: str,
+    ) -> str:
+        """Build the SCD2-aware neighbour SQL for a resolved *direction*."""
+        out = (
+            f"SELECT e.object_id AS neighbor_id"
+            f" FROM {edge_table} e"
+            f" JOIN {vertex_table} v ON v.id = e.object_id AND {temporal_cond}"
+            f" WHERE e.subject_id = {start_id}{filter_sql}"
+        )
+        if direction == "out":
+            return out
+        inbound = (
+            f"SELECT e.subject_id AS neighbor_id"
+            f" FROM {edge_table} e"
+            f" WHERE e.object_id = {start_id}{filter_sql}"
+        )
+        if direction == "in":
+            return inbound
+        return f"{out}\nUNION\n{inbound}"
+
+    def neighbors_sql_at(
+        self,
+        edge_model: type["EdgeModel"],
+        vertex_model: type,
+        start_id: int,
+        as_of: Any = None,
+        direction: Literal["out", "in", "both"] = "both",
+        filters: dict[str, Any] | None = None,
+    ) -> str:
+        """
+        Single-hop neighbor lookup with temporal SCD2 filtering via a JOIN.
+
+        When ``as_of`` is provided and ``vertex_model.__scd_type__ == 2``,
+        the returned SQL JOINs to the vertex table and restricts to the
+        version active at ``as_of``.  For SCD Type 1 (or no ``as_of``),
+        this degrades to a plain :meth:`neighbors_sql` call.
+
+        Parameters
+        ----------
+        vertex_model:
+            The neighbor vertex class — used to inspect ``__scd_type__``
+            and ``__tablename__``.
+        as_of:
+            A ``datetime.date`` / ``datetime.datetime`` (or ISO string).
+            ``None`` → no temporal filter (preserves current behaviour).
+        """
+        scd_type = getattr(vertex_model, "__scd_type__", 1)
+        if as_of is None or scd_type != 2:
+            return self.neighbors_sql(edge_model, start_id, direction, filters)
+
+        edge_table = edge_model.__tablename__  # type: ignore[attr-defined]
+        vertex_table = vertex_model.__tablename__  # type: ignore[attr-defined]
+        if not getattr(edge_model, "__directed__", True):
+            direction = "both"
+
+        as_of_str_val = _as_of_str(as_of)
+        temporal_cond = (
+            f"v.effective_from <= '{as_of_str_val}'"
+            f" AND (v.effective_to > '{as_of_str_val}' OR v.effective_to IS NULL)"
+        )
+        return self._build_temporal_sql(
+            edge_table, vertex_table, temporal_cond,
+            start_id, _conditional_filter(filters), direction,
+        )
 
     def degree_sql(
         self,
@@ -208,10 +315,29 @@ class DuckDBTraversalEngine(TraversalEngine):
         measure: str,
         agg: str,
         direction: Literal["out", "in", "both"] = "both",
+        weighted: bool = False,
     ):
         """Execute aggregation query and return the scalar result."""
-        sql = self.aggregate_sql(edge_model, start_id, measure, agg, direction)
+        sql = self.aggregate_sql(edge_model, start_id, measure, agg, direction, weighted=weighted)
         return self._con.execute(sql).fetchone()[0]
+
+    def neighbors_at(
+        self,
+        edge_model: type["EdgeModel"],
+        vertex_model: type,
+        start_id: int,
+        as_of: Any = None,
+        direction: Literal["out", "in", "both"] = "both",
+        filters: dict[str, Any] | None = None,
+    ) -> list[int]:
+        """
+        Execute a temporal neighbor query and return a list of neighbor IDs.
+
+        Delegates to :meth:`neighbors_sql_at` for SQL generation, then
+        executes the query against the DuckDB connection.
+        """
+        sql = self.neighbors_sql_at(edge_model, vertex_model, start_id, as_of, direction, filters)
+        return [row[0] for row in self._con.execute(sql).fetchall()]
 
     def degree(
         self,
@@ -273,3 +399,22 @@ def _build_filters(filters: dict[str, Any]) -> str:
         else:
             clauses.append(f"{col} = {val}")
     return " AND ".join(clauses)
+
+
+def _direction_where(direction: str, start_id: int) -> str:
+    """Return the bare WHERE predicate for *direction* and *start_id*."""
+    if direction == "out":
+        return f"subject_id = {start_id}"
+    if direction == "in":
+        return f"object_id = {start_id}"
+    return f"subject_id = {start_id} OR object_id = {start_id}"
+
+
+def _as_of_str(as_of: Any) -> str:
+    """Normalise *as_of* to an ISO-format date/datetime string."""
+    return as_of.isoformat() if hasattr(as_of, "isoformat") else str(as_of)
+
+
+def _conditional_filter(filters: "dict[str, Any] | None") -> str:
+    """Return an ' AND <filter_sql>' fragment when *filters* are supplied."""
+    return f" AND {_build_filters(filters)}" if filters else ""

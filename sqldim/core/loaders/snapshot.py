@@ -39,6 +39,26 @@ class LazyTransactionLoader:
         """)
         return self.sink.write(self._con, "pending_facts", table_name, self.batch_size)
 
+    def _run_batch(self, i: int, sql_fragment: str, table_name: str, source, on_batch) -> int:
+        """Write one micro-batch; return rows_written.  Caller handles exceptions."""
+        try:
+            self._con.execute(f"""
+                CREATE OR REPLACE VIEW pending_facts AS
+                SELECT * FROM ({sql_fragment})
+            """)
+            rows_written = self.sink.write(
+                self._con, "pending_facts", table_name, self.batch_size
+            )
+            source.commit(source.checkpoint())
+            if on_batch:
+                on_batch(i, rows_written)
+            return rows_written
+        finally:
+            try:
+                self._con.execute("DROP VIEW IF EXISTS pending_facts")
+            except Exception:
+                pass
+
     def load_stream(
         self,
         source,
@@ -71,33 +91,12 @@ class LazyTransactionLoader:
         for i, sql_fragment in enumerate(source.stream(self._con, batch_size)):
             if max_batches is not None and i >= max_batches:
                 break
-
             try:
-                self._con.execute(f"""
-                    CREATE OR REPLACE VIEW pending_facts AS
-                    SELECT * FROM ({sql_fragment})
-                """)
-                rows_written = self.sink.write(
-                    self._con, "pending_facts", table_name, self.batch_size
-                )
-                offset = source.checkpoint()
-                source.commit(offset)
-
-                result.inserted += rows_written
+                result.inserted += self._run_batch(i, sql_fragment, table_name, source, on_batch)
                 result.batches_processed += 1
-
-                if on_batch:
-                    on_batch(i, rows_written)
-
             except Exception as exc:
                 result.batches_failed += 1
                 _log.error("Batch %d failed: %s", i, exc)
-
-            finally:
-                try:
-                    self._con.execute("DROP VIEW IF EXISTS pending_facts")
-                except Exception:
-                    pass
 
         return result
 
@@ -146,6 +145,26 @@ class LazySnapshotLoader:
         """)
         return self.sink.write(self._con, "snapshot_rows", table_name, self.batch_size)
 
+    def _run_batch(self, i: int, sql_fragment: str, table_name: str, sd, source, on_batch) -> int:
+        """Write one snapshot micro-batch; return rows_written.  Caller handles exceptions."""
+        try:
+            self._con.execute(f"""
+                CREATE OR REPLACE VIEW snapshot_rows AS
+                SELECT *,
+                       '{sd}'::DATE AS {self.date_field}
+                FROM ({sql_fragment})
+            """)
+            rows_written = self.sink.write(self._con, "snapshot_rows", table_name, self.batch_size)
+            source.commit(source.checkpoint())
+            if on_batch:
+                on_batch(i, rows_written)
+            return rows_written
+        finally:
+            try:
+                self._con.execute("DROP VIEW IF EXISTS snapshot_rows")
+            except Exception:
+                pass
+
     def load_stream(
         self,
         source,
@@ -179,35 +198,12 @@ class LazySnapshotLoader:
         for i, sql_fragment in enumerate(source.stream(self._con, batch_size)):
             if max_batches is not None and i >= max_batches:
                 break
-
             try:
-                self._con.execute(f"""
-                    CREATE OR REPLACE VIEW snapshot_rows AS
-                    SELECT *,
-                           '{sd}'::DATE AS {self.date_field}
-                    FROM ({sql_fragment})
-                """)
-                rows_written = self.sink.write(
-                    self._con, "snapshot_rows", table_name, self.batch_size
-                )
-                offset = source.checkpoint()
-                source.commit(offset)
-
-                result.inserted += rows_written
+                result.inserted += self._run_batch(i, sql_fragment, table_name, sd, source, on_batch)
                 result.batches_processed += 1
-
-                if on_batch:
-                    on_batch(i, rows_written)
-
             except Exception as exc:
                 result.batches_failed += 1
                 _log.error("Batch %d failed: %s", i, exc)
-
-            finally:
-                try:
-                    self._con.execute("DROP VIEW IF EXISTS snapshot_rows")
-                except Exception:
-                    pass
 
         return result
 

@@ -156,6 +156,34 @@ def test_to_mermaid_includes_pure_facts():
     assert "SGFact" in mermaid
 
 
+def test_to_mermaid_renders_fact_dimension_relationships():
+    """When a FactModel has FK columns wired to DimensionModels via
+    ``dimension=``, to_mermaid() renders FK relationship lines."""
+    from sqldim.core.kimball.fields import Field as DimField
+    from sqldim.core.kimball.models import DimensionModel
+
+    class SGDim(DimensionModel, table=True):
+        __tablename__ = "sg_dim"
+        __natural_key__ = ["name"]
+        id: Optional[int] = Field(default=None, primary_key=True)
+        name: str
+
+    class SGFactWithDim(FactModel, table=True):
+        __tablename__ = "sg_fact_dim"
+        __grain__ = "dim_grain"
+        id: Optional[int] = Field(default=None, primary_key=True)
+        dim_id: int = DimField(default=None, dimension=SGDim)
+        amount: float = 0.0
+
+    sg = SchemaGraph([SGDim, SGFactWithDim])
+    mermaid = sg.to_mermaid()
+    assert "SGFactWithDim" in mermaid
+    assert "SGDim" in mermaid
+    # Mermaid FK relationship line (line 168 of schema_graph.py)
+    assert "dim_id" in mermaid
+    assert "}o--||" in mermaid
+
+
 def test_from_models_classmethod():
     sg = SchemaGraph.from_models([SGPlayer, SGGame, SGEdge])
     assert SGPlayer in sg.vertices

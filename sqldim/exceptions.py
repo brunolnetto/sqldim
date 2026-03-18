@@ -50,6 +50,9 @@ class SemanticError(SqldimError):
 class InvalidJoinError(SemanticError):
     """Raised when no FK path exists between a fact and a requested dimension."""
 
+class GrainCompatibilityError(SemanticError):
+    """Raised when fact/edge tables with incompatible grain declarations are joined."""
+
 # Narwhals transform errors
 class TransformError(LoadError):
     """Base for transform pipeline errors."""

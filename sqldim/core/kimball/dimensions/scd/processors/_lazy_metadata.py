@@ -344,22 +344,22 @@ class LazySCDMetadataProcessor:
             self._con, "new_rows", table_name, cols, self.batch_size
         )
 
+    def _nk_join_fragments(self) -> tuple:
+        """Return (nk_d_sel, join_cnd, nk_cl_sel, cl_join) built from *_nk_cols*."""
+        cols = self._nk_cols
+        return (
+            ", ".join(f"d.{c}" for c in cols),
+            " AND ".join(f"d.{c} = c.{c}" for c in cols),
+            ", ".join(f"cl.{c}" for c in cols),
+            " AND ".join(f"cl.{c} = ms.{c}" for c in cols),
+        )
+
     def _write_changed(self, table_name: str, now: str, count: int) -> int:
-        """Expire changed rows and insert new versions with ``metadata_diff``.
-
-        Steps in strict order:
-
-        1. Extract ``changed_nks`` TABLE — NKs whose hash changed (small subset).
-        2. Fetch ``old_metadata_snapshot`` TABLE — only the NKs in step 1 are
-           read from PostgreSQL, so this is a small targeted fetch.
-        3. Call :meth:`~sqldim.sinks.base.SinkAdapter.close_versions` to
-           expire old rows.
-        4. Insert new versions; ``metadata_diff`` is set to the snapshotted
-           old metadata.  Intermediate tables are dropped immediately after use.
-        """
+        """Expire changed rows and insert new versions with ``metadata_diff``."""
         if count == 0:
             return 0
         nk_select = ", ".join(self._nk_cols)
+        nk_d_sel, join_cnd, nk_cl_sel, cl_join = self._nk_join_fragments()
 
         # Step 1 — materialise changed NKs (small subset of classified)
         self._con.execute(f"""
@@ -370,9 +370,7 @@ class LazySCDMetadataProcessor:
         """)
 
         # Step 2 — fetch old metadata only for changed NKs (targeted PG read)
-        db_sql   = self.sink.current_state_sql(table_name)
-        nk_d_sel = ", ".join(f"d.{c}" for c in self._nk_cols)
-        join_cnd = " AND ".join(f"d.{c} = c.{c}" for c in self._nk_cols)
+        db_sql = self.sink.current_state_sql(table_name)
         self._con.execute(f"""
             CREATE OR REPLACE TABLE old_metadata_snapshot AS
             SELECT {nk_d_sel},
@@ -390,9 +388,7 @@ class LazySCDMetadataProcessor:
         self._con.execute("DROP TABLE IF EXISTS changed_nks")
 
         # Step 4 — insert new versions with metadata_diff = old snapshot
-        cols      = self._nk_cols + self._EXTRA_COLS
-        nk_cl_sel = ", ".join(f"cl.{c}" for c in self._nk_cols)
-        cl_join   = " AND ".join(f"cl.{c} = ms.{c}" for c in self._nk_cols)
+        cols = self._nk_cols + self._EXTRA_COLS
         self._con.execute(f"""
             CREATE OR REPLACE VIEW new_versions AS
             SELECT {nk_cl_sel},
@@ -470,6 +466,48 @@ class LazySCDMetadataProcessor:
             AND cl._scd_class = 'changed'
         """)
 
+    def _run_stream_batch(self, i, sql_fragment, table_name, now, on_batch, source, result, _log):
+        """Execute one streaming micro-batch for the metadata SCD-2 cycle."""
+        from sqldim.core.kimball.dimensions.scd.handler import SCDResult as _SCDResult
+        try:
+            self._register_source_from_sql(sql_fragment)
+            self._classify()
+
+            self._con.execute("DROP TABLE IF EXISTS incoming")
+
+            stats = self._con.execute("""
+                SELECT countif(_scd_class = 'new')       AS n_new,
+                       countif(_scd_class = 'changed')   AS n_changed,
+                       countif(_scd_class = 'unchanged') AS n_unchanged
+                FROM classified
+            """).fetchone()
+            n_new, n_changed, n_unchanged = stats[0], stats[1], stats[2]
+            _log.info(
+                f"[sqldim] {table_name}: batch {i+1} — "
+                f"{n_new:,} new, {n_changed:,} changed, {n_unchanged:,} unchanged"
+            )
+
+            batch_result           = _SCDResult()
+            batch_result.inserted  = self._write_new(table_name, now, n_new)
+            batch_result.versioned = self._write_changed(table_name, now, n_changed)
+            batch_result.unchanged = n_unchanged
+
+            self._update_local_hashes_after_batch()
+            self._con.execute("DROP TABLE IF EXISTS classified")
+
+            source.commit(source.checkpoint())
+            result.accumulate(batch_result)
+            result.batches_processed += 1
+
+            if on_batch:
+                on_batch(i, batch_result)
+
+        except Exception as exc:
+            result.batches_failed += 1
+            _log.error("Batch %d failed for table %s: %s", i, table_name, exc)
+            self._con.execute("DROP TABLE IF EXISTS incoming")
+            self._con.execute("DROP TABLE IF EXISTS classified")
+
     def process_stream(
         self,
         source,
@@ -506,7 +544,6 @@ class LazySCDMetadataProcessor:
         """
         import logging
         from sqldim.sources.stream import StreamResult
-        from sqldim.core.kimball.dimensions.scd.handler import SCDResult as _SCDResult
 
         _log  = logging.getLogger(__name__)
         _safe(table_name)
@@ -516,59 +553,13 @@ class LazySCDMetadataProcessor:
 
         result = StreamResult()
 
-        # Phase 1: Bootstrap slim fingerprint once.
         _log.info(f"[sqldim] {table_name}: bootstrapping hash fingerprint …")
         self._register_current_hashes(table_name)
 
-        # Phase 2: Stream batches, each classified against the local TABLE.
         for i, sql_fragment in enumerate(source.stream(self._con, batch_size)):
             if max_batches is not None and i >= max_batches:
                 break
+            self._run_stream_batch(i, sql_fragment, table_name, now, on_batch, source, result, _log)
 
-            try:
-                self._register_source_from_sql(sql_fragment)
-                self._classify()
-
-                # Drop incoming to free memory before writes.
-                self._con.execute("DROP TABLE IF EXISTS incoming")
-
-                stats = self._con.execute("""
-                    SELECT countif(_scd_class = 'new')       AS n_new,
-                           countif(_scd_class = 'changed')   AS n_changed,
-                           countif(_scd_class = 'unchanged') AS n_unchanged
-                    FROM classified
-                """).fetchone()
-                n_new, n_changed, n_unchanged = stats[0], stats[1], stats[2]
-                _log.info(
-                    f"[sqldim] {table_name}: batch {i+1} — "
-                    f"{n_new:,} new, {n_changed:,} changed, {n_unchanged:,} unchanged"
-                )
-
-                batch_result           = _SCDResult()
-                batch_result.inserted  = self._write_new(table_name, now, n_new)
-                batch_result.versioned = self._write_changed(table_name, now, n_changed)
-                batch_result.unchanged = n_unchanged
-
-                # Keep local hashes in sync for cross-batch NK detection.
-                self._update_local_hashes_after_batch()
-
-                self._con.execute("DROP TABLE IF EXISTS classified")
-
-                offset = source.checkpoint()
-                source.commit(offset)
-
-                result.accumulate(batch_result)
-                result.batches_processed += 1
-
-                if on_batch:
-                    on_batch(i, batch_result)
-
-            except Exception as exc:
-                result.batches_failed += 1
-                _log.error("Batch %d failed for table %s: %s", i, table_name, exc)
-                self._con.execute("DROP TABLE IF EXISTS incoming")
-                self._con.execute("DROP TABLE IF EXISTS classified")
-
-        # Phase 3: Drop bootstrap TABLE after all batches.
         self._con.execute("DROP TABLE IF EXISTS current_hashes")
         return result

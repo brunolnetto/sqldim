@@ -9,7 +9,7 @@ class SCD2Mixin(SQLModel):
     Default period columns are datetimes. For non-datetime periods (like integer seasons),
     override valid_from/valid_to in the subclass.
     """
-    valid_from: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+    valid_from: datetime = Field(default_factory=lambda: datetime.now(timezone.utc), index=True)
     valid_to: Optional[datetime] = Field(default=None, index=True, nullable=True)
     is_current: bool = Field(default=True, index=True)
     checksum: Optional[str] = Field(default=None, index=True, nullable=True)
