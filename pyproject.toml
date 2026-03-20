@@ -31,9 +31,22 @@ otel         = [
 ]
 lineage      = ["openlineage-python>=1.15"]
 
+[tool.coverage.run]
+omit = [
+    "sqldim/examples/real_world/utils.py",
+    "sqldim/examples/*/showcase.py",
+    "sqldim/examples/features/*/showcase.py",
+]
+
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
 asyncio_default_fixture_loop_scope = "function"
+filterwarnings = [
+    # SQLModel uses class-based Pydantic config internally (third-party, unfixable)
+    "ignore:Support for class-based `config` is deprecated:DeprecationWarning:sqlmodel",
+    # runpy double-import of sqldim.cli in test_main_as_module (test isolation artefact)
+    "ignore:.*sqldim.cli.*found in sys.modules.*:RuntimeWarning:runpy",
+]
 
 [dependency-groups]
 dev = [
@@ -46,5 +59,8 @@ dev = [
     "pytest-cov>=7.0.0",
     "pytest-json-report>=1.5.0",
     "radon>=6.0.1",
+]
+lineage = [
+    "sqlglot>=30.0.1",
 ]
 
