@@ -136,3 +136,98 @@ Dimensional modeling has seen a revival in the **dbt + cloud data warehouse** er
 
 ---
 
+## Dimensional Graph Model (DGM)
+
+sqldim extends the classical Kimball model with a formal graph algebra — the
+**Dimensional Graph Model (DGM)** — which unifies dimensional analysis with graph
+modelling in a single typed framework.
+
+### Why a Graph Extension?
+
+Classical Kimball models answer *"aggregate measures per dimension group."*
+Graph models answer *"which entities are related and how?"*  The two questions
+arise from the same data but require different query patterns:
+
+| Classical Kimball | Graph extension |
+|---|---|
+| `SUM(revenue) GROUP BY customer.region` | "Which customers are reachable within 2 hops via bridge edges?" |
+| `JOIN` along FK foreign keys | Recursive CTE traversal with cycle detection |
+| Aggregation stops at group boundaries | Path finding is unbounded in depth |
+
+DGM makes both questions first-class — using the same schema definitions.
+
+### Graph Primitives
+
+Classical Kimball objects map directly to DGM graph primitives:
+
+| Kimball object | DGM primitive | Carries |
+|---|---|---|
+| `DimensionModel` | Dimension node (`dim`) | Attributes (filterable, groupable) |
+| `FactModel` | Fact node (`fact`) | Measures (aggregable) |
+| FK from fact → dimension | Verb edge (`dim → fact`) | Business verb label |
+| `BridgeModel` | Bridge edge (`dim → dim`) | Optional allocation weight |
+
+A key departure from classical Kimball: **facts are first-class nodes**, not merely
+intersection tables. This solves the *reification problem* — an event that involves
+three or more dimensions (a delivery assigned to a customer, a product, and a courier)
+is represented cleanly without forcing an artificial binary subject/object split.
+
+### Three-Band Query Algebra
+
+DGM structures every query as `Q = B1 ∘ B2? ∘ B3?`:
+
+| Band | SQL role | Maps to |
+|---|---|---|
+| **B1 — Context** | `FROM … JOIN … WHERE` | Define the working subgraph |
+| **B2 — Aggregation** | `GROUP BY … HAVING` | Collapse and summarise |
+| **B3 — Ranking** | Window functions + `QUALIFY` | Rank tuples and filter |
+
+The bands correspond exactly to the semantic phases of SQL evaluation:
+row-level filtering, set-level aggregation, then tuple-level ranking.
+Making them explicit and named:
+
+- eliminates the "where vs. having confusion" problem (wrong band → type error at construction time)
+- enables the `B1 ∘ B3` form (QUALIFY without GROUP BY) which is otherwise awkward
+  to express in most query builders
+- provides a clean model for cross-band reference validation (`PropRef` / `AggRef` / `WinRef`)
+
+### Unified Predicate Language
+
+All three bands share a single boolean tree grammar (`AND`, `OR`, `NOT`, `ScalarPred`).
+Band safety is enforced via the `Ref` kind of the leaf, not via a structural grammar difference:
+
+```
+ScalarPred(PropRef("c.segment"), "=", "retail")  → valid in B1 Where
+ScalarPred(AggRef("total_rev"), ">", 5000)        → valid in B2 Having
+ScalarPred(WinRef("rnk"), "<=", 2)                → valid in B3 Qualify
+```
+
+`PathPred` is the only predicate restricted to B1 — it fires an `EXISTS` subquery
+over a multi-hop path traversal, which is meaningful only while the graph context
+is live (before aggregation collapses it).
+
+### DGM vs. Property Graph Engines (Neo4j, Gremlin)
+
+| Dimension | Neo4j / Gremlin | DGM |
+|---|---|---|
+| Storage | Dedicated graph store | Existing SQL tables |
+| Schema | Schema-optional | Typed via `DimensionModel` / `FactModel` |
+| Aggregation | Limited | Full SQL GROUP BY + HAVING |
+| Temporal (SCD2) | No native support | First-class `TemporalJoin` |
+| Bridge weights | Ad-hoc property | First-class `P(b).weight` in Band 2 |
+| Backend | JVM / specialized | DuckDB; any SQL engine |
+
+DGM does not aim to replace Neo4j for deeply recursive graph workloads (e.g., social
+graph community detection). Its sweet spot is analytical OLAP workloads where
+dimensional structure is known, SCD2 history matters, and the graph relationships
+are the star schema FK topology.
+
+### Further Reading
+
+- [DGM Feature Reference](../features/dimensional_graph_model.md) — API reference with
+  code examples for all four query forms
+- [Graph Analytics Roadmap ADR](./adr/graph-analytics-roadmap.md) — four-tier
+  implementation plan for closing the remaining gaps
+
+---
+

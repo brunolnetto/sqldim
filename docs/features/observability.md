@@ -261,6 +261,104 @@ def check_latency_anomaly(collector, threshold_s=5.0):
             ))
 ```
 
+---
+
+## DriftObservatory
+
+`DriftObservatory` is a higher-level observability component that models **schema evolution and data-quality drift as first-class Kimball facts**. The library dog-foods itself: the star schema is declared using `DimensionModel` / `TransactionFact` base classes and materialised into DuckDB.
+
+### Star Schema
+
+| Table | Kind | Purpose |
+|---|---|---|
+| `obs_dataset_dim` | Dimension | Every tracked table/view |
+| `obs_evolution_type_dim` | Dimension | Taxonomy of schema-change kinds (seeded on init) |
+| `obs_rule_dim` | Dimension | Contract rule catalog |
+| `obs_pipeline_run_dim` | Dimension | One row per pipeline execution |
+| `obs_schema_evolution_fact` | Fact | One row per column-level schema change |
+| `obs_quality_drift_fact` | Fact | One row per contract-rule check result |
+
+### Quick Start
+
+```python
+from sqldim.observability.drift import DriftObservatory
+
+# In-memory (testing / one-shot analysis)
+obs = DriftObservatory.in_memory()
+
+# File-backed (persistent across runs)
+obs = DriftObservatory.from_path("./drift.duckdb")
+
+# Ingest a schema-evolution report (silver layer)
+obs.ingest_evolution(evo_report, dataset="orders_dim", run_id="run-001", layer="silver")
+
+# Ingest a contract-check report (silver layer)
+obs.ingest_quality(quality_report, dataset="orders_dim", run_id="run-001", layer="silver")
+
+# Gold-layer queries
+obs.breaking_change_rate().fetchdf()
+obs.worst_quality_datasets(top_n=5).fetchdf()
+obs.drift_velocity(bucket="week").fetchdf()
+obs.quality_score_trend("orders_dim").fetchdf()
+obs.migration_backlog().fetchdf()
+obs.rule_failure_heatmap().fetchdf()
+```
+
+### Bulk Ingest with `transaction()`
+
+For high-volume scenarios, wrap all ingest calls in a single explicit transaction.
+Without this wrapper each call auto-commits, making bulk loads significantly slower.
+
+```python
+with obs.transaction():
+    for report in evolution_reports:
+        obs.ingest_evolution(report, dataset="orders_dim", run_id="run-001")
+    for report in quality_reports:
+        obs.ingest_quality(report, dataset="orders_dim", run_id="run-001")
+```
+
+### `ingest_evolution(report, *, dataset, run_id, layer, pipeline_name, domain, detected_at)`
+
+Convert an `EvolutionReport` into `ObsSchemaEvolutionFact` rows. Returns the number of rows inserted.
+
+| Parameter | Type | Description |
+|---|---|---|
+| `report` | `EvolutionReport` | Schema diff report from `SchemaGraph.diff()` |
+| `dataset` | `str` | Logical table/view name |
+| `run_id` | `str` | Pipeline run identifier |
+| `layer` | `str` | Medallion layer (`"bronze"`, `"silver"`, `"gold"`) |
+| `pipeline_name` | `str` | Human-readable pipeline label |
+| `domain` | `str` | Business domain (optional) |
+| `detected_at` | `datetime \| None` | Override detection timestamp |
+
+### `ingest_quality(report, *, dataset, run_id, layer, pipeline_name, domain, checked_at)`
+
+Convert a `ContractReport` into `ObsQualityDriftFact` rows. Returns the number of rows inserted.
+A clean run (no violations) returns `0`.
+
+### Gold-Layer Analytical Queries
+
+| Method | Returns | Description |
+|---|---|---|
+| `breaking_change_rate()` | relation | Breaking vs. total schema changes, grouped by dataset |
+| `worst_quality_datasets(top_n=10)` | relation | Datasets with highest cumulative violation counts |
+| `drift_velocity(bucket="day")` | relation | Schema-change events bucketed by day/week/month |
+| `quality_score_trend(dataset, bucket="day")` | relation | Rolling 0–1 quality score for a dataset over time |
+| `migration_backlog()` | relation | Columns requiring migration or backfill |
+| `rule_failure_heatmap()` | relation | Dataset × rule violation matrix |
+
+All methods return a DuckDB relation — call `.fetchdf()` for a Pandas DataFrame or `.fetchall()` for a list of tuples.
+
+### Medallion Mapping
+
+| Medallion Layer | Activity |
+|---|---|
+| **Bronze** | Raw `EvolutionReport` / `ContractReport` objects arrive as events |
+| **Silver** | `ingest_evolution()` / `ingest_quality()` explode them into the star schema |
+| **Gold** | Analytical queries (`breaking_change_rate()`, `drift_velocity()`, etc.) |
+
+---
+
 ## Dependencies
 
 - **[Data Contracts](data_contracts.md)** — observability contracts enforced at OTel Bronze/Silver/Gold promotion gates

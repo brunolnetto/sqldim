@@ -10,7 +10,7 @@ both BI star schemas and network traversal queries.
 |---|---|
 | **[Getting Started](./getting-started.md)** | New-user tutorial — install, define models, load data |
 | [Architecture](./architecture/overview.md) | Design choices — Medallion, Kimball, graph projection, quality design |
-| [Features](./features/data_contracts.md) | Per-feature reference: contracts, observability, graph, medallion, notifications |
+| [Features](./features/data_contracts.md) | Per-feature reference: contracts, observability, DGM query algebra, graph, medallion, notifications |
 | **[Guides](./guides/lazy_loaders.md)** | How-to guides: lazy loaders, vectorised ETL, semantic layer |
 | **[Reference](./reference/fact_types.md)** | API reference: fact types, sinks, CLI, exceptions |
 | [Guides (big data)](./guides/big_data.md) | How-to: big-data scaling, vectorised ETL, semantic layer |
@@ -34,6 +34,8 @@ both BI star schemas and network traversal queries.
 ## Core Pillars
 
 - **Dimensional Core** — SCD Types 1–6, surrogate-key resolution, grain validation.
+- **Dimensional Graph Model (DGM)** — three-band query algebra (`B1 ∘ B2? ∘ B3?`) unifying dimensional analysis with graph modelling.
+  See [features/dimensional_graph_model.md](./features/dimensional_graph_model.md).
 - **Graph Extension** — vertex/edge projection, recursive-CTE traversal, `SchemaGraph`.
 - **Vectorised ETL** — Narwhals adapters for Polars, Pandas, DuckDB, PySpark.
   See [guides/vectorized_etl.md](./guides/vectorized_etl.md).
