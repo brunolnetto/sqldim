@@ -1,4 +1,3 @@
-from typing import Optional
 
 
 class BackfillHint:
@@ -31,7 +30,7 @@ def add_backfill_hint(table: str, column: str, note: str) -> BackfillHint:
 def initialize_scd2_rows(
     table: str,
     valid_from_default: str = "1970-01-01",
-    valid_to_default: Optional[str] = None,
+    valid_to_default: str | None = None,
 ) -> str:
     """
     Generate the SQL UPDATE statement to initialize existing rows as current

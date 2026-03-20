@@ -15,7 +15,6 @@ which co-locates them within Parquet row groups for predicate-pushdown wins.
 """
 
 from pathlib import Path
-from typing import Optional
 import duckdb
 
 
@@ -49,8 +48,8 @@ class ParquetSink:
         self,
         base_path: str,
         *,
-        partition_by: Optional[list[str]] = None,
-        zorder_by: Optional[list[str]] = None,
+        partition_by: list[str | None] = None,
+        zorder_by: list[str | None] = None,
         target_file_size_mb: int = 256,
     ):
         self._base = base_path.rstrip("/")

@@ -6,7 +6,7 @@ and natural-key renames between a set of :class:`DimensionModel` /
 """
 
 import re
-from typing import Any, Dict, List, Optional, Type
+from typing import Any, Type
 from sqldim.core.kimball.models import DimensionModel
 from sqldim.core.kimball.schema_graph import SchemaGraph
 

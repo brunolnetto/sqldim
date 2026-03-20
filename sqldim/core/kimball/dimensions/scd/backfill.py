@@ -5,7 +5,7 @@ SCD-2 history rows and for bulk-loading cumulative window-aggregation data
 from a source staging table.
 """
 
-from typing import List, Type, Union
+from typing import Union
 from sqlmodel import Session, text
 from sqldim.core.kimball.models import DimensionModel
 

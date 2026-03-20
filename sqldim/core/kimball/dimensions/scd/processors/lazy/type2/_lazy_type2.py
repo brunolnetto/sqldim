@@ -351,6 +351,4 @@ class LazySCDProcessor(_Type2StreamMixin):
 # ---------------------------------------------------------------------------
 # LazyType1Processor re-exported from _lazy_type1 for backward compatibility
 # ---------------------------------------------------------------------------
-from sqldim.core.kimball.dimensions.scd.processors.lazy.type1._lazy_type1 import (
-    LazyType1Processor,
-)  # noqa: E402, F401
+from sqldim.core.kimball.dimensions.scd.processors.lazy.type1 import LazyType1Processor as LazyType1Processor  # noqa: F401

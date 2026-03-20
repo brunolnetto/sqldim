@@ -1,4 +1,4 @@
-from typing import Optional, List, Dict, ClassVar, Sequence
+from typing import ClassVar, Sequence
 from sqlmodel import SQLModel
 from sqlalchemy import Index
 from sqldim.core.kimball.fields import Field

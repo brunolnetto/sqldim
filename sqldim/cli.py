@@ -11,7 +11,6 @@ Usage:
 
 import argparse
 import sys
-from typing import List
 
 # ── migration commands ────────────────────────────────────────────────────────
 

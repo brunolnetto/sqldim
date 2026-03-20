@@ -6,7 +6,7 @@ Evening / Night).  Use :meth:`TimeDimension.generate` to populate.
 """
 
 from datetime import time
-from typing import ClassVar, List
+from typing import ClassVar
 from sqlmodel import Session
 from sqldim import DimensionModel, Field
 
@@ -98,7 +98,7 @@ class TimeDimension(DimensionModel, table=True):
         )
 
     @classmethod
-    def generate(cls, session: Session) -> List["TimeDimension"]:
+    def generate(cls, session: Session) -> list["TimeDimension"]:
         """Generate all 1440 minute-level time rows (idempotent)."""
         rows = []
         for h in range(24):

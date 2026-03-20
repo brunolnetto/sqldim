@@ -7,7 +7,7 @@ dimensions) and can render Mermaid ER diagrams.
 
 from __future__ import annotations
 
-from typing import Any, Dict, List, Type, TYPE_CHECKING
+from typing import Any, Type, TYPE_CHECKING
 
 if TYPE_CHECKING:
     from sqldim.core.kimball.models import DimensionModel, FactModel

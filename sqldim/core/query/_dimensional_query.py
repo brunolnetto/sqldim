@@ -6,7 +6,7 @@ Extracted from builder.py to keep file sizes manageable.
 from __future__ import annotations
 
 from datetime import date
-from typing import Any, Dict, List, Optional, Type
+from typing import Any
 
 from sqlmodel import Session, select
 from sqlalchemy import func

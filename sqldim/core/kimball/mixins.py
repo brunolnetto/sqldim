@@ -1,5 +1,5 @@
 from datetime import date, datetime, timezone
-from typing import ClassVar, Optional, Any
+from typing import ClassVar, Any
 from sqlmodel import SQLModel
 from sqldim.core.kimball.fields import Field
 
@@ -20,9 +20,9 @@ class SCD2Mixin(SQLModel):
     valid_from: datetime = Field(
         default_factory=lambda: datetime.now(timezone.utc), index=True
     )
-    valid_to: Optional[datetime] = Field(default=None, index=True, nullable=True)
+    valid_to: datetime | None = Field(default=None, index=True, nullable=True)
     is_current: bool = Field(default=True, index=True)
-    checksum: Optional[str] = Field(default=None, index=True, nullable=True)
+    checksum: str | None = Field(default=None, index=True, nullable=True)
 
 
 _SCD3_SKIP = {"id", "is_current", "valid_from", "valid_to", "checksum"}
@@ -58,7 +58,7 @@ class SCD3Mixin(SQLModel):
 
             employee_id: str
             region:      str                     # current value
-            prev_region: Optional[str] = None   # previous value (rotated by SCDHandler)
+            prev_region: str | None = None   # previous value (rotated by SCDHandler)
 
     The pair ``("region", "prev_region")`` must be registered so the
     handler knows which column to rotate.  Pass it to ``SCDHandler`` via

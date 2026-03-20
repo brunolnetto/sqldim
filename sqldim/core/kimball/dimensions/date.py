@@ -1,5 +1,4 @@
 from datetime import date, timedelta
-from typing import List
 from sqlmodel import Session
 from sqldim import DimensionModel, Field
 

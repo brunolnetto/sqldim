@@ -3,7 +3,6 @@ from __future__ import annotations
 import asyncio
 from datetime import date
 from itertools import islice
-from typing import Any
 from sqlmodel import Session
 from sqldim.core.kimball.models import DimensionModel, FactModel
 from sqldim.core.loaders._utils import _resolve_table, _assert_not_dimension

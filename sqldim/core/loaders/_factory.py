@@ -5,7 +5,7 @@ Used by :meth:`FactModel.as_loader` and available for direct use.
 
 from __future__ import annotations
 
-from typing import Any, Dict, Optional, TYPE_CHECKING
+from typing import Any, TYPE_CHECKING
 
 from sqldim.core.loaders._utils import _infer_loader_params
 

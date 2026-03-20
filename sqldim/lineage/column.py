@@ -12,7 +12,7 @@ Both declarative mode (metadata-driven, zero deps) and automatic mode
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Any, Optional, TYPE_CHECKING
+from typing import Any, TYPE_CHECKING
 
 if TYPE_CHECKING:
     pass
@@ -47,7 +47,7 @@ class ColumnLineageEntry:
     output_column: str
     input_columns: list[str]
     transform_description: str = "Direct mapping"
-    transform_sql: Optional[str] = None
+    transform_sql: str | None = None
     confidence: str = "declared"
 
     def to_dict(self) -> dict[str, Any]:
@@ -121,11 +121,11 @@ def _entry_to_ol_field(entry: ColumnLineageEntry) -> dict[str, Any]:
 # ---------------------------------------------------------------------------
 
 
-def _entry_from_col(col: Any) -> "Optional[ColumnLineageEntry]":
+def _entry_from_col(col: Any) -> "ColumnLineageEntry | None":
     """Build a :class:`ColumnLineageEntry` from one SQLAlchemy column, or ``None``."""
     info: dict = col.info or {}
-    src_col: Optional[str] = info.get("source_column")
-    src_cols: Optional[list] = info.get("source_columns")
+    src_col: str | None = info.get("source_column")
+    src_cols: list | None = info.get("source_columns")
     transform: str = info.get("transform_description") or "Direct mapping"
     if src_col:
         return ColumnLineageEntry(
@@ -193,7 +193,7 @@ def extract_structural_lineage(model_cls: Any) -> ColumnLineageFacet:
 
     for col in table.columns:
         info: dict = col.info or {}
-        fk_target: Optional[str] = info.get("foreign_key_target")
+        fk_target: str | None = info.get("foreign_key_target")
         if fk_target:
             entries.append(
                 ColumnLineageEntry(

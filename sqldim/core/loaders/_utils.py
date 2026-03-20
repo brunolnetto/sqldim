@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Any, Dict, List, Optional, Union, get_args, get_origin
+from typing import Any, Union, get_args, get_origin
 
 TableRef = Union[str, type]
 

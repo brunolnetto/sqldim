@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import asyncio
-from typing import Any
 from sqlmodel import Session, select
 from sqldim.core.kimball.models import FactModel
 from sqldim.core.loaders._utils import _resolve_table, _assert_not_dimension

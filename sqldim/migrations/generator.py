@@ -6,7 +6,7 @@ and ``downgrade`` operations, backfill hints, and safety warnings.
 """
 
 from datetime import datetime
-from typing import Any, Dict, List, Type
+from typing import Any, Type
 from sqldim.migrations.context import (
     DimensionalMigrationContext,
     SchemaChange,
@@ -108,14 +108,14 @@ def _apply_change_to_script(change: SchemaChange, script: "MigrationScript") -> 
 class MigrationScript:
     """Represents a generated dimensional migration."""
 
-    def __init__(self, message: str, changes: List[SchemaChange]):
+    def __init__(self, message: str, changes: list[SchemaChange]):
         self.message = message
         self.created_at = datetime.now()
         self.changes = changes
-        self.upgrade_ops: List[str] = []
-        self.downgrade_ops: List[str] = []
-        self.backfill_hints: List[Any] = []
-        self.warnings: List[str] = []
+        self.upgrade_ops: list[str] = []
+        self.downgrade_ops: list[str] = []
+        self.backfill_hints: list[Any] = []
+        self.warnings: list[str] = []
 
     def render(self) -> str:
         """Render the script as a Python string with ``upgrade`` / ``downgrade`` functions."""
@@ -134,7 +134,7 @@ class MigrationScript:
                 lines.append(f"# ⚠️  {w}")
         return "\n".join(lines)
 
-    def _render_ops_block(self, ops: List[str]) -> List[str]:
+    def _render_ops_block(self, ops: list[str]) -> list[str]:
         """Return indented op lines, or a single ``pass`` if there are none."""
         if ops:
             return [f"    # {op}" for op in ops]
@@ -142,8 +142,8 @@ class MigrationScript:
 
 
 def generate_migration(
-    models: List[Type],
-    current_state: Dict[str, Any],
+    models: list[Type],
+    current_state: dict[str, Any],
     message: str = "auto migration",
 ) -> MigrationScript:
     """

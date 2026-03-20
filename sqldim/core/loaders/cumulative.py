@@ -7,7 +7,6 @@ from __future__ import annotations
 
 import asyncio
 import json
-from typing import Any
 from datetime import date, datetime
 from sqlmodel import Session
 import narwhals as nw

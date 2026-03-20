@@ -5,7 +5,7 @@
 for idempotent re-runs.  Both implement the same :meth:`execute` interface.
 """
 
-from typing import Any, Dict, List, Type
+from typing import Any, Type
 from sqlmodel import Session
 from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 

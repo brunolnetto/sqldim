@@ -9,7 +9,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
-from typing import TYPE_CHECKING, Any, Optional
+from typing import TYPE_CHECKING, Any
 
 from sqldim import DimensionModel
 from sqldim.core.kimball.facts import TransactionFact
@@ -31,15 +31,15 @@ class ObsDatasetDim(DimensionModel, table=True):
     __natural_key__ = ["dataset_name"]
     __scd_type__ = 1
 
-    dataset_id: Optional[int] = Field(
+    dataset_id: int | None = Field(
         default=None,
         primary_key=True,
         surrogate_key=True,
     )
     dataset_name: str = Field(natural_key=True)
-    layer: Optional[str] = Field(default=None, nullable=True)
-    domain: Optional[str] = Field(default=None, nullable=True)
-    table_type: Optional[str] = Field(default=None, nullable=True)
+    layer: str | None = Field(default=None, nullable=True)
+    domain: str | None = Field(default=None, nullable=True)
+    table_type: str | None = Field(default=None, nullable=True)
 
 
 class ObsEvolutionTypeDim(DimensionModel, table=True):
@@ -49,7 +49,7 @@ class ObsEvolutionTypeDim(DimensionModel, table=True):
     __natural_key__ = ["change_type"]
     __scd_type__ = 1
 
-    evo_type_id: Optional[int] = Field(
+    evo_type_id: int | None = Field(
         default=None,
         primary_key=True,
         surrogate_key=True,
@@ -67,10 +67,10 @@ class ObsRuleDim(DimensionModel, table=True):
     __natural_key__ = ["rule_name"]
     __scd_type__ = 1
 
-    rule_id: Optional[int] = Field(default=None, primary_key=True, surrogate_key=True)
+    rule_id: int | None = Field(default=None, primary_key=True, surrogate_key=True)
     rule_name: str = Field(natural_key=True)
     severity: str = Field()
-    category: Optional[str] = Field(default=None, nullable=True)
+    category: str | None = Field(default=None, nullable=True)
 
 
 class ObsPipelineRunDim(DimensionModel, table=True):
@@ -80,11 +80,11 @@ class ObsPipelineRunDim(DimensionModel, table=True):
     __natural_key__ = ["run_key"]
     __scd_type__ = 1
 
-    run_id: Optional[int] = Field(default=None, primary_key=True, surrogate_key=True)
+    run_id: int | None = Field(default=None, primary_key=True, surrogate_key=True)
     run_key: str = Field(natural_key=True)
-    pipeline_name: Optional[str] = Field(default=None, nullable=True)
-    triggered_at: Optional[str] = Field(default=None, nullable=True)
-    git_sha: Optional[str] = Field(default=None, nullable=True)
+    pipeline_name: str | None = Field(default=None, nullable=True)
+    triggered_at: str | None = Field(default=None, nullable=True)
+    git_sha: str | None = Field(default=None, nullable=True)
 
 
 class ObsSchemaEvolutionFact(TransactionFact, table=True):
@@ -94,19 +94,19 @@ class ObsSchemaEvolutionFact(TransactionFact, table=True):
     __grain__ = "one row per column-level schema change per pipeline run"
     __strategy__ = "bulk"
 
-    evo_fact_id: Optional[int] = Field(
+    evo_fact_id: int | None = Field(
         default=None, primary_key=True, surrogate_key=True
     )
     run_id: int = Field(foreign_key="obs_pipeline_run_dim.run_id", measure=False)
     dataset_id: int = Field(foreign_key="obs_dataset_dim.dataset_id", measure=False)
-    evo_type_id: Optional[int] = Field(
+    evo_type_id: int | None = Field(
         default=None,
         nullable=True,
         foreign_key="obs_evolution_type_dim.evo_type_id",
         measure=False,
     )
     column_name: str = Field()
-    change_detail: Optional[str] = Field(default=None, nullable=True)
+    change_detail: str | None = Field(default=None, nullable=True)
     detected_at: str = Field()
 
 
@@ -117,7 +117,7 @@ class ObsQualityDriftFact(TransactionFact, table=True):
     __grain__ = "one row per rule violation per pipeline run"
     __strategy__ = "bulk"
 
-    quality_fact_id: Optional[int] = Field(
+    quality_fact_id: int | None = Field(
         default=None, primary_key=True, surrogate_key=True
     )
     run_id: int = Field(foreign_key="obs_pipeline_run_dim.run_id", measure=False)
