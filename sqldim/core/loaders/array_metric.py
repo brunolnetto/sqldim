@@ -2,9 +2,14 @@
 ArrayMetricLoader — handles daily upserts into month-partitioned array metrics.
 Reproduces array_metrics_analysis.sql and generate_monthly_array_metrics.sql.
 """
+
 from __future__ import annotations
-from typing import Any, Type
+
+import asyncio
+from typing import Any
+from datetime import date
 import narwhals as nw
+from sqldim.core.loaders._utils import _resolve_table, _assert_not_dimension
 
 
 # ---------------------------------------------------------------------------
@@ -35,7 +40,7 @@ class LazyArrayMetricLoader:
 
     def __init__(
         self,
-        table_name: str,
+        table: str | type,
         partition_key: str,
         value_column: str,
         metric_name: str,
@@ -46,14 +51,15 @@ class LazyArrayMetricLoader:
     ):
         import duckdb as _duckdb
 
-        self.table_name    = table_name
+        _assert_not_dimension(table, "LazyArrayMetricLoader")
+        self.table_name = _resolve_table(table)
         self.partition_key = partition_key
-        self.value_column  = value_column
-        self.metric_name   = metric_name
-        self.month_start   = month_start
-        self.sink          = sink
-        self.batch_size    = batch_size
-        self._con          = con or _duckdb.connect()
+        self.value_column = value_column
+        self.metric_name = metric_name
+        self.month_start = month_start
+        self.sink = sink
+        self.batch_size = batch_size
+        self._con = con or _duckdb.connect()
 
     def process(self, source, target_date) -> int:
         """
@@ -62,11 +68,12 @@ class LazyArrayMetricLoader:
         Returns rows written.
         """
         day_offset = (target_date - self.month_start).days
-        ms         = self.month_start
-        pk         = self.partition_key
-        vc         = self.value_column
+        ms = self.month_start
+        pk = self.partition_key
+        vc = self.value_column
 
         from sqldim.sources import coerce_source
+
         _sql = coerce_source(source).as_sql(self._con)
         self._con.execute(f"""
             CREATE OR REPLACE VIEW incoming AS
@@ -94,29 +101,37 @@ class LazyArrayMetricLoader:
             self._con, "array_metric_view", self.table_name, self.batch_size
         )
 
+    async def aload(self, source, target_date) -> int:
+        """Async wrapper — runs :meth:`process` in a thread pool executor."""
+        return await asyncio.to_thread(self.process, source, target_date)
+
+    #: Alias for :meth:`process` — unified sync entry point across all loaders.
+    load = process
+
+
 class ArrayMetricLoader:
     def __init__(
         self,
-        model: Type[Any],
+        model: type,
         session: Any,
         metric_name: str,
-        month_start: Any,
+        month_start: date,
     ):
         self.model = model
         self.session = session
         self.metric_name = metric_name
         self.month_start = month_start
 
-    def process(self, frame: nw.DataFrame, target_date: Any) -> nw.DataFrame:
+    def process(self, frame: nw.DataFrame, target_date: date) -> nw.DataFrame:
         """
-        Prepares the array metric frame. 
+        Prepares the array metric frame.
         Calculates the day offset from month_start and places the value in the correct index.
         """
         day_offset = (target_date - self.month_start).days
-        
+
         native = nw.to_native(frame)
         module = type(native).__module__.split(".")[0]
-        
+
         def build_metric_array(val):
             # Create a 31-day array (standard for monthly metrics)
             arr = [0.0] * 31
@@ -132,11 +147,14 @@ class ArrayMetricLoader:
             native["month_start"] = self.month_start
         else:
             import polars as pl
+
             values = [build_metric_array(v) for v in native["value"].to_list()]
-            native = native.with_columns([
-                pl.Series("metric_array", values),
-                pl.lit(self.metric_name).alias("metric_name"),
-                pl.lit(str(self.month_start)).alias("month_start"),
-            ])
-            
+            native = native.with_columns(
+                [
+                    pl.Series("metric_array", values),
+                    pl.lit(self.metric_name).alias("metric_name"),
+                    pl.lit(str(self.month_start)).alias("month_start"),
+                ]
+            )
+
         return nw.from_native(native, eager_only=True)

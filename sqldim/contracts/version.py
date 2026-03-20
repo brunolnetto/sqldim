@@ -1,4 +1,5 @@
 """sqldim/contracts/version.py — Semantic version model for data contracts."""
+
 from __future__ import annotations
 
 from dataclasses import dataclass
@@ -23,9 +24,7 @@ class ContractVersion:
     def parse(cls, s: str) -> "ContractVersion":
         parts = s.split(".")
         if len(parts) != 3:
-            raise ValueError(
-                f"Version must be 'major.minor.patch', got {s!r}"
-            )
+            raise ValueError(f"Version must be 'major.minor.patch', got {s!r}")
         try:
             return cls(int(parts[0]), int(parts[1]), int(parts[2]))
         except ValueError:

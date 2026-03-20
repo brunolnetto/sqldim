@@ -1,4 +1,5 @@
 """sqldim/contracts/sla.py — SLA specification for data contracts."""
+
 from __future__ import annotations
 
 from dataclasses import dataclass
@@ -8,8 +9,8 @@ from dataclasses import dataclass
 class SLASpec:
     """Declares freshness, completeness, and latency expectations."""
 
-    freshness_minutes:   float | None = None
-    completeness_pct:    float | None = None
+    freshness_minutes: float | None = None
+    completeness_pct: float | None = None
     latency_p99_minutes: float | None = None
 
     def is_freshness_met(self, actual_minutes: float) -> bool:

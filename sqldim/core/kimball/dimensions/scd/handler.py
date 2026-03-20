@@ -3,14 +3,16 @@
 Provides ``SCDHandler`` (SCD type 1/2/3/6) and ``SCDResult``, which
 aggregate per-record outcomes (inserted / versioned / unchanged).
 """
+
 import hashlib
 from datetime import datetime, timezone
-from typing import Any, Dict, List, Optional, Type, Generic, TypeVar
+from typing import Generic, TypeVar
 from sqlmodel import Session, select
 from sqldim.core.kimball.models import DimensionModel
-from sqldim.core.kimball.mixins import SCD2Mixin
+from sqldim.core.kimball.dimensions.scd.detection import ChangeRecord
 
 T = TypeVar("T", bound=DimensionModel)
+
 
 class SCDResult:
     """Accumulates row counts from a single ``SCDHandler.process`` call."""
@@ -19,6 +21,7 @@ class SCDResult:
         self.inserted: int = 0
         self.versioned: int = 0
         self.unchanged: int = 0
+
 
 class SCDHandler(Generic[T]):
     """Async SCD handler for a single dimension model.
@@ -41,23 +44,24 @@ class SCDHandler(Generic[T]):
 
     def __init__(
         self,
-        model: Type[T],
+        model: type[T],
         session: Session,
-        track_columns: List[str],
-        ignore_columns: Optional[List[str]] = None,
+        track_columns: list[str],
+        ignore_columns: list[str] | None = None,
     ):
         self.model = model
         self.session = session
         self.track_columns = track_columns
         self.ignore_columns = ignore_columns or []
 
-    def compute_checksum(self, record: Dict[str, Any]) -> str:
+    def compute_checksum(self, record: dict[str, object]) -> str:
         """Return a deterministic MD5 hex digest over *track_columns* values.
 
         Keys are sorted before hashing so column ordering never affects the
         result.  Nested dicts and lists are JSON-serialised for consistency.
         """
         import json
+
         # Sort keys to ensure deterministic hashing
         values = []
         for col in sorted(self.track_columns):
@@ -66,19 +70,19 @@ class SCDHandler(Generic[T]):
             if isinstance(val, (dict, list)):
                 val = json.dumps(val, sort_keys=True)
             values.append(str(val))
-            
+
         combined = "|".join(values)
         return hashlib.md5(combined.encode("utf-8")).hexdigest()
 
-    def _get_dim_meta(self, col_name: str) -> Dict[str, Any]:
+    def _get_dim_meta(self, col_name: str) -> dict[str, object]:
         """Extract dimensional metadata directly from the field's sa_column_kwargs."""
         field = self.model.model_fields.get(col_name)
         if not field:
             return {}
-        
+
         # In SQLModel/Pydantic, metadata is passed through sa_column_kwargs['info']
         kwargs = getattr(field, "sa_column_kwargs", {})
-        
+
         # Handle PydanticUndefinedType which doesn't have .get()
         if hasattr(kwargs, "get"):
             info = kwargs.get("info")
@@ -86,21 +90,25 @@ class SCDHandler(Generic[T]):
             info = None
         if info:
             return info
-            
+
         # Fallback to json_schema_extra if present (modern Pydantic)
         extra = getattr(field, "json_schema_extra", {})
         if isinstance(extra, dict):
             return extra
-            
+
         return {}
 
-    def _handle_new_record(self, record: Dict[str, Any], checksum: str, result: "SCDResult") -> None:
+    def _handle_new_record(
+        self, record: dict[str, object], checksum: str, result: "SCDResult"
+    ) -> None:
         """Insert a brand-new dimension row and bump *result.inserted*."""
         new_row = self.model(**record, checksum=checksum, is_current=True)
         self.session.add(new_row)
         result.inserted += 1
 
-    def _handle_type1(self, existing: Any, record: Dict[str, Any], checksum: str, result: "SCDResult") -> None:
+    def _handle_type1(
+        self, existing: T, record: dict[str, object], checksum: str, result: "SCDResult"
+    ) -> None:
         """SCD Type 1: overwrite all tracked columns on the existing row."""
         for col, val in record.items():
             setattr(existing, col, val)
@@ -108,7 +116,9 @@ class SCDHandler(Generic[T]):
         self.session.add(existing)
         result.versioned += 1
 
-    def _handle_type3(self, existing: Any, record: Dict[str, Any], checksum: str, result: "SCDResult") -> None:
+    def _handle_type3(
+        self, existing: T, record: dict[str, object], checksum: str, result: "SCDResult"
+    ) -> None:
         """SCD Type 3: shift the current value to the previous column slot.
 
         For every field marked ``scd=3``, the existing *current* column value is
@@ -129,12 +139,18 @@ class SCDHandler(Generic[T]):
     def _type2_cols(self) -> list[str]:
         """Return the list of column names that carry SCD2 (or default) tracking."""
         return [
-            col_name for col_name in self.model.model_fields
+            col_name
+            for col_name in self.model.model_fields
             if self._get_dim_meta(col_name).get("scd") in (2, None)
         ]
 
     def _handle_type6_type1(
-        self, existing: Any, record: Dict[str, Any], checksum: str, diff: Any, result: "SCDResult"
+        self,
+        existing: T,
+        record: dict[str, object],
+        checksum: str,
+        diff: ChangeRecord,
+        result: "SCDResult",
     ) -> None:
         """Apply a Type-1-only update for a Type-6 row when no Type-2 column changed.
 
@@ -147,7 +163,14 @@ class SCDHandler(Generic[T]):
         self.session.add(existing)
         result.versioned += 1
 
-    def _handle_type6(self, existing: Any, record: Dict[str, Any], checksum: str, result: "SCDResult", nk_value: Any) -> None:
+    def _handle_type6(
+        self,
+        existing: T,
+        record: dict[str, object],
+        checksum: str,
+        result: "SCDResult",
+        nk_value: object,
+    ) -> None:
         """SCD Type 6: mixed Type-1 / Type-2 update strategy.
 
         If only Type-1 columns changed, delegates to ``_handle_type6_type1``.
@@ -155,6 +178,7 @@ class SCDHandler(Generic[T]):
         current version, optionally recording which columns differed.
         """
         from sqldim.core.kimball.dimensions.scd.detection import ColumnarDetection
+
         diff = ColumnarDetection(self.track_columns).diff(record, existing, nk_value)
         type2_cols = self._type2_cols()
         if not any(c in type2_cols for c in diff.changed_columns):
@@ -170,7 +194,9 @@ class SCDHandler(Generic[T]):
         self.session.add(new_row)
         result.versioned += 1
 
-    def _handle_type2(self, existing: Any, record: Dict[str, Any], checksum: str, result: "SCDResult") -> None:
+    def _handle_type2(
+        self, existing: T, record: dict[str, object], checksum: str, result: "SCDResult"
+    ) -> None:
         """SCD Type 2: close old row and insert a new current version."""
         existing.is_current = False
         existing.valid_to = datetime.now(timezone.utc)
@@ -179,7 +205,14 @@ class SCDHandler(Generic[T]):
         self.session.add(new_row)
         result.versioned += 1
 
-    def _handle_changed_record(self, existing: Any, record: Dict[str, Any], checksum: str, result: "SCDResult", nk_value: Any) -> None:
+    def _handle_changed_record(
+        self,
+        existing: T,
+        record: dict[str, object],
+        checksum: str,
+        result: "SCDResult",
+        nk_value: object,
+    ) -> None:
         """Dispatch to the correct SCD handler based on the model's ``__scd_type__``.
 
         Routes to Type-1, Type-2, Type-3, or Type-6 logic.  Defaults to Type-2
@@ -195,13 +228,13 @@ class SCDHandler(Generic[T]):
         else:
             self._handle_type2(existing, record, checksum, result)
 
-    async def _process_one(self, record: Dict[str, Any], result: "SCDResult") -> None:
+    async def _process_one(self, record: dict[str, object], result: "SCDResult") -> None:
         nk_field = getattr(self.model, "__natural_key__", ["id"])[0]
         nk_value = record.get(nk_field)
         checksum = self.compute_checksum(record)
         stmt = select(self.model).where(getattr(self.model, nk_field) == nk_value)
         if hasattr(self.model, "is_current"):
-            stmt = stmt.where(getattr(self.model, "is_current") == True)
+            stmt = stmt.where(getattr(self.model, "is_current"))
         existing = self.session.exec(stmt).first()
         if not existing:
             self._handle_new_record(record, checksum, result)
@@ -210,7 +243,7 @@ class SCDHandler(Generic[T]):
         else:
             result.unchanged += 1
 
-    async def process(self, records: List[Dict[str, Any]]) -> SCDResult:
+    async def process(self, records: list[dict[str, object]]) -> SCDResult:
         """Process *records* in sequence, applying SCD logic per row.
 
         Commits the session on success and returns an ``SCDResult``
@@ -221,3 +254,11 @@ class SCDHandler(Generic[T]):
             await self._process_one(record, result)
         self.session.commit()
         return result
+
+    async def aload(self, records: list[dict[str, object]]) -> SCDResult:
+        """Alias for :meth:`process` — unified ``aload`` entry point.
+
+        Allows ``SCDHandler`` to be used interchangeably with the async
+        ``aload`` interface exposed by all lazy fact loaders.
+        """
+        return await self.process(records)

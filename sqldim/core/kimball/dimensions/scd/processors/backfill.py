@@ -4,6 +4,7 @@ Narwhals-native SCD2 backfill.
 In-process alternative to SQL-based backfill_scd2().
 Implements the LAG + streak pattern via narwhals window functions.
 """
+
 from __future__ import annotations
 
 from typing import Any, TYPE_CHECKING
@@ -22,7 +23,9 @@ def _combine_change_flags(with_lag: nw.DataFrame, track_columns: list[str]) -> A
     return expr
 
 
-def _is_extra_col(c: str, partition_by: str, order_by: str, track_columns: list[str]) -> bool:
+def _is_extra_col(
+    c: str, partition_by: str, order_by: str, track_columns: list[str]
+) -> bool:
     return c != order_by and c not in track_columns and c != partition_by
 
 
@@ -32,7 +35,11 @@ def _build_agg_exprs(
     order_by: str,
     track_columns: list[str],
 ) -> list[Any]:
-    extra_cols = [c for c in frame.columns if _is_extra_col(c, partition_by, order_by, track_columns)]
+    extra_cols = [
+        c
+        for c in frame.columns
+        if _is_extra_col(c, partition_by, order_by, track_columns)
+    ]
     return [
         nw.col(order_by).min().alias("valid_from"),
         nw.col(order_by).max().alias("valid_to"),
@@ -40,8 +47,9 @@ def _build_agg_exprs(
         *[nw.col(ec).last() for ec in extra_cols],
     ]
 
+
 if TYPE_CHECKING:
-    from sqldim.core.kimball.models import DimensionModel
+    pass
 
 
 def backfill_scd2_narwhals(
@@ -73,17 +81,20 @@ def backfill_scd2_narwhals(
     narwhals DataFrame (dry_run=True) or int row count (dry_run=False)
     """
     frame = nw.from_native(source, eager_only=True).sort([partition_by, order_by])
-    lag_exprs = [nw.col(c).shift(1).over(partition_by).alias(f"_prev_{c}") for c in track_columns]
+    lag_exprs = [
+        nw.col(c).shift(1).over(partition_by).alias(f"_prev_{c}") for c in track_columns
+    ]
     with_lag = frame.with_columns(lag_exprs)
     did_change_expr = _combine_change_flags(with_lag, track_columns)
-    with_change = with_lag.with_columns(did_change_expr.cast(nw.Int32).alias("_did_change"))
+    with_change = with_lag.with_columns(
+        did_change_expr.cast(nw.Int32).alias("_did_change")
+    )
     with_streak = with_change.with_columns(
         nw.col("_did_change").cum_sum().over(partition_by).alias("_streak_id")
     )
     agg_exprs = _build_agg_exprs(frame, partition_by, order_by, track_columns)
     result = (
-        with_streak
-        .group_by([partition_by, "_streak_id"])
+        with_streak.group_by([partition_by, "_streak_id"])
         .agg(agg_exprs)
         .drop("_streak_id")
         .sort([partition_by, "valid_from"])
@@ -143,6 +154,7 @@ def lazy_backfill_scd2(
     _con = con or _duckdb.connect()
 
     from sqldim.sources import coerce_source
+
     _src_sql = coerce_source(source).as_sql(_con)
     _con.execute(f"""
         CREATE OR REPLACE VIEW backfill_source AS

@@ -15,29 +15,31 @@ and current product surrogate keys.
 Run:
     PYTHONPATH=. python -m sqldim.examples.features.composition.showcase
 """
+
 from __future__ import annotations
 
-import os
 import random
 from datetime import datetime, timezone
 
 import duckdb
 
-from sqldim.core.kimball.dimensions.scd.processors.scd_engine import NarwhalsSCDProcessor
-from sqldim.core.query.builder import DuckDBDimensionalQuery
-from sqldim.sinks import DuckDBSink
+from sqldim.core.kimball.dimensions.scd.processors.scd_engine import (
+    NarwhalsSCDProcessor,
+)
+from sqldim.core.query.dgm import DGMQuery
 
-from sqldim.examples.datasets.ecommerce import ProductsSource, CustomersSource
-from sqldim.examples.utils import make_tmp_db
+from sqldim.examples.datasets.domains.ecommerce import ProductsSource, CustomersSource
 
 
 # ── Star-schema builder ───────────────────────────────────────────────────────
+
 
 def _sql_to_nw(source, con: duckdb.DuckDBPyConnection):
     """Execute *source* via DuckDB and return the result as a Narwhals DataFrame."""
     import narwhals as nw
     from sqldim.sources import coerce_source
-    sql   = coerce_source(source).as_sql(con)
+
+    sql = coerce_source(source).as_sql(con)
     arrow = con.execute(sql).arrow()
     return nw.from_arrow(arrow, backend="pandas")
 
@@ -45,6 +47,7 @@ def _sql_to_nw(source, con: duckdb.DuckDBPyConnection):
 def _read_nw(table: str, con: duckdb.DuckDBPyConnection):
     """Read a DuckDB in-memory table and return it as a Narwhals DataFrame."""
     import narwhals as nw
+
     arrow = con.execute(f"SELECT * FROM {table}").arrow()
     return nw.from_arrow(arrow, backend="pandas")
 
@@ -53,6 +56,7 @@ def _to_pandas(df):
     """Coerce a Narwhals or DuckDB frame to a plain pandas DataFrame."""
     import narwhals as nw
     import pandas as pd
+
     if isinstance(df, pd.DataFrame):
         return df
     if hasattr(df, "to_pandas"):
@@ -65,11 +69,14 @@ def _write_back(df, table: str, con: duckdb.DuckDBPyConnection) -> None:
     pd_df = _to_pandas(df)
     cols = [c for c in pd_df.columns if c != "id"]
     con.register("__tmp__", pd_df)
-    con.execute(f"INSERT INTO {table}({','.join(cols)}) SELECT {','.join(cols)} FROM __tmp__")
+    con.execute(
+        f"INSERT INTO {table}({','.join(cols)}) SELECT {','.join(cols)} FROM __tmp__"
+    )
     con.unregister("__tmp__")
 
 
 # ── Star-schema builder ───────────────────────────────────────────────────────
+
 
 def _close_scd2_rows(r1, T1, con: duckdb.DuckDBPyConnection) -> None:
     """Close SCD2 rows flagged in *r1.to_close* by setting is_current=False."""
@@ -135,16 +142,26 @@ def _build_star_schema(
         )
     """)
 
-    proc = NarwhalsSCDProcessor(natural_key=["product_id"], track_columns=["name", "category", "price"])
-    r0 = proc.process(_sql_to_nw(prod_src.snapshot(), con), _read_nw("dim_product", con), as_of=T0)
+    proc = NarwhalsSCDProcessor(
+        natural_key=["product_id"], track_columns=["name", "category", "price"]
+    )
+    r0 = proc.process(
+        _sql_to_nw(prod_src.snapshot(), con), _read_nw("dim_product", con), as_of=T0
+    )
     _write_back(r0.to_insert, "dim_product", con)
 
-    r1 = proc.process(_sql_to_nw(prod_src.event_batch(1), con), _read_nw("dim_product", con), as_of=T1)
+    r1 = proc.process(
+        _sql_to_nw(prod_src.event_batch(1), con), _read_nw("dim_product", con), as_of=T1
+    )
     _close_scd2_rows(r1, T1, con)
     _write_back(r1.to_insert, "dim_product", con)
 
-    cust_proc = NarwhalsSCDProcessor(natural_key=["customer_id"], track_columns=["full_name", "city"])
-    cust_snap = _sql_to_nw(cust_src.snapshot(), con).select(["customer_id", "full_name", "city"])
+    cust_proc = NarwhalsSCDProcessor(
+        natural_key=["customer_id"], track_columns=["full_name", "city"]
+    )
+    cust_snap = _sql_to_nw(cust_src.snapshot(), con).select(
+        ["customer_id", "full_name", "city"]
+    )
     rc = cust_proc.process(cust_snap, _read_nw("dim_customer", con), as_of=T0)
     _write_back(rc.to_insert, "dim_customer", con)
 
@@ -159,9 +176,15 @@ def _build_star_schema(
         )
     """)
 
-    hist_sks = con.execute("SELECT id FROM dim_product WHERE NOT is_current ORDER BY id").fetchall()
-    curr_sks = con.execute("SELECT id FROM dim_product WHERE is_current ORDER BY id").fetchall()
-    cust_sks = con.execute("SELECT id FROM dim_customer WHERE is_current ORDER BY id").fetchall()
+    hist_sks = con.execute(
+        "SELECT id FROM dim_product WHERE NOT is_current ORDER BY id"
+    ).fetchall()
+    curr_sks = con.execute(
+        "SELECT id FROM dim_product WHERE is_current ORDER BY id"
+    ).fetchall()
+    cust_sks = con.execute(
+        "SELECT id FROM dim_customer WHERE is_current ORDER BY id"
+    ).fetchall()
 
     if not cust_sks:  # pragma: no cover
         return  # pragma: no cover
@@ -169,8 +192,8 @@ def _build_star_schema(
     random.seed(77)
     sale_id = 1
     for sk_row in (hist_sks + curr_sks)[:8]:
-        sk        = sk_row[0]
-        c_sk      = random.choice(cust_sks)[0]
+        sk = sk_row[0]
+        c_sk = random.choice(cust_sks)[0]
         sale_date = (
             f"2023-{random.randint(6, 11):02d}-15"
             if sk_row in hist_sks
@@ -178,11 +201,15 @@ def _build_star_schema(
         )
         qty = random.randint(1, 10)
         rev = round(random.uniform(30.0, 400.0), 2)
-        con.execute("INSERT INTO fact_sales VALUES (?, ?, ?, ?, ?, ?)", [sale_id, sk, c_sk, sale_date, qty, rev])
+        con.execute(
+            "INSERT INTO fact_sales VALUES (?, ?, ?, ?, ?, ?)",
+            [sale_id, sk, c_sk, sale_date, qty, rev],
+        )
         sale_id += 1
 
 
 # ── Example 11 ────────────────────────────────────────────────────────────────
+
 
 def example_11_sales_star_schema() -> None:
     """
@@ -190,19 +217,19 @@ def example_11_sales_star_schema() -> None:
 
     1. ProductsSource + CustomersSource (OLTP) → sqldim SCD processors → dims
     2. fact_sales built referencing both old and new product SKs
-    3. DuckDBDimensionalQuery joins fact to current dimension versions
+    3. DGMQuery joins fact to current dimension versions
     """
     print("\n── Example 11: Sales Star Schema (End-to-End Query) ────────────")
 
     prod_src = ProductsSource(n=6, seed=42)
     cust_src = CustomersSource(n=4, seed=42)
-    con      = duckdb.connect()
+    con = duckdb.connect()
 
     _build_star_schema(prod_src, cust_src, con)
 
     q = (
-        DuckDBDimensionalQuery("fact_sales")
-        .join_dim("dim_product",  fact_fk="product_sk")
+        DGMQuery("fact_sales")
+        .join_dim("dim_product", fact_fk="product_sk")
         .join_dim("dim_customer", fact_fk="customer_sk")
         .by("d_dim_product.category", "d_dim_customer.city")
         .sum("f.revenue")
@@ -216,7 +243,7 @@ def example_11_sales_star_schema() -> None:
     rows = q.execute(con)
     print("\n  Results (category × city → revenue, orders):")
     print(f"  {'Category':<14} {'City':<20} {'Revenue':>10}  {'Orders':>6}")
-    print(f"  {'-'*14} {'-'*20} {'-'*10}  {'-'*6}")
+    print(f"  {'-' * 14} {'-' * 20} {'-' * 10}  {'-' * 6}")
     for category, city, rev, orders in sorted(r for r in rows if r[0]):
         print(f"  {category:<14} {city:<20} ${rev:>9.2f}  {orders:>6}")
 
@@ -230,6 +257,7 @@ def example_11_sales_star_schema() -> None:
 
 # ── Example 12 ────────────────────────────────────────────────────────────────
 
+
 def example_12_point_in_time_query() -> None:
     """
     AS OF query — "what were the product prices on 2023-12-31?"
@@ -242,21 +270,21 @@ def example_12_point_in_time_query() -> None:
 
     prod_src = ProductsSource(n=6, seed=42)
     cust_src = CustomersSource(n=4, seed=42)
-    con      = duckdb.connect()
+    con = duckdb.connect()
 
     _build_star_schema(prod_src, cust_src, con)
 
     pit_date = "2023-12-31"
 
     q_pit = (
-        DuckDBDimensionalQuery("fact_sales")
+        DGMQuery("fact_sales")
         .join_dim("dim_product", fact_fk="product_sk")
         .by("d_dim_product.product_id", "d_dim_product.name", "d_dim_product.price")
         .sum("f.revenue")
         .as_of(pit_date)
     )
     q_now = (
-        DuckDBDimensionalQuery("fact_sales")
+        DGMQuery("fact_sales")
         .join_dim("dim_product", fact_fk="product_sk")
         .by("d_dim_product.product_id", "d_dim_product.name", "d_dim_product.price")
         .sum("f.revenue")
@@ -291,6 +319,7 @@ def example_12_point_in_time_query() -> None:
 
 
 # ── Entry point ───────────────────────────────────────────────────────────────
+
 
 def run_showcase() -> None:
     """Run the composition showcase: star-schema and point-in-time examples.

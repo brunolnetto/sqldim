@@ -1,15 +1,16 @@
 """Contract violation report dataclasses."""
+
 from __future__ import annotations
 
 import logging
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from enum import Enum
 
 
 class Severity(str, Enum):
-    ERROR   = "error"
+    ERROR = "error"
     WARNING = "warning"
-    INFO    = "info"
+    INFO = "info"
 
 
 @dataclass
@@ -41,9 +42,7 @@ class ContractReport:
         return any(v.severity == Severity.WARNING.value for v in self.violations)
 
     def summary(self) -> str:
-        lines = [
-            f"ContractReport({self.view!r}) — {len(self.violations)} violation(s)"
-        ]
+        lines = [f"ContractReport({self.view!r}) — {len(self.violations)} violation(s)"]
         for v in self.violations:
             icon = "🔴" if v.severity == Severity.ERROR.value else "⚠️"
             lines.append(f"  {icon} [{v.rule}] {v.count:,} rows: {v.detail}")
@@ -65,7 +64,12 @@ class ContractReport:
             "view": self.view,
             "elapsed_s": self.elapsed_s,
             "violations": [
-                {"rule": v.rule, "severity": v.severity, "count": v.count, "detail": v.detail}
+                {
+                    "rule": v.rule,
+                    "severity": v.severity,
+                    "count": v.count,
+                    "detail": v.detail,
+                }
                 for v in self.violations
             ],
         }

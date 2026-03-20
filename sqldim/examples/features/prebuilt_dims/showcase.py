@@ -12,6 +12,7 @@ CROSS JOIN.
 Run with:
     PYTHONPATH=. python -m sqldim.examples.features.prebuilt_dims.showcase
 """
+
 from __future__ import annotations
 
 import os
@@ -22,7 +23,7 @@ from sqldim.core.kimball.dimensions.date import DateDimension
 from sqldim.core.kimball.dimensions.time import TimeDimension
 from sqldim.core.kimball.dimensions.junk import populate_junk_dimension_lazy
 from sqldim.sinks import DuckDBSink
-from sqldim.examples.utils import make_tmp_db
+from sqldim.examples.features.utils import make_tmp_db
 
 
 def _tmp_db() -> str:
@@ -32,6 +33,7 @@ def _tmp_db() -> str:
 # ---------------------------------------------------------------------------
 # Example 9: Date + Time Spine
 # ---------------------------------------------------------------------------
+
 
 def example_09_date_time_spine() -> None:
     """
@@ -70,7 +72,9 @@ def example_09_date_time_spine() -> None:
     setup.close()
 
     with DuckDBSink(path) as sink:
-        date_rows = DateDimension.generate_lazy("2024-01-01", "2024-12-31", "dim_date", sink, con=sink._con)
+        date_rows = DateDimension.generate_lazy(
+            "2024-01-01", "2024-12-31", "dim_date", sink, con=sink._con
+        )
         time_rows = TimeDimension.generate_lazy("dim_time", sink, con=sink._con)
 
     con = duckdb.connect(path)
@@ -79,7 +83,9 @@ def example_09_date_time_spine() -> None:
     q_quarter = con.execute(
         "SELECT quarter, COUNT(*) AS days FROM dim_date GROUP BY quarter ORDER BY quarter"
     ).fetchall()
-    weekends = con.execute("SELECT COUNT(*) FROM dim_date WHERE is_weekend").fetchone()[0]
+    weekends = con.execute("SELECT COUNT(*) FROM dim_date WHERE is_weekend").fetchone()[
+        0
+    ]
 
     # Time spine stats
     periods = con.execute(
@@ -103,6 +109,7 @@ def example_09_date_time_spine() -> None:
 # Example 10: Sales Channel Flags — Junk Dimension
 # ---------------------------------------------------------------------------
 
+
 def example_10_sales_channel_flags() -> None:
     """
     A junk dimension collapses multiple low-cardinality flags into a
@@ -115,8 +122,8 @@ def example_10_sales_channel_flags() -> None:
     print("\n── Example 10: Sales Channel Flags (Junk Dimension) ────────────")
 
     flags = {
-        "is_promo":  [True, False],
-        "channel":   ["web", "in-store", "phone"],
+        "is_promo": [True, False],
+        "channel": ["web", "in-store", "phone"],
         "is_return": [True, False],
     }
     expected = 2 * 3 * 2  # 12 combinations
@@ -151,6 +158,7 @@ def example_10_sales_channel_flags() -> None:
 # ---------------------------------------------------------------------------
 # Entry point
 # ---------------------------------------------------------------------------
+
 
 def run_showcase() -> None:
     print("Pre-built Dimensions Showcase")

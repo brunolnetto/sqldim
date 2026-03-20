@@ -26,28 +26,42 @@ side-tables), pass ``constraint=True``:
 
     order_id: int = Field(foreign_key="order.id", constraint=True)
 """
-from typing import Any, Optional, Type
+
+from typing import Any, Literal
 from sqlmodel import Field as SQLModelField
 
 _UNSET = object()
 
+
 def Field(
     default: Any = ...,
     *,
-    default_factory: Optional[Any] = None,
+    default_factory: Any | None = None,
     primary_key: bool = False,
-    foreign_key: Optional[str] = None,
+    foreign_key: str | None = None,
     index: Any = _UNSET,
-    nullable: Optional[bool] = None,
+    nullable: bool | None = None,
     # Dimensional metadata
     surrogate_key: bool = False,
     natural_key: bool = False,
     measure: bool = False,
-    additive: bool = True,
-    dimension: Optional[Type] = None,
-    role: Optional[str] = None,
-    scd: Optional[int] = None,
-    previous_column: Optional[str] = None,
+    additive: bool | Literal["semi_additive"] = True,
+    dimension: type | None = None,
+    role: str | None = None,
+    scd: int | None = None,
+    previous_column: str | None = None,
+    # Column-level lineage metadata (Column-Level Lineage ADR)
+    source_column: str | None = None,
+    source_columns: list | None = None,
+    transform_description: str | None = None,
+    # Semantic bucketing (Semantic Bucketing ADR)
+    bucket_count: int | None = None,
+    bucket_strategy: str | None = None,  # "ntile" | "width_bucket"
+    bucket_bounds: tuple | None = None,  # for width_bucket
+    bucket_grain: str | None = None,  # "day"|"week"|"month"|"quarter"|"year"
+    # Semi-additive measure config
+    semi_additive_fallback: str | None = None,  # "last" | "avg" | "max"
+    semi_additive_forbidden: list | None = None,  # list of dimension cols to switch on
     # FK constraint opt-in (off by default for analytical workloads)
     constraint: bool = False,
     **kwargs: Any,
@@ -81,6 +95,17 @@ def Field(
         "scd": scd,
         "previous_column": previous_column,
         "foreign_key_target": foreign_key,
+        # Column-level lineage
+        "source_column": source_column,
+        "source_columns": source_columns,
+        "transform_description": transform_description,
+        # Semantic bucketing
+        "bucket_count": bucket_count,
+        "bucket_strategy": bucket_strategy,
+        "bucket_bounds": bucket_bounds,
+        "bucket_grain": bucket_grain,
+        "semi_additive_fallback": semi_additive_fallback,
+        "semi_additive_forbidden": semi_additive_forbidden,
     }
 
     # Auto-index FK-like columns (whether or not a DB constraint is created).

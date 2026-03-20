@@ -36,17 +36,18 @@ at construction time (resource mode) or as_sql() time (dataset mode)
 with a clear install hint, so the rest of sqldim is unaffected when dlt is
 absent.
 """
+
 from __future__ import annotations
 
 
 def _require_dlt():
     try:
         import dlt as _dlt
+
         return _dlt
     except ImportError:  # pragma: no cover
         raise ImportError(
-            "DltSource requires the 'dlt' package.  "
-            "Install it with:  pip install dlt"
+            "DltSource requires the 'dlt' package.  Install it with:  pip install dlt"
         ) from None
 
 
@@ -163,6 +164,7 @@ class _DatasetSource:
         multiple datasets can be attached to the same connection at once.
         """
         import os
+
         alias = os.path.splitext(os.path.basename(self._path))[0]
         # ATTACH is idempotent when the alias already exists
         try:

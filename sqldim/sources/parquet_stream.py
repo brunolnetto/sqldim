@@ -3,6 +3,7 @@ sqldim/sources/parquet_stream.py
 
 Chunked Parquet streaming source for large datasets processed in row-batches.
 """
+
 from __future__ import annotations
 
 
@@ -31,8 +32,8 @@ class ParquetStreamSource:
         hive_partitioning: bool = False,
         order_by: str | None = None,
     ):
-        self._path  = path
-        self._hive  = hive_partitioning
+        self._path = path
+        self._hive = hive_partitioning
         self._order = order_by
         self._offset = 0
         self._total: int | None = None
@@ -43,7 +44,7 @@ class ParquetStreamSource:
         Each yielded fragment is a ``SELECT … WHERE rowid BETWEEN …`` expression
         that DuckDB pushes into its Parquet scan.
         """
-        hive  = ", hive_partitioning=true" if self._hive else ""
+        hive = ", hive_partitioning=true" if self._hive else ""
         order = f"ORDER BY {self._order}" if self._order else ""
         con.execute(f"""
             CREATE OR REPLACE VIEW _parquet_stream_src AS
@@ -75,4 +76,4 @@ class ParquetStreamSource:
     def reset(self) -> None:
         """Reset the stream to the beginning."""
         self._offset = 0
-        self._total  = None
+        self._total = None

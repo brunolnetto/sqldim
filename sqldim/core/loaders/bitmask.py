@@ -2,9 +2,14 @@
 BitmaskerLoader — derives bitmask activity facts from cumulative date lists.
 Reproduces generate_datelist.sql and anaylze_datelist.sql patterns.
 """
+
 from __future__ import annotations
-from typing import Any, List, Type
+
+import asyncio
+from typing import Any
+from datetime import date, datetime
 import narwhals as nw
+from sqldim.core.loaders._utils import _resolve_table, _assert_not_dimension
 
 
 # ---------------------------------------------------------------------------
@@ -37,7 +42,7 @@ class LazyBitmaskLoader:
 
     def __init__(
         self,
-        table_name: str,
+        table: str | type,
         partition_key: str,
         dates_column: str,
         reference_date,
@@ -48,14 +53,15 @@ class LazyBitmaskLoader:
     ):
         import duckdb as _duckdb
 
-        self.table_name     = table_name
-        self.partition_key  = partition_key
-        self.dates_column   = dates_column
+        _assert_not_dimension(table, "LazyBitmaskLoader")
+        self.table_name = _resolve_table(table)
+        self.partition_key = partition_key
+        self.dates_column = dates_column
         self.reference_date = reference_date
-        self.sink           = sink
-        self.window_days    = window_days
-        self.batch_size     = batch_size
-        self._con           = con or _duckdb.connect()
+        self.sink = sink
+        self.window_days = window_days
+        self.batch_size = batch_size
+        self._con = con or _duckdb.connect()
 
     def process(self, source) -> int:
         """
@@ -65,12 +71,13 @@ class LazyBitmaskLoader:
             UNNEST dates → DATEDIFF → SUM(1 << (window - 1 - offset))
         Returns rows written.
         """
-        pk  = self.partition_key
-        dc  = self.dates_column
-        rd  = self.reference_date
-        wd  = self.window_days
+        pk = self.partition_key
+        dc = self.dates_column
+        rd = self.reference_date
+        wd = self.window_days
 
         from sqldim.sources import coerce_source
+
         _sql = coerce_source(source).as_sql(self._con)
         self._con.execute(f"""
             CREATE OR REPLACE VIEW incoming AS
@@ -99,15 +106,25 @@ class LazyBitmaskLoader:
             )
             GROUP BY {pk}
         """)
-        return self.sink.write(self._con, "bitmask_view", self.table_name, self.batch_size)
+        return self.sink.write(
+            self._con, "bitmask_view", self.table_name, self.batch_size
+        )
+
+    async def aload(self, source) -> int:
+        """Async wrapper — runs :meth:`process` in a thread pool executor."""
+        return await asyncio.to_thread(self.process, source)
+
+    #: Alias for :meth:`process` — unified sync entry point across all loaders.
+    load = process
+
 
 class BitmaskerLoader:
     def __init__(
         self,
-        source_model: Type[Any],
-        target_model: Type[Any],
+        source_model: type,
+        target_model: type,
         session: Any,
-        reference_date: Any,
+        reference_date: date | datetime,
         window_days: int = 32,
     ):
         self.source_model = source_model
@@ -123,18 +140,20 @@ class BitmaskerLoader:
         """
         native = nw.to_native(source_frame)
         module = type(native).__module__.split(".")[0]
-        
+
         def calculate_mask(dates):
-            if not dates: return 0
+            if not dates:
+                return 0
             mask = 0
             for d in dates:
                 # Handle both date objects and strings
                 from datetime import date
+
                 if isinstance(d, str):
                     d = date.fromisoformat(d)
                 diff = (self.reference_date - d).days
                 if 0 <= diff < self.window_days:
-                    mask |= (1 << (self.window_days - 1 - diff))
+                    mask |= 1 << (self.window_days - 1 - diff)
             return mask
 
         if module == "pandas":
@@ -142,7 +161,8 @@ class BitmaskerLoader:
         else:
             # polars
             import polars as pl
+
             values = [calculate_mask(v) for v in native["dates_active"].to_list()]
             native = native.with_columns(pl.Series("datelist_int", values))
-            
+
         return nw.from_native(native, eager_only=True)

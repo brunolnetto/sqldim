@@ -42,6 +42,7 @@ Usage pattern
             from sqldim.sources import SQLSource
             return SQLSource("SELECT 1 AS item_id, 'demo' AS name")
 """
+
 from __future__ import annotations
 
 import random
@@ -53,6 +54,7 @@ import duckdb
 
 
 # ── SourceProvider ─────────────────────────────────────────────────────────────
+
 
 @dataclass
 class SourceProvider:
@@ -71,6 +73,7 @@ class SourceProvider:
     requires    : Extra Python packages needed to connect for real
                   (e.g. ``["dlt", "shopify-python-api"]``).
     """
+
     name: str
     description: str = ""
     url: str | None = None
@@ -83,7 +86,9 @@ class SourceProvider:
             f"    {self.description}" if self.description else "",
             f"    Docs:   {self.url}" if self.url else "",
             "    Note:   authentication required" if self.auth_required else "",
-            f"    Needs:  pip install {' '.join(self.requires)}" if self.requires else "",
+            f"    Needs:  pip install {' '.join(self.requires)}"
+            if self.requires
+            else "",
         ]
 
     def describe(self) -> str:
@@ -92,6 +97,7 @@ class SourceProvider:
 
 
 # ── BaseSource ─────────────────────────────────────────────────────────────────
+
 
 class BaseSource(ABC):
     """
@@ -177,6 +183,7 @@ class BaseSource(ABC):
 
 # ── DatasetFactory ─────────────────────────────────────────────────────────────
 
+
 class DatasetFactory:
     """
     Registry and factory for named dataset sources.
@@ -206,9 +213,11 @@ class DatasetFactory:
     @classmethod
     def register(cls, name: str):
         """Class decorator — register *klass* under *name*."""
+
         def decorator(klass: type[BaseSource]) -> type[BaseSource]:
             cls._registry[name] = klass
             return klass
+
         return decorator
 
     @classmethod
@@ -249,6 +258,7 @@ class DatasetFactory:
 
 # ── SchematicSource ────────────────────────────────────────────────────────────
 
+
 class SchematicSource(BaseSource):
     """
     ``BaseSource`` subclass driven by a single-schema ``DatasetSpec`` — no
@@ -268,41 +278,54 @@ class SchematicSource(BaseSource):
     ``_spec.source`` rather than being raw SQL strings.
     """
 
-    _spec: "Any"   # DatasetSpec  (filled by subclass; must have "source" role)
+    _spec: "Any"  # DatasetSpec  (filled by subclass; must have "source" role)
 
-    def __init__(self, n: int = 5, seed: int = 42) -> None:
+    def __init__(
+        self,
+        n: int = 5,
+        seed: int = 42,
+        *,
+        spec: "Any | None" = None,
+        schema_name: str = "source",
+        n_entities: "int | None" = None,
+    ) -> None:
         from faker import Faker
+
         fake = Faker()
         Faker.seed(seed)
         random.seed(seed)
-        schema = self._spec.source
-        self._initial: list[dict] = schema.generate(n, fake)
+        # New-style API: spec= overrides the class-level _spec; n_entities= overrides n.
+        if spec is not None:
+            self._spec = spec
+        self._schema_name = schema_name
+        schema = getattr(self._spec, schema_name)
+        count = n_entities if n_entities is not None else n
+        self._initial: list[dict] = schema.generate(count, fake)
         event_spec = self._spec.events
         self._events1: list[dict] = (
-            event_spec.apply(self._initial, fake)
-            if event_spec is not None else []
+            event_spec.apply(self._initial, fake) if event_spec is not None else []
         )
 
     # Properties replace the class-level str attributes on BaseSource
     @property  # type: ignore[override]
     def DIM_DDL(self) -> str:  # noqa: N802
-        return self._spec.source.dim_ddl()
+        return getattr(self._spec, self._schema_name).dim_ddl()
 
     @property  # type: ignore[override]
     def OLTP_DDL(self) -> str:  # noqa: N802
-        return self._spec.source.oltp_ddl()
+        return getattr(self._spec, self._schema_name).oltp_ddl()
 
     def snapshot(self):
         from sqldim.sources import SQLSource
+
         return SQLSource(self._spec.source.to_sql(self._initial))
 
     def event_batch(self, n: int = 1):
         from sqldim.sources import SQLSource
+
         if n == 1:
             return SQLSource(self._spec.source.to_sql(self._events1))
-        raise ValueError(
-            f"{type(self).__name__} has 1 event batch (requested n={n})"
-        )
+        raise ValueError(f"{type(self).__name__} has 1 event batch (requested n={n})")
 
     @property
     def initial(self) -> list[dict]:

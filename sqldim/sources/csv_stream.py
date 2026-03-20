@@ -3,6 +3,7 @@ sqldim/sources/csv_stream.py
 
 Chunked CSV streaming source for large files processed in row-batches.
 """
+
 from __future__ import annotations
 
 
@@ -33,11 +34,11 @@ class CSVStreamSource:
         encoding: str = "utf-8",
         header: bool = True,
     ):
-        self._path      = path
+        self._path = path
         self._delimiter = delimiter
-        self._encoding  = encoding
-        self._header    = header
-        self._offset    = 0
+        self._encoding = encoding
+        self._header = header
+        self._offset = 0
         self._total: int | None = None
 
     def stream(self, con, batch_size: int = 1_000_000):
@@ -82,4 +83,4 @@ class CSVStreamSource:
     def reset(self) -> None:
         """Reset the stream to the beginning."""
         self._offset = 0
-        self._total  = None
+        self._total = None

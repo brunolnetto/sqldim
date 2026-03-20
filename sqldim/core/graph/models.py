@@ -6,10 +6,11 @@ Any DimensionModel is implicitly a vertex; any FactModel is implicitly an edge.
 __vertex_type__, __edge_type__, __subject__, __object__ are optional metadata
 annotations — not required base classes.
 """
+
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Any, ClassVar, Optional, TYPE_CHECKING
+from typing import Any, ClassVar, TYPE_CHECKING
 
 from sqldim.core.kimball.models import DimensionModel, FactModel
 from sqldim.exceptions import SchemaError
@@ -22,9 +23,11 @@ if TYPE_CHECKING:
 # Lightweight transfer object — decoupled from SQLModel
 # ---------------------------------------------------------------------------
 
+
 @dataclass
 class Vertex:
     """Lightweight representation of a vertex for traversal results."""
+
     id: int
     type: str
     properties: dict[str, Any] = field(default_factory=dict)
@@ -36,6 +39,7 @@ class Vertex:
 # ---------------------------------------------------------------------------
 # VertexModel — optional convenience wrapper over DimensionModel
 # ---------------------------------------------------------------------------
+
 
 class VertexModel(DimensionModel):
     """
@@ -52,6 +56,7 @@ class VertexModel(DimensionModel):
     __vertex_type__      : str — logical label (e.g. "player"); defaults to class name
     __vertex_properties__ : list[str] — columns to expose; empty = all columns
     """
+
     __vertex_type__: ClassVar[str]
     __vertex_properties__: ClassVar[list[str]] = []
 
@@ -77,6 +82,7 @@ class VertexModel(DimensionModel):
 # EdgeModel — optional convenience wrapper over FactModel
 # ---------------------------------------------------------------------------
 
+
 class EdgeModel(FactModel):
     """
     A FactModel with optional graph metadata.
@@ -97,6 +103,7 @@ class EdgeModel(FactModel):
     __object__     : type[DimensionModel] — object vertex class
     __directed__   : bool — True (default) = directed; False = undirected
     """
+
     __edge_type__: ClassVar[str]
     __subject__: ClassVar[type[DimensionModel]]
     __object__: ClassVar[type[DimensionModel]]

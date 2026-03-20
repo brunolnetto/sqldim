@@ -4,6 +4,7 @@
 :class:`UpsertStrategy` uses SQLite’s ``INSERT … ON CONFLICT DO UPDATE``
 for idempotent re-runs.  Both implement the same :meth:`execute` interface.
 """
+
 from typing import Any, Dict, List, Type
 from sqlmodel import Session
 from sqlalchemy.dialects.sqlite import insert as sqlite_insert
@@ -15,7 +16,9 @@ class BulkInsertStrategy:
     Best for initial loads with no existing data.
     """
 
-    def execute(self, session: Session, model: Type, records: List[Dict[str, Any]]) -> int:
+    def execute(
+        self, session: Session, model: Type, records: list[dict[str, Any]]
+    ) -> int:
         rows = [model(**r) for r in records]
         session.add_all(rows)
         session.commit()
@@ -31,7 +34,7 @@ class UpsertStrategy:
     def __init__(self, conflict_column: str):
         self.conflict_column = conflict_column
 
-    def _upsert_stmt(self, table, record: Dict[str, Any]):
+    def _upsert_stmt(self, table, record: dict[str, Any]):
         stmt = sqlite_insert(table).values(**record)
         update_dict = {k: v for k, v in record.items() if k != self.conflict_column}
         if update_dict:
@@ -41,7 +44,9 @@ class UpsertStrategy:
             )
         return stmt.on_conflict_do_nothing()
 
-    def execute(self, session: Session, model: Type, records: List[Dict[str, Any]]) -> int:
+    def execute(
+        self, session: Session, model: Type, records: list[dict[str, Any]]
+    ) -> int:
         if not records:
             return 0
         table = model.__table__
@@ -60,8 +65,11 @@ class MergeStrategy:
     def __init__(self, match_column: str):
         self.match_column = match_column
 
-    def execute(self, session: Session, model: Type, records: List[Dict[str, Any]]) -> int:
+    def execute(
+        self, session: Session, model: Type, records: list[dict[str, Any]]
+    ) -> int:
         from sqlmodel import select
+
         upserted = 0
         for record in records:
             match_val = record.get(self.match_column)

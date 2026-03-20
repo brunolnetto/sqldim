@@ -15,6 +15,7 @@ and maintains slowly-changing dimension tables.
 Run:
     PYTHONPATH=. python -m sqldim.examples.features.scd_types.showcase
 """
+
 from __future__ import annotations
 
 import os
@@ -28,9 +29,13 @@ from sqldim.core.kimball.dimensions.scd.processors.scd_engine import (
 )
 from sqldim.sinks import DuckDBSink
 
-from sqldim.examples.datasets.ecommerce  import ProductsSource, CustomersSource, StoresSource
-from sqldim.examples.datasets.enterprise import EmployeesSource
-from sqldim.examples.utils import make_tmp_db
+from sqldim.examples.datasets.domains.ecommerce import (
+    ProductsSource,
+    CustomersSource,
+    StoresSource,
+)
+from sqldim.examples.datasets.domains.enterprise import EmployeesSource
+from sqldim.examples.features.utils import make_tmp_db
 
 
 def _tmp_db() -> str:
@@ -38,6 +43,7 @@ def _tmp_db() -> str:
 
 
 # ── Example 1 ─────────────────────────────────────────────────────────────────
+
 
 def example_01_product_catalogue() -> None:
     """
@@ -49,7 +55,7 @@ def example_01_product_catalogue() -> None:
     """
     print("\n── Example 1: Product Catalogue (SCD Type 2) ───────────────────")
 
-    src  = ProductsSource(n=5, seed=42)
+    src = ProductsSource(n=5, seed=42)
     path = _tmp_db()
 
     # Create sqldim-managed SCD2 dimension (empty target)
@@ -65,9 +71,11 @@ def example_01_product_catalogue() -> None:
         r2 = proc.process(src.event_batch(1), "dim_product")
 
     print(f"  T0 snapshot  → inserted={r1.inserted}")
-    print(f"  T1 events    → inserted={r2.inserted}, versioned={r2.versioned}, unchanged={r2.unchanged}")
+    print(
+        f"  T1 events    → inserted={r2.inserted}, versioned={r2.versioned}, unchanged={r2.unchanged}"
+    )
 
-    con  = duckdb.connect(path)
+    con = duckdb.connect(path)
     rows = con.execute(
         "SELECT product_id, name, price, is_current FROM dim_product ORDER BY product_id, valid_from"
     ).fetchall()
@@ -83,6 +91,7 @@ def example_01_product_catalogue() -> None:
 
 # ── Example 2 ─────────────────────────────────────────────────────────────────
 
+
 def example_02_employee_directory() -> None:
     """
     SCD Type 6 (hybrid) — promotions overwrite title in-place (Type 1);
@@ -94,7 +103,7 @@ def example_02_employee_directory() -> None:
     """
     print("\n── Example 2: Employee Directory (SCD Type 6: title T1 + dept T2) ─")
 
-    src  = EmployeesSource(n=5, seed=42)
+    src = EmployeesSource(n=5, seed=42)
     path = _tmp_db()
 
     setup_con = duckdb.connect(path)
@@ -103,19 +112,21 @@ def example_02_employee_directory() -> None:
 
     with DuckDBSink(path) as sink:
         proc = LazyType6Processor(
-            natural_key   = "employee_id",
-            type1_columns = ["title"],
-            type2_columns = ["department"],
-            sink          = sink,
-            con           = sink._con,
+            natural_key="employee_id",
+            type1_columns=["title"],
+            type2_columns=["department"],
+            sink=sink,
+            con=sink._con,
         )
-        r1 = proc.process(src.snapshot(),     "dim_employee")
+        r1 = proc.process(src.snapshot(), "dim_employee")
         r2 = proc.process(src.event_batch(1), "dim_employee")
 
     print(f"  T0 snapshot → inserted={r1.inserted}")
-    print(f"  T1 events   → inserted={r2.inserted}, versioned={r2.versioned}, unchanged={r2.unchanged}")
+    print(
+        f"  T1 events   → inserted={r2.inserted}, versioned={r2.versioned}, unchanged={r2.unchanged}"
+    )
 
-    con  = duckdb.connect(path)
+    con = duckdb.connect(path)
     rows = con.execute(
         "SELECT employee_id, full_name, title, department, is_current "
         "FROM dim_employee ORDER BY employee_id, valid_from"
@@ -132,6 +143,7 @@ def example_02_employee_directory() -> None:
 
 # ── Example 3 ─────────────────────────────────────────────────────────────────
 
+
 def example_03_customer_addresses() -> None:
     """
     SCD Type 3 — one layer of address history kept in ``prev_*`` columns.
@@ -144,7 +156,7 @@ def example_03_customer_addresses() -> None:
     """
     print("\n── Example 3: Customer Address Book (SCD Type 3) ───────────────")
 
-    src  = CustomersSource(n=5, seed=42)
+    src = CustomersSource(n=5, seed=42)
     path = _tmp_db()
 
     setup_con = duckdb.connect(path)
@@ -153,18 +165,20 @@ def example_03_customer_addresses() -> None:
 
     with DuckDBSink(path) as sink:
         proc = LazyType3Processor(
-            natural_key  = "customer_id",
-            column_pairs = [("address", "prev_address"), ("city", "prev_city")],
-            sink         = sink,
-            con          = sink._con,
+            natural_key="customer_id",
+            column_pairs=[("address", "prev_address"), ("city", "prev_city")],
+            sink=sink,
+            con=sink._con,
         )
-        r1 = proc.process(src.snapshot(),     "dim_customer")
+        r1 = proc.process(src.snapshot(), "dim_customer")
         r2 = proc.process(src.event_batch(1), "dim_customer")
 
     print(f"  T0 snapshot    → inserted={r1.inserted}")
-    print(f"  T1 move events → inserted={r2.inserted}, rotated={r2.versioned}, unchanged={r2.unchanged}")
+    print(
+        f"  T1 move events → inserted={r2.inserted}, rotated={r2.versioned}, unchanged={r2.unchanged}"
+    )
 
-    con  = duckdb.connect(path)
+    con = duckdb.connect(path)
     rows = con.execute(
         "SELECT customer_id, full_name, address, city, prev_address, prev_city "
         "FROM dim_customer ORDER BY customer_id"
@@ -181,6 +195,7 @@ def example_03_customer_addresses() -> None:
 
 # ── Example 4 ─────────────────────────────────────────────────────────────────
 
+
 def example_04_retail_stores() -> None:
     """
     SCD Type 6 — phone number updated in-place (Type 1);
@@ -192,7 +207,7 @@ def example_04_retail_stores() -> None:
     """
     print("\n── Example 4: Retail Store Dimension (SCD Type 6) ──────────────")
 
-    src  = StoresSource(n=5, seed=42)
+    src = StoresSource(n=5, seed=42)
     path = _tmp_db()
 
     setup_con = duckdb.connect(path)
@@ -201,19 +216,21 @@ def example_04_retail_stores() -> None:
 
     with DuckDBSink(path) as sink:
         proc = LazyType6Processor(
-            natural_key   = "store_id",
-            type1_columns = ["phone"],
-            type2_columns = ["city", "state"],
-            sink          = sink,
-            con           = sink._con,
+            natural_key="store_id",
+            type1_columns=["phone"],
+            type2_columns=["city", "state"],
+            sink=sink,
+            con=sink._con,
         )
-        r1 = proc.process(src.snapshot(),     "dim_store")
+        r1 = proc.process(src.snapshot(), "dim_store")
         r2 = proc.process(src.event_batch(1), "dim_store")
 
     print(f"  T0 snapshot → inserted={r1.inserted}")
-    print(f"  T1 events   → inserted={r2.inserted}, versioned={r2.versioned}, unchanged={r2.unchanged}")
+    print(
+        f"  T1 events   → inserted={r2.inserted}, versioned={r2.versioned}, unchanged={r2.unchanged}"
+    )
 
-    con  = duckdb.connect(path)
+    con = duckdb.connect(path)
     rows = con.execute(
         "SELECT store_id, store_name, phone, email, city, state, is_current "
         "FROM dim_store ORDER BY store_id, valid_from"
@@ -229,6 +246,7 @@ def example_04_retail_stores() -> None:
 
 
 # ── Entry point ───────────────────────────────────────────────────────────────
+
 
 def run_showcase() -> None:
     print("SCD Types Showcase")

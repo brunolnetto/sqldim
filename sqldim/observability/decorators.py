@@ -11,6 +11,7 @@ def my_processor(...): ...
 Both decorators are **opt-in** — apply them explicitly where you want
 telemetry.  They do not modify global state.
 """
+
 from __future__ import annotations
 
 import functools

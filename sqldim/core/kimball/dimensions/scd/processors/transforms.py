@@ -10,30 +10,31 @@ DSL scope (locked):
   Null handling: .fill_null(value), .drop_nulls(), .is_null()
   Date parsing : .to_date(format), .to_datetime(format)
 """
+
 from __future__ import annotations
 
-from typing import Any, TYPE_CHECKING
+from typing import TYPE_CHECKING
 
 import narwhals as nw
 
-from sqldim.exceptions import LoadError, TransformTypeError
+from sqldim.exceptions import TransformTypeError
 
 if TYPE_CHECKING:
-    from sqldim.core.kimball.models import DimensionModel, FactModel
+    pass
 
 
 # ---------------------------------------------------------------------------
 # Type compatibility helper
 # ---------------------------------------------------------------------------
 
-_PYTHON_TO_NW: dict[type, Any] = {
+_PYTHON_TO_NW: dict[type, nw.DataType] = {
     int: nw.Int64,
     float: nw.Float64,
     str: nw.String,
     bool: nw.Boolean,
 }
 
-_COMPATIBLE_GROUPS: list[set] = [
+_COMPATIBLE_GROUPS: list[set[nw.DataType]] = [
     {nw.Int8, nw.Int16, nw.Int32, nw.Int64, nw.UInt8, nw.UInt16, nw.UInt32, nw.UInt64},
     {nw.Float32, nw.Float64},
     {nw.String, nw.Categorical},
@@ -42,7 +43,7 @@ _COMPATIBLE_GROUPS: list[set] = [
 ]
 
 
-def _types_compatible(nw_dtype: Any, model_dtype: Any) -> bool:
+def _types_compatible(nw_dtype: nw.DataType, model_dtype: nw.DataType) -> bool:
     """Return True when *nw_dtype* is a valid match for *model_dtype*.
 
     Considers both exact equality and membership in the same compatibility
@@ -56,7 +57,7 @@ def _types_compatible(nw_dtype: Any, model_dtype: Any) -> bool:
     return False
 
 
-def _python_type_to_nw(annotation: Any) -> Any | None:
+def _python_type_to_nw(annotation: object) -> nw.DataType | None:
     """Convert a Python type annotation to a narwhals dtype, or None.
 
     Handles ``Optional[T]`` by unwrapping the inner type, and returns
@@ -79,6 +80,7 @@ def _python_type_to_nw(annotation: Any) -> Any | None:
 # Transform base
 # ---------------------------------------------------------------------------
 
+
 class Transform:
     """Base class for a single column transformation.
 
@@ -94,10 +96,11 @@ class Transform:
 # Applied expressions (internal)
 # ---------------------------------------------------------------------------
 
+
 class _AppliedTransform(Transform):
     """A Transform that carries a concrete narwhals expression and supports chaining."""
 
-    def __init__(self, column: str, expr: Any) -> None:
+    def __init__(self, column: str, expr: nw.Expr) -> None:
         self._column = column
         self._expr = expr
 
@@ -108,14 +111,14 @@ class _AppliedTransform(Transform):
     def str(self) -> StringTransforms:
         return StringTransforms(self._column, self._expr)
 
-    def cast(self, dtype: type | Any) -> _AppliedTransform:
+    def cast(self, dtype: type | nw.DataType) -> _AppliedTransform:
         if dtype in _PYTHON_TO_NW:
             nw_dtype = _PYTHON_TO_NW[dtype]
         else:
             nw_dtype = dtype
         return _AppliedTransform(self._column, self._expr.cast(nw_dtype))
 
-    def fill_null(self, value: Any) -> _AppliedTransform:
+    def fill_null(self, value: object) -> _AppliedTransform:
         return _AppliedTransform(self._column, self._expr.fill_null(value))
 
     def is_null(self) -> _AppliedTransform:
@@ -126,10 +129,11 @@ class _AppliedTransform(Transform):
 # String transforms
 # ---------------------------------------------------------------------------
 
+
 class StringTransforms:
     """Chainable string operation builder."""
 
-    def __init__(self, column: str, expr: Any | None = None) -> None:
+    def __init__(self, column: str, expr: nw.Expr | None = None) -> None:
         self._column = column
         self._expr = expr if expr is not None else nw.col(column)
 
@@ -153,6 +157,7 @@ class StringTransforms:
 # ColTransform — entry point returned by col()
 # ---------------------------------------------------------------------------
 
+
 class ColTransform:
     """Builder for a single-column transform."""
 
@@ -163,27 +168,33 @@ class ColTransform:
     def str(self) -> StringTransforms:
         return StringTransforms(self._column)
 
-    def cast(self, dtype: type | Any) -> _AppliedTransform:
+    def cast(self, dtype: type | nw.DataType) -> _AppliedTransform:
         if dtype in _PYTHON_TO_NW:
             nw_dtype = _PYTHON_TO_NW[dtype]
         else:
             nw_dtype = dtype
         return _AppliedTransform(self._column, nw.col(self._column).cast(nw_dtype))
 
-    def fill_null(self, value: Any) -> _AppliedTransform:
+    def fill_null(self, value: object) -> _AppliedTransform:
         return _AppliedTransform(self._column, nw.col(self._column).fill_null(value))
 
     def drop_nulls(self) -> _DropNullsTransform:
         return _DropNullsTransform(self._column)
 
     def is_null(self) -> _AppliedTransform:
-        return _AppliedTransform(self._column, nw.col(self._column).is_null().cast(nw.Boolean))
+        return _AppliedTransform(
+            self._column, nw.col(self._column).is_null().cast(nw.Boolean)
+        )
 
     def to_date(self, format: str) -> _AppliedTransform:
-        return _AppliedTransform(self._column, nw.col(self._column).str.to_date(format=format))
+        return _AppliedTransform(
+            self._column, nw.col(self._column).str.to_date(format=format)
+        )
 
     def to_datetime(self, format: str) -> _AppliedTransform:
-        return _AppliedTransform(self._column, nw.col(self._column).str.to_datetime(format=format))
+        return _AppliedTransform(
+            self._column, nw.col(self._column).str.to_datetime(format=format)
+        )
 
 
 class _DropNullsTransform(Transform):
@@ -202,7 +213,7 @@ class TransformPipeline:
     def __init__(
         self,
         transforms: list[Transform] | None = None,
-        raw_transforms: list[Any] | None = None,
+        raw_transforms: list[nw.Expr] | None = None,
         model: type | None = None,
     ) -> None:
         self.transforms = transforms or []

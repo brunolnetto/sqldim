@@ -5,14 +5,17 @@
 esercises, used as the starting point for the cumulative array and
 SCD-2 pipeline showcases.
 """
+
 from typing import Optional
 from sqlmodel import SQLModel, Field
+
 
 class PlayerSeasons(SQLModel, table=True):
     """
     Raw staging table — source data before dimensional transformation.
     Reproduces player_seasons.sql.
     """
+
     __tablename__ = "player_seasons"
 
     player_name: str = Field(primary_key=True)

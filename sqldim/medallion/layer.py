@@ -1,4 +1,5 @@
 """sqldim/medallion/layer.py — Layer enum and MedallionRegistry."""
+
 from __future__ import annotations
 
 from enum import Enum
@@ -9,9 +10,10 @@ _ORDER = ["bronze", "silver", "gold"]
 
 class Layer(str, Enum):
     """The three tiers of the Medallion architecture."""
+
     BRONZE = "bronze"
     SILVER = "silver"
-    GOLD   = "gold"
+    GOLD = "gold"
 
     def __str__(self) -> str:
         return self.value
@@ -39,7 +41,7 @@ class MedallionRegistry:
         return dataset in self._map
 
     def datasets_in(self, layer: Layer) -> list[str]:
-        return [ds for ds, l in self._map.items() if l is layer]
+        return [ds for ds, lyr in self._map.items() if lyr is layer]
 
     def all_datasets(self) -> list[str]:
         return list(self._map.keys())

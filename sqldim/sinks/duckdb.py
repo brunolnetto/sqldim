@@ -18,9 +18,9 @@ class DuckDBSink:
     """
 
     def __init__(self, path: str, schema: str = "main"):
-        self._path   = path
+        self._path = path
         self._schema = schema
-        self._alias  = "sqldim_ddb"
+        self._alias = "sqldim_ddb"
         self._con: duckdb.DuckDBPyConnection | None = None
         self._hash_cache: dict[str, str] = {}
 
@@ -49,8 +49,8 @@ class DuckDBSink:
 
         Returns the number of rows materialised.
         """
-        nk_select  = ", ".join(nk_cols)
-        local      = f"_sqldim_hashes_{table_name}"
+        nk_select = ", ".join(nk_cols)
+        local = f"_sqldim_hashes_{table_name}"
         remote_sql = f"{self._alias}.{self._schema}.{table_name}"
         con.execute(f"""
             CREATE OR REPLACE TABLE {local} AS
@@ -82,11 +82,13 @@ class DuckDBSink:
             reduces memory pressure on xl/xxl tier inserts by not requiring
             the full result to be gathered before writing.
         """
-        import logging, time
+        import logging
+        import time
+
         _log = logging.getLogger(__name__)
 
         target = f"{self._alias}.{self._schema}.{table_name}"
-        total  = con.execute(f"SELECT count(*) FROM {view_name}").fetchone()[0]
+        total = con.execute(f"SELECT count(*) FROM {view_name}").fetchone()[0]
         if total == 0:
             return 0
         _log.info(f"[sqldim] {table_name}: inserting {total:,} rows …")
@@ -94,7 +96,7 @@ class DuckDBSink:
         con.execute(f"INSERT INTO {target} SELECT * FROM {view_name}")
         _log.info(
             f"[sqldim] {table_name}: {total:,} rows written "
-            f"in {time.perf_counter()-t0:.1f}s"
+            f"in {time.perf_counter() - t0:.1f}s"
         )
         return total
 
@@ -114,12 +116,14 @@ class DuckDBSink:
         appear in the ``INSERT`` column list.  All names in *columns* must have
         been validated by ``_safe()`` before being passed here.
         """
-        import logging, time
+        import logging
+        import time
+
         _log = logging.getLogger(__name__)
 
-        cols   = ", ".join(columns)
+        cols = ", ".join(columns)
         target = f"{self._alias}.{self._schema}.{table_name}"
-        total  = con.execute(f"SELECT count(*) FROM {view_name}").fetchone()[0]
+        total = con.execute(f"SELECT count(*) FROM {view_name}").fetchone()[0]
         if total == 0:
             return 0
         _log.info(f"[sqldim] {table_name}: inserting {total:,} rows …")
@@ -127,7 +131,7 @@ class DuckDBSink:
         con.execute(f"INSERT INTO {target} ({cols}) SELECT {cols} FROM {view_name}")
         _log.info(
             f"[sqldim] {table_name}: {total:,} rows written "
-            f"in {time.perf_counter()-t0:.1f}s"
+            f"in {time.perf_counter() - t0:.1f}s"
         )
         return total
 
@@ -145,7 +149,7 @@ class DuckDBSink:
         Performs a single SQL ``UPDATE`` — no Python-side loop over rows.
         """
         if isinstance(nk_col, list):
-            nk_select    = ", ".join(nk_col)
+            nk_select = ", ".join(nk_col)
             where_clause = f"({nk_select}) IN (SELECT {nk_select} FROM {nk_view})"
         else:
             where_clause = f"{nk_col} IN (SELECT {nk_col} FROM {nk_view})"
@@ -281,12 +285,18 @@ class DuckDBSink:
         for every combination present in *view_name*.  Returns row count.
         """
         tbl = f"{self._alias}.{self._schema}.{table_name}"
-        cols_str   = ", ".join(conflict_cols)
+        cols_str = ", ".join(conflict_cols)
         inner_join = " AND ".join(f"src.{c} = t.{c}" for c in conflict_cols)
-        view_join  = " AND ".join(f"t.{c} = v.{c}" for c in conflict_cols)
+        view_join = " AND ".join(f"t.{c} = v.{c}" for c in conflict_cols)
         insert_sql, view_sql = self._upsert_sql(
-            tbl, view_name, output_view, returning_col,
-            cols_str, conflict_cols, inner_join, view_join,
+            tbl,
+            view_name,
+            output_view,
+            returning_col,
+            cols_str,
+            conflict_cols,
+            inner_join,
+            view_join,
         )
         con.execute(insert_sql)
         con.execute(view_sql)

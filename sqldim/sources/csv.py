@@ -49,11 +49,11 @@ class CSVSource:
             self._expr = f"[{quoted}]"
         else:
             self._expr = f"'{path}'"
-        self._delimiter    = delimiter
-        self._header       = str(header).upper()
-        self._encoding     = encoding
-        self._columns      = columns
-        self._nullstr      = nullstr
+        self._delimiter = delimiter
+        self._header = str(header).upper()
+        self._encoding = encoding
+        self._columns = columns
+        self._nullstr = nullstr
         self._ignore_errors = ignore_errors
 
     def as_sql(self, con) -> str:

@@ -3,6 +3,7 @@
 Each SCD variant is exercised end-to-end: detect changes, close old
 versions, insert new rows, and validate the resulting history table.
 """
+
 from sqldim.examples.features.scd_types.showcase import run_showcase
 
 __all__ = ["run_showcase"]

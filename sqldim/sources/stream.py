@@ -4,9 +4,10 @@ sqldim/sources/stream.py
 StreamSourceAdapter protocol — the streaming read boundary.
 StreamResult — accumulated counts across all micro-batches.
 """
+
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import Any, Iterator, Protocol, runtime_checkable
 
 import duckdb

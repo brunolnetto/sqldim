@@ -14,6 +14,7 @@ OLTP → Graph pipeline:
 Run:
     PYTHONPATH=. python -m sqldim.examples.features.graph.showcase
 """
+
 from __future__ import annotations
 
 import os
@@ -25,8 +26,8 @@ from sqldim.core.loaders.edge_projection import LazyEdgeProjectionLoader
 from sqldim.core.graph.traversal import DuckDBTraversalEngine
 from sqldim.sinks import DuckDBSink
 
-from sqldim.examples.datasets.media import MoviesSource
-from sqldim.examples.utils import make_tmp_db
+from sqldim.examples.datasets.domains.media import MoviesSource
+from sqldim.examples.features.utils import make_tmp_db
 
 
 def _tmp_db() -> str:
@@ -45,13 +46,13 @@ def _setup_graph(path: str, src: MoviesSource) -> dict:
 
     with DuckDBSink(path) as sink:
         loader = LazyEdgeProjectionLoader(
-            table_name   = "graph_coactor",
-            subject_key  = "actor_id",
-            object_key   = "actor_id",
-            self_join    = True,
-            self_join_key= "movie_id",
-            sink         = sink,
-            con          = sink._con,
+            table="graph_coactor",
+            subject_key="actor_id",
+            object_key="actor_id",
+            self_join=True,
+            self_join_key="movie_id",
+            sink=sink,
+            con=sink._con,
         )
         edge_count = loader.process(src.cast_snapshot())
 
@@ -78,13 +79,16 @@ def _print_paths(engine, edge_model, actor_map: dict, ranked: list) -> None:
     print(f"\n  Paths from {src_name} → {dst_name} (max 4 hops):")
     if hop_paths:  # pragma: no cover
         for hop_path in hop_paths:  # pragma: no cover
-            named = " → ".join(actor_map.get(i, f"#{i}") for i in hop_path)  # pragma: no cover
+            named = " → ".join(
+                actor_map.get(i, f"#{i}") for i in hop_path
+            )  # pragma: no cover
             print(f"    {named}")  # pragma: no cover
     else:
         print("    (no path within max_hops)")
 
 
 # ── Example 13 ────────────────────────────────────────────────────────────────
+
 
 def example_13_movie_coactor_network() -> None:
     """
@@ -102,16 +106,16 @@ def example_13_movie_coactor_network() -> None:
     """
     print("\n── Example 13: Movie Co-actor Network ──────────────────────────")
 
-    src  = MoviesSource(n_actors=8, n_movies=5, seed=42)
+    src = MoviesSource(n_actors=8, n_movies=5, seed=42)
     path = _tmp_db()
-    g    = _setup_graph(path, src)
+    g = _setup_graph(path, src)
     con, actor_map, edge_count = g["con"], g["actor_map"], g["edge_count"]
     print(f"  Initial projection: {edge_count} co-actor edges")
 
-    engine     = DuckDBTraversalEngine(con)
+    engine = DuckDBTraversalEngine(con)
     edge_model = _make_edge_model("graph_coactor", directed=False)
 
-    start_id  = min(actor_map)
+    start_id = min(actor_map)
     neighbors = engine.neighbors(edge_model, start_id=start_id)
     print(f"\n  {actor_map[start_id]}'s co-actors (1 hop):")
     for nid in neighbors:
@@ -124,7 +128,11 @@ def example_13_movie_coactor_network() -> None:
     new_actor = max(src.actors, key=lambda a: a["id"])
     print(f"\n  New release event: actor '{new_actor['name']}' added to graph")
 
-    ranked = sorted(actor_map.items(), key=lambda kv: engine.degree(edge_model, start_id=kv[0]), reverse=True)
+    ranked = sorted(
+        actor_map.items(),
+        key=lambda kv: engine.degree(edge_model, start_id=kv[0]),
+        reverse=True,
+    )
     _print_paths(engine, edge_model, actor_map, ranked)
 
     src.teardown(con, edge_table="graph_coactor", actors_table="actors")
@@ -133,6 +141,7 @@ def example_13_movie_coactor_network() -> None:
 
 
 # ── Entry point ───────────────────────────────────────────────────────────────
+
 
 def run_showcase() -> None:
     print("Graph Showcase")

@@ -10,9 +10,16 @@ processors.  The lazy variants speak only DuckDB SQL — no Python rows.
 Also exports ``NarwhalsSKResolver`` and ``LazySKResolver`` for
 surrogate-key resolution without a SQLModel session.
 """
+
 from sqldim.core.kimball.dimensions.scd.processors.adapter import NarwhalsAdapter
-from sqldim.core.kimball.dimensions.scd.processors.transforms import col, TransformPipeline
-from sqldim.core.kimball.dimensions.scd.processors.backfill import backfill_scd2_narwhals, lazy_backfill_scd2
+from sqldim.core.kimball.dimensions.scd.processors.transforms import (
+    col,
+    TransformPipeline,
+)
+from sqldim.core.kimball.dimensions.scd.processors.backfill import (
+    backfill_scd2_narwhals,
+    lazy_backfill_scd2,
+)
 from sqldim.core.kimball.dimensions.scd.processors.scd_engine import (
     NarwhalsHashStrategy,
     NarwhalsSCDProcessor,
@@ -24,7 +31,10 @@ from sqldim.core.kimball.dimensions.scd.processors.scd_engine import (
     LazyType5Processor,
     LazySCDMetadataProcessor,
 )
-from sqldim.core.kimball.dimensions.scd.processors.sk_resolver import NarwhalsSKResolver, LazySKResolver
+from sqldim.core.kimball.dimensions.scd.processors.sk_resolver import (
+    NarwhalsSKResolver,
+    LazySKResolver,
+)
 
 __all__ = [
     "NarwhalsAdapter",

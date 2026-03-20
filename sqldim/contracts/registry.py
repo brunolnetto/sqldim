@@ -1,4 +1,5 @@
 """sqldim/contracts/registry.py — ContractRegistry."""
+
 from __future__ import annotations
 
 from sqldim.contracts.contract import DataContract

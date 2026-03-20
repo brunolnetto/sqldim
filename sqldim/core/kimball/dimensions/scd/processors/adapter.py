@@ -4,6 +4,7 @@ NarwhalsAdapter — unified entry point for DataFrame + list[dict] sources.
 Detects the native type and wraps in a narwhals DataFrame automatically.
 Users never call narwhals directly.
 """
+
 from __future__ import annotations
 
 from typing import Any
@@ -16,6 +17,7 @@ from sqldim.exceptions import LoadError
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
+
 
 def _is_dataframe(obj: Any) -> bool:
     """
@@ -35,24 +37,29 @@ def _dicts_to_native(records: list[dict]) -> Any:
     if not records:
         try:
             import polars as pl
+
             return pl.DataFrame()
         except ImportError:
             import pandas as pd
+
             return pd.DataFrame()
 
     try:
         import polars as pl
+
         return pl.from_dicts(records)
     except ImportError:
         pass
 
     import pandas as pd
+
     return pd.DataFrame(records)
 
 
 # ---------------------------------------------------------------------------
 # NarwhalsAdapter
 # ---------------------------------------------------------------------------
+
 
 class NarwhalsAdapter:
     """

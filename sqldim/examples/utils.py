@@ -34,6 +34,7 @@ Quick reference
 ``show_provider(src)``
     Print the data-source description for a ``BaseSource`` instance.
 """
+
 from __future__ import annotations
 
 import os
@@ -52,10 +53,12 @@ __all__ = [
     "banner",
     "print_rows",
     "show_provider",
+    "model_ddl",
 ]
 
 
 # ── Temp database ─────────────────────────────────────────────────────────────
+
 
 @contextmanager
 def tmp_db():
@@ -100,6 +103,7 @@ def make_tmp_db() -> str:
 
 # ── Dimension lifecycle ───────────────────────────────────────────────────────
 
+
 def setup_dim(
     con: duckdb.DuckDBPyConnection,
     src: Any,
@@ -131,6 +135,7 @@ def teardown_dim(
 
 
 # ── Console output helpers ────────────────────────────────────────────────────
+
 
 class section:
     """
@@ -209,3 +214,30 @@ def show_provider(src: Any) -> None:
         print(src.describe_provider())
     elif hasattr(src, "provider") and src.provider is not None:
         print(src.provider.describe())
+
+
+# ── Model DDL helper ──────────────────────────────────────────────────────────
+
+
+def model_ddl(model) -> str:
+    """
+    Compile a ``table=True`` SQLModel class to a
+    ``CREATE TABLE IF NOT EXISTS`` statement.
+
+    Uses SQLAlchemy's SQLite dialect, which produces syntax accepted by
+    DuckDB without requiring ``duckdb-engine``.
+
+    Parameters
+    ----------
+    model : A SQLModel class with ``table=True`` (i.e. has ``__table__``).
+
+    Returns
+    -------
+    str
+        A ``CREATE TABLE IF NOT EXISTS ...`` statement.
+    """
+    from sqlalchemy.dialects import sqlite as _sqlite
+    from sqlalchemy.schema import CreateTable as _CT
+
+    sql = str(_CT(model.__table__).compile(dialect=_sqlite.dialect()))
+    return sql.replace("CREATE TABLE ", "CREATE TABLE IF NOT EXISTS ", 1)

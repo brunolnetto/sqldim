@@ -36,6 +36,7 @@ Fields with ``sql_export=False`` appear in generate() output and DDL but are
 *not* included in ``to_sql()`` — useful for internal tracking columns like
 ``updated_at`` that sqldim does not consume.
 """
+
 from __future__ import annotations
 
 import random
@@ -44,16 +45,19 @@ from typing import Any
 
 # ── constants ─────────────────────────────────────────────────────────────────
 
-_STRING_SQL: frozenset[str] = frozenset({"VARCHAR", "TEXT", "TIMESTAMP", "DATE", "CHAR"})
+_STRING_SQL: frozenset[str] = frozenset(
+    {"VARCHAR", "TEXT", "TIMESTAMP", "DATE", "CHAR"}
+)
 
 _SCD_AUDIT: list[tuple[str, str]] = [
     ("valid_from", "VARCHAR"),
-    ("valid_to",   "VARCHAR"),
+    ("valid_to", "VARCHAR"),
     ("is_current", "BOOLEAN"),
-    ("checksum",   "VARCHAR"),
+    ("checksum", "VARCHAR"),
 ]
 
 # ── per-kind generator functions ──────────────────────────────────────────────
+
 
 def _gen_seq(spec: "FieldSpec", fake: Any, i: int) -> Any:
     return spec.start + i * spec.step
@@ -87,12 +91,12 @@ def _gen_computed(spec: "FieldSpec", fake: Any, i: int) -> Any:
 
 
 _KIND_GENERATORS: dict[str, Any] = {
-    "seq":      _gen_seq,
-    "faker":    _gen_faker,
-    "choices":  _gen_choices,
-    "uniform":  _gen_uniform,
-    "randint":  _gen_randint,
-    "const":    _gen_const,
+    "seq": _gen_seq,
+    "faker": _gen_faker,
+    "choices": _gen_choices,
+    "uniform": _gen_uniform,
+    "randint": _gen_randint,
+    "const": _gen_const,
     "computed": _gen_computed,
 }
 
@@ -124,6 +128,7 @@ class FieldSpec:
     sql_export : If ``False``, field is excluded from ``EntitySchema.to_sql()``
                  but still appears in DDL and ``generate()`` output.
     """
+
     name: str
     sql_type: str
     kind: str = "const"
@@ -182,6 +187,7 @@ class EntitySchema:
                  columns and the SCD audit columns in ``dim_ddl()``.
                  Used for SCD Type-3 previous-value columns.
     """
+
     name: str
     fields: list[FieldSpec]
     dim_extra: list[tuple[str, str]] = field(default_factory=list)
@@ -193,7 +199,7 @@ class EntitySchema:
     ) -> str:
         src = fields if fields is not None else self.fields
         lines = [f"    {f.ddl_col()}" for f in src]
-        for col_name, col_type in (extras or []):
+        for col_name, col_type in extras or []:
             lines.append(f"    {col_name:<16} {col_type}")
         return ",\n".join(lines)
 
@@ -312,9 +318,10 @@ class ChangeRule:
     mutate    : ``callable(old_value, row, fake) -> new_value`` — the
                 transformation applied when *condition* returns ``True``.
     """
+
     field: str
-    condition: Any   # (i: int, row: dict) -> bool
-    mutate: Any      # (old_value: Any, row: dict, fake) -> Any
+    condition: Any  # (i: int, row: dict) -> bool
+    mutate: Any  # (old_value: Any, row: dict, fake) -> Any
 
 
 @dataclass
@@ -333,6 +340,7 @@ class EventSpec:
                       appended to the event batch — useful for events that
                       include entirely new records (e.g. a newly opened issue).
     """
+
     changes: list[ChangeRule]
     timestamp_field: str | None = None
     event_ts: str = ""

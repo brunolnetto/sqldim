@@ -4,6 +4,7 @@ These rules encode sqldim's own dimensional modeling invariants.  They
 accept *natural_key* as a constructor argument and generate SQL that
 checks structural properties across version history.
 """
+
 from __future__ import annotations
 
 from sqldim.contracts.report import Severity
@@ -177,7 +178,9 @@ class HashConsistency(Rule):
     def as_sql(self, view: str) -> str:
         h = self.hash_col
         sev = self.severity.value
-        concat = " || '|' || ".join(f"COALESCE(CAST({c} AS VARCHAR), '')" for c in self.tracked_cols)
+        concat = " || '|' || ".join(
+            f"COALESCE(CAST({c} AS VARCHAR), '')" for c in self.tracked_cols
+        )
         return (
             f"SELECT '{self.name}' AS rule, '{sev}' AS severity,"
             f" COUNT(*) AS violations,"

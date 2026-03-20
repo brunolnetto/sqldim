@@ -8,12 +8,13 @@ Usage:
     sqldim example run <name>
     sqldim bigdata features
 """
+
 import argparse
-import json
 import sys
 from typing import List
 
 # ── migration commands ────────────────────────────────────────────────────────
+
 
 def cmd_migrations_generate(args: argparse.Namespace) -> None:
     """Generate a migration from a schema diff.
@@ -22,7 +23,10 @@ def cmd_migrations_generate(args: argparse.Namespace) -> None:
     directly from your project's migration script.
     """
     print(f"[sqldim] Generating migration: '{args.message}'")
-    print("[sqldim] Tip: call generate_migration(models, current_state, message) in your project.")
+    print(
+        "[sqldim] Tip: call generate_migration(models, current_state, message) in your project."
+    )
+
 
 def cmd_migrations_show(args: argparse.Namespace) -> None:
     """Show pending migration info.
@@ -32,6 +36,7 @@ def cmd_migrations_show(args: argparse.Namespace) -> None:
     """
     print("[sqldim] No pending migrations detected (run generate first).")
 
+
 def cmd_migrations_init(args: argparse.Namespace) -> None:
     """Initialize sqldim migration environment.
 
@@ -39,12 +44,14 @@ def cmd_migrations_init(args: argparse.Namespace) -> None:
     folder is importable by Alembic or the sqldim migration runner.
     """
     import os
+
     migration_dir = getattr(args, "dir", "migrations")
     os.makedirs(migration_dir, exist_ok=True)
     init_file = os.path.join(migration_dir, "__init__.py")
     if not os.path.exists(init_file):
         open(init_file, "w").close()
     print(f"[sqldim] Migration directory initialized at '{migration_dir}/'")
+
 
 def cmd_schema_graph(args: argparse.Namespace) -> None:
     """Print schema graph as JSON or Mermaid.
@@ -53,6 +60,7 @@ def cmd_schema_graph(args: argparse.Namespace) -> None:
     to render the dimensional model as serialisable data or a diagram.
     """
     print("[sqldim] Pass your SchemaGraph instance to .to_dict() or .to_mermaid()")
+
 
 # ── example commands ──────────────────────────────────────────────────────────
 
@@ -74,6 +82,24 @@ _EXAMPLES = {
         "Bitmask datelist encoding + L7/L28 retention metrics",
         "sqldim.examples.real_world.user_activity.showcase",
         "run_activity_showcase",
+    ),
+    "ecommerce": (
+        "E-Commerce Order Intelligence",
+        "SCD Type 2 customer tiers + bridge attribution + accumulating order milestones",
+        "sqldim.examples.real_world.ecommerce.showcase",
+        "run_ecommerce_showcase",
+    ),
+    "fintech": (
+        "Fintech Payment Intelligence",
+        "SCD Type 2 risk tiers + payment graph + array-metric balances + drift observability",
+        "sqldim.examples.real_world.fintech.showcase",
+        "run_fintech_showcase",
+    ),
+    "supply-chain": (
+        "Supply Chain Inventory",
+        "SCD Type 2 warehouse capacity + shipment graph + cumulative stock arrays + schema graph",
+        "sqldim.examples.real_world.supply_chain.showcase",
+        "run_supply_chain_showcase",
     ),
 }
 
@@ -97,18 +123,23 @@ def cmd_example_run(args: argparse.Namespace) -> int:
     example name, supporting both async and synchronous entry-points.
     Returns 1 if the name is unrecognised, 0 on success.
     """
-    import asyncio, importlib
+    import asyncio
+    import importlib
+
     name = args.name.lower()
     if name not in _EXAMPLES:
-        print(f"[sqldim] Unknown example '{name}'. Run 'sqldim example list' to see options.")
+        print(
+            f"[sqldim] Unknown example '{name}'. Run 'sqldim example list' to see options."
+        )
         return 1
     _title, _desc, mod_path, fn_name = _EXAMPLES[name]
     mod = importlib.import_module(mod_path)
-    fn  = getattr(mod, fn_name)
+    fn = getattr(mod, fn_name)
     if asyncio.iscoroutinefunction(fn):
         asyncio.run(fn())
     else:
         fn()
+
 
 # ── big data commands ─────────────────────────────────────────────────────────
 
@@ -179,6 +210,7 @@ def cmd_bigdata_features(args: argparse.Namespace) -> None:
 
 # ── parser ────────────────────────────────────────────────────────────────────
 
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="sqldim",
@@ -208,27 +240,34 @@ def build_parser() -> argparse.ArgumentParser:
     graph.set_defaults(func=cmd_schema_graph)
 
     # example subcommand
-    example = subparsers.add_parser("example", help="Real-world example pipeline runner")
+    example = subparsers.add_parser(
+        "example", help="Real-world example pipeline runner"
+    )
     example_sub = example.add_subparsers(dest="subcommand")
 
     ex_list = example_sub.add_parser("list", help="List available examples")
     ex_list.set_defaults(func=cmd_example_list)
 
     ex_run = example_sub.add_parser("run", help="Run a named example")
-    ex_run.add_argument("name", help="Example name (nba | saas | user-activity)")
+    ex_run.add_argument(
+        "name",
+        help="Example name (nba | saas | user-activity | ecommerce | fintech | supply-chain)",
+    )
     ex_run.set_defaults(func=cmd_example_run)
 
     # bigdata subcommand
     bigdata = subparsers.add_parser("bigdata", help="Big-data capability overview")
     bigdata_sub = bigdata.add_subparsers(dest="subcommand")
 
-    bd_features = bigdata_sub.add_parser("features", help="Print big-data features summary")
+    bd_features = bigdata_sub.add_parser(
+        "features", help="Print big-data features summary"
+    )
     bd_features.set_defaults(func=cmd_bigdata_features)
 
     return parser
 
 
-def main(argv: List[str] | None = None) -> int:
+def main(argv: list[str] | None = None) -> int:
     parser = build_parser()
     args = parser.parse_args(argv)
 
@@ -242,4 +281,3 @@ def main(argv: List[str] | None = None) -> int:
 
 if __name__ == "__main__":  # pragma: no cover
     sys.exit(main())
-

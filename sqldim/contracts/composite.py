@@ -1,6 +1,7 @@
 """Composite contract labels — thin dataclass wrappers that tag which
 pipeline boundary each contract applies to (source, state, or output).
 """
+
 from __future__ import annotations
 
 from dataclasses import dataclass, field

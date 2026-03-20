@@ -1,8 +1,14 @@
-"""Fluent dimensional query builder with DuckDB and SQLAlchemy backends.
+"""Fluent dimensional query builders.
 
-Exports :class:`DimensionalQuery` for chained ``.join()`` / ``.filter()``
-building and :class:`DuckDBDimensionalQuery` for direct execution.
+Exports :class:`DimensionalQuery` for SQLAlchemy-backed chained ``.join()`` /
+``.filter()`` building and :class:`DGMQuery` (``Query``) for direct DuckDB
+SQL-string generation.
 """
-from sqldim.core.query.builder import SemanticError, DimensionalQuery, DuckDBDimensionalQuery
 
-__all__ = ["SemanticError", "DimensionalQuery", "DuckDBDimensionalQuery"]
+from sqldim.core.query.builder import (
+    SemanticError,
+    DimensionalQuery,
+)
+from sqldim.core.query.dgm import DGMQuery, Query
+
+__all__ = ["SemanticError", "DimensionalQuery", "DGMQuery", "Query"]

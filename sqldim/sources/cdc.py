@@ -16,6 +16,7 @@ Debezium op codes:
   d = delete (DELETE)
   r = read   (initial snapshot)
 """
+
 from __future__ import annotations
 
 from typing import Any, Iterator
@@ -60,9 +61,7 @@ class DebeziumSource:
         containing the natural keys of any deleted rows in that batch.
         """
         for raw_sql in self._kafka.stream(con, batch_size):
-            con.execute(
-                f"CREATE OR REPLACE VIEW _cdc_raw AS SELECT * FROM ({raw_sql})"
-            )
+            con.execute(f"CREATE OR REPLACE VIEW _cdc_raw AS SELECT * FROM ({raw_sql})")
             con.execute("""
                 CREATE OR REPLACE VIEW _cdc_upserts AS
                 SELECT after.*

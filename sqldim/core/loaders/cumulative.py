@@ -2,12 +2,16 @@
 CumulativeLoader — handles the incremental FULL OUTER JOIN append pattern.
 Reproduces the pipeline_query.sql and user_cumulated_populate.sql patterns.
 """
+
 from __future__ import annotations
+
+import asyncio
 import json
-from typing import Any, Callable, List, Optional, Type, Dict
-from sqlmodel import Session, select, text
+from typing import Any
+from datetime import date, datetime
+from sqlmodel import Session
 import narwhals as nw
-from sqldim.exceptions import LoadError
+from sqldim.core.loaders._utils import _resolve_table, _assert_not_dimension
 
 
 # ---------------------------------------------------------------------------
@@ -42,7 +46,7 @@ class LazyCumulativeLoader:
 
     def __init__(
         self,
-        table_name: str,
+        table: str | type,
         partition_key: str,
         cumulative_column: str,
         metric_columns: List[str],
@@ -53,14 +57,15 @@ class LazyCumulativeLoader:
     ):
         import duckdb as _duckdb
 
-        self.table_name           = table_name
-        self.partition_key        = partition_key
-        self.cumulative_column    = cumulative_column
-        self.metric_columns       = metric_columns
-        self.sink                 = sink
+        _assert_not_dimension(table, "LazyCumulativeLoader")
+        self.table_name = _resolve_table(table)
+        self.partition_key = partition_key
+        self.cumulative_column = cumulative_column
+        self.metric_columns = metric_columns
+        self.sink = sink
         self.current_period_column = current_period_column
-        self.batch_size           = batch_size
-        self._con                 = con or _duckdb.connect()
+        self.batch_size = batch_size
+        self._con = con or _duckdb.connect()
 
     def process(self, today_source, target_period) -> int:
         """
@@ -69,9 +74,9 @@ class LazyCumulativeLoader:
         increments ``years_since_last_active`` for dormant members.
         Returns rows written.
         """
-        tn  = self.table_name
-        pk  = self.partition_key
-        cc  = self.cumulative_column
+        tn = self.table_name
+        pk = self.partition_key
+        cc = self.cumulative_column
         pcc = self.current_period_column
 
         yesterday_sql = self.sink.current_state_sql(tn)
@@ -95,9 +100,7 @@ class LazyCumulativeLoader:
         """)
 
         # Build a struct_pack expression for today's metrics
-        struct_fields = ", ".join(
-            f"{c} := t.{c}" for c in self.metric_columns
-        )
+        struct_fields = ", ".join(f"{c} := t.{c}" for c in self.metric_columns)
 
         self._con.execute(f"""
             CREATE OR REPLACE VIEW cumulated AS
@@ -127,19 +130,28 @@ class LazyCumulativeLoader:
         self._con.execute("DROP VIEW IF EXISTS cumulated")
         return rows
 
+    async def aload(self, today_source, target_period) -> int:
+        """Async wrapper — runs :meth:`process` in a thread pool executor."""
+        return await asyncio.to_thread(self.process, today_source, target_period)
+
+    #: Alias for :meth:`process` — unified sync entry point across all loaders.
+    load = process
+
+
 class CumulativeLoader:
     """
     Implements the FULL OUTER JOIN pattern for cumulative history.
-    
+
     Logic:
     1. Join Yesterday's state with Today's batch.
     2. For members in both: append today's stats to the history array.
     3. For members in Yesterday only: keep history, increment 'years_since_last_active'.
     4. For members in Today only: create new history array with today's stats.
     """
+
     def __init__(
         self,
-        model: Type[Any],
+        model: type,
         session: Session,
         partition_key: str,
         cumulative_column: str,
@@ -155,7 +167,7 @@ class CumulativeLoader:
         self,
         yesterday_frame: nw.DataFrame,
         today_frame: nw.DataFrame,
-        target_period: Any,
+        target_period: date | datetime,
     ) -> nw.DataFrame:
         """
         Vectorized cumulative update.
@@ -164,12 +176,9 @@ class CumulativeLoader:
 
         # 1. Full Join
         merged = yesterday_frame.join(
-            today_frame, 
-            on=self.partition_key, 
-            how="full", 
-            suffix="_today"
+            today_frame, on=self.partition_key, how="full", suffix="_today"
         )
-        
+
         native = nw.to_native(merged)
         module = type(native).__module__.split(".")[0]
 
@@ -182,7 +191,7 @@ class CumulativeLoader:
             except TypeError:  # pragma: no cover
                 return True  # pragma: no cover
 
-        # We handle the row-level array construction deterministically 
+        # We handle the row-level array construction deterministically
         # using native mapping for complex nested structures.
         def merge_history(row):
             # Extract historical array — may be None or NaN for brand-new players
@@ -195,11 +204,17 @@ class CumulativeLoader:
                 history = []
 
             # Extract today's stats (columns suffixed with _today from the join)
-            today_stats = {k.replace("_today", ""): v for k, v in row.items() if k.endswith("_today")}
-            
+            today_stats = {
+                k.replace("_today", ""): v
+                for k, v in row.items()
+                if k.endswith("_today")
+            }
+
             if today_stats and any(_is_present(v) for v in today_stats.values()):
                 # If active today, append
-                today_stats[self.current_period_column.replace("current_", "")] = target_period
+                today_stats[self.current_period_column.replace("current_", "")] = (
+                    target_period
+                )
                 history.append(today_stats)
                 active = True
                 years_since = 0
@@ -211,12 +226,12 @@ class CumulativeLoader:
                     years_since = int(raw_y) + 1
                 except (TypeError, ValueError):
                     years_since = 1
-            
+
             return {
                 self.cumulative_column: history,
                 "is_active": active,
                 "years_since_last_active": years_since,
-                self.current_period_column: target_period
+                self.current_period_column: target_period,
             }
 
         if module == "pandas":
@@ -226,6 +241,7 @@ class CumulativeLoader:
         else:
             # polars
             import polars as pl
+
             res_dicts = [merge_history(r) for r in native.to_dicts()]
             update_df = pl.from_dicts(res_dicts)
             native = native.with_columns([update_df[c] for c in update_df.columns])

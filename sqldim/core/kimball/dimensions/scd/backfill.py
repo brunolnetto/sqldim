@@ -4,16 +4,18 @@ Provides SQL-generating helpers for converting flat snapshot tables into
 SCD-2 history rows and for bulk-loading cumulative window-aggregation data
 from a source staging table.
 """
-from typing import Any, List, Type, Union
-from sqlmodel import Session, select, text
+
+from typing import List, Type, Union
+from sqlmodel import Session, text
 from sqldim.core.kimball.models import DimensionModel
+
 
 def backfill_scd2(
     source_table: str,
-    target_model: Type[DimensionModel],
+    target_model: type[DimensionModel],
     partition_by: str,
     order_by: str,
-    track_columns: List[str],
+    track_columns: list[str],
     session: Session,
     dry_run: bool = False,
 ) -> Union[str, int]:
@@ -22,8 +24,12 @@ def backfill_scd2(
     Useful for converting flat snapshot tables into history.
     """
     cols = ", ".join(track_columns)
-    table_name = target_model.__tablename__ if hasattr(target_model, "__tablename__") else target_model.__name__.lower()
-    
+    table_name = (
+        target_model.__tablename__
+        if hasattr(target_model, "__tablename__")
+        else target_model.__name__.lower()
+    )
+
     sql = f"""
     WITH streak_started AS (
         SELECT 
@@ -52,20 +58,21 @@ def backfill_scd2(
     INSERT INTO {table_name} ({partition_by}, {cols}, valid_from, valid_to, is_current)
     SELECT * FROM aggregated
     """
-    
+
     if dry_run:
         return sql
-        
+
     result = session.execute(text(sql))
     session.commit()
     return result.rowcount or 0
 
+
 def backfill_cumulative(
     source_table: str,
-    target_model: Type[DimensionModel],
+    target_model: type[DimensionModel],
     partition_by: str,
     order_by: str,
-    stats_columns: List[str],
+    stats_columns: list[str],
     session: Session,
 ) -> int:
     """
@@ -75,7 +82,7 @@ def backfill_cumulative(
     # SQL generation for window-based array aggregation
     # Using Postgres-specific ARRAY_AGG for the cumulative effect
     stats_json = ", ".join([f"'{c}', {c}" for c in stats_columns])
-    
+
     sql = f"""
     INSERT INTO {target_model.__tablename__}
     SELECT 

@@ -1,7 +1,10 @@
-from datetime import datetime, timezone
-from typing import Any, Dict, List, Optional, Type
+from __future__ import annotations
+
+import asyncio
+from typing import Any
 from sqlmodel import Session, select
 from sqldim.core.kimball.models import FactModel
+from sqldim.core.loaders._utils import _resolve_table, _assert_not_dimension
 
 
 # ---------------------------------------------------------------------------
@@ -31,7 +34,7 @@ class LazyAccumulatingLoader:
 
     def __init__(
         self,
-        table_name: str,
+        table: str | type,
         match_column: str,
         milestone_columns: List[str],
         sink,
@@ -40,12 +43,13 @@ class LazyAccumulatingLoader:
     ):
         import duckdb as _duckdb
 
-        self.table_name       = table_name
-        self.match_column     = match_column
+        _assert_not_dimension(table, "LazyAccumulatingLoader")
+        self.table_name = _resolve_table(table)
+        self.match_column = match_column
         self.milestone_columns = milestone_columns
-        self.sink             = sink
-        self.batch_size       = batch_size
-        self._con             = con or _duckdb.connect()
+        self.sink = sink
+        self.batch_size = batch_size
+        self._con = con or _duckdb.connect()
 
     def process(self, source) -> Dict[str, int]:
         """
@@ -56,10 +60,11 @@ class LazyAccumulatingLoader:
 
         Returns ``{"inserted": n, "updated": n}``.
         """
-        mc  = self.match_column
+        mc = self.match_column
         sql = self.sink.current_state_sql(self.table_name)
 
         from sqldim.sources import coerce_source
+
         _sql = coerce_source(source).as_sql(self._con)
         self._con.execute(f"""
             CREATE OR REPLACE VIEW incoming AS
@@ -105,6 +110,13 @@ class LazyAccumulatingLoader:
         self._con.execute("DROP TABLE IF EXISTS current_keys")
         return {"inserted": inserted, "updated": updated}
 
+    async def aload(self, source) -> Dict[str, int]:
+        """Async wrapper — runs :meth:`process` in a thread pool executor."""
+        return await asyncio.to_thread(self.process, source)
+
+    #: Alias for :meth:`process` — unified sync entry point across all loaders.
+    load = process
+
 
 class AccumulatingLoader:
     """
@@ -126,9 +138,9 @@ class AccumulatingLoader:
 
     def __init__(
         self,
-        fact: Type[FactModel],
+        fact: type[FactModel],
         match_column: str,
-        milestone_columns: List[str],
+        milestone_columns: list[str],
         session: Session,
     ):
         self.fact = fact
@@ -136,7 +148,7 @@ class AccumulatingLoader:
         self.milestone_columns = milestone_columns
         self.session = session
 
-    def _update_milestones(self, existing: Any, record: Dict[str, Any]) -> bool:
+    def _update_milestones(self, existing: FactModel, record: dict[str, object]) -> bool:
         changed = False
         for col in self.milestone_columns:
             new_val = record.get(col)
@@ -145,7 +157,7 @@ class AccumulatingLoader:
                 changed = True
         return changed
 
-    def _update_attributes(self, existing: Any, record: Dict[str, Any]) -> bool:
+    def _update_attributes(self, existing: FactModel, record: dict[str, object]) -> bool:
         changed = False
         for col, val in record.items():
             if col not in self.milestone_columns and col != self.match_column:
@@ -153,13 +165,13 @@ class AccumulatingLoader:
                 changed = True
         return changed
 
-    def _update_existing(self, existing: Any, record: Dict[str, Any]) -> bool:
+    def _update_existing(self, existing: FactModel, record: dict[str, object]) -> bool:
         """Apply milestone and attribute updates; return True if any field changed."""
         m = self._update_milestones(existing, record)
         a = self._update_attributes(existing, record)
         return m or a
 
-    def process(self, records: List[Dict[str, Any]]) -> Dict[str, int]:
+    def process(self, records: list[dict[str, object]]) -> dict[str, int]:
         """
         Process incoming records. For each:
         - If no existing row: INSERT
@@ -171,7 +183,10 @@ class AccumulatingLoader:
         updated = 0
         for record in records:
             existing = self.session.exec(
-                select(self.fact).where(getattr(self.fact, self.match_column) == record.get(self.match_column))
+                select(self.fact).where(
+                    getattr(self.fact, self.match_column)
+                    == record.get(self.match_column)
+                )
             ).first()
             if existing is None:
                 self.session.add(self.fact(**record))

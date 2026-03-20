@@ -2,6 +2,7 @@
 
 processors/ subpackage contains the Narwhals + lazy DuckDB SCD processors.
 """
+
 from sqldim.core.kimball.dimensions.scd.handler import SCDHandler, SCDResult
 from sqldim.core.kimball.dimensions.scd import processors  # noqa: F401 — expose as subpackage
 

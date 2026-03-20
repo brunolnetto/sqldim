@@ -8,6 +8,7 @@ Narwhals and materialises data in Python), :class:`SQLTransform` and
 :class:`SQLTransformPipeline` operate entirely inside DuckDB — zero Python
 data movement regardless of table size.
 """
+
 from __future__ import annotations
 
 
@@ -43,7 +44,7 @@ class SQLTransform:
     """
 
     def __init__(self, column: str, expression: str) -> None:
-        self.column     = column
+        self.column = column
         self.expression = expression
 
     def as_select_expr(self) -> str:
@@ -95,6 +96,6 @@ class SQLTransformPipeline:
                 select_parts.append(col_name)
         con.execute(f"""
             CREATE OR REPLACE VIEW {source_view} AS
-            SELECT {', '.join(select_parts)}
+            SELECT {", ".join(select_parts)}
             FROM {snap}
         """)

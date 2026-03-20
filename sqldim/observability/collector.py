@@ -1,4 +1,5 @@
 """In-memory OTel-compatible collector with pluggable exporters."""
+
 from __future__ import annotations
 
 from contextlib import contextmanager

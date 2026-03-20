@@ -1,5 +1,5 @@
 from datetime import date, timedelta
-from typing import Optional, List
+from typing import List
 from sqlmodel import Session
 from sqldim import DimensionModel, Field
 
@@ -27,6 +27,7 @@ Returns
 int — number of rows written
 """
 
+
 class DateDimension(DimensionModel, table=True):
     """Pre-built Date Dimension — generate a full date spine for any range.
 
@@ -34,6 +35,7 @@ class DateDimension(DimensionModel, table=True):
     it delegates entirely to DuckDB’s ``generate_series`` so no Python
     date loop is needed and memory stays constant.
     """
+
     __natural_key__ = ["date_value"]
 
     id: int = Field(primary_key=True, surrogate_key=True)
@@ -43,7 +45,7 @@ class DateDimension(DimensionModel, table=True):
     month: int
     month_name: str
     day_of_month: int
-    day_of_week: int        # 0=Monday, 6=Sunday
+    day_of_week: int  # 0=Monday, 6=Sunday
     day_name: str
     week_of_year: int
     is_weekend: bool
@@ -71,7 +73,7 @@ class DateDimension(DimensionModel, table=True):
         )
 
     @classmethod
-    def generate(cls, start: str, end: str, session: Session) -> List["DateDimension"]:
+    def generate(cls, start: str, end: str, session: Session) -> list["DateDimension"]:
         """
         Generate and persist all DateDimension rows for [start, end] inclusive.
         Skips dates already present (idempotent).

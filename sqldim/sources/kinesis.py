@@ -9,6 +9,7 @@ registered with DuckDB.
 Optional dependencies:
   pip install sqldim[kinesis]   # installs boto3 + polars
 """
+
 from __future__ import annotations
 
 from typing import Any, Iterator
@@ -66,9 +67,7 @@ class KinesisSource:
             )["ShardIterator"]
 
             while iterator:
-                resp = client.get_records(
-                    ShardIterator=iterator, Limit=batch_size
-                )
+                resp = client.get_records(ShardIterator=iterator, Limit=batch_size)
                 records = resp.get("Records", [])
                 iterator = resp.get("NextShardIterator")
 

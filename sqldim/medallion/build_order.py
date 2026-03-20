@@ -11,6 +11,7 @@ Within Silver, models must be built in dependency order:
 * SchemaGraph wraps the full dimensional model (vertices=dimensions,
   edges=facts) and requires all three above to be populated first.
 """
+
 from __future__ import annotations
 
 from enum import Enum
@@ -19,18 +20,19 @@ from typing import Sequence
 
 class ModelKind(str, Enum):
     """Canonical population order within the Silver layer."""
+
     DIMENSION = "dimension"
-    FACT      = "fact"
-    BRIDGE    = "bridge"
-    GRAPH     = "graph"
+    FACT = "fact"
+    BRIDGE = "bridge"
+    GRAPH = "graph"
 
 
 # Explicit prerequisite sets per kind.
 _PREREQUISITES: dict[ModelKind, frozenset[ModelKind]] = {
     ModelKind.DIMENSION: frozenset(),
-    ModelKind.FACT:      frozenset({ModelKind.DIMENSION}),
-    ModelKind.BRIDGE:    frozenset({ModelKind.DIMENSION, ModelKind.FACT}),
-    ModelKind.GRAPH:     frozenset({ModelKind.DIMENSION, ModelKind.FACT, ModelKind.BRIDGE}),
+    ModelKind.FACT: frozenset({ModelKind.DIMENSION}),
+    ModelKind.BRIDGE: frozenset({ModelKind.DIMENSION, ModelKind.FACT}),
+    ModelKind.GRAPH: frozenset({ModelKind.DIMENSION, ModelKind.FACT, ModelKind.BRIDGE}),
 }
 
 
@@ -68,9 +70,9 @@ class SilverBuildOrder:
         if not SilverBuildOrder._KIND_CHECKS:
             SilverBuildOrder._KIND_CHECKS = [
                 (DimensionModel, ModelKind.DIMENSION),
-                (BridgeModel,    ModelKind.BRIDGE),
-                (FactModel,      ModelKind.FACT),
-                (SchemaGraph,    ModelKind.GRAPH),
+                (BridgeModel, ModelKind.BRIDGE),
+                (FactModel, ModelKind.FACT),
+                (SchemaGraph, ModelKind.GRAPH),
             ]
 
         try:

@@ -1,4 +1,5 @@
 """Lineage event model — inspired by OpenLineage RunEvent but zero-dependency."""
+
 from __future__ import annotations
 
 import uuid
@@ -16,6 +17,58 @@ class RunState(str, Enum):
     COMPLETE = "COMPLETE"
     FAIL = "FAIL"
     ABORT = "ABORT"
+
+
+# ---------------------------------------------------------------------------
+# Inferred-member event types (Late Arriving Dimensions ADR)
+# ---------------------------------------------------------------------------
+
+
+class InferredMemberEventType(str, Enum):
+    """Event types for inferred (placeholder) dimension member lifecycle."""
+
+    CREATED = "inferred_member_created"
+    RECONNECTED = "inferred_member_reconnected"
+
+
+@dataclass
+class InferredMemberEvent:
+    """Audit event emitted when a placeholder dimension row is created or reconnected.
+
+    Parameters
+    ----------
+    event_type:
+        One of :attr:`InferredMemberEventType.CREATED` or
+        :attr:`InferredMemberEventType.RECONNECTED`.
+    dimension:
+        The dimension table name (e.g. ``"customer_dim"``).
+    natural_key:
+        The natural key value that triggered the inference or reconnection.
+    fact_table:
+        The fact table that triggered the inferred-member creation (``CREATED``
+        events only — ``""`` for ``RECONNECTED``).
+    versions_merged:
+        How many inferred versions were replaced (``RECONNECTED`` events only).
+    event_time:
+        When this event was created (defaults to now).
+    """
+
+    event_type: InferredMemberEventType
+    dimension: str
+    natural_key: str
+    fact_table: str = ""
+    versions_merged: int = 0
+    event_time: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "eventType": self.event_type.value,
+            "eventTime": self.event_time.isoformat(),
+            "dimension": self.dimension,
+            "naturalKey": self.natural_key,
+            "factTable": self.fact_table,
+            "versionsMerged": self.versions_merged,
+        }
 
 
 @dataclass

@@ -5,30 +5,37 @@ Replaces Python-loop row-by-row comparisons in SCDHandler with
 single-join DataFrame operations.
 
 This module is a thin re-exporter. Implementation is split into:
-  _scd_base.py       — shared utilities, NarwhalsHashStrategy, NarwhalsSCDProcessor
-  _lazy_type2.py     — LazySCDProcessor (Type 2), LazyType1Processor
-  _lazy_type3_6.py   — LazyType3Processor, LazyType6Processor
-  _lazy_type4_5.py   — LazyType4Processor, LazyType5Processor
+  base/          — shared utilities, NarwhalsHashStrategy, NarwhalsSCDProcessor
+  lazy/type2/    — LazySCDProcessor (Type 2), LazyType1Processor
+  lazy/type3/    — LazyType3Processor
+  lazy/type6/    — LazyType6Processor
+  lazy/type4_5/  — LazyType4Processor, LazyType5Processor
+  lazy/metadata/ — LazySCDMetadataProcessor
 """
+
 from __future__ import annotations
 
-from sqldim.core.kimball.dimensions.scd.processors._scd_base import (
+from sqldim.core.kimball.dimensions.scd.processors.base import (
     NarwhalsHashStrategy,
     NarwhalsSCDProcessor,
 )
-from sqldim.core.kimball.dimensions.scd.processors._lazy_type2 import (
+from sqldim.core.kimball.dimensions.scd.processors.lazy.type2 import (
     LazySCDProcessor,
     LazyType1Processor,
 )
-from sqldim.core.kimball.dimensions.scd.processors._lazy_type3_6 import (
+from sqldim.core.kimball.dimensions.scd.processors.lazy.type3 import (
     LazyType3Processor,
+)
+from sqldim.core.kimball.dimensions.scd.processors.lazy.type6 import (
     LazyType6Processor,
 )
-from sqldim.core.kimball.dimensions.scd.processors._lazy_type4_5 import (
+from sqldim.core.kimball.dimensions.scd.processors.lazy.type4_5 import (
     LazyType4Processor,
     LazyType5Processor,
 )
-from sqldim.core.kimball.dimensions.scd.processors._lazy_metadata import LazySCDMetadataProcessor
+from sqldim.core.kimball.dimensions.scd.processors.lazy.metadata import (
+    LazySCDMetadataProcessor,
+)
 
 __all__ = [
     "NarwhalsHashStrategy",

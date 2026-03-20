@@ -6,6 +6,7 @@ Use them when you want named, reusable metric handles:
     counter = Counter(collector, "rows_loaded", labels={"pipeline": "orders"})
     counter.increment(50)
 """
+
 from __future__ import annotations
 
 from sqldim.observability.collector import OTelCollector

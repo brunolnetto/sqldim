@@ -27,10 +27,10 @@ class DeltaSource:
         use_attach: bool = True,
         alias: str = "sqldim_delta_src",
     ):
-        self._path      = path
+        self._path = path
         self._use_attach = use_attach
-        self._alias     = alias
-        self._attached  = False
+        self._alias = alias
+        self._attached = False
 
     def as_sql(self, con) -> str:
         if not self._use_attach:

@@ -1,5 +1,5 @@
-from datetime import datetime
-from typing import Any, Optional
+from typing import Optional
+
 
 class BackfillHint:
     """Metadata record instructing operators to backfill a column before making it NOT NULL.
@@ -8,6 +8,7 @@ class BackfillHint:
     script’s ``backfill_hints`` list so operators can act on them before
     applying the generated ``ALTER TABLE`` statement.
     """
+
     def __init__(self, table: str, column: str, note: str):
         self.table = table
         self.column = column

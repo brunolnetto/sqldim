@@ -2,11 +2,15 @@
 EdgeProjectionLoader — projects graph edges from existing fact tables.
 Reproduces player_game_edges.sql and player_player_edges.sql.
 """
+
 from __future__ import annotations
-from typing import Any, Type, Dict, List, Optional, Union
-from sqlmodel import Session, select
+
+import asyncio
+from typing import Any
+from sqlmodel import Session
 import narwhals as nw
 from sqldim.core.graph.models import EdgeModel
+from sqldim.core.loaders._utils import _resolve_table
 
 
 # ---------------------------------------------------------------------------
@@ -56,7 +60,7 @@ class LazyEdgeProjectionLoader:
 
     def __init__(
         self,
-        table_name: str,
+        table: str | type,
         subject_key: str,
         object_key: str,
         sink,
@@ -68,15 +72,15 @@ class LazyEdgeProjectionLoader:
     ):
         import duckdb as _duckdb
 
-        self.table_name   = table_name
-        self.subject_key  = subject_key
-        self.object_key   = object_key
-        self.sink         = sink
+        self.table_name = _resolve_table(table)
+        self.subject_key = subject_key
+        self.object_key = object_key
+        self.sink = sink
         self.property_map = property_map or {}
-        self.self_join    = self_join
+        self.self_join = self_join
         self.self_join_key = self_join_key
-        self.batch_size   = batch_size
-        self._con         = con or _duckdb.connect()
+        self.batch_size = batch_size
+        self._con = con or _duckdb.connect()
 
     def process(self, source) -> int:
         """
@@ -84,6 +88,7 @@ class LazyEdgeProjectionLoader:
         Returns rows written.
         """
         from sqldim.sources import coerce_source
+
         _sql = coerce_source(source).as_sql(self._con)
         self._con.execute(f"""
             CREATE OR REPLACE VIEW incoming AS
@@ -97,12 +102,21 @@ class LazyEdgeProjectionLoader:
 
         return self.sink.write(self._con, "edge_view", self.table_name, self.batch_size)
 
+    async def aload(self, source) -> int:
+        """Async wrapper — runs :meth:`process` in a thread pool executor."""
+        return await asyncio.to_thread(self.process, source)
+
+    #: Alias for :meth:`process` — unified sync entry point across all loaders.
+    load = process
+
     def _build_direct_view(self) -> None:
         sk = self.subject_key
         ok = self.object_key
         prop_cols = (
-            ", " + ", ".join(f"{src} AS {tgt}" for src, tgt in self.property_map.items())
-            if self.property_map else ""
+            ", "
+            + ", ".join(f"{src} AS {tgt}" for src, tgt in self.property_map.items())
+            if self.property_map
+            else ""
         )
         self._con.execute(f"""
             CREATE OR REPLACE VIEW edge_view AS
@@ -113,14 +127,16 @@ class LazyEdgeProjectionLoader:
         """)
 
     def _build_self_join_view(self) -> None:
-        sk  = self.subject_key
+        sk = self.subject_key
         sjk = self.self_join_key
         prop_cols = (
-            ", " + ", ".join(
+            ", "
+            + ", ".join(
                 f"f1.{src} + f2.{src} AS {tgt}"
                 for src, tgt in self.property_map.items()
             )
-            if self.property_map else ""
+            if self.property_map
+            else ""
         )
         self._con.execute(f"""
             CREATE OR REPLACE VIEW edge_view AS
@@ -133,21 +149,23 @@ class LazyEdgeProjectionLoader:
              AND f1.{sk} < f2.{sk}
         """)
 
+
 class EdgeProjectionLoader:
     """
     Handles simple projection and self-join aggregation for graph edges.
     """
+
     def __init__(
         self,
         session: Session,
-        source_model: Type[Any],
-        edge_model: Union[Type[EdgeModel], List[Type[EdgeModel]]],
+        source_model: type,
+        edge_model: type[EdgeModel] | list[type[EdgeModel]],
         subject_key: str,
         object_key: str,
-        property_map: Optional[Dict[str, str]] = None,
+        property_map: dict[str, str] | None = None,
         self_join: bool = False,
-        self_join_key: Optional[str] = None,
-        discriminator: Optional[Dict[str, Any]] = None,
+        self_join_key: str | None = None,
+        discriminator: dict[str, Any] | None = None,
     ):
         self.session = session
         self.source_model = source_model
@@ -165,8 +183,8 @@ class EdgeProjectionLoader:
         Handles self-joins for network relationship generation.
         """
         if self.self_join:
-            # Reproduce player_player_edges.sql: 
+            # Reproduce player_player_edges.sql:
             # Join frame with itself on self_join_key where f1.id > f2.id
             pass
-            
+
         return frame

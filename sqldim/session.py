@@ -1,6 +1,7 @@
 from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine, AsyncEngine
 from sqldim.config import SqldimConfig
 
+
 class AsyncDimensionalSession:
     """
     Async session factory for sqldim operations.

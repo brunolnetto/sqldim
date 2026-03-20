@@ -6,6 +6,7 @@ Any FactModel is implicitly an edge.
 VertexModel/EdgeModel subclasses with explicit __vertex_type__/__edge_type__
 are enriched but not required.
 """
+
 from __future__ import annotations
 
 from typing import Any
@@ -35,6 +36,7 @@ def _infer_endpoints_from_star(
     e: type, dimensions: list
 ) -> tuple[type | None, type | None]:
     from sqldim.core.kimball.schema_graph import SchemaGraph as _Core
+
     star = _Core(list(dimensions)).get_star_schema(e)
     dim_list = list(star.get("dimensions", {}).values())
     subject_cls = dim_list[0] if len(dim_list) >= 1 else None
@@ -62,11 +64,26 @@ def _edge_info(e: type, dimensions: list) -> dict[str, Any]:
     return {
         "name": e.__name__,
         "edge_type": getattr(e, "__edge_type__", e.__name__.lower()),
+        "edge_kind": "verb",
         "subject": subject_cls.__name__ if subject_cls else None,
         "object": object_cls.__name__ if object_cls else None,
         "directed": directed,
         "self_referential": subject_cls is not None and subject_cls is object_cls,
         "columns": list(e.model_fields.keys()),
+    }
+
+
+def _bridge_edge_info(b: type) -> dict[str, Any]:
+    """Build edge info dict for a BridgeModel (τ_E → bridge)."""
+    return {
+        "name": b.__name__,
+        "edge_type": getattr(b, "__edge_type__", b.__name__.lower()),
+        "edge_kind": "bridge",
+        "subject": getattr(b, "__subject__", None),
+        "object": getattr(b, "__object__", None),
+        "directed": getattr(b, "__directed__", False),
+        "columns": list(b.model_fields.keys()),
+        "has_weight": "weight" in b.model_fields,
     }
 
 
@@ -102,9 +119,7 @@ def _validate_endpoint(
     return None
 
 
-def _validate_edge(
-    fact_cls: type, vertex_set: set
-) -> list["SchemaError"]:
+def _validate_edge(fact_cls: type, vertex_set: set) -> list["SchemaError"]:
     subject = getattr(fact_cls, "__subject__", None)
     obj = getattr(fact_cls, "__object__", None)
     if subject is None and obj is None:
@@ -119,13 +134,14 @@ def _validate_edge(
 
 def _render_edge_lines(fact: type, lines: list, subject, obj, edge_label: str) -> None:
     if subject:
-        lines.append(f"    {subject.__name__} ||--o{{ {fact.__name__} : \"{edge_label}\"")
+        lines.append(f'    {subject.__name__} ||--o{{ {fact.__name__} : "{edge_label}"')
     if obj:
-        lines.append(f"    {fact.__name__} }}o--|| {obj.__name__} : \"\"")
+        lines.append(f'    {fact.__name__} }}o--|| {obj.__name__} : ""')
 
 
 def _render_edge_relations(fact: type, lines: list, star: dict) -> None:
     from sqldim.core.graph.models import EdgeModel
+
     if _safe_subclass(fact, EdgeModel) and (
         getattr(fact, "__subject__", None) or getattr(fact, "__object__", None)
     ):
@@ -135,12 +151,13 @@ def _render_edge_relations(fact: type, lines: list, star: dict) -> None:
         _render_edge_lines(fact, lines, subject, obj, edge_label)
     else:
         for fk_col, dim in star["dimensions"].items():
-            lines.append(f"    {fact.__name__} }}o--||  {dim.__name__} : \"{fk_col}\"")
+            lines.append(f'    {fact.__name__} }}o--||  {dim.__name__} : "{fk_col}"')
 
 
 # ---------------------------------------------------------------------------
 # Data objects
 # ---------------------------------------------------------------------------
+
 
 class GraphSchema:
     """Serialisable representation of the graph portion of a schema."""
@@ -161,6 +178,7 @@ class GraphSchema:
 # SchemaGraph
 # ---------------------------------------------------------------------------
 
+
 class SchemaGraph(_BaseSchemaGraph):
     """
     Drop-in replacement for the core SchemaGraph that additionally
@@ -171,7 +189,14 @@ class SchemaGraph(_BaseSchemaGraph):
     - ``edges``    = all FactModel subclasses in the model list
     Models that explicitly inherit VertexModel/EdgeModel or declare
     __vertex_type__/__edge_type__ are enriched with that metadata.
+
+    DGM extension: pass ``bridge_models`` to include BridgeModel edges
+    classified as ``edge_kind='bridge'`` in graph_schema().
     """
+
+    def __init__(self, models: list, bridge_models: list | None = None) -> None:
+        super().__init__(models)
+        self._bridge_models: list = bridge_models or []
 
     # ``dimensions`` and ``facts`` are already populated by _BaseSchemaGraph.
     # ``vertices``/``edges`` are now just aliases with the same sets.
@@ -193,10 +218,14 @@ class SchemaGraph(_BaseSchemaGraph):
     def graph_schema(self) -> GraphSchema:
         """
         Return a GraphSchema describing all vertex and edge types.
+
+        Includes both verb edges (FactModel) classified as edge_kind='verb'
+        and bridge edges (BridgeModel) classified as edge_kind='bridge'.
         """
         vertex_info = [_vertex_info(v) for v in self.vertices]
-        edge_info = [_edge_info(e, self.dimensions) for e in self.edges]
-        return GraphSchema(vertices=vertex_info, edges=edge_info)
+        verb_edges = [_edge_info(e, self.dimensions) for e in self.edges]
+        bridge_edges = [_bridge_edge_info(b) for b in self._bridge_models]
+        return GraphSchema(vertices=vertex_info, edges=verb_edges + bridge_edges)
 
     # ------------------------------------------------------------------
     # to_graph() — projection approach (TD-001)
@@ -253,7 +282,72 @@ class SchemaGraph(_BaseSchemaGraph):
 
     # ------------------------------------------------------------------
 
-    def _fk_dimensions(self, fact_cls: type[FactModel]) -> dict[str, type[DimensionModel]]:
+    def _fk_dimensions(
+        self, fact_cls: type[FactModel]
+    ) -> dict[str, type[DimensionModel]]:
         """Return {fk_col: DimensionClass} from FK metadata on the fact table."""
         star = self.get_star_schema(fact_cls)
         return star.get("dimensions", {})
+
+    # ------------------------------------------------------------------
+    # diff() — schema evolution diffing (Tier 4)
+    # ------------------------------------------------------------------
+
+    def diff(self, other: "SchemaGraph") -> "SchemaDiff":
+        """
+        Compute the graph edit distance between *self* (old schema) and
+        *other* (new schema).
+
+        Returns a :class:`SchemaDiff` describing what changed:
+
+        * Added / removed vertices (dimensions)
+        * Added / removed edges (facts)
+        * Added / removed columns per model
+
+        This fulfils the *"schema evolution diffing"* capability from
+        Graph Analytics Tier 4 — enabling *"what changed between schema
+        v2 and v3?"* queries.
+
+        Parameters
+        ----------
+        other:
+            The newer :class:`SchemaGraph` snapshot to compare against.
+
+        Example
+        -------
+        .. code-block:: python
+
+            sg_v2 = SchemaGraph([CustomerDim, SalesFact])
+            sg_v3 = SchemaGraph([CustomerDim, ProductDim, SalesFact])
+            diff = sg_v2.diff(sg_v3)
+            print(diff.added_vertices)   # [ProductDim]
+        """
+        old_verts = {v.__name__: v for v in self.vertices}
+        new_verts = {v.__name__: v for v in other.vertices}
+        old_edges = {e.__name__: e for e in self.edges}
+        new_edges = {e.__name__: e for e in other.edges}
+
+        column_diffs: list[ColumnDiff] = []
+        _collect_diffs_for(old_verts, new_verts, "vertex", column_diffs)
+        _collect_diffs_for(old_edges, new_edges, "edge", column_diffs)
+
+        return SchemaDiff(
+            added_vertices=_added(old_verts, new_verts),
+            removed_vertices=_added(new_verts, old_verts),
+            added_edges=_added(old_edges, new_edges),
+            removed_edges=_added(new_edges, old_edges),
+            column_diffs=column_diffs,
+        )
+
+
+from sqldim.core.graph._schema_diff import ColumnDiff, SchemaDiff, _collect_column_diff  # noqa: E402, F401
+
+
+def _added(absent_from: dict, present_in: dict) -> list:
+    """Return values present in *present_in* but absent from *absent_from*."""
+    return [present_in[n] for n in present_in if n not in absent_from]
+
+
+def _collect_diffs_for(old: dict, new: dict, kind: str, out: list) -> None:
+    for name in set(old) | set(new):
+        _collect_column_diff(name, kind, old.get(name), new.get(name), out)

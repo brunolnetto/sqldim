@@ -1,4 +1,5 @@
 """Quality gates — checks that must pass before a dataset crosses a layer boundary."""
+
 from __future__ import annotations
 
 import inspect
@@ -75,7 +76,9 @@ class QualityGate:
         self._checks.append(check)
         return self
 
-    def _run_check_safe(self, check: Callable[..., CheckResult], kwargs: dict) -> CheckResult:
+    def _run_check_safe(
+        self, check: Callable[..., CheckResult], kwargs: dict
+    ) -> CheckResult:
         """Run a single *check* forwarding accepted kwargs; capture any exception as a failure."""
         try:
             sig = inspect.signature(check)
@@ -97,8 +100,7 @@ class QualityGate:
         }
         if gate_result.failing:
             facets["failing_checks"] = [
-                {"name": r.name, "detail": r.detail}
-                for r in gate_result.failing
+                {"name": r.name, "detail": r.detail} for r in gate_result.failing
             ]
         return facets
 
@@ -122,14 +124,18 @@ class QualityGate:
                     run_id=run_id,
                     job_name=f"gate.{self.name}",
                     state=RunState.START,
-                    inputs=[DatasetRef(
-                        namespace=f"sqldim.{self.layer_from.value}",
-                        name=self.name,
-                    )],
-                    outputs=[DatasetRef(
-                        namespace=f"sqldim.{self.layer_to.value}",
-                        name=self.name,
-                    )],
+                    inputs=[
+                        DatasetRef(
+                            namespace=f"sqldim.{self.layer_from.value}",
+                            name=self.name,
+                        )
+                    ],
+                    outputs=[
+                        DatasetRef(
+                            namespace=f"sqldim.{self.layer_to.value}",
+                            name=self.name,
+                        )
+                    ],
                 )
             )
 
@@ -143,14 +149,18 @@ class QualityGate:
                     run_id=run_id,
                     job_name=f"gate.{self.name}",
                     state=state,
-                    inputs=[DatasetRef(
-                        namespace=f"sqldim.{self.layer_from.value}",
-                        name=self.name,
-                    )],
-                    outputs=[DatasetRef(
-                        namespace=f"sqldim.{self.layer_to.value}",
-                        name=self.name,
-                    )],
+                    inputs=[
+                        DatasetRef(
+                            namespace=f"sqldim.{self.layer_from.value}",
+                            name=self.name,
+                        )
+                    ],
+                    outputs=[
+                        DatasetRef(
+                            namespace=f"sqldim.{self.layer_to.value}",
+                            name=self.name,
+                        )
+                    ],
                     facets=self._make_gate_facets(results, gate_result),
                 )
             )

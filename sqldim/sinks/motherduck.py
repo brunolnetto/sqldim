@@ -59,7 +59,7 @@ class MotherDuckSink:
         else:
             self._path = db
         self._schema = schema
-        self._alias  = "sqldim_md"
+        self._alias = "sqldim_md"
         self._con: duckdb.DuckDBPyConnection | None = None
         self._hash_cache: dict[str, str] = {}
 
@@ -82,8 +82,8 @@ class MotherDuckSink:
 
         Returns the number of rows materialised.
         """
-        nk_select  = ", ".join(nk_cols)
-        local      = f"_sqldim_hashes_{table_name}"
+        nk_select = ", ".join(nk_cols)
+        local = f"_sqldim_hashes_{table_name}"
         remote_sql = f"{self._alias}.{self._schema}.{table_name}"
         con.execute(f"""
             CREATE OR REPLACE TABLE {local} AS
@@ -265,12 +265,18 @@ class MotherDuckSink:
     ) -> int:
         """Identical to DuckDBSink.upsert() but qualified to the MotherDuck alias."""
         tbl = f"{self._alias}.{self._schema}.{table_name}"
-        cols_str   = ", ".join(conflict_cols)
+        cols_str = ", ".join(conflict_cols)
         inner_join = " AND ".join(f"src.{c} = t.{c}" for c in conflict_cols)
-        view_join  = " AND ".join(f"t.{c} = v.{c}" for c in conflict_cols)
+        view_join = " AND ".join(f"t.{c} = v.{c}" for c in conflict_cols)
         insert_sql, view_sql = self._upsert_sql(
-            tbl, view_name, output_view, returning_col,
-            cols_str, conflict_cols, inner_join, view_join,
+            tbl,
+            view_name,
+            output_view,
+            returning_col,
+            cols_str,
+            conflict_cols,
+            inner_join,
+            view_join,
         )
         con.execute(insert_sql)
         con.execute(view_sql)

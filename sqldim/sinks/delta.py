@@ -136,9 +136,7 @@ class DeltaLakeSink:
             WHEN MATCHED THEN
                 UPDATE SET {set_clause}
         """)
-        return con.execute(
-            f"SELECT count(*) FROM {rotations_view}"
-        ).fetchone()[0]
+        return con.execute(f"SELECT count(*) FROM {rotations_view}").fetchone()[0]
 
     def update_milestones(
         self,
@@ -149,8 +147,7 @@ class DeltaLakeSink:
         milestone_cols: list[str],
     ) -> int:
         set_clause = ", ".join(
-            f"target.{c} = COALESCE(source.{c}, target.{c})"
-            for c in milestone_cols
+            f"target.{c} = COALESCE(source.{c}, target.{c})" for c in milestone_cols
         )
         con.execute(f"""
             MERGE INTO delta.`{self._path}/{table_name}` AS target
@@ -159,9 +156,7 @@ class DeltaLakeSink:
             WHEN MATCHED THEN
                 UPDATE SET {set_clause}
         """)
-        return con.execute(
-            f"SELECT count(*) FROM {updates_view}"
-        ).fetchone()[0]
+        return con.execute(f"SELECT count(*) FROM {updates_view}").fetchone()[0]
 
     # ── Context manager ───────────────────────────────────────────────────
 

@@ -19,9 +19,9 @@ class PostgreSQLSink:
     """
 
     def __init__(self, dsn: str, schema: str = "public"):
-        self._dsn    = dsn
+        self._dsn = dsn
         self._schema = schema
-        self._alias  = "sqldim_pg"
+        self._alias = "sqldim_pg"
         self._con: duckdb.DuckDBPyConnection | None = None
         self._hash_cache: dict[str, str] = {}
 
@@ -53,8 +53,8 @@ class PostgreSQLSink:
 
         Returns the number of rows materialised.
         """
-        nk_select  = ", ".join(nk_cols)
-        local      = f"_sqldim_hashes_{table_name}"
+        nk_select = ", ".join(nk_cols)
+        local = f"_sqldim_hashes_{table_name}"
         remote_sql = (
             f"{self._alias}.{self._schema}.{table_name}"
             if self._con is not None
@@ -96,7 +96,9 @@ class PostgreSQLSink:
         ``current_hashes``, ``classified``) are already spill-eligible DuckDB
         TABLEs, so memory pressure is bounded regardless of row count.
         """
-        import logging, time
+        import logging
+        import time
+
         _log = logging.getLogger(__name__)
 
         total = con.execute(f"SELECT count(*) FROM {view_name}").fetchone()[0]
@@ -108,7 +110,7 @@ class PostgreSQLSink:
         con.execute(f"INSERT INTO {target} SELECT * FROM {view_name}")
         _log.info(
             f"[sqldim] {table_name}: {total:,} rows written "
-            f"in {time.perf_counter()-t0:.1f}s"
+            f"in {time.perf_counter() - t0:.1f}s"
         )
         return total
 
@@ -139,20 +141,22 @@ class PostgreSQLSink:
         Binary COPY streams the full result in one transaction at negligible
         memory cost.
         """
-        import logging, time
+        import logging
+        import time
+
         _log = logging.getLogger(__name__)
 
         total = con.execute(f"SELECT count(*) FROM {view_name}").fetchone()[0]
         if total == 0:
             return 0
-        cols   = ", ".join(columns)
+        cols = ", ".join(columns)
         target = f"{self._alias}.{self._schema}.{table_name}"
         _log.info(f"[sqldim] {table_name}: inserting {total:,} rows …")
         t0 = time.perf_counter()
         con.execute(f"INSERT INTO {target} ({cols}) SELECT {cols} FROM {view_name}")
         _log.info(
             f"[sqldim] {table_name}: {total:,} rows written "
-            f"in {time.perf_counter()-t0:.1f}s"
+            f"in {time.perf_counter() - t0:.1f}s"
         )
         return total
 
@@ -195,9 +199,7 @@ class PostgreSQLSink:
         update_cols: list[str],
     ) -> int:
         """Apply SCD-1 in-place attribute updates via a DuckDB UPDATE … FROM clause."""
-        set_clause = ",\n               ".join(
-            f"{c} = u.{c}" for c in update_cols
-        )
+        set_clause = ",\n               ".join(f"{c} = u.{c}" for c in update_cols)
         con.execute(f"""
             UPDATE {self._alias}.{self._schema}.{table_name} t
                SET {set_clause}
@@ -263,9 +265,7 @@ class PostgreSQLSink:
         self._con = make_connection()
         self._con.execute("INSTALL postgres; LOAD postgres;")
         self._con.execute("SET pg_use_binary_copy = true")
-        self._con.execute(
-            f"ATTACH '{self._dsn}' AS {self._alias} (TYPE postgres)"
-        )
+        self._con.execute(f"ATTACH '{self._dsn}' AS {self._alias} (TYPE postgres)")
         return self
 
     def __exit__(self, *_) -> None:

@@ -5,18 +5,20 @@ columns changed, timestamp, operation type) and :class:`AuditLog`
 collects them into an in-memory list that can be iterated, filtered,
 or bulk-written to an external audit table after a load run.
 """
+
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
-from typing import Any, Dict, List, Optional
+from typing import Any
 from sqldim.core.kimball.dimensions.scd.detection import ChangeRecord
 
 
 @dataclass
 class AuditEntry:
     """Single audit event for an SCD version change."""
+
     table: str
     natural_key: Any
-    changed_columns: Dict[str, Dict[str, Any]]
+    changed_columns: dict[str, dict[str, Any]]
     occurred_at: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
     operation: str = "VERSION"  # INSERT | VERSION | UPDATE (Type 1 overwrite)
 
@@ -32,7 +34,7 @@ class AuditLog:
     """
 
     def __init__(self):
-        self._entries: List[AuditEntry] = []
+        self._entries: list[AuditEntry] = []
 
     def record(
         self,
@@ -49,7 +51,7 @@ class AuditLog:
         self._entries.append(entry)
         return entry
 
-    def entries(self, table: Optional[str] = None) -> List[AuditEntry]:
+    def entries(self, table: str | None = None) -> list[AuditEntry]:
         if table:
             return [e for e in self._entries if e.table == table]
         return list(self._entries)

@@ -3,11 +3,13 @@ from functools import wraps
 from typing import Callable, Any
 from sqldim.exceptions import DestructiveMigrationError
 
+
 def destructive_operation(fn: Callable) -> Callable:
     """
     Decorator that guards destructive migration operations.
     Raises DestructiveMigrationError unless SQLDIM_ALLOW_DESTRUCTIVE=true.
     """
+
     @wraps(fn)
     def wrapper(*args: Any, **kwargs: Any) -> Any:
         allow = os.environ.get("SQLDIM_ALLOW_DESTRUCTIVE", "false").lower() == "true"
@@ -17,6 +19,7 @@ def destructive_operation(fn: Callable) -> Callable:
                 "Set SQLDIM_ALLOW_DESTRUCTIVE=true to proceed."
             )
         return fn(*args, **kwargs)
+
     return wrapper
 
 
@@ -26,9 +29,7 @@ def drop_scd2_history(table: str) -> str:
     Collapses all SCD2 versions into a single row per natural key.
     WARNING: Permanently destroys historical data.
     """
-    return (
-        f"DELETE FROM {table} WHERE is_current = FALSE"
-    )
+    return f"DELETE FROM {table} WHERE is_current = FALSE"
 
 
 @destructive_operation

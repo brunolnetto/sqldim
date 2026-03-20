@@ -13,6 +13,7 @@ The SELECT must alias output as::
 round-trip so validation cost is dominated by one scan per view, not
 one connection-round-trip per rule.
 """
+
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
@@ -34,6 +35,7 @@ class Rule(ABC):
 # ---------------------------------------------------------------------------
 # Column rules
 # ---------------------------------------------------------------------------
+
 
 class NotNull(Rule):
     """Assert that *column* contains no NULL values."""

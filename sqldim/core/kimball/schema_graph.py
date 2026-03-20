@@ -4,9 +4,10 @@ Provides :class:`SchemaGraph` — a lightweight model registry that maps
 fact tables to their dimension relationships (including role-playing
 dimensions) and can render Mermaid ER diagrams.
 """
+
 from __future__ import annotations
 
-from typing import Any, Dict, List, Optional, Type, TYPE_CHECKING
+from typing import Any, Dict, List, Type, TYPE_CHECKING
 
 if TYPE_CHECKING:
     from sqldim.core.kimball.models import DimensionModel, FactModel
@@ -78,7 +79,8 @@ class RolePlayingRef:
     For example, a ``DateDimension`` joined twice as ``departure_date`` and
     ``arrival_date`` would produce two :class:`RolePlayingRef` instances.
     """
-    def __init__(self, dimension: Type[DimensionModel], role: str, fk_column: str):
+
+    def __init__(self, dimension: type[DimensionModel], role: str, fk_column: str):
         self.dimension = dimension
         self.role = role
         self.fk_column = fk_column
@@ -90,18 +92,18 @@ class RolePlayingRef:
 class SchemaGraph:
     """Registry mapping fact tables to their dimension relationships in a star or snowflake schema."""
 
-    def __init__(self, models: List[Type[Any]]):
+    def __init__(self, models: list[type[Any]]):
         """Partition *models* into dimension and fact lists for downstream graph queries."""
         self.models = models
         self.dimensions = [m for m in models if issubclass(m, DimensionModel)]
         self.facts = [m for m in models if issubclass(m, FactModel)]
 
     @classmethod
-    def from_models(cls, models: List[Type[Any]]) -> "SchemaGraph":
+    def from_models(cls, models: list[type[Any]]) -> "SchemaGraph":
         """Construct a SchemaGraph from an iterable of model classes."""
         return cls(models)
 
-    def get_star_schema(self, fact_model: Type[FactModel]) -> Dict[str, Any]:
+    def get_star_schema(self, fact_model: type[FactModel]) -> dict[str, Any]:
         """Return the star-schema for *fact_model* as a dict mapping FK column names to dimension classes."""
         relationships = {
             name: _resolve_field_dim(fact_model, name, field)
@@ -110,7 +112,9 @@ class SchemaGraph:
         }
         return {"fact": fact_model, "dimensions": relationships}
 
-    def get_role_playing_dimensions(self, fact_model: Type[FactModel]) -> List[RolePlayingRef]:
+    def get_role_playing_dimensions(
+        self, fact_model: type[FactModel]
+    ) -> list[RolePlayingRef]:
         """
         Returns all role-playing dimension references in a fact table.
         A role-playing dimension is when the same physical dimension is joined
@@ -125,33 +129,41 @@ class SchemaGraph:
                 refs.append(ref)
         return refs
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         """Return a JSON-serializable representation of the full schema graph."""
-        result: Dict[str, Any] = {"facts": [], "dimensions": []}
+        result: dict[str, Any] = {"facts": [], "dimensions": []}
 
         for dim in self.dimensions:
-            result["dimensions"].append({
-                "name": dim.__name__,
-                "natural_key": getattr(dim, "__natural_key__", []),
-                "scd_type": getattr(dim, "__scd_type__", 1),
-                "columns": list(dim.model_fields.keys()),
-            })
+            result["dimensions"].append(
+                {
+                    "name": dim.__name__,
+                    "natural_key": getattr(dim, "__natural_key__", []),
+                    "scd_type": getattr(dim, "__scd_type__", 1),
+                    "columns": list(dim.model_fields.keys()),
+                }
+            )
 
         for fact in self.facts:
             star = self.get_star_schema(fact)
             roles = self.get_role_playing_dimensions(fact)
-            result["facts"].append({
-                "name": fact.__name__,
-                "grain": getattr(fact, "__grain__", None),
-                "dimensions": {
-                    fk: dim.__name__ for fk, dim in star["dimensions"].items()
-                },
-                "role_playing": [
-                    {"fk": r.fk_column, "dimension": r.dimension.__name__, "role": r.role}
-                    for r in roles
-                ],
-                "columns": list(fact.model_fields.keys()),
-            })
+            result["facts"].append(
+                {
+                    "name": fact.__name__,
+                    "grain": getattr(fact, "__grain__", None),
+                    "dimensions": {
+                        fk: dim.__name__ for fk, dim in star["dimensions"].items()
+                    },
+                    "role_playing": [
+                        {
+                            "fk": r.fk_column,
+                            "dimension": r.dimension.__name__,
+                            "role": r.role,
+                        }
+                        for r in roles
+                    ],
+                    "columns": list(fact.model_fields.keys()),
+                }
+            )
 
         return result
 
@@ -165,5 +177,7 @@ class SchemaGraph:
         for fact in self.facts:
             star = self.get_star_schema(fact)
             for fk_col, dim in star["dimensions"].items():
-                lines.append(f"    {fact.__name__} }}o--||  {dim.__name__} : \"{fk_col}\"")
+                lines.append(
+                    f'    {fact.__name__} }}o--||  {dim.__name__} : "{fk_col}"'
+                )
         return "\n".join(lines)

@@ -4,6 +4,7 @@ All exporters implement the :class:`SpanExporter` and :class:`MetricExporter`
 protocols.  The :class:`ConsoleExporter` ships as a zero-dependency default;
 :class:`OTLPSpanExporter` requires the ``[otel]`` optional dependency group.
 """
+
 from __future__ import annotations
 
 import json
@@ -17,6 +18,7 @@ from sqldim.observability.span import PipelineSpan
 # ---------------------------------------------------------------------------
 # Protocols
 # ---------------------------------------------------------------------------
+
 
 @runtime_checkable
 class SpanExporter(Protocol):
@@ -35,6 +37,7 @@ class MetricExporter(Protocol):
 # ---------------------------------------------------------------------------
 # Console exporter (zero dependencies)
 # ---------------------------------------------------------------------------
+
 
 class ConsoleExporter:
     """Writes spans and metrics as JSON lines to *stream* (default ``stderr``).
@@ -67,6 +70,7 @@ class ConsoleExporter:
 # ---------------------------------------------------------------------------
 # OTLP exporter (optional dependency)
 # ---------------------------------------------------------------------------
+
 
 class OTLPSpanExporter:
     """Exports spans via the OpenTelemetry OTLP gRPC/HTTP exporter.
@@ -130,9 +134,7 @@ class OTLPMetricExporter:
             ) from None
 
         resource = Resource.create({"service.name": "sqldim"})
-        reader = PeriodicExportingMetricReader(
-            _OTLPMetricExporter(endpoint=endpoint)
-        )
+        reader = PeriodicExportingMetricReader(_OTLPMetricExporter(endpoint=endpoint))
         provider = MeterProvider(resource=resource, metric_readers=[reader])
         metrics.set_meter_provider(provider)
         self._meter = metrics.get_meter("sqldim.pipeline")
@@ -157,6 +159,7 @@ class OTLPMetricExporter:
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
+
 
 def _span_to_dict(span: PipelineSpan) -> dict:
     return {

@@ -4,9 +4,17 @@ Translates a :class:`~sqldim.migrations.context.DimensionalMigrationContext`
 diff into a :class:`MigrationScript` containing Alembic-style ``upgrade``
 and ``downgrade`` operations, backfill hints, and safety warnings.
 """
+
 from datetime import datetime
-from typing import Any, Dict, List, Optional, Type
-from sqldim.migrations.context import DimensionalMigrationContext, SchemaChange, CHANGE_SCD_UPGRADE, CHANGE_ADD_COLUMN, CHANGE_DROP_COLUMN, CHANGE_NK_CHANGE
+from typing import Any, Dict, List, Type
+from sqldim.migrations.context import (
+    DimensionalMigrationContext,
+    SchemaChange,
+    CHANGE_SCD_UPGRADE,
+    CHANGE_ADD_COLUMN,
+    CHANGE_DROP_COLUMN,
+    CHANGE_NK_CHANGE,
+)
 from sqldim.migrations.ops import add_backfill_hint, initialize_scd2_rows
 
 
@@ -18,9 +26,13 @@ def _apply_add_column(change: SchemaChange, script: "MigrationScript") -> None:
     """
     table = change.details.get("table", "unknown")
     col = change.details["column"]
-    script.upgrade_ops.append(f"op.add_column('{table}', sa.Column('{col}', sa.String()))")
+    script.upgrade_ops.append(
+        f"op.add_column('{table}', sa.Column('{col}', sa.String()))"
+    )
     script.downgrade_ops.append(f"op.drop_column('{table}', '{col}')")
-    script.backfill_hints.append(add_backfill_hint(table, col, f"Backfill '{col}' before marking NOT NULL"))
+    script.backfill_hints.append(
+        add_backfill_hint(table, col, f"Backfill '{col}' before marking NOT NULL")
+    )
 
 
 def _apply_drop_column(change: SchemaChange, script: "MigrationScript") -> None:
@@ -31,9 +43,13 @@ def _apply_drop_column(change: SchemaChange, script: "MigrationScript") -> None:
     """
     table = change.details.get("table", "unknown")
     col = change.details["column"]
-    script.warnings.append(f"DROP COLUMN '{col}' from '{table}' — historical data will be lost.")
+    script.warnings.append(
+        f"DROP COLUMN '{col}' from '{table}' — historical data will be lost."
+    )
     script.upgrade_ops.append(f"op.drop_column('{table}', '{col}')")
-    script.downgrade_ops.append(f"op.add_column('{table}', sa.Column('{col}', sa.String()))")
+    script.downgrade_ops.append(
+        f"op.add_column('{table}', sa.Column('{col}', sa.String()))"
+    )
 
 
 def _apply_scd_upgrade(change: SchemaChange, script: "MigrationScript") -> None:
@@ -70,7 +86,9 @@ def _apply_nk_change(change: SchemaChange, script: "MigrationScript") -> None:
         "Verify indexes and FK references before applying."
     )
     script.upgrade_ops.append(f"# op.drop_index('ix_{table}_{'_'.join(old_nk)}')")
-    script.upgrade_ops.append(f"# op.create_index('ix_{table}_{'_'.join(new_nk)}', '{table}', {new_nk})")
+    script.upgrade_ops.append(
+        f"# op.create_index('ix_{table}_{'_'.join(new_nk)}', '{table}', {new_nk})"
+    )
 
 
 _CHANGE_HANDLERS = {

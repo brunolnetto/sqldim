@@ -4,6 +4,7 @@ All emitters implement the :class:`LineageEmitter` protocol.  The
 :class:`ConsoleLineageEmitter` ships as a zero-dependency default;
 :class:`OpenLineageEmitter` requires the ``[lineage]`` optional dependency.
 """
+
 from __future__ import annotations
 
 import json
@@ -17,6 +18,7 @@ from sqldim.lineage.events import LineageEvent
 # Protocol
 # ---------------------------------------------------------------------------
 
+
 @runtime_checkable
 class LineageEmitter(Protocol):
     """Protocol for emitting :class:`LineageEvent` instances."""
@@ -27,6 +29,7 @@ class LineageEmitter(Protocol):
 # ---------------------------------------------------------------------------
 # Console emitter (zero dependencies)
 # ---------------------------------------------------------------------------
+
 
 class ConsoleLineageEmitter:
     """Writes lineage events as JSON lines to *stream* (default ``stderr``).
@@ -48,6 +51,7 @@ class ConsoleLineageEmitter:
 # ---------------------------------------------------------------------------
 # OpenLineage emitter (optional dependency)
 # ---------------------------------------------------------------------------
+
 
 class OpenLineageEmitter:
     """Converts :class:`LineageEvent` to OpenLineage ``RunEvent`` and emits it.
@@ -87,9 +91,31 @@ class OpenLineageEmitter:
     _STATE_MAP: "dict | None" = None
 
     @staticmethod
+    def _resolve_facets(d) -> dict:
+        """Resolve facets for one DatasetRef, serialising any ColumnLineageFacet."""
+        facets = dict(d.facets) if d.facets else {}
+        col_facet = facets.pop("columnLineage", None)
+        if col_facet is not None:
+            try:
+                from sqldim.lineage.column import ColumnLineageFacet
+
+                if isinstance(col_facet, ColumnLineageFacet):
+                    facets["columnLineage"] = col_facet.to_dict()
+            except ImportError:  # pragma: no cover
+                pass
+        return facets
+
+    @staticmethod
     def _to_ol_datasets(refs, Dataset):
         """Convert a list of DatasetRef to OpenLineage Dataset objects."""
-        return [Dataset(namespace=d.namespace, name=d.name, facets=d.facets or None) for d in refs]
+        return [
+            Dataset(
+                namespace=d.namespace,
+                name=d.name,
+                facets=OpenLineageEmitter._resolve_facets(d) or None,
+            )
+            for d in refs
+        ]
 
     def _ol_state(self, state_value: str, OLRunState):
         """Return the OLRunState constant for *state_value*, building the map once."""

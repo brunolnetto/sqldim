@@ -5,9 +5,17 @@ Parquet sink — immutable storage on local disk, S3, GCS, or Azure.
 close_versions(), update_attributes(), rotate_attributes(), and
 update_milestones() all rewrite the affected partition entirely inside
 DuckDB — never a Python loop over rows.
+
+Physical Partitioning ADR
+--------------------------
+``partition_by`` is now configurable (default ``["is_current"]`` preserves
+backward compatibility).  Pass ``zorder_by`` columns to enable sort-based
+Z-ORDER approximation — rows are sorted by those columns before writing,
+which co-locates them within Parquet row groups for predicate-pushdown wins.
 """
 
 from pathlib import Path
+from typing import Optional
 import duckdb
 
 
@@ -20,10 +28,55 @@ class ParquetSink:
 
     Because Parquet is immutable, every mutation is a partition rewrite
     expressed as a single DuckDB COPY statement.
+
+    Parameters
+    ----------
+    base_path:
+        Root directory or URI for Parquet output.
+    partition_by:
+        Hive partition columns.  Defaults to ``["is_current"]`` (backward-
+        compatible).  Pass an empty list to skip partitioning.
+    zorder_by:
+        Columns to sort by before writing (Z-ORDER approximation).
+        ``None`` (default) skips sorting and preserves current row order.
+    target_file_size_mb:
+        Soft target file size in MB.  Informational — used by
+        :class:`~sqldim.io.Compactor` scheduling; the sink itself does not
+        enforce exact file sizes.
     """
 
-    def __init__(self, base_path: str):
+    def __init__(
+        self,
+        base_path: str,
+        *,
+        partition_by: Optional[list[str]] = None,
+        zorder_by: Optional[list[str]] = None,
+        target_file_size_mb: int = 256,
+    ):
         self._base = base_path.rstrip("/")
+        self._partition_by = (
+            partition_by if partition_by is not None else ["is_current"]
+        )
+        self._zorder_by = zorder_by or []
+        self._target_file_size_mb = target_file_size_mb
+
+    # ------------------------------------------------------------------
+    # Internal helpers
+    # ------------------------------------------------------------------
+
+    def _partition_clause(self) -> str:
+        """Return the DuckDB ``PARTITION_BY (...)`` clause or empty string."""
+        if not self._partition_by:
+            return ""
+        cols = ", ".join(self._partition_by)
+        return f", PARTITION_BY ({cols})"
+
+    def _order_clause(self) -> str:
+        """Return the ``ORDER BY ...`` clause for Z-ORDER or empty string."""
+        if not self._zorder_by:
+            return ""
+        cols = ", ".join(self._zorder_by)
+        return f" ORDER BY {cols}"
 
     def _table_path(self, table_name: str) -> str:
         """Return the glob pattern that matches all Parquet files for *table_name*."""
@@ -41,10 +94,7 @@ class ParquetSink:
         Uses ``read_parquet`` with hive partitioning and a recursive glob so
         DuckDB streams data without loading the entire dataset into memory.
         """
-        return (
-            f"read_parquet('{self._table_path(table_name)}', "
-            f"hive_partitioning=true)"
-        )
+        return f"read_parquet('{self._table_path(table_name)}', hive_partitioning=true)"
 
     def write(
         self,
@@ -53,7 +103,7 @@ class ParquetSink:
         table_name: str,
         batch_size: int = 100_000,
     ) -> int:
-        """Write *view_name* rows to Parquet, partitioned by is_current.
+        """Write *view_name* rows to Parquet using configured partitioning + Z-ORDER.
 
         Executes a single ``COPY … TO`` statement so DuckDB handles
         partitioning and file creation without any Python-side buffering.
@@ -61,10 +111,12 @@ class ParquetSink:
         out = self._table_out(table_name)
         if "://" not in out:
             Path(out).mkdir(parents=True, exist_ok=True)
+        order_clause = self._order_clause()
+        partition_clause = self._partition_clause()
         con.execute(f"""
-            COPY (SELECT * FROM {view_name})
+            COPY (SELECT *{order_clause} FROM {view_name})
             TO '{out}'
-            (FORMAT parquet, PARTITION_BY (is_current), OVERWRITE_OR_IGNORE true)
+            (FORMAT parquet{partition_clause}, OVERWRITE_OR_IGNORE true)
         """)
         return con.execute(f"SELECT count(*) FROM {view_name}").fetchone()[0]
 
@@ -76,17 +128,15 @@ class ParquetSink:
         columns: list[str],
         batch_size: int = 100_000,
     ) -> int:
-        """Write only the listed *columns* from *view_name* to Parquet.
-
-        Selects only the specified columns before writing so that
-        auto-generated DB columns (e.g. ``sk``) do not appear in the output.
-        """
+        """Write only the listed *columns* from *view_name* to Parquet."""
         cols = ", ".join(columns)
-        out  = self._table_out(table_name)
+        out = self._table_out(table_name)
+        order_clause = self._order_clause()
+        partition_clause = self._partition_clause()
         con.execute(f"""
-            COPY (SELECT {cols} FROM {view_name})
+            COPY (SELECT {cols}{order_clause} FROM {view_name})
             TO '{out}'
-            (FORMAT parquet, PARTITION_BY (is_current), OVERWRITE_OR_IGNORE true)
+            (FORMAT parquet{partition_clause}, OVERWRITE_OR_IGNORE true)
         """)
         return con.execute(f"SELECT count(*) FROM {view_name}").fetchone()[0]
 
@@ -118,12 +168,9 @@ class ParquetSink:
                 WHERE TRY_CAST(is_current AS BOOLEAN) = TRUE
             )
             TO '{out}'
-            (FORMAT parquet, PARTITION_BY (is_current), OVERWRITE_OR_IGNORE true)
+            (FORMAT parquet{self._partition_clause()}, OVERWRITE_OR_IGNORE true)
         """)
-        return con.execute(
-            f"SELECT count(*) FROM {nk_view}"
-        ).fetchone()[0]
-
+        return con.execute(f"SELECT count(*) FROM {nk_view}").fetchone()[0]
 
     # ── SinkAdapter extended ───────────────────────────────────────
 
@@ -158,11 +205,9 @@ class ParquetSink:
                       AND TRY_CAST(t.is_current AS BOOLEAN) = TRUE
             )
             TO '{out}'
-            (FORMAT parquet, PARTITION_BY (is_current), OVERWRITE_OR_IGNORE true)
+            (FORMAT parquet{self._partition_clause()}, OVERWRITE_OR_IGNORE true)
         """)
-        return con.execute(
-            f"SELECT count(*) FROM {updates_view}"
-        ).fetchone()[0]
+        return con.execute(f"SELECT count(*) FROM {updates_view}").fetchone()[0]
 
     def rotate_attributes(
         self,
@@ -179,9 +224,7 @@ class ParquetSink:
             f"                    CASE WHEN u.{nk_col} IS NOT NULL THEN u.{curr} ELSE t.{curr} END AS {curr}"
             for curr, prev in column_pairs
         )
-        exclude_cols = ", ".join(
-            col for pair in column_pairs for col in pair
-        )
+        exclude_cols = ", ".join(col for pair in column_pairs for col in pair)
         con.execute(f"""
             COPY (
                 SELECT
@@ -194,11 +237,9 @@ class ParquetSink:
                       AND TRY_CAST(t.is_current AS BOOLEAN) = TRUE
             )
             TO '{out}'
-            (FORMAT parquet, PARTITION_BY (is_current), OVERWRITE_OR_IGNORE true)
+            (FORMAT parquet{self._partition_clause()}, OVERWRITE_OR_IGNORE true)
         """)
-        return con.execute(
-            f"SELECT count(*) FROM {rotations_view}"
-        ).fetchone()[0]
+        return con.execute(f"SELECT count(*) FROM {rotations_view}").fetchone()[0]
 
     def update_milestones(
         self,
@@ -225,8 +266,6 @@ class ParquetSink:
                        ON t.{match_col} = u.{match_col}
             )
             TO '{out}'
-            (FORMAT parquet, PARTITION_BY (is_current), OVERWRITE_OR_IGNORE true)
+            (FORMAT parquet{self._partition_clause()}, OVERWRITE_OR_IGNORE true)
         """)
-        return con.execute(
-            f"SELECT count(*) FROM {updates_view}"
-        ).fetchone()[0]
+        return con.execute(f"SELECT count(*) FROM {updates_view}").fetchone()[0]

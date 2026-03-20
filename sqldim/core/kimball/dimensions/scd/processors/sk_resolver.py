@@ -2,6 +2,7 @@
 Narwhals SK Resolver — batch natural-key → surrogate-key resolution
 via a single join instead of N individual dict lookups.
 """
+
 from __future__ import annotations
 
 from datetime import date
@@ -68,13 +69,10 @@ class NarwhalsSKResolver:
         lookup = self._get_lookup(dimension, as_of, natural_key_col)
 
         # lookup has columns: [natural_key_col, "id"]
-        return (
-            frame
-            .join(
-                lookup.rename({"id": surrogate_key_col}),
-                on=natural_key_col,
-                how="left",
-            )
+        return frame.join(
+            lookup.rename({"id": surrogate_key_col}),
+            on=natural_key_col,
+            how="left",
         )
 
     def resolve_all(
@@ -135,11 +133,11 @@ class NarwhalsSKResolver:
         # SCD2 filtering
         if hasattr(dimension, "is_current"):
             if as_of is None:
-                stmt = stmt.where(dimension.is_current == True)  # type: ignore[attr-defined]
+                stmt = stmt.where(dimension.is_current)  # type: ignore[attr-defined]
             else:
                 stmt = stmt.where(
                     dimension.valid_from <= as_of,  # type: ignore[attr-defined]
-                    (dimension.valid_to == None) | (dimension.valid_to > as_of),  # type: ignore[attr-defined]
+                    dimension.valid_to.is_(None) | (dimension.valid_to > as_of),  # type: ignore[attr-defined]
                 )
 
         rows = self._session.exec(stmt).all()
@@ -152,15 +150,23 @@ class NarwhalsSKResolver:
         if not records:
             try:
                 import polars as pl
-                return nw.from_native(pl.DataFrame({natural_key_col: [], "id": []}), eager_only=True)
+
+                return nw.from_native(
+                    pl.DataFrame({natural_key_col: [], "id": []}), eager_only=True
+                )
             except ImportError:
                 import pandas as pd
-                return nw.from_native(pd.DataFrame({natural_key_col: [], "id": []}), eager_only=True)
+
+                return nw.from_native(
+                    pd.DataFrame({natural_key_col: [], "id": []}), eager_only=True
+                )
         try:
             import polars as pl
+
             return nw.from_native(pl.from_dicts(records), eager_only=True)
         except ImportError:
             import pandas as pd
+
             return nw.from_native(pd.DataFrame(records), eager_only=True)
 
     def invalidate_cache(self) -> None:

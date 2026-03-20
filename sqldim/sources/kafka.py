@@ -11,6 +11,7 @@ Optional dependencies:
   DuckDB kafka extension  →  pip install sqldim[kafka-native]
   confluent-kafka         →  pip install sqldim[kafka]
 """
+
 from __future__ import annotations
 
 from typing import Any, Iterator
@@ -99,9 +100,7 @@ class KafkaSource:
                 f"max_messages={batch_size}, "
                 f"format='{self._format}')"
             )
-            count = con.execute(
-                f"SELECT count(*) FROM ({sql})"
-            ).fetchone()[0]
+            count = con.execute(f"SELECT count(*) FROM ({sql})").fetchone()[0]
             if count == 0:
                 break
             self._offset = con.execute(

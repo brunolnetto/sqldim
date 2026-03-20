@@ -37,11 +37,11 @@ class PostgreSQLSource:
         filter_pushdown: bool = False,
         pages_per_task: int = 1000,
     ):
-        self._dsn             = dsn
-        self._table           = table
-        self._schema          = schema
+        self._dsn = dsn
+        self._table = table
+        self._schema = schema
         self._filter_pushdown = filter_pushdown
-        self._pages_per_task  = pages_per_task
+        self._pages_per_task = pages_per_task
 
     def as_sql(self, con) -> str:
         con.execute("INSTALL postgres; LOAD postgres;")
@@ -49,6 +49,4 @@ class PostgreSQLSource:
             con.execute("SET pg_experimental_filter_pushdown = true")
         if self._pages_per_task != 1000:
             con.execute(f"SET pg_pages_per_task = {self._pages_per_task}")
-        return (
-            f"postgres_scan('{self._dsn}', '{self._schema}', '{self._table}')"
-        )
+        return f"postgres_scan('{self._dsn}', '{self._schema}', '{self._table}')"

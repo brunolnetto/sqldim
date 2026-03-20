@@ -1,4 +1,4 @@
-from typing import Any, Dict, List, Optional, Tuple, Type
+from typing import Any, Dict, List, Optional, Type
 from itertools import product
 from sqlmodel import Session, select
 from sqldim import DimensionModel, Field
@@ -18,7 +18,7 @@ def _flag_value_sql(v: Any) -> str:
 
 
 def populate_junk_dimension_lazy(
-    flags: Dict[str, List[Any]],
+    flags: dict[str, list[Any]],
     table_name: str,
     sink,
     batch_size: int = 100_000,
@@ -58,8 +58,8 @@ def populate_junk_dimension_lazy(
         """)
 
     # CROSS JOIN all flag views to produce the full Cartesian product
-    join_sql  = " CROSS JOIN ".join(f"_flag_{col}" for col in cols)
-    col_list  = ", ".join(cols)
+    join_sql = " CROSS JOIN ".join(f"_flag_{col}" for col in cols)
+    col_list = ", ".join(cols)
     _con.execute(f"""
         CREATE OR REPLACE VIEW all_combos AS
         SELECT {col_list}
@@ -71,8 +71,8 @@ def populate_junk_dimension_lazy(
 
 def make_junk_dimension(
     name: str,
-    flags: Dict[str, List[Any]],
-) -> Type[DimensionModel]:
+    flags: dict[str, list[Any]],
+) -> type[DimensionModel]:
     """
     Dynamically creates a JunkDimension model class for a given set of
     low-cardinality flag columns and their possible values.
@@ -86,11 +86,11 @@ def make_junk_dimension(
 
     The resulting model has one row per unique combination of flag values.
     """
-    annotations: Dict[str, Any] = {
+    annotations: dict[str, Any] = {
         "id": int,
-        **{col: Optional[Any] for col in flags},
+        **{col: Any | None for col in flags},
     }
-    fields: Dict[str, Any] = {
+    fields: dict[str, Any] = {
         "id": Field(primary_key=True, surrogate_key=True),
         **{col: Field(default=None, nullable=True) for col in flags},
         "__annotations__": annotations,
@@ -101,10 +101,10 @@ def make_junk_dimension(
 
 
 def populate_junk_dimension(
-    model: Type[DimensionModel],
-    flags: Dict[str, List[Any]],
+    model: type[DimensionModel],
+    flags: dict[str, list[Any]],
     session: Session,
-) -> List[Any]:
+) -> list[Any]:
     """
     Populate a junk dimension with all combinations of flag values (idempotent).
     Returns list of inserted rows.

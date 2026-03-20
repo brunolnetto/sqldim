@@ -1,4 +1,5 @@
 """ContractViolationError — raised when an ERROR-severity rule fires."""
+
 from __future__ import annotations
 
 from typing import TYPE_CHECKING

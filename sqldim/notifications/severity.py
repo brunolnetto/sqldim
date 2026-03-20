@@ -1,4 +1,5 @@
 """Notification severity levels."""
+
 from enum import IntEnum
 
 

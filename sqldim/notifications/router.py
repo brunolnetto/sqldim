@@ -1,4 +1,5 @@
 """Notification router — applies rules and dispatches to channels."""
+
 from __future__ import annotations
 
 import dataclasses
@@ -33,7 +34,9 @@ class NotificationRouter:
         self._rules.append(rule)
         return self
 
-    def add_channel(self, name: str, channel: NotificationChannel) -> "NotificationRouter":
+    def add_channel(
+        self, name: str, channel: NotificationChannel
+    ) -> "NotificationRouter":
         """Register a named channel; returns *self* for method chaining."""
         self._channels[name] = channel
         return self

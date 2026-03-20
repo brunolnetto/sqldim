@@ -1,4 +1,5 @@
 """Time-based freshness and row-count-delta rules."""
+
 from __future__ import annotations
 
 from sqldim.contracts.report import Severity

@@ -1,4 +1,5 @@
 """sqldim/contracts/contract.py — DataContract dataclass."""
+
 from __future__ import annotations
 
 from dataclasses import dataclass, field
@@ -13,12 +14,12 @@ from sqldim.contracts.sla import SLASpec
 class DataContract:
     """Full data contract for a named dataset."""
 
-    name:    str
+    name: str
     version: ContractVersion
-    owner:   str
-    layer:   Layer
+    owner: str
+    layer: Layer
     columns: list[ColumnSpec] = field(default_factory=list)
-    sla:     SLASpec | None   = None
+    sla: SLASpec | None = None
 
     # ── column lookup ─────────────────────────────────────────────────────────
 
