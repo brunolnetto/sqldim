@@ -12,13 +12,20 @@ Each case is a self-contained function that:
 Cases are grouped by the bottleneck category they probe:
 
   Group A — VIEW vs TABLE regression (scan count verification)
-  Group B — Memory floor safety across all processors
-  Group C — Throughput scaling (rows/sec at each tier)
+  Group B — Memory safety across all processors
+  Group C — Throughput scaling (rows/sec by tier)
   Group D — Streaming vs batch comparison
-  Group E — Processor comparison (same data, different SCD type)
-  Group F — Sink comparison (DuckDB vs mock-Postgres throughput)
-  Group G — Transform overhead (with vs without SQLTransformPipeline)
-  Group H — Beyond-memory datasets (tier > available RAM)
+  Group E — Change rate sensitivity
+  Group F — Processor comparison (SCD2 vs Metadata vs Type6)
+  Group G — Beyond-memory / spill-to-disk simulation
+  Group H — Source adapter comparison (parquet vs csv)
+  Group I — SCD Type3 and Type4 processor throughput
+  Group J — Prebuilt dimension generation (DateDimension / TimeDimension)
+  Group K — Graph traversal and dimensional query builder
+  Group L — Narwhals SCD2 backfill throughput
+  Group M — ORM loader throughput and Medallion registry compute
+  Group N — Schema/quality drift observability pipeline (DriftObservatory star schema)
+  Group O — DGM three-band query builder (B1, B1∘B2, B1∘B3, B1∘B2∘B3)
 """
 from __future__ import annotations
 
@@ -26,7 +33,7 @@ import os
 import shutil
 import time
 import traceback as _traceback
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 
 import duckdb
 
@@ -392,6 +399,7 @@ def group_d_stream_vs_batch(gen: BenchmarkDatasetGenerator, temp_dir: str, **_) 
                 t0 = time.perf_counter()
                 while offset < ds.n_rows:
                     frag = (f"SELECT * FROM read_parquet('{ds.snapshot_path}') "
+                            f"ORDER BY {ds.natural_key} "
                             f"LIMIT {batch_size} OFFSET {offset}")
                     r = proc.process(SQLSource(frag), "dim_products_stream")
                     agg_ins += r.inserted; agg_ver += r.versioned; agg_unc += r.unchanged
@@ -755,9 +763,10 @@ def group_i_scd_type_variety(
     )
 
     tier_order  = ["xs", "s", "m"]
+    _max = max_tier if max_tier in tier_order else tier_order[-1]
     active_tiers = [t for t in tier_order
                     if t in _VARIETY_TIERS
-                    and tier_order.index(t) <= tier_order.index(max_tier)]
+                    and tier_order.index(t) <= tier_order.index(_max)]
     sink    = _BenchSink()
     results: list[BenchmarkResult] = []
 
@@ -1022,9 +1031,10 @@ def group_k_graph_query(
     from sqldim.core.query.builder import DuckDBDimensionalQuery
 
     tier_order   = ["xs", "s", "m"]
+    _max = max_tier if max_tier in tier_order else tier_order[-1]
     active_tiers = [t for t in tier_order
                     if t in _GRAPH_TIERS
-                    and tier_order.index(t) <= tier_order.index(max_tier)]
+                    and tier_order.index(t) <= tier_order.index(_max)]
     results: list[BenchmarkResult] = []
 
     for tier in active_tiers:
@@ -1065,9 +1075,9 @@ def group_k_graph_query(
                 # neighbors() — returns all outgoing from node 1
                 neighbors = engine.neighbors(_BenchEdge, 1, direction="out")
                 # degree() — edge count for node 1
-                deg = engine.degree(_BenchEdge, 1, direction="out")
+                engine.degree(_BenchEdge, 1, direction="out")
                 # aggregate() — sum of weights
-                total = engine.aggregate(_BenchEdge, 1, "weight", "sum",
+                engine.aggregate(_BenchEdge, 1, "weight", "sum",
                                          direction="out")
                 result.wall_s = time.perf_counter() - t0
             m = probe.report
@@ -1126,7 +1136,7 @@ def group_k_graph_query(
             probe = MemoryProbe(temp_dir=temp_dir, label=cid)
             with probe:
                 t0   = time.perf_counter()
-                rows = (
+                (
                     DuckDBDimensionalQuery("bench_fact")
                     .join_dim("bench_dim", "product_id")
                     .by("d_bench_dim.category")
@@ -1177,9 +1187,10 @@ def group_l_narwhals_backfill(
     )
 
     tier_order   = ["xs", "s", "m"]
+    _max = max_tier if max_tier in tier_order else tier_order[-1]
     active_tiers = [t for t in tier_order
                     if t in _BACKFILL_TIERS
-                    and tier_order.index(t) <= tier_order.index(max_tier)]
+                    and tier_order.index(t) <= tier_order.index(_max)]
     results: list[BenchmarkResult] = []
 
     for tier in active_tiers:
@@ -1260,7 +1271,7 @@ def group_m_loaders_medallion(
     from sqlmodel import Session, create_engine, SQLModel
     from sqldim import DimensionModel, FactModel, SCD2Mixin, Field as SqdimField
     from sqldim.medallion import MedallionRegistry, Layer
-    from sqldim.medallion.build_order import SilverBuildOrder, ModelKind
+    from sqldim.medallion.build_order import SilverBuildOrder
 
     # ── Local SQLModel fixtures (defined once per process) ──────────────────
     class _MBenchDim(DimensionModel, SCD2Mixin, table=True):
@@ -1383,7 +1394,7 @@ def group_m_loaders_medallion(
         probe = MemoryProbe(temp_dir=temp_dir, label=cid)
         with probe:
             t0     = time.perf_counter()
-            order  = sbo.build_order([_MBenchFact, _MBenchDim])
+            sbo.build_order([_MBenchFact, _MBenchDim])
             # Do 10 000 classify calls to get a meaningful timing
             for _ in range(10_000):
                 sbo.classify(_MBenchDim)
@@ -1402,5 +1413,445 @@ def group_m_loaders_medallion(
         result.error = (f"{type(exc).__name__}: {exc}\n"
                         + _traceback.format_exc()[-600:])
     results.append(result)
+
+    return results
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Group N — Observability drift pipeline throughput
+# ─────────────────────────────────────────────────────────────────────────────
+#
+# Measures the cost of treating schema/quality drift as first-class Kimball
+# facts inside sqldim's own observability pipeline.  Three sub-cases:
+#
+#   N-drift-ingest   : Batch-insert k EvolutionReport events into the star schema
+#   N-quality-ingest : Batch-insert k ContractReport violation events
+#   N-drift-query    : Execute all five gold-layer analytical queries (×100 reps)
+
+# DriftObservatory is an OLTP star-schema writer (~120–300 rows/sec ceiling).
+# These tiers reflect realistic operational ingest volumes, not bulk-load scale.
+_DRIFT_TIERS = {"xs": 100, "s": 500, "m": 2_000}
+
+
+def group_n_drift_observatory(
+    gen: BenchmarkDatasetGenerator,
+    temp_dir: str,
+    max_tier: str = "s",
+    **_,
+) -> list[BenchmarkResult]:
+    """Group N — Schema/quality drift observability pipeline throughput."""
+    import datetime as _dt
+    from sqldim.contracts.engine import EvolutionChange, EvolutionReport
+    from sqldim.contracts.report import ContractReport, ContractViolation
+    from sqldim.observability.drift import DriftObservatory
+
+    tier_order    = ["xs", "s", "m"]
+    effective_max = max_tier if max_tier in tier_order else tier_order[-1]
+    active_tiers  = [t for t in tier_order
+                     if t in _DRIFT_TIERS
+                     and tier_order.index(t) <= tier_order.index(effective_max)]
+    results: list[BenchmarkResult] = []
+
+    _datasets     = [f"dim_{i}" for i in range(20)]
+    _change_types = ["added", "widened", "narrowed", "type_changed", "renamed", "removed"]
+    _severities   = ["error", "warning", "info"]
+    _rules        = ["not_null", "unique", "range_check", "freshness", "regex_match"]
+    _base_ts      = _dt.datetime(2026, 1, 1, tzinfo=_dt.timezone.utc)
+
+    # ── N-1: Evolution fact ingest throughput ────────────────────────────
+    for tier in active_tiers:
+        MemoryProbe.reset_hard_abort()  # fresh observatory per case; clear any prior signal
+        n     = _DRIFT_TIERS[tier]
+        cid   = f"N-drift-ingest-{tier}"
+        result = BenchmarkResult(
+            case_id=cid, group="N", profile="drift-ingest", tier=tier,
+            processor="DriftObservatory", sink="duckdb-memory",
+            source="synthetic", phase="bulk-insert", n_rows=n, n_changed=0,
+        )
+        try:
+            MemoryProbe.check_safe_to_run(label=cid)
+            obs   = DriftObservatory.in_memory()
+            probe = MemoryProbe(temp_dir=temp_dir, label=cid)
+            # Batch 100 changes per EvolutionReport call — one call per run_id
+            # block (matching the existing run-NNNNN grouping).  This avoids
+            # 5K individual Python→DuckDB round-trips in favour of n//100 calls
+            # each flushing 100 facts via executemany.
+            _BATCH = 100
+            with probe:
+                t0 = time.perf_counter()
+                with obs.transaction():
+                    for run_seq in range(0, n, _BATCH):
+                        rep = EvolutionReport()
+                        for j in range(run_seq, min(run_seq + _BATCH, n)):
+                            ct = _change_types[j % len(_change_types)]
+                            ch = EvolutionChange(ct, f"col_{j % 50}", f"detail {j}")
+                            if ct == "added":
+                                rep.safe_changes.append(ch)
+                            elif ct == "widened":
+                                rep.additive_changes.append(ch)
+                            else:
+                                rep.breaking_changes.append(ch)
+                        obs.ingest_evolution(
+                            rep,
+                            dataset=_datasets[run_seq % len(_datasets)],
+                            run_id=f"run-{run_seq // _BATCH:05d}",
+                            layer="silver",
+                            detected_at=_base_ts + _dt.timedelta(hours=run_seq),
+                        )
+                result.wall_s = time.perf_counter() - t0
+            m = probe.report
+            result.peak_rss_gb      = m.peak_rss_gb
+            result.min_sys_avail_gb = m.min_sys_avail_gb
+            result.rows_per_sec     = n / max(result.wall_s, 0.001)
+            result.inserted         = n
+        except RuntimeError as exc:
+            result.ok = False; result.error = f"SKIPPED: {exc}"
+        except Exception as exc:
+            result.ok    = False
+            result.error = (f"{type(exc).__name__}: {exc}\n"
+                            + _traceback.format_exc()[-600:])
+        results.append(result)
+
+    # ── N-2: Quality drift fact ingest throughput ────────────────────────
+    for tier in active_tiers:
+        MemoryProbe.reset_hard_abort()  # fresh observatory per case; clear any prior signal
+        n     = _DRIFT_TIERS[tier]
+        cid   = f"N-quality-ingest-{tier}"
+        result = BenchmarkResult(
+            case_id=cid, group="N", profile="quality-ingest", tier=tier,
+            processor="DriftObservatory", sink="duckdb-memory",
+            source="synthetic", phase="bulk-insert", n_rows=n, n_changed=0,
+        )
+        try:
+            MemoryProbe.check_safe_to_run(label=cid)
+            obs   = DriftObservatory.in_memory()
+            probe = MemoryProbe(temp_dir=temp_dir, label=cid)
+            _BATCH = 100
+            with probe:
+                t0 = time.perf_counter()
+                with obs.transaction():
+                    for run_seq in range(0, n, _BATCH):
+                        viols = [
+                            ContractViolation(
+                                rule=_rules[j % len(_rules)],
+                                severity=_severities[j % len(_severities)],
+                                count=j % 100,
+                                detail=f"detail {j}",
+                            )
+                            for j in range(run_seq, min(run_seq + _BATCH, n))
+                        ]
+                        rpt = ContractReport(
+                            violations=viols,
+                            view=_datasets[run_seq % len(_datasets)],
+                            elapsed_s=0.01,
+                        )
+                        obs.ingest_quality(
+                            rpt,
+                            dataset=_datasets[run_seq % len(_datasets)],
+                            run_id=f"run-{run_seq // _BATCH:05d}",
+                            layer="silver",
+                            checked_at=_base_ts + _dt.timedelta(hours=run_seq),
+                        )
+                result.wall_s = time.perf_counter() - t0
+            m = probe.report
+            result.peak_rss_gb      = m.peak_rss_gb
+            result.min_sys_avail_gb = m.min_sys_avail_gb
+            result.rows_per_sec     = n / max(result.wall_s, 0.001)
+            result.inserted         = n
+        except RuntimeError as exc:
+            result.ok = False; result.error = f"SKIPPED: {exc}"
+        except Exception as exc:
+            result.ok    = False
+            result.error = (f"{type(exc).__name__}: {exc}\n"
+                            + _traceback.format_exc()[-600:])
+        results.append(result)
+
+    # ── N-3: Gold-layer analytical query planning + execution ────────────
+    cid   = "N-drift-gold-queries"
+    result = BenchmarkResult(
+        case_id=cid, group="N", profile="drift-gold", tier="n/a",
+        processor="DriftObservatory", sink="duckdb-memory",
+        source="synthetic", phase="query", n_rows=0, n_changed=0,
+    )
+    try:
+        MemoryProbe.check_safe_to_run(label=cid)
+        obs = DriftObservatory.in_memory()
+        _SEED_BATCH = 100
+        with obs.transaction():
+            for run_seq in range(0, 1_000, _SEED_BATCH):
+                rep = EvolutionReport()
+                for j in range(run_seq, run_seq + _SEED_BATCH):
+                    ct  = _change_types[j % len(_change_types)]
+                    ch  = EvolutionChange(ct, f"col_{j % 50}", "")
+                    if ct == "added":
+                        rep.safe_changes.append(ch)
+                    elif ct == "widened":
+                        rep.additive_changes.append(ch)
+                    else:
+                        rep.breaking_changes.append(ch)
+                obs.ingest_evolution(rep, dataset=_datasets[run_seq % len(_datasets)],
+                                     run_id=f"run-{run_seq // _SEED_BATCH:04d}", layer="silver",
+                                     detected_at=_base_ts + _dt.timedelta(hours=run_seq))
+        with obs.transaction():
+            for run_seq in range(0, 1_000, _SEED_BATCH):
+                viols = [
+                    ContractViolation(rule=_rules[j % len(_rules)],
+                                      severity=_severities[j % len(_severities)],
+                                      count=j % 200, detail="")
+                    for j in range(run_seq, run_seq + _SEED_BATCH)
+                ]
+                rpt = ContractReport(violations=viols, view=_datasets[run_seq % len(_datasets)])
+                obs.ingest_quality(rpt, dataset=_datasets[run_seq % len(_datasets)],
+                                   run_id=f"run-{run_seq // _SEED_BATCH:04d}", layer="silver",
+                                   checked_at=_base_ts + _dt.timedelta(hours=run_seq))
+
+        repeats = 100
+        n_queries = repeats * 5
+        probe = MemoryProbe(temp_dir=temp_dir, label=cid)
+        with probe:
+            t0 = time.perf_counter()
+            for _ in range(repeats):
+                obs.breaking_change_rate().fetchall()
+                obs.worst_quality_datasets(top_n=5).fetchall()
+                obs.drift_velocity(bucket="week").fetchall()
+                obs.migration_backlog().fetchall()
+                obs.rule_failure_heatmap().fetchall()
+            result.wall_s = time.perf_counter() - t0
+        m = probe.report
+        result.n_rows           = n_queries
+        result.peak_rss_gb      = m.peak_rss_gb
+        result.min_sys_avail_gb = m.min_sys_avail_gb
+        result.rows_per_sec     = n_queries / max(result.wall_s, 0.001)
+    except RuntimeError as exc:
+        result.ok = False; result.error = f"SKIPPED: {exc}"
+    except Exception as exc:
+        result.ok    = False
+        result.error = (f"{type(exc).__name__}: {exc}\n"
+                        + _traceback.format_exc()[-600:])
+    results.append(result)
+
+    return results
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# ── Group O  DGM three-band query builder ────────────────────────────────
+# ═══════════════════════════════════════════════════════════════════════════
+
+_DGM_TIERS: dict[str, int] = {"xs": 1_000, "s": 10_000, "m": 100_000}
+
+
+def group_o_dgm_query(
+    gen: BenchmarkDatasetGenerator,
+    temp_dir: str,
+    max_tier: str = "m",
+    **_,
+) -> list[BenchmarkResult]:
+    """Group O — DGMQuery three-band throughput (B1, B1∘B2, B1∘B3, B1∘B2∘B3)."""
+    from sqldim import (
+        DGMQuery,
+        PropRef, AggRef, WinRef,
+        ScalarPred,
+        AND,
+        VerbHop,
+    )
+
+    tier_order   = ["xs", "s", "m"]
+    _max = max_tier if max_tier in tier_order else tier_order[-1]
+    active_tiers = [t for t in tier_order
+                    if t in _DGM_TIERS
+                    and tier_order.index(t) <= tier_order.index(_max)]
+    results: list[BenchmarkResult] = []
+
+    for tier in active_tiers:
+        n     = _DGM_TIERS[tier]
+        n_dim = max(n // 10, 10)
+
+        def _setup_star(con: duckdb.DuckDBPyConnection) -> None:
+            con.execute("""
+                CREATE OR REPLACE TABLE o_fact (
+                    id          INTEGER,
+                    customer_id INTEGER,
+                    product_id  INTEGER,
+                    revenue     DOUBLE,
+                    sale_year   INTEGER
+                )
+            """)
+            con.execute("""
+                CREATE OR REPLACE TABLE o_customer (
+                    id      INTEGER,
+                    segment VARCHAR,
+                    region  VARCHAR
+                )
+            """)
+            con.execute(f"""
+                INSERT INTO o_fact
+                SELECT i,
+                       (i % {n_dim}) + 1,
+                       (i % {max(n_dim // 5, 1)}) + 1,
+                       (i % 100) * 10.0,
+                       2020 + (i % 5)
+                FROM range(1, {n + 1}) t(i)
+            """)
+            con.execute(f"""
+                INSERT INTO o_customer
+                SELECT i,
+                       CASE (i % 2) WHEN 0 THEN 'retail' ELSE 'wholesale' END,
+                       CASE (i % 3) WHEN 0 THEN 'US' WHEN 1 THEN 'EU' ELSE 'APAC' END
+                FROM range(1, {n_dim + 1}) t(i)
+            """)
+
+        hop_c = VerbHop("f", "placed_by", "c",
+                        table="o_customer", on="c.id = f.customer_id")
+
+        # ── O-1: B1 filter ────────────────────────────────────────────────
+        cid    = f"O-b1-filter-{tier}"
+        result = BenchmarkResult(
+            case_id=cid, group="O", profile="dgm-b1", tier=tier,
+            processor="DGMQuery", sink="duckdb-memory",
+            source="synthetic", phase="batch", n_rows=n, n_changed=0,
+        )
+        try:
+            MemoryProbe.check_safe_to_run(label=cid)
+            con = duckdb.connect()
+            _setup_star(con)
+            probe = MemoryProbe(temp_dir=temp_dir, label=cid)
+            q = (DGMQuery()
+                 .anchor("o_fact", "f")
+                 .path_join(hop_c)
+                 .where(ScalarPred(PropRef("c", "segment"), "=", "retail")))
+            with probe:
+                t0 = time.perf_counter()
+                rows = q.execute(con)
+                result.wall_s = time.perf_counter() - t0
+            m = probe.report
+            result.peak_rss_gb      = m.peak_rss_gb
+            result.min_sys_avail_gb = m.min_sys_avail_gb
+            result.total_spill_gb   = m.total_spill_gb
+            result.safety_breach    = m.safety_breach
+            result.rows_per_sec     = len(rows) / max(result.wall_s, 0.001)
+            con.close()
+        except RuntimeError as exc:
+            result.ok = False; result.error = f"SKIPPED: {exc}"
+        except Exception as exc:
+            result.ok    = False
+            result.error = (f"{type(exc).__name__}: {exc}\n"
+                            + _traceback.format_exc()[-600:])
+        results.append(result)
+
+        # ── O-2: B1 ∘ B2 group+agg+having ────────────────────────────────
+        cid    = f"O-b1b2-having-{tier}"
+        result = BenchmarkResult(
+            case_id=cid, group="O", profile="dgm-b1b2", tier=tier,
+            processor="DGMQuery", sink="duckdb-memory",
+            source="synthetic", phase="batch", n_rows=n, n_changed=0,
+        )
+        try:
+            MemoryProbe.check_safe_to_run(label=cid)
+            con = duckdb.connect()
+            _setup_star(con)
+            probe = MemoryProbe(temp_dir=temp_dir, label=cid)
+            q = (DGMQuery()
+                 .anchor("o_fact", "f")
+                 .path_join(hop_c)
+                 .group_by("c.id", "c.segment")
+                 .agg(total_rev="SUM(f.revenue)", cnt="COUNT(*)")
+                 .having(ScalarPred(AggRef("total_rev"), ">", 1000.0)))
+            with probe:
+                t0 = time.perf_counter()
+                rows = q.execute(con)
+                result.wall_s = time.perf_counter() - t0
+            m = probe.report
+            result.peak_rss_gb      = m.peak_rss_gb
+            result.min_sys_avail_gb = m.min_sys_avail_gb
+            result.total_spill_gb   = m.total_spill_gb
+            result.safety_breach    = m.safety_breach
+            result.rows_per_sec     = len(rows) / max(result.wall_s, 0.001)
+            con.close()
+        except RuntimeError as exc:
+            result.ok = False; result.error = f"SKIPPED: {exc}"
+        except Exception as exc:
+            result.ok    = False
+            result.error = (f"{type(exc).__name__}: {exc}\n"
+                            + _traceback.format_exc()[-600:])
+        results.append(result)
+
+        # ── O-3: B1 ∘ B3 window+qualify ──────────────────────────────────
+        cid    = f"O-b1b3-qualify-{tier}"
+        result = BenchmarkResult(
+            case_id=cid, group="O", profile="dgm-b1b3", tier=tier,
+            processor="DGMQuery", sink="duckdb-memory",
+            source="synthetic", phase="batch", n_rows=n, n_changed=0,
+        )
+        try:
+            MemoryProbe.check_safe_to_run(label=cid)
+            con = duckdb.connect()
+            _setup_star(con)
+            probe = MemoryProbe(temp_dir=temp_dir, label=cid)
+            q = (DGMQuery()
+                 .anchor("o_fact", "f")
+                 .window(rn="ROW_NUMBER() OVER (PARTITION BY f.customer_id ORDER BY f.revenue DESC)")
+                 .qualify(ScalarPred(WinRef("rn"), "=", 1)))
+            with probe:
+                t0 = time.perf_counter()
+                rows = q.execute(con)
+                result.wall_s = time.perf_counter() - t0
+            m = probe.report
+            result.peak_rss_gb      = m.peak_rss_gb
+            result.min_sys_avail_gb = m.min_sys_avail_gb
+            result.total_spill_gb   = m.total_spill_gb
+            result.safety_breach    = m.safety_breach
+            result.rows_per_sec     = len(rows) / max(result.wall_s, 0.001)
+            con.close()
+        except RuntimeError as exc:
+            result.ok = False; result.error = f"SKIPPED: {exc}"
+        except Exception as exc:
+            result.ok    = False
+            result.error = (f"{type(exc).__name__}: {exc}\n"
+                            + _traceback.format_exc()[-600:])
+        results.append(result)
+
+        # ── O-4: B1 ∘ B2 ∘ B3 full pipeline ─────────────────────────────
+        cid    = f"O-b1b2b3-full-{tier}"
+        result = BenchmarkResult(
+            case_id=cid, group="O", profile="dgm-full", tier=tier,
+            processor="DGMQuery", sink="duckdb-memory",
+            source="synthetic", phase="batch", n_rows=n, n_changed=0,
+        )
+        try:
+            MemoryProbe.check_safe_to_run(label=cid)
+            con = duckdb.connect()
+            _setup_star(con)
+            probe = MemoryProbe(temp_dir=temp_dir, label=cid)
+            q = (DGMQuery()
+                 .anchor("o_fact", "f")
+                 .path_join(hop_c)
+                 .where(AND(
+                     ScalarPred(PropRef("c", "segment"), "=", "retail"),
+                     ScalarPred(PropRef("f", "sale_year"), ">=", 2020),
+                 ))
+                 .group_by("c.id", "c.region")
+                 .agg(total_rev="SUM(f.revenue)", cnt="COUNT(*)")
+                 .having(ScalarPred(AggRef("total_rev"), ">", 500.0))
+                 .window(rnk="RANK() OVER (ORDER BY SUM(f.revenue) DESC)")
+                 .qualify(ScalarPred(WinRef("rnk"), "<=", 10)))
+            with probe:
+                t0 = time.perf_counter()
+                rows = q.execute(con)
+                result.wall_s = time.perf_counter() - t0
+            m = probe.report
+            result.peak_rss_gb      = m.peak_rss_gb
+            result.min_sys_avail_gb = m.min_sys_avail_gb
+            result.total_spill_gb   = m.total_spill_gb
+            result.safety_breach    = m.safety_breach
+            result.rows_per_sec     = n / max(result.wall_s, 0.001)
+            result.inserted         = len(rows)
+            con.close()
+        except RuntimeError as exc:
+            result.ok = False; result.error = f"SKIPPED: {exc}"
+        except Exception as exc:
+            result.ok    = False
+            result.error = (f"{type(exc).__name__}: {exc}\n"
+                            + _traceback.format_exc()[-600:])
+        results.append(result)
 
     return results

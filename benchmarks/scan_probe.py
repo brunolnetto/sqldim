@@ -213,7 +213,6 @@ class ScanProbe:
         self.report    = ScanReport(table_name=self._table_name, expected=self._expected)
         self._original = self._sink.__class__.current_state_sql
 
-        sink = self._sink
         probe = self
 
         def _intercepted(self_sink, table_name: str) -> str:

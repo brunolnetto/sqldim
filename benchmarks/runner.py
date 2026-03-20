@@ -31,13 +31,11 @@ import psutil
 
 from benchmarks.dataset_gen import BenchmarkDatasetGenerator, SCALE_TIERS
 from benchmarks.memory_probe import (
-    SAFE_PCT, ABORT_FLOOR_GB, HARD_CEILING_PCT,
-    auto_max_tier, MemoryProbe,
+    SAFE_PCT, ABORT_FLOOR_GB, auto_max_tier, MemoryProbe,
 )
 from benchmarks.suite import (
     BenchmarkResult,
     SOURCE_NAMES,
-    SINK_NAMES,
     group_a_scan_regression,
     group_b_memory_safety,
     group_c_throughput_scaling,
@@ -51,6 +49,8 @@ from benchmarks.suite import (
     group_k_graph_query,
     group_l_narwhals_backfill,
     group_m_loaders_medallion,
+    group_n_drift_observatory,
+    group_o_dgm_query,
 )
 
 
@@ -107,7 +107,7 @@ def print_system_info() -> None:
     elif avail_gb < 3.0:
         print(_yellow(f"  ⚠️   Low available RAM ({avail_gb:.1f}GB). Large tiers will be skipped."))
     else:
-        print(_green(f"  ✅  System OK to run benchmarks."))
+        print(_green("  ✅  System OK to run benchmarks."))
     print()
 
 
@@ -229,7 +229,7 @@ def print_summary(all_results: list[BenchmarkResult]) -> dict:
     if throughput_cases:
         best  = max(throughput_cases, key=lambda r: r.rows_per_sec)
         worst = min(throughput_cases, key=lambda r: r.rows_per_sec)
-        print(f"  ⚡  Throughput range:")
+        print("  ⚡  Throughput range:")
         print(f"      Best  : {_fmt_rps(best.rows_per_sec):<12} [{best.case_id}]")
         print(f"      Worst : {_fmt_rps(worst.rows_per_sec):<12} [{worst.case_id}]")
 
@@ -294,7 +294,6 @@ def print_critical_analysis(all_results: list[BenchmarkResult]) -> None:
         key=lambda r: r.n_rows,
     )
     if len(c_cases) >= 2:
-        tier_order = ["xs", "s", "m", "l", "xl", "xxl"]
         print("  📈  Group C — Tier scaling efficiency (rows/sec):")
         prev = c_cases[0]
         plateaus = []
@@ -350,8 +349,21 @@ def print_critical_analysis(all_results: list[BenchmarkResult]) -> None:
         print("  💾  Group G — Spill overhead vs Group B free-run:")
         for tier in shared:
             g, b  = g_cases[tier], b_cases[tier]
+            # ratio > 1 → free is faster (expected); ratio < 1 → spill is faster (anomalous)
             ratio = b.rows_per_sec / max(g.rows_per_sec, 1)
-            flag  = _yellow(f"⚠️  {ratio:.1f}x slower") if ratio > 1.5 else _green("✅ marginal")
+            if ratio > 1.5:
+                flag = _yellow(f"⚠️  {ratio:.1f}x slower under pressure")
+            elif ratio < 0.95:
+                spill_gb = g.total_spill_gb
+                if spill_gb == 0.0:
+                    flag = _yellow(
+                        f"⚠️  no-spill {1/ratio:.1f}x FASTER under tight limit "
+                        f"— smaller DuckDB buffer pool reduces overhead for this working set"
+                    )
+                else:
+                    flag = _yellow(f"⚠️  spill {1/ratio:.1f}x FASTER — check measurement isolation")
+            else:
+                flag = _green("✅ marginal")
             print(f"      {tier}: free {_fmt_rps(b.rows_per_sec)} → "
                   f"spill {_fmt_rps(g.rows_per_sec)}  {flag}")
         print()
@@ -475,6 +487,8 @@ GROUP_MAP: dict[str, Callable] = {
     "K": group_k_graph_query,
     "L": group_l_narwhals_backfill,
     "M": group_m_loaders_medallion,
+    "N": group_n_drift_observatory,
+    "O": group_o_dgm_query,
 }
 
 GROUP_DESCRIPTIONS = {
@@ -491,6 +505,8 @@ GROUP_DESCRIPTIONS = {
     "K": "Graph traversal and dimensional query builder",
     "L": "Narwhals SCD2 backfill throughput",
     "M": "ORM loader throughput and Medallion registry compute",
+    "N": "Schema/quality drift observability pipeline (DriftObservatory star schema)",
+    "O": "DGM three-band query builder (B1 / B1\u2218B2 / B1\u2218B3 / B1\u2218B2\u2218B3) throughput",
 }
 
 
