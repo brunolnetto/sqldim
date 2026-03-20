@@ -1,7 +1,6 @@
 """Tests for sqldim/examples/utils.py."""
 import os
 import duckdb
-import pytest
 
 from sqldim.examples.utils import (
     tmp_db,
@@ -33,7 +32,6 @@ def test_tmp_db_cleans_up_after_exit():
 
 def test_tmp_db_cleans_up_wal(tmp_path, monkeypatch):
     """WAL file is removed when it exists."""
-    import tempfile
     with tmp_db() as path:
         # Simulate a WAL file
         wal = path + ".wal"

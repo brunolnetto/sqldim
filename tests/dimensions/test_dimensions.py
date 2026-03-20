@@ -6,7 +6,7 @@ from sqldim.core.kimball.dimensions.date import DateDimension
 from sqldim.core.kimball.dimensions.time import TimeDimension
 from sqldim.core.kimball.dimensions.junk import populate_junk_dimension_lazy
 
-@pytest.fixture
+@pytest.fixture(scope="module")
 def session():
     engine = create_engine(
         "sqlite:///:memory:",
@@ -47,12 +47,12 @@ def test_non_leap_year(session):
     rows = DateDimension.generate("2023-03-01", "2023-03-01", session)
     assert rows[0].is_leap_year is False
 
-def test_century_non_leap(session):
+def test_century_non_leap():
     # 1900 is divisible by 100 but not 400 → not a leap year
     r = DateDimension._from_date(date(1900, 1, 1))
     assert r.is_leap_year is False
 
-def test_400_year_leap(session):
+def test_400_year_leap():
     # 2000 is divisible by 400 → leap year
     r = DateDimension._from_date(date(2000, 1, 1))
     assert r.is_leap_year is True

@@ -1,4 +1,3 @@
-import pytest
 from sqldim import DimensionModel, FactModel, Field
 from sqldim.core.graph import SchemaGraph, RolePlayingRef
 

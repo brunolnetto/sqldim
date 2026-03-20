@@ -235,7 +235,8 @@ class TestCombinedDecorators:
         assert col.metrics()[0].name == "pipeline.runs"
 
     def test_traced_and_metered_with_exporter(self):
-        import io, json
+        import io
+        import json
         from sqldim.observability import ConsoleExporter
 
         buf = io.StringIO()

@@ -23,15 +23,15 @@ from __future__ import annotations
 import pytest
 from datetime import date
 from typing import Optional
-from unittest.mock import AsyncMock, MagicMock, call
+from unittest.mock import AsyncMock, MagicMock
 
 from sqldim import Field as DimField
 from sqlmodel import Field
 from sqldim.core.graph import VertexModel, EdgeModel
 from sqldim.core.graph.registry import GraphModel
 from sqldim.core.graph.traversal import TraversalEngine, DuckDBTraversalEngine
-from sqldim.core.kimball.models import BridgeModel, DimensionModel, FactModel
-from sqldim.core.kimball.schema_graph import SchemaGraph, RolePlayingRef
+from sqldim.core.kimball.models import DimensionModel
+from sqldim.core.kimball.schema_graph import SchemaGraph
 from sqldim.exceptions import SchemaError, SemanticError, GrainCompatibilityError
 
 
@@ -484,7 +484,7 @@ class TestTemporalSQLGeneration:
     def test_neighbors_sql_at_no_as_of_falls_back_to_plain(self):
         """When as_of=None, the temporal method returns plain neighbor SQL."""
         te = TraversalEngine()
-        plain = te.neighbors_sql(GAPurchaseEdge, start_id=1, direction="out")
+        te.neighbors_sql(GAPurchaseEdge, start_id=1, direction="out")
         temporal = te.neighbors_sql_at(
             GAPurchaseEdge, GAProductDim, start_id=1, as_of=None, direction="out"
         )

@@ -13,7 +13,6 @@ sqldim/sinks/postgresql.py     → prefetch_hashes() (both con paths), hash-cach
 from __future__ import annotations
 
 import duckdb
-import pytest
 
 from sqldim.sinks.duckdb import DuckDBSink
 from sqldim.sinks.motherduck import MotherDuckSink
@@ -264,7 +263,5 @@ class TestPostgreSQLSinkPrefetchHashesUnit:
         # We patch _con to None to force the postgres_scan code path, but
         # override the actual execute to use our local table read.
         # Instead we just verify the formula is correct:
-        import sqldim.sinks.postgresql as pg_mod
-        original_dsn = sink._dsn
         # Just verify no hash_cache entry before prefetch (path not exercised here)
         assert "dim_product" not in sink._hash_cache

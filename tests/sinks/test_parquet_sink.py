@@ -6,7 +6,6 @@ Coverage target: sqldim/sinks/parquet.py  41% → ~95%
 from __future__ import annotations
 import duckdb
 import pyarrow as pa
-import pytest
 
 from sqldim.sinks.parquet import ParquetSink
 
@@ -26,7 +25,7 @@ def _seed_parquet(path: str, rows: list[dict]) -> None:
         ("valid_from", pa.string()),
         ("valid_to",   pa.string()),
     ])
-    table = pa.table(
+    pa.table(
         {k: pa.array([r[k] for r in rows], type=schema.field(k).type)
          for k in schema.names},
         schema=schema,
@@ -202,7 +201,8 @@ class TestParquetSinkUpdateAttributes:
 class TestParquetSinkRotateAttributes:
     def test_rotate_attributes_rewrites_partition(self, tmp_path):
         # Create a table with current_ and prev_ columns
-        import os, pyarrow.parquet as pq
+        import os
+        import pyarrow.parquet as pq
         base = str(tmp_path)
         path = f"{base}/dim_category"
         os.makedirs(f"{path}/is_current=True", exist_ok=True)
@@ -244,7 +244,8 @@ class TestParquetSinkRotateAttributes:
 
 class TestParquetSinkUpdateMilestones:
     def test_update_milestones_rewrites_partition(self, tmp_path):
-        import os, pyarrow.parquet as pq
+        import os
+        import pyarrow.parquet as pq
         base = str(tmp_path)
         path = f"{base}/fact_orders"
         os.makedirs(f"{path}/is_current=True", exist_ok=True)
@@ -327,3 +328,22 @@ class TestParquetSinkWriteNamed:
             ["sku", "name", "price", "checksum", "is_current", "valid_from", "valid_to"],
         )
         assert n == 2
+
+
+# ---------------------------------------------------------------------------
+# Branch coverage for _partition_clause and _order_clause helpers
+# ---------------------------------------------------------------------------
+
+class TestParquetSinkHelperBranches:
+    """Cover the empty-return branches in _partition_clause and _order_clause."""
+
+    def test_partition_clause_empty_returns_blank(self):
+        """partition_by=[] → _partition_clause() returns "" (line 68)."""
+        sink = ParquetSink("/tmp/x", partition_by=[])
+        assert sink._partition_clause() == ""
+
+    def test_order_clause_with_columns_returns_order_by(self):
+        """zorder_by=['col'] → _order_clause() returns ORDER BY clause (lines 76-77)."""
+        sink = ParquetSink("/tmp/x", zorder_by=["col1", "col2"])
+        result = sink._order_clause()
+        assert "ORDER BY col1, col2" in result

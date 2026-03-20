@@ -1,4 +1,3 @@
-import pytest
 from sqldim.config import SqldimConfig
 
 def test_defaults():

@@ -122,7 +122,8 @@ class TestCrossInstruments:
         assert kinds == {MetricKind.COUNTER, MetricKind.GAUGE, MetricKind.HISTOGRAM}
 
     def test_instruments_with_exporter(self):
-        import io, json
+        import io
+        import json
         from sqldim.observability import ConsoleExporter
 
         buf = io.StringIO()

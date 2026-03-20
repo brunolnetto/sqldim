@@ -1,11 +1,13 @@
 """
-Tests for sqldim/examples/real_world/*/dataset.py
+Tests for sqldim/examples/datasets/{nba_analytics,saas_growth,user_activity}.py
 
 Coverage targets
 ----------------
-sqldim/examples/real_world/nba_analytics/dataset.py
-sqldim/examples/real_world/saas_growth/dataset.py
-sqldim/examples/real_world/user_activity/dataset.py
+sqldim/examples/datasets/nba_analytics.py
+sqldim/examples/datasets/saas_growth.py
+sqldim/examples/datasets/user_activity.py
+sqldim/examples/datasets/fintech.py
+sqldim/examples/datasets/supply_chain.py
 """
 from __future__ import annotations
 
@@ -15,10 +17,20 @@ import pytest
 from sqldim.examples.datasets import DatasetFactory
 from sqldim.sources.sql import SQLSource
 
-# Import real-world dataset modules to trigger @DatasetFactory.register()
-from sqldim.examples.real_world.nba_analytics.dataset import PlayerSeasonsSource
-from sqldim.examples.real_world.saas_growth.dataset import SaaSUsersSource
-from sqldim.examples.real_world.user_activity.dataset import DevicesSource, EventsSource
+from sqldim.examples.datasets.domains.nba_analytics import PlayerSeasonsSource
+from sqldim.examples.datasets.domains.saas_growth import SaaSUsersSource
+from sqldim.examples.datasets.domains.user_activity import DevicesSource, EventsSource
+from sqldim.examples.datasets.domains.fintech import (
+    AccountsSource as FintechAccountsSource,
+    CounterpartiesSource,
+    TransactionsSource,
+)
+from sqldim.examples.datasets.domains.supply_chain import (
+    SuppliersSource,
+    WarehousesSource,
+    SKUsSource,
+    ReceiptsSource,
+)
 
 
 # ---------------------------------------------------------------------------
@@ -290,3 +302,122 @@ class TestEventsSource:
         src.teardown(con, "fact_events")
         tables = con.execute("SHOW TABLES").fetchdf()["name"].tolist()
         assert "fact_events" not in tables
+
+
+# ---------------------------------------------------------------------------
+# CounterpartiesSource  (fintech)
+# ---------------------------------------------------------------------------
+
+class TestCounterpartiesSource:
+
+    @pytest.fixture()
+    def src(self):
+        return CounterpartiesSource(n_entities=10, seed=0)
+
+    def test_registered_in_factory(self):
+        assert "fintech_counterparties" in DatasetFactory.available()
+
+    def test_initial_row_count(self, src):
+        assert len(src.initial) == 10
+
+    def test_snapshot_returns_sql_source(self, src):
+        assert isinstance(src.snapshot(), SQLSource)
+
+    def test_snapshot_has_key_fields(self, src):
+        con = duckdb.connect()
+        df = con.execute(src.snapshot().as_sql(con)).fetchdf()
+        for col in ("cp_id", "bic_code", "institution_name", "country_code", "is_sanctioned"):
+            assert col in df.columns
+
+    def test_event_batch_returns_sql_source(self, src):
+        assert isinstance(src.event_batch(1), SQLSource)
+
+
+# ---------------------------------------------------------------------------
+# TransactionsSource  (fintech)
+# ---------------------------------------------------------------------------
+
+class TestTransactionsSource:
+
+    @pytest.fixture()
+    def src(self):
+        return TransactionsSource(n_entities=20, seed=1)
+
+    def test_registered_in_factory(self):
+        assert "fintech_transactions" in DatasetFactory.available()
+
+    def test_initial_row_count(self, src):
+        assert len(src.initial) == 20
+
+    def test_snapshot_returns_sql_source(self, src):
+        assert isinstance(src.snapshot(), SQLSource)
+
+    def test_snapshot_has_key_fields(self, src):
+        con = duckdb.connect()
+        df = con.execute(src.snapshot().as_sql(con)).fetchdf()
+        for col in ("txn_id", "account_id", "counterparty_id", "amount_usd", "txn_type"):
+            assert col in df.columns
+
+    def test_event_batch_changes_amounts(self, src):
+        con = duckdb.connect()
+        initial = con.execute(src.snapshot().as_sql(con)).fetchdf()
+        events = con.execute(src.event_batch(1).as_sql(con)).fetchdf()
+        assert len(events) > 0
+        assert set(events.columns) == set(initial.columns)
+
+
+# ---------------------------------------------------------------------------
+# SuppliersSource  (supply_chain)
+# ---------------------------------------------------------------------------
+
+class TestSuppliersSource:
+
+    @pytest.fixture()
+    def src(self):
+        return SuppliersSource(n_entities=8, seed=10)
+
+    def test_registered_in_factory(self):
+        assert "supply_chain_suppliers" in DatasetFactory.available()
+
+    def test_initial_row_count(self, src):
+        assert len(src.initial) == 8
+
+    def test_snapshot_returns_sql_source(self, src):
+        assert isinstance(src.snapshot(), SQLSource)
+
+    def test_snapshot_has_key_fields(self, src):
+        con = duckdb.connect()
+        df = con.execute(src.snapshot().as_sql(con)).fetchdf()
+        for col in ("supplier_id", "supplier_code", "supplier_name",
+                    "country_code", "reliability_score"):
+            assert col in df.columns
+
+    def test_event_batch_returns_sql_source(self, src):
+        assert isinstance(src.event_batch(1), SQLSource)
+
+
+# ---------------------------------------------------------------------------
+# ReceiptsSource  (supply_chain)
+# ---------------------------------------------------------------------------
+
+class TestReceiptsSource:
+
+    @pytest.fixture()
+    def src(self):
+        return ReceiptsSource(n_entities=15, seed=7)
+
+    def test_registered_in_factory(self):
+        assert "supply_chain_receipts" in DatasetFactory.available()
+
+    def test_initial_row_count(self, src):
+        assert len(src.initial) == 15
+
+    def test_snapshot_returns_sql_source(self, src):
+        assert isinstance(src.snapshot(), SQLSource)
+
+    def test_snapshot_has_key_fields(self, src):
+        con = duckdb.connect()
+        df = con.execute(src.snapshot().as_sql(con)).fetchdf()
+        for col in ("receipt_id", "warehouse_id", "supplier_id",
+                    "sku_id", "receipt_date", "quantity_received"):
+            assert col in df.columns

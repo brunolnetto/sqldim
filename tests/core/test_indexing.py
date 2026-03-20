@@ -18,8 +18,6 @@ for analytical workloads (DuckDB, Parquet, etc. don't support FK constraints).
 Use Field(foreign_key=..., constraint=True) to explicitly opt-in.
 """
 import pytest
-from sqlalchemy import Index as SAIndex
-from sqlmodel import SQLModel
 
 from sqldim import DimensionModel, FactModel, BridgeModel, Field, VertexModel
 from sqldim.core.kimball.fields import _UNSET

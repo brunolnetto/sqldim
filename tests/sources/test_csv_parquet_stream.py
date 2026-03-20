@@ -4,12 +4,9 @@ Tests for CSVStreamSource and ParquetStreamSource.
 Coverage target: sqldim/sources/csv_stream.py and parquet_stream.py — ~90%
 """
 from __future__ import annotations
-import os
-import tempfile
 import csv
 
 import duckdb
-import pytest
 
 from sqldim.sources.csv_stream import CSVStreamSource
 from sqldim.sources.parquet_stream import ParquetStreamSource

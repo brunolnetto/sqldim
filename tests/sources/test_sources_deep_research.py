@@ -6,8 +6,7 @@ Tests for deep_research.md source enhancements:
   - PostgreSQLSource: filter_pushdown, pages_per_task
   - IcebergSource: new class
 """
-import pytest
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock
 
 
 # ===========================================================================

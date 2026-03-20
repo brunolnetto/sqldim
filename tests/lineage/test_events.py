@@ -2,7 +2,7 @@
 from datetime import datetime, timezone
 
 from sqldim.lineage import LineageEvent, RunState
-from sqldim.lineage.events import DatasetRef
+from sqldim.lineage.events import DatasetRef, InferredMemberEvent, InferredMemberEventType
 
 
 # ---------------------------------------------------------------------------
@@ -135,3 +135,38 @@ class TestLineageEvent:
             d = ev.to_dict()
             assert d["eventType"] == state.value
             json.dumps(d)  # must not raise
+
+
+# ---------------------------------------------------------------------------
+# InferredMemberEvent
+# ---------------------------------------------------------------------------
+
+class TestInferredMemberEvent:
+    def test_to_dict_created_event(self):
+        """Line 62: InferredMemberEvent.to_dict()"""
+        ev = InferredMemberEvent(
+            event_type=InferredMemberEventType.CREATED,
+            dimension="customer_dim",
+            natural_key="CUST-999",
+            fact_table="sales_fact",
+        )
+        d = ev.to_dict()
+        assert d["eventType"] == InferredMemberEventType.CREATED.value
+        assert d["dimension"] == "customer_dim"
+        assert d["naturalKey"] == "CUST-999"
+        assert d["factTable"] == "sales_fact"
+        assert d["versionsMerged"] == 0
+        assert "eventTime" in d
+
+    def test_to_dict_reconnected_event(self):
+        ev = InferredMemberEvent(
+            event_type=InferredMemberEventType.RECONNECTED,
+            dimension="product_dim",
+            natural_key="SKU-42",
+            versions_merged=3,
+        )
+        d = ev.to_dict()
+        assert d["eventType"] == InferredMemberEventType.RECONNECTED.value
+        assert d["versionsMerged"] == 3
+        assert d["factTable"] == ""
+

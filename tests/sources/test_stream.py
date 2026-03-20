@@ -10,7 +10,6 @@ sqldim/sources/cdc.py        → ~80%  (constructor + public API; no real CDC)
 """
 from __future__ import annotations
 
-import pytest
 import duckdb
 
 from sqldim.sources.stream import StreamSourceAdapter, StreamResult
@@ -237,7 +236,6 @@ class TestKinesisSource:
         src.commit("seq-123")  # should not raise
 
     def test_stream_is_generator_function(self):
-        import inspect
         src = KinesisSource(stream_name="s")
         # stream() must return a generator / iterator, not raise on creation
         gen = src.stream(con=None, batch_size=100)
@@ -571,7 +569,6 @@ class TestKafkaStreamNative:
         return con
 
     def test_yields_one_sql_fragment_per_non_empty_batch(self):
-        from unittest.mock import MagicMock
         src = self._make_src()
         con = self._mock_con(count_seq=[5], offset_seq=[42])
         fragments = list(src._stream_native(con, batch_size=10))
@@ -705,7 +702,6 @@ class TestKafkaStreamConsumer:
     def test_skips_messages_with_errors(self):
         """Messages where m.error() is not None should be skipped."""
         import sys
-        import json
         from unittest.mock import MagicMock, patch
 
         # One error message, one good message

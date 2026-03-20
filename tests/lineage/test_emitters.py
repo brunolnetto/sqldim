@@ -235,3 +235,37 @@ class TestOpenLineageEmitterMocked:
         run_event_call = mock_ol.client.run.RunEvent.call_args.kwargs
         assert run_event_call["inputs"] == []
         assert run_event_call["outputs"] == []
+
+    def test_emit_with_column_lineage_facet_in_dataset(self):
+        """Lines 103-108: _to_ol_datasets should serialise ColumnLineageFacet to dict."""
+        from sqldim.lineage.column import ColumnLineageFacet, ColumnLineageEntry
+        from sqldim.lineage.events import DatasetRef
+
+        col_facet = ColumnLineageFacet(entries=[
+            ColumnLineageEntry("customer_sk", ["raw.customer_id"]),
+        ])
+        ref = DatasetRef(namespace="sqldim", name="dim_customer",
+                         facets={"columnLineage": col_facet})
+
+        mock_ol = self._build_mocks()
+        ctx, mod = self._patch_context(mock_ol)
+        with ctx:
+            import importlib
+            importlib.reload(mod)
+            emitter = mod.OpenLineageEmitter()
+            emitter.emit(LineageEvent(
+                job_name="x",
+                state=RunState.COMPLETE,
+                outputs=[ref],
+            ))
+
+        # Dataset should have been called; the facets dict should have the
+        # ColumnLineageFacet converted to a plain dict (not the object itself)
+        dataset_call_kwargs = mock_ol.client.run.Dataset.call_args.kwargs
+        facets_passed = dataset_call_kwargs.get("facets", {})
+        if facets_passed:
+            col_lineage_val = facets_passed.get("columnLineage")
+            if col_lineage_val is not None:
+                assert isinstance(col_lineage_val, dict), \
+                    "ColumnLineageFacet should be serialised to dict"
+

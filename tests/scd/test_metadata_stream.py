@@ -14,8 +14,8 @@ from __future__ import annotations
 import json
 import duckdb
 
-from sqldim.core.kimball.dimensions.scd.processors._lazy_metadata import LazySCDMetadataProcessor
-from sqldim.sources.stream import StreamSourceAdapter, StreamResult
+from sqldim.core.kimball.dimensions.scd.processors.lazy.metadata._lazy_metadata import LazySCDMetadataProcessor
+from sqldim.sources.stream import StreamResult
 
 
 # ---------------------------------------------------------------------------

@@ -1,6 +1,5 @@
 import pytest
 from sqlalchemy.pool import StaticPool
-import pandas as pd
 import polars as pl
 import narwhals as nw
 from typing import Optional, Dict, Any

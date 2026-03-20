@@ -1,8 +1,4 @@
 """Tests for MotherDuckSink using a local .duckdb file (no cloud required)."""
-import os
-import tempfile
-import pytest
-import duckdb
 
 from sqldim.sinks.motherduck import MotherDuckSink
 

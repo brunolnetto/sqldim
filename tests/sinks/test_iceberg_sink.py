@@ -3,7 +3,7 @@ import sys
 import types
 import pytest
 import duckdb
-from unittest.mock import MagicMock, patch, PropertyMock
+from unittest.mock import MagicMock, patch
 
 
 # ── Mock pyiceberg and pyarrow before importing IcebergSink ─────────────────
@@ -129,7 +129,6 @@ def test_current_state_sql(iceberg_sink):
 # ── write ─────────────────────────────────────────────────────────────────────
 
 def test_write_appends_arrow_batch():
-    import pyarrow as pa
     from sqldim.sinks.iceberg import IcebergSink
 
     arrow_data = _make_arrow_table({"id": [1], "name": ["Alice"]})
@@ -215,7 +214,6 @@ def test_close_versions_raises_on_missing_pyarrow(iceberg_sink):
 # ── update_attributes ─────────────────────────────────────────────────────────
 
 def test_update_attributes():
-    import pyarrow as pa
     from sqldim.sinks.iceberg import IcebergSink
 
     arrow_data = _make_arrow_table({

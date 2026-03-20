@@ -3,10 +3,12 @@ import pytest
 from typing import Any, Optional
 from unittest.mock import AsyncMock, MagicMock
 from sqlalchemy.pool import StaticPool
-from sqlmodel import Field, Session, SQLModel, create_engine
+from sqlmodel import Session, SQLModel, create_engine
+from sqldim import Field
 
 from sqldim.core.graph import VertexModel, EdgeModel
 from sqldim.core.graph.registry import GraphModel
+from sqldim.core.graph.schema_graph import SchemaGraph
 from sqldim.exceptions import SchemaError
 
 
@@ -398,3 +400,148 @@ async def test_graph_paths_execution():
     v1, v2 = PVertex(id=1), PVertex(id=3)
     paths = await graph.paths(v1, v2)
     assert paths == [[1, 2, 3]]
+
+
+# ---------------------------------------------------------------------------
+# UnifiedGraph — schema_graph, auto_register, diff, registered_vertices/edges
+# ---------------------------------------------------------------------------
+
+class _UGDimCov(VertexModel, table=True):
+    """Module-level model for UnifiedGraph tests (avoids table redefinition)."""
+    __tablename__ = "ug_dim_cov2"
+    __vertex_type__ = "ug_dim_cov2"
+    id: Optional[int] = Field(default=None, primary_key=True)
+    code: str
+
+
+class TestUnifiedGraph:
+    """Cover UnifiedGraph.__init__, _auto_register_from_schema, diff and
+    introspection properties (registry.py lines 555-659)."""
+
+    def _make_schema_graph(self):
+        from sqldim.core.graph.schema_graph import SchemaGraph
+        return SchemaGraph([_UGDimCov]), _UGDimCov
+
+    def test_init_without_auto_register(self):
+        from sqldim.core.graph.registry import UnifiedGraph
+
+        sg, _ = self._make_schema_graph()
+        mock_sess = MagicMock()
+        ug = UnifiedGraph(sg, session=mock_sess, auto_register=False)
+        assert ug.schema_graph is sg
+
+    def test_init_with_auto_register(self):
+        from sqldim.core.graph.registry import UnifiedGraph
+
+        sg, UGDim = self._make_schema_graph()
+        mock_sess = MagicMock()
+        ug = UnifiedGraph(sg, session=mock_sess, auto_register=True)
+        # dimension should be in vertex_models after auto-registration
+        assert UGDim in ug.registered_vertices()
+
+    def test_registered_edges_returns_list(self):
+        from sqldim.core.graph.registry import UnifiedGraph
+
+        sg, _ = self._make_schema_graph()
+        mock_sess = MagicMock()
+        ug = UnifiedGraph(sg, session=mock_sess)
+        assert isinstance(ug.registered_edges(), list)
+
+    def test_diff_delegates_to_schema_graph(self):
+        from sqldim.core.graph.registry import UnifiedGraph
+
+        sg_old, _ = self._make_schema_graph()
+        sg_new, _ = self._make_schema_graph()
+        mock_sess = MagicMock()
+        ug = UnifiedGraph(sg_old, session=mock_sess)
+        diff = ug.diff(sg_new)
+        # Should return a SchemaDiff object; just check it has edit_distance
+        assert hasattr(diff, "edit_distance")
+
+    def test_auto_register_skips_fact_with_single_fk_dim(self):
+        """Facts with < 2 FK dims hit the 'continue' branch (registry.py line ~599)."""
+        from sqldim.core.graph.registry import UnifiedGraph
+        from sqldim.core.kimball.models import DimensionModel, FactModel
+
+        class _UGDimSingle(DimensionModel, table=True):
+            __tablename__ = "ug_dim_single_fk_cov"
+            __natural_key__ = ["code"]
+            id: Optional[int] = Field(default=None, primary_key=True)
+            code: str
+
+        class _UGFactOneFk(FactModel, table=True):
+            """Only one FK dim → not enough to form an edge."""
+            __tablename__ = "ug_fact_one_fk_cov"
+            __grain__ = "test"
+            id: Optional[int] = Field(default=None, primary_key=True)
+            dim_id: int = Field(foreign_key="ug_dim_single_fk_cov.id", dimension=_UGDimSingle)
+            value: float = 0.0
+
+        sg = SchemaGraph([_UGDimSingle, _UGFactOneFk])
+        mock_sess = MagicMock()
+        ug = UnifiedGraph(sg, session=mock_sess, auto_register=True)
+        # edge should NOT be registered (only 1 FK dim)
+        assert _UGFactOneFk not in ug.registered_edges()
+
+    def test_auto_register_registers_fact_with_two_fk_dims(self):
+        """Facts with 2+ FK dims get registered as edges with monkey-patched subject/object."""
+        from sqldim.core.graph.registry import UnifiedGraph
+        from sqldim.core.kimball.models import DimensionModel, FactModel
+
+        class _UGDimA(DimensionModel, table=True):
+            __tablename__ = "ug_dim_a_cov"
+            __natural_key__ = ["code"]
+            id: Optional[int] = Field(default=None, primary_key=True)
+            code: str
+
+        class _UGDimB(DimensionModel, table=True):
+            __tablename__ = "ug_dim_b_cov"
+            __natural_key__ = ["code"]
+            id: Optional[int] = Field(default=None, primary_key=True)
+            code: str
+
+        class _UGFactTwoFks(FactModel, table=True):
+            """Two FK dims → registers as edge."""
+            __tablename__ = "ug_fact_two_fks_cov"
+            __grain__ = "test"
+            id: Optional[int] = Field(default=None, primary_key=True)
+            dim_a_id: int = Field(foreign_key="ug_dim_a_cov.id", dimension=_UGDimA)
+            dim_b_id: int = Field(foreign_key="ug_dim_b_cov.id", dimension=_UGDimB)
+            value: float = 0.0
+
+        sg = SchemaGraph([_UGDimA, _UGDimB, _UGFactTwoFks])
+        mock_sess = MagicMock()
+        ug = UnifiedGraph(sg, session=mock_sess, auto_register=True)
+        assert _UGFactTwoFks in ug.registered_edges()
+
+    def test_auto_register_is_idempotent(self):
+        """Calling _auto_register_from_schema() twice hits the 'continue' branch
+        (registry.py line 597) for already-registered edges."""
+        from sqldim.core.graph.registry import UnifiedGraph
+        from sqldim.core.kimball.models import DimensionModel, FactModel
+
+        class _UGDimIdm(DimensionModel, table=True):
+            __tablename__ = "ug_dim_idm_cov"
+            __natural_key__ = ["code"]
+            id: Optional[int] = Field(default=None, primary_key=True)
+            code: str
+
+        class _UGDimIdm2(DimensionModel, table=True):
+            __tablename__ = "ug_dim_idm2_cov"
+            __natural_key__ = ["code"]
+            id: Optional[int] = Field(default=None, primary_key=True)
+            code: str
+
+        class _UGFactIdm(FactModel, table=True):
+            __tablename__ = "ug_fact_idm_cov"
+            __grain__ = "test"
+            id: Optional[int] = Field(default=None, primary_key=True)
+            dim1_id: int = Field(foreign_key="ug_dim_idm_cov.id", dimension=_UGDimIdm)
+            dim2_id: int = Field(foreign_key="ug_dim_idm2_cov.id", dimension=_UGDimIdm2)
+
+        sg = SchemaGraph([_UGDimIdm, _UGDimIdm2, _UGFactIdm])
+        mock_sess = MagicMock()
+        ug = UnifiedGraph(sg, session=mock_sess, auto_register=True)
+        # First call registered _UGFactIdm; second call must hit 'continue'.
+        ug._auto_register_from_schema()
+        assert _UGFactIdm in ug.registered_edges()

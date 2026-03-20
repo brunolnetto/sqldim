@@ -23,7 +23,7 @@ import json
 import pytest
 import duckdb
 
-from sqldim.core.kimball.dimensions.scd.processors._lazy_metadata import (
+from sqldim.core.kimball.dimensions.scd.processors.lazy.metadata._lazy_metadata import (
     LazySCDMetadataProcessor,
     _safe,
     _as_subquery,

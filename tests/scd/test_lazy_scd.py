@@ -8,7 +8,6 @@ sqldim/narwhals/sk_resolver.py  63% → ~85%
 """
 from __future__ import annotations
 import duckdb
-import pytest
 
 from sqldim.core.kimball.dimensions.scd.processors.scd_engine import (
     LazySCDProcessor,
@@ -387,7 +386,7 @@ class TestLazyType6Processor:
         self._make_scd6_table(con, "dim_t6")
         # Seed row — type2 hash = md5('Phone')
         t2_hash = con.execute("SELECT md5('Phone')").fetchone()[0]
-        t1_hash = con.execute("SELECT md5('Electronics')").fetchone()[0]
+        con.execute("SELECT md5('Electronics')").fetchone()[0]
         con.execute(f"""
             INSERT INTO dim_t6
             VALUES ('P1', 'Electronics', 'Phone', '{t2_hash}', TRUE, '2024-01-01', NULL)
@@ -421,7 +420,7 @@ class TestLazyType6Processor:
             SELECT 'P2' AS product_id, 'Computers' AS category, 'Laptop' AS name
         """)
         proc, _ = self._make_processor(con)
-        result = proc.process("src", "dim_t6")
+        proc.process("src", "dim_t6")
         # Type1-only change → no new version, just update
         row = con.execute(
             "SELECT category, is_current FROM dim_t6 WHERE product_id = 'P2'"
@@ -434,7 +433,7 @@ class TestLazyType6Processor:
         self._make_scd6_table(con, "dim_t6")
         # Build both hashes matching incoming
         t2_hash = con.execute("SELECT md5('Camera')").fetchone()[0]
-        t1_hash = con.execute("SELECT md5('Optics')").fetchone()[0]
+        con.execute("SELECT md5('Optics')").fetchone()[0]
         con.execute(f"""
             INSERT INTO dim_t6
             VALUES ('P3', 'Optics', 'Camera', '{t2_hash}', TRUE, '2024-01-01', NULL)
@@ -587,3 +586,149 @@ class TestLazySKResolver:
         )
         # default output view name
         assert "fact" in out or "sk" in out or out == "fact_with_all_sk"
+
+
+# ---------------------------------------------------------------------------
+# LazySCDProcessor — is_inferred and reconnect branches
+# ---------------------------------------------------------------------------
+
+class TestLazySCDInferredPaths:
+    """Coverage for lines 152, 157, 212, 244-250 in _lazy_type2.py."""
+
+    def _make_proc(self, con, emitter=None):
+        sink = InMemorySink()
+        return LazySCDProcessor(
+            natural_key="sku",
+            track_columns=["name", "price"],
+            sink=sink,
+            con=con,
+            lineage_emitter=emitter,
+        )
+
+    def test_classify_detects_reconnect_when_current_checksums_has_is_inferred(self):
+        """Lines 152, 157: has_inferred=True path when current_checksums.is_inferred exists."""
+        con = duckdb.connect()
+        # Manually set up incoming with checksum
+        con.execute("""
+            CREATE OR REPLACE VIEW incoming AS
+            SELECT 'SKU1' AS sku, 'Widget' AS name, '9.99' AS price,
+                   'newhash' AS _checksum
+        """)
+        # Manually set up current_checksums WITH is_inferred column
+        con.execute("""
+            CREATE OR REPLACE TABLE current_checksums (
+                sku VARCHAR, _checksum VARCHAR, is_inferred BOOLEAN
+            )
+        """)
+        con.execute("INSERT INTO current_checksums VALUES ('SKU1', 'oldhash', TRUE)")
+
+        proc = self._make_proc(con)
+        proc._classify()
+
+        result = con.execute(
+            "SELECT _scd_class FROM classified WHERE sku = 'SKU1'"
+        ).fetchone()
+        assert result is not None
+        assert result[0] == "reconnect"
+
+    def test_classify_changed_when_is_inferred_false(self):
+        """Lines 152, 157: existing row has is_inferred=FALSE → classifies as changed."""
+        con = duckdb.connect()
+        con.execute("""
+            CREATE OR REPLACE VIEW incoming AS
+            SELECT 'SKU2' AS sku, 'Gadget' AS name, '5.00' AS price,
+                   'newhash2' AS _checksum
+        """)
+        con.execute("""
+            CREATE OR REPLACE TABLE current_checksums (
+                sku VARCHAR, _checksum VARCHAR, is_inferred BOOLEAN
+            )
+        """)
+        con.execute("INSERT INTO current_checksums VALUES ('SKU2', 'oldhash2', FALSE)")
+
+        proc = self._make_proc(con)
+        proc._classify()
+
+        result = con.execute(
+            "SELECT _scd_class FROM classified WHERE sku = 'SKU2'"
+        ).fetchone()
+        assert result[0] == "changed"
+
+    def test_write_changed_with_is_inferred_in_target_table(self):
+        """Line 212: target table has is_inferred column → view includes is_inferred."""
+        con = duckdb.connect()
+        # Seed target table WITH is_inferred column
+        con.execute("""
+            CREATE TABLE dim_prod_inferred (
+                sku VARCHAR, name VARCHAR, price VARCHAR,
+                checksum VARCHAR, is_current BOOLEAN,
+                valid_from VARCHAR, valid_to VARCHAR,
+                is_inferred BOOLEAN
+            )
+        """)
+        con.execute("""
+            INSERT INTO dim_prod_inferred VALUES
+                ('SKU3', 'OldName', '1.00', 'oldhash3', TRUE, '2024-01-01', NULL, FALSE)
+        """)
+        # Set up incoming
+        con.execute("""
+            CREATE OR REPLACE VIEW incoming_src AS
+            SELECT 'SKU3' AS sku, 'NewName' AS name, '1.00' AS price
+        """)
+        proc = self._make_proc(con)
+        result = proc.process("incoming_src", "dim_prod_inferred")
+        # Changed row should have been versioned
+        assert result.versioned >= 1
+
+    def test_reconnect_emits_lineage_event(self):
+        """Lines 244-250: lineage emitter called for reconnect rows."""
+        emitted = []
+
+        def emitter(event):
+            emitted.append(event)
+
+        con = duckdb.connect()
+        # Create target table WITH is_inferred
+        con.execute("""
+            CREATE TABLE dim_prod_reconnect (
+                sku VARCHAR, name VARCHAR, price VARCHAR,
+                checksum VARCHAR, is_current BOOLEAN,
+                valid_from VARCHAR, valid_to VARCHAR,
+                is_inferred BOOLEAN
+            )
+        """)
+        con.execute("""
+            INSERT INTO dim_prod_reconnect VALUES
+                ('SKU4', 'OldName', '2.00', 'oldhash4', TRUE, '2024-01-01', NULL, TRUE)
+        """)
+        # Manually set up current_checksums with is_inferred to trigger reconnect
+        con.execute("""
+            CREATE OR REPLACE VIEW incoming_src AS
+            SELECT 'SKU4' AS sku, 'NewName' AS name, '2.00' AS price
+        """)
+        # We need to intercept _register_current_checksums to add is_inferred
+        proc = self._make_proc(con, emitter=emitter)
+
+        # Manually build current_checksums with is_inferred
+        con.execute("""
+            CREATE OR REPLACE VIEW incoming AS
+            SELECT *, md5('NewName' || '|' || '2.00') AS _checksum
+            FROM incoming_src
+        """)
+        con.execute("""
+            CREATE OR REPLACE TABLE current_checksums (
+                sku VARCHAR, _checksum VARCHAR, is_inferred BOOLEAN
+            )
+        """)
+        con.execute("INSERT INTO current_checksums VALUES ('SKU4', 'oldhash4', TRUE)")
+        # Classify to get 'reconnect' rows
+        proc._classify()
+
+        # Now call _write_changed to trigger lineage
+        from datetime import datetime, timezone
+        now = datetime.now(timezone.utc).isoformat()
+        proc._write_changed("dim_prod_reconnect", now)
+
+        assert len(emitted) >= 1
+        from sqldim.lineage.events import InferredMemberEventType
+        assert emitted[0].event_type == InferredMemberEventType.RECONNECTED

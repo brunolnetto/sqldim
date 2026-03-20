@@ -8,7 +8,6 @@ sqldim/sinks/duckdb.py        — upsert()
 """
 from __future__ import annotations
 import duckdb
-import pytest
 
 from sqldim.core.kimball.dimensions.scd.processors.scd_engine import LazyType4Processor, LazyType5Processor
 

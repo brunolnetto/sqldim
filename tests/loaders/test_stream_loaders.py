@@ -12,7 +12,6 @@ sqldim/loaders/snapshot.py  → load_stream() on LazyTransactionLoader &
 from __future__ import annotations
 
 import duckdb
-import pytest
 
 from sqldim.core.loaders.snapshot import LazyTransactionLoader, LazySnapshotLoader
 from sqldim.sources.stream import StreamResult

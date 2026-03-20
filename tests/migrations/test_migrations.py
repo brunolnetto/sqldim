@@ -1,4 +1,3 @@
-import os
 import pytest
 from sqldim import DimensionModel, FactModel, Field, SCD2Mixin
 from sqldim.exceptions import DestructiveMigrationError
@@ -226,3 +225,143 @@ def test_detect_nk_change_for_fact_model():
     ctx = DimensionalMigrationContext([CustomerDim, OrderFact])
     result = ctx._detect_nk_change(OrderFact, "orderfact", {})
     assert result is None
+
+
+# ── Introspect / diff_from_connection ────────────────────────────────────────
+
+def test_introspect_returns_current_state():
+    """context.py lines 194-241: introspect() reads column/scd/nk info from a live DB."""
+    import duckdb
+
+    ctx = DimensionalMigrationContext([CustomerDim])
+    con = duckdb.connect()
+    # Create the customerdim table that roughly matches CustomerDim + SCD2Mixin columns
+    con.execute("""
+        CREATE TABLE customerdim (
+            id INTEGER,
+            customer_code VARCHAR,
+            name VARCHAR,
+            city VARCHAR,
+            valid_from TIMESTAMP,
+            valid_to TIMESTAMP,
+            is_current BOOLEAN,
+            checksum VARCHAR
+        )
+    """)
+    state = ctx.introspect(con)
+    assert "customerdim" in state
+    entry = state["customerdim"]
+    assert "customer_code" in entry["columns"]
+    assert "valid_from" in entry["columns"]
+    # SCD2 indicator columns present → inferred as scd_type 2
+    assert entry["scd_type"] == 2
+
+
+def test_introspect_parses_nk_from_index():
+    """context.py lines 229-231: NK is parsed from duckdb_indexes() when ix_<table>_nk exists."""
+    import duckdb
+
+    ctx = DimensionalMigrationContext([CustomerDim])
+    con = duckdb.connect()
+    con.execute("""
+        CREATE TABLE customerdim (
+            id INTEGER,
+            customer_code VARCHAR,
+            name VARCHAR,
+            city VARCHAR,
+            valid_from TIMESTAMP,
+            valid_to TIMESTAMP,
+            is_current BOOLEAN,
+            checksum VARCHAR
+        )
+    """)
+    # Create the natural-key index that introspect() looks for
+    con.execute("CREATE INDEX ix_customerdim_nk ON customerdim (customer_code)")
+    state = ctx.introspect(con)
+    assert "customerdim" in state
+    # NK should be inferred from the index
+    assert "customer_code" in state["customerdim"]["natural_key"]
+
+
+def test_introspect_exception_on_columns_query_skips_table():
+    """context.py lines 210-211: when columns query raises, the table is skipped."""
+    from unittest.mock import MagicMock
+
+    ctx = DimensionalMigrationContext([CustomerDim])
+
+    class MockCon:
+        def execute(self, sql, params=None):
+            raise Exception("query failed")
+
+    state = ctx.introspect(MockCon())
+    # All tables skipped due to the exception
+    assert state == {}
+
+
+def test_introspect_exception_on_indexes_query_uses_model_nk():
+    """context.py lines 232-233: when duckdb_indexes() raises, falls back to model NK."""
+    import duckdb
+
+    ctx = DimensionalMigrationContext([CustomerDim])
+
+    call_count = [0]
+    real_con = duckdb.connect()
+    real_con.execute("""
+        CREATE TABLE customerdim (
+            id INTEGER, customer_code VARCHAR, name VARCHAR, city VARCHAR,
+            valid_from TIMESTAMP, valid_to TIMESTAMP, is_current BOOLEAN, checksum VARCHAR
+        )
+    """)
+
+    class PartialFailCon:
+        """Succeeds for information_schema but raises on duckdb_indexes()."""
+        def execute(self, sql, params=None):
+            call_count[0] += 1
+            if "duckdb_indexes" in sql:
+                raise Exception("not a duckdb backend")
+            return real_con.execute(sql, params)
+
+    state = ctx.introspect(PartialFailCon())
+    assert "customerdim" in state
+    # NK falls back to model's __natural_key__
+    assert state["customerdim"]["natural_key"] == ["customer_code"]
+
+
+def test_introspect_nonexistent_table_skipped():
+    """context.py lines 194-241: tables not yet created are silently skipped."""
+    import duckdb
+
+    ctx = DimensionalMigrationContext([CustomerDim])
+    con = duckdb.connect()
+    # Don't create any tables — introspect on empty DB should return {}
+    state = ctx.introspect(con)
+    assert state == {}
+
+
+def test_diff_from_connection():
+    """context.py line 260: diff_from_connection() = introspect + diff."""
+    import duckdb
+
+    ctx = DimensionalMigrationContext([CustomerDim])
+    con = duckdb.connect()
+    # Create the table with missing 'city' column so diff detects ADD_COLUMN
+    con.execute("""
+        CREATE TABLE customerdim (
+            id INTEGER,
+            customer_code VARCHAR,
+            name VARCHAR,
+            valid_from TIMESTAMP,
+            valid_to TIMESTAMP,
+            is_current BOOLEAN,
+            checksum VARCHAR
+        )
+    """)
+    changes = ctx.diff_from_connection(con)
+    added_cols = [c for c in changes if c.change_type == CHANGE_ADD_COLUMN]
+    assert any(c.details["column"] == "city" for c in added_cols)
+
+
+def test_parse_nk_no_parens_returns_empty():
+    """context.py line 167: _parse_nk_from_index_sql when no parens → []."""
+    result = DimensionalMigrationContext._parse_nk_from_index_sql("NO PARENS HERE")
+    assert result == []

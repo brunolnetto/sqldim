@@ -2,7 +2,7 @@ import pytest
 from typing import List, Optional
 from datetime import date
 from sqlmodel import SQLModel
-from sqldim import DimensionModel, FactModel, Field, SchemaGraph, SCD3Mixin, CumulativeMixin, DatelistMixin
+from sqldim import DimensionModel, FactModel, Field, SchemaGraph, SCD2Mixin, SCD3Mixin, CumulativeMixin, DatelistMixin
 
 class MockDimension(DimensionModel, table=True):
     id: int = Field(primary_key=True, surrogate_key=True)
@@ -195,3 +195,61 @@ def test_base_schema_graph_to_mermaid_renders_fk_relationships():
     assert "}o--||" in diagram
     assert "FKMermaidDim" in diagram
     assert "FKMermaidFact" in diagram
+
+
+# ---------------------------------------------------------------------------
+# DimensionModel.__init_subclass__ guards (models.py lines 38-42, 54)
+# ---------------------------------------------------------------------------
+
+class TestDimensionModelGuards:
+    def test_duplicate_mixin_role_raises(self):
+        """Lines 38-42: two mixins with the same __dim_mixin_role__ must raise TypeError."""
+        from sqlmodel import SQLModel as _SQLModel
+
+        class SecondValidityMixin(_SQLModel):
+            __dim_mixin_role__ = "scd_validity_columns"
+
+        with pytest.raises(TypeError, match="multiple mixins with role"):
+            class BadDim(DimensionModel, SCD2Mixin, SecondValidityMixin):
+                pass
+
+    def test_incompatible_scd_type_raises(self):
+        """Line 54: __scd_type__ not in the mixin's compatible set must raise TypeError."""
+        with pytest.raises(TypeError, match="compatible with SCD types"):
+            class BadTypeDim(DimensionModel, SCD2Mixin):
+                __scd_type__ = 4  # SCD2Mixin compatible_types = {1, 2, 3, 6}
+                code: str = ""
+
+
+# ---------------------------------------------------------------------------
+# DimensionModel.table_name() and FactModel.table_name() (lines 78, 179)
+# ---------------------------------------------------------------------------
+
+class TestTableNameClassmethod:
+    def test_dimension_model_table_name_uses_tablename(self):
+        """DimensionModel.table_name() returns __tablename__ when set (line 78)."""
+        class NamedDim(DimensionModel):
+            __tablename__ = "named_dim_table"
+
+        assert NamedDim.table_name() == "named_dim_table"
+
+    def test_dimension_model_table_name_falls_back_to_class(self):
+        """DimensionModel.table_name() falls back to lowercased class name."""
+        class UnnamedDim(DimensionModel):
+            pass
+
+        assert UnnamedDim.table_name() == "unnameddim"
+
+    def test_fact_model_table_name_uses_tablename(self):
+        """FactModel.table_name() returns __tablename__ when set (line 179)."""
+        class NamedFact(FactModel):
+            __tablename__ = "named_fact_table"
+
+        assert NamedFact.table_name() == "named_fact_table"
+
+    def test_fact_model_table_name_falls_back_to_class(self):
+        """FactModel.table_name() falls back to lowercased class name."""
+        class UnnamedFact(FactModel):
+            pass
+
+        assert UnnamedFact.table_name() == "unnamedfact"

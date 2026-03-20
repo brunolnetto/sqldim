@@ -27,7 +27,7 @@ class TestDuckDBSinkDeepResearch:
         with patch(
             "sqldim.sinks.duckdb.make_connection", wraps=make_connection
         ) as mock_mc:
-            with DuckDBSink(db) as sink:
+            with DuckDBSink(db):
                 assert mock_mc.called
 
     def test_enter_sets_memory_limit(self, tmp_path):
@@ -169,7 +169,7 @@ class TestMotherDuckSinkDeepResearch:
         with patch(
             "sqldim.sinks.motherduck.make_connection", wraps=make_connection
         ) as mock_mc:
-            with MotherDuckSink(db=db) as sink:
+            with MotherDuckSink(db=db):
                 assert mock_mc.called
 
     def test_enter_sets_memory_limit(self, tmp_path):
@@ -207,7 +207,7 @@ class TestPostgreSQLSinkDeepResearch:
                 duckdb.DuckDBPyConnection, "execute", return_value=None
             ):
                 try:
-                    with PostgreSQLSink(dsn="host=localhost dbname=test") as sink:
+                    with PostgreSQLSink(dsn="host=localhost dbname=test"):
                         pass
                 except Exception:
                     pass  # expected: ATTACH will fail without real PG
@@ -243,7 +243,7 @@ class TestDeltaLakeSinkDeepResearch:
             "sqldim.sinks.delta.make_connection", wraps=make_connection
         ) as mock_mc:
             try:
-                with DeltaLakeSink(str(tmp_path), "id") as sink:
+                with DeltaLakeSink(str(tmp_path), "id"):
                     pass
             except Exception:
                 pass  # delta extension may not be available
@@ -281,7 +281,7 @@ class TestIcebergSinkSizeGuard:
         sink._max_python_rows = 500_000  # guard threshold
 
         # Build a mock iceberg table that reports row_count rows
-        schema = pa.schema([
+        pa.schema([
             ("id", pa.int32()),
             ("is_current", pa.bool_()),
             ("valid_to", pa.string()),
@@ -306,7 +306,6 @@ class TestIcebergSinkSizeGuard:
         except ImportError:
             pytest.skip("pyarrow not installed")
 
-        from sqldim.sinks.iceberg import IcebergSink
         sink = self._make_sink_with_large_table(row_count=2_000_000)
         con = MagicMock()
         con.execute.return_value.fetchdf.return_value = MagicMock(
@@ -323,7 +322,6 @@ class TestIcebergSinkSizeGuard:
         except ImportError:
             pytest.skip("pyarrow not installed")
 
-        from sqldim.sinks.iceberg import IcebergSink
         sink = self._make_sink_with_large_table(row_count=10)
         con = MagicMock()
         # Return an empty set of NKs to close (fast-path return 0)
@@ -340,7 +338,6 @@ class TestIcebergSinkSizeGuard:
         except ImportError:
             pytest.skip("pyarrow not installed")
 
-        from sqldim.sinks.iceberg import IcebergSink
         sink = self._make_sink_with_large_table(row_count=2_000_000)
         con = MagicMock()
         import pandas as pd

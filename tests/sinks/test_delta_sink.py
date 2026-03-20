@@ -13,7 +13,7 @@ Strategy
 * __enter__ / __exit__ — patch duckdb.connect to avoid extension install in CI.
 """
 from __future__ import annotations
-from unittest.mock import MagicMock, patch, call
+from unittest.mock import MagicMock, patch
 import duckdb
 import pytest
 

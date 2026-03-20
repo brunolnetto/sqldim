@@ -316,7 +316,7 @@ class TestDatasetSourceAsSql:
                 setup = duckdb.connect(path)
                 setup.execute("CREATE SCHEMA staging")
                 setup.execute(
-                    f"CREATE TABLE staging.t (n INTEGER)"
+                    "CREATE TABLE staging.t (n INTEGER)"
                 )
                 setup.execute(f"INSERT INTO staging.t VALUES ({i})")
                 setup.close()

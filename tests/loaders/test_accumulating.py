@@ -60,7 +60,7 @@ def test_accumulating_does_not_overwrite_milestone(session):
     )
     loader.process([{"order_id": "O3", "amount": 75.0, "approved_at": "2024-01-01"}])
     # Try to overwrite approved_at with None — should be ignored
-    result = loader.process([{"order_id": "O3", "amount": 75.0, "approved_at": None}])
+    loader.process([{"order_id": "O3", "amount": 75.0, "approved_at": None}])
     row = session.exec(select(OrderPipeline).where(OrderPipeline.order_id == "O3")).one()
     assert row.approved_at == "2024-01-01"
 

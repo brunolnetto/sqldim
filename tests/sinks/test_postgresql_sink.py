@@ -6,7 +6,6 @@ DuckDB's postgres extension (no psycopg2 in the hot path) writes through to PG.
 """
 from __future__ import annotations
 import duckdb
-import pytest
 from pytest_postgresql import factories
 
 from sqldim.sinks.postgresql import PostgreSQLSink

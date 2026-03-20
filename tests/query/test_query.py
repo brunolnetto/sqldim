@@ -2,9 +2,10 @@ import pytest
 from sqlalchemy.pool import StaticPool
 import duckdb
 from datetime import date, datetime, timezone
-from sqlmodel import Session, create_engine, SQLModel, select
+from sqlmodel import Session, create_engine, SQLModel
 from sqldim import DimensionModel, FactModel, Field, SCD2Mixin
-from sqldim.core.query.builder import DimensionalQuery, DuckDBDimensionalQuery, SemanticError
+from sqldim.core.query.builder import DimensionalQuery, SemanticError
+from sqldim.core.query.dgm import DGMQuery
 
 class RegionDim(DimensionModel, SCD2Mixin, table=True):
     __natural_key__ = ["region_code"]
@@ -19,7 +20,7 @@ class RevenueFact(FactModel, table=True):
     revenue: float = Field(measure=True, additive=True)
     unit_price: float = Field(measure=True, additive=False)
 
-@pytest.fixture
+@pytest.fixture(scope="module")
 def session():
     engine = create_engine(
         "sqlite:///:memory:",
@@ -124,10 +125,10 @@ def test_get_column_info_no_info_attr():
 
 
 # ---------------------------------------------------------------------------
-# DuckDBDimensionalQuery — SQL-string fluent builder
+# DGMQuery — SQL-string fluent builder (replaces DuckDBDimensionalQuery)
 # ---------------------------------------------------------------------------
 
-class TestDuckDBDimensionalQuery:
+class TestDGMQueryLegacyAPI:
     def _con(self):
         con = duckdb.connect()
         con.execute("""
@@ -153,13 +154,13 @@ class TestDuckDBDimensionalQuery:
 
     def test_init_and_basic_count(self):
         con = self._con()
-        rows = DuckDBDimensionalQuery("fact_sales").count().execute(con)
+        rows = DGMQuery("fact_sales").count().execute(con)
         assert rows[0][0] == 3
 
     def test_by_and_sum(self):
         con = self._con()
         rows = (
-            DuckDBDimensionalQuery("fact_sales")
+            DGMQuery("fact_sales")
             .by("f.product_id")
             .sum("f.revenue")
             .execute(con)
@@ -170,13 +171,13 @@ class TestDuckDBDimensionalQuery:
 
     def test_avg(self):
         con = self._con()
-        rows = DuckDBDimensionalQuery("fact_sales").avg("f.revenue").execute(con)
+        rows = DGMQuery("fact_sales").avg("f.revenue").execute(con)
         assert abs(rows[0][0] - 350.0 / 3) < 0.01
 
     def test_where(self):
         con = self._con()
         rows = (
-            DuckDBDimensionalQuery("fact_sales")
+            DGMQuery("fact_sales")
             .where("f.revenue > 100")
             .count()
             .execute(con)
@@ -186,7 +187,7 @@ class TestDuckDBDimensionalQuery:
     def test_join_dim_is_current(self):
         con = self._con()
         rows = (
-            DuckDBDimensionalQuery("fact_sales")
+            DGMQuery("fact_sales")
             .join_dim("dim_product", "product_id")
             .by("d_dim_product.category")
             .sum("f.revenue")
@@ -199,7 +200,7 @@ class TestDuckDBDimensionalQuery:
     def test_join_dim_as_of(self):
         con = self._con()
         rows = (
-            DuckDBDimensionalQuery("fact_sales")
+            DGMQuery("fact_sales")
             .join_dim("dim_product", "product_id")
             .by("d_dim_product.category")
             .count()
@@ -211,7 +212,7 @@ class TestDuckDBDimensionalQuery:
     def test_as_view(self):
         con = self._con()
         view = (
-            DuckDBDimensionalQuery("fact_sales")
+            DGMQuery("fact_sales")
             .by("f.product_id")
             .count()
             .as_view(con, "v_revenue_summary")
@@ -220,9 +221,115 @@ class TestDuckDBDimensionalQuery:
         rows = con.execute("SELECT * FROM v_revenue_summary ORDER BY 1").fetchall()
         assert len(rows) == 2
 
-    def test_semantic_error_empty_duckdb_query(self):
-        with pytest.raises(SemanticError):
-            DuckDBDimensionalQuery("fact_sales").to_sql()
+    def test_empty_query_selects_star(self):
+        sql = DGMQuery("fact_sales").to_sql()
+        assert "SELECT *" in sql
+        assert "FROM fact_sales f" in sql
+
+    def test_ntile(self):
+        sql = (
+            DGMQuery("fact_sales")
+            .by("f.product_id")
+            .ntile_bucket("f.revenue", 4)
+            .to_sql()
+        )
+        assert "NTILE(4)" in sql
+        assert "revenue_ntile_4" in sql
+
+    def test_ntile_custom_alias(self):
+        sql = (
+            DGMQuery("fact_sales")
+            .by("f.product_id")
+            .ntile_bucket("f.revenue", 10, alias="decile")
+            .to_sql()
+        )
+        assert "NTILE(10)" in sql
+        assert "decile" in sql
+
+    def test_width_bucket(self):
+        sql = (
+            DGMQuery("fact_sales")
+            .by("f.product_id")
+            .width_bucket("f.revenue", (0, 100, 500, 1000))
+            .to_sql()
+        )
+        assert "WIDTH_BUCKET" in sql
+        assert "revenue_bucket" in sql
+
+    def test_width_bucket_custom_alias(self):
+        sql = (
+            DGMQuery("fact_sales")
+            .by("f.product_id")
+            .width_bucket("f.unit_price", (0, 50, 100), alias="price_tier")
+            .to_sql()
+        )
+        assert "price_tier" in sql
+
+    def test_date_trunc_by(self):
+        sql = (
+            DGMQuery("fact_sales")
+            .date_trunc_by("f.order_date", "month")
+            .sum("f.revenue")
+            .to_sql()
+        )
+        assert "DATE_TRUNC('month', f.order_date)" in sql
+        assert "order_date_month" in sql
+
+    def test_date_trunc_by_custom_alias(self):
+        sql = (
+            DGMQuery("fact_sales")
+            .date_trunc_by("f.order_date", "week", alias="week_start")
+            .sum("f.revenue")
+            .to_sql()
+        )
+        assert "week_start" in sql
+
+    def test_semi_additive_sum_no_forbidden(self):
+        """No forbidden dims active → emits SUM."""
+        sql = (
+            DGMQuery("fact_bal")
+            .by("f.account_id")
+            .semi_additive_sum("f.balance")
+            .to_sql()
+        )
+        assert "SUM(f.balance)" in sql
+
+    def test_semi_additive_sum_last_fallback(self):
+        """Forbidden dim active → LAST_VALUE."""
+        sql = (
+            DGMQuery("fact_bal")
+            .by("f.date_id")
+            .semi_additive_sum("f.balance", fallback="last", forbidden_dimensions=["f.date_id"])
+            .to_sql()
+        )
+        assert "LAST_VALUE" in sql
+
+    def test_semi_additive_sum_avg_fallback(self):
+        sql = (
+            DGMQuery("fact_bal")
+            .by("f.date_id")
+            .semi_additive_sum("f.balance", fallback="avg", forbidden_dimensions=["f.date_id"])
+            .to_sql()
+        )
+        assert "AVG(f.balance)" in sql
+
+    def test_semi_additive_sum_max_fallback(self):
+        sql = (
+            DGMQuery("fact_bal")
+            .by("f.date_id")
+            .semi_additive_sum("f.balance", fallback="max", forbidden_dimensions=["f.date_id"])
+            .to_sql()
+        )
+        assert "MAX(f.balance)" in sql
+
+    def test_semi_additive_sum_unknown_fallback_defaults_to_sum(self):
+        sql = (
+            DGMQuery("fact_bal")
+            .by("f.date_id")
+            .semi_additive_sum("f.balance", fallback="geomean", forbidden_dimensions=["f.date_id"])
+            .to_sql()
+        )
+        assert "SUM(f.balance)" in sql
 
 
 def test_find_fk_col_returns_none_for_unlinked():

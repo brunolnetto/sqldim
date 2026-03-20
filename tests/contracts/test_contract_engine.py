@@ -202,7 +202,7 @@ class TestRuleABC:
             severity = Severity.ERROR
 
             def as_sql(self, view: str) -> str:
-                return f"SELECT 'my_rule' AS rule, 'error' AS severity, 0 AS violations, '' AS detail"
+                return "SELECT 'my_rule' AS rule, 'error' AS severity, 0 AS violations, '' AS detail"
 
         r = MyRule()
         sql = r.as_sql("some_view")

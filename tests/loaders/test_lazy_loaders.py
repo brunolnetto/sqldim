@@ -18,7 +18,6 @@ sqldim/narwhals/backfill.py       63% → ~90%
 from __future__ import annotations
 from datetime import date
 import duckdb
-import pytest
 
 from sqldim.core.loaders.snapshot       import LazyTransactionLoader, LazySnapshotLoader
 from sqldim.core.loaders.accumulating   import LazyAccumulatingLoader
@@ -117,7 +116,7 @@ def _make_source_view(con: duckdb.DuckDBPyConnection,
     """Register a DuckDB view from a list of dicts (uniform schema)."""
     if not rows:
         return
-    col_names = list(rows[0].keys())
+    list(rows[0].keys())
     select_rows = " UNION ALL ".join(
         "SELECT " + ", ".join(
             f"'{v}'" if isinstance(v, str) else (
@@ -247,7 +246,7 @@ class TestLazyAccumulatingLoader:
         """)
         sink = InMemorySink()
         loader = LazyAccumulatingLoader(
-            table_name="fact_orders",
+            table="fact_orders",
             match_column="order_id",
             milestone_columns=["approved_at", "shipped_at", "delivered_at"],
             sink=sink,
@@ -268,7 +267,7 @@ class TestLazyAccumulatingLoader:
         """)
         sink = InMemorySink()
         loader = LazyAccumulatingLoader(
-            table_name="fact_orders",
+            table="fact_orders",
             match_column="order_id",
             milestone_columns=["approved_at", "shipped_at", "delivered_at"],
             sink=sink,
@@ -290,7 +289,7 @@ class TestLazyAccumulatingLoader:
         """)
         sink = InMemorySink()
         loader = LazyAccumulatingLoader(
-            table_name="fact_orders",
+            table="fact_orders",
             match_column="order_id",
             milestone_columns=["approved_at", "shipped_at", "delivered_at"],
             sink=sink,
@@ -328,7 +327,7 @@ class TestLazyCumulativeLoader:
         """)
         sink = InMemorySink()
         loader = LazyCumulativeLoader(
-            table_name="player_seasons",
+            table="player_seasons",
             partition_key="player_name",
             cumulative_column="seasons",
             metric_columns=["pts", "ast", "reb"],
@@ -351,7 +350,7 @@ class TestLazyCumulativeLoader:
         """)
         sink = InMemorySink()
         loader = LazyCumulativeLoader(
-            table_name="player_seasons",
+            table="player_seasons",
             partition_key="player_name",
             cumulative_column="seasons",
             metric_columns=["pts", "ast", "reb"],
@@ -384,7 +383,7 @@ class TestLazyBitmaskLoader:
         self._make_user_activity_view(con)
         sink = InMemorySink()
         loader = LazyBitmaskLoader(
-            table_name="fact_activity",
+            table="fact_activity",
             partition_key="user_id",
             dates_column="dates_active",
             reference_date="2024-01-31",
@@ -406,7 +405,7 @@ class TestLazyBitmaskLoader:
         """)
         sink = InMemorySink()
         loader = LazyBitmaskLoader(
-            table_name="bitmask_fact",
+            table="bitmask_fact",
             partition_key="user_id",
             dates_column="dates_active",
             reference_date="2024-01-31",
@@ -428,7 +427,7 @@ class TestLazyBitmaskLoader:
         self._make_user_activity_view(con)
         sink = InMemorySink()
         loader = LazyBitmaskLoader(
-            table_name="bitmask_fact",
+            table="bitmask_fact",
             partition_key="user_id",
             dates_column="dates_active",
             reference_date="2024-01-31",
@@ -437,6 +436,41 @@ class TestLazyBitmaskLoader:
             con=con,
         )
         n = loader.process("user_activity")
+        assert n == 2
+
+    def test_load_alias_delegates_to_process(self):
+        """bitmask.py line 116: load = process alias runs the same code as process."""
+        con = duckdb.connect()
+        self._make_user_activity_view(con)
+        sink = InMemorySink()
+        loader = LazyBitmaskLoader(
+            table="bitmask_load_alias",
+            partition_key="user_id",
+            dates_column="dates_active",
+            reference_date="2024-01-31",
+            window_days=32,
+            sink=sink,
+            con=con,
+        )
+        n = loader.load("user_activity")
+        assert n == 2
+
+    def test_aload_delegates_to_process(self):
+        """bitmask.py line 113: aload() runs process in a thread pool executor."""
+        import asyncio as _asyncio
+        con = duckdb.connect()
+        self._make_user_activity_view(con)
+        sink = InMemorySink()
+        loader = LazyBitmaskLoader(
+            table="bitmask_aload",
+            partition_key="user_id",
+            dates_column="dates_active",
+            reference_date="2024-01-31",
+            window_days=32,
+            sink=sink,
+            con=con,
+        )
+        n = _asyncio.run(loader.aload("user_activity"))
         assert n == 2
 
 
@@ -453,7 +487,7 @@ class TestLazyArrayMetricLoader:
         """)
         sink = InMemorySink()
         loader = LazyArrayMetricLoader(
-            table_name="fact_monthly",
+            table="fact_monthly",
             partition_key="user_id",
             value_column="revenue",
             metric_name="monthly_revenue",
@@ -478,7 +512,7 @@ class TestLazyArrayMetricLoader:
         month_start = date(2024, 1, 1)
         target_date = date(2024, 1, 10)   # offset = 9
         loader = LazyArrayMetricLoader(
-            table_name="metrics",
+            table="metrics",
             partition_key="user_id",
             value_column="revenue",
             metric_name="rev",
@@ -498,7 +532,7 @@ class TestLazyArrayMetricLoader:
         con.execute("CREATE OR REPLACE VIEW src AS SELECT 'u1' AS user_id, 1.0 AS val")
         sink = InMemorySink()
         loader = LazyArrayMetricLoader(
-            table_name="metrics",
+            table="metrics",
             partition_key="user_id",
             value_column="val",
             metric_name="test_metric",
@@ -510,6 +544,41 @@ class TestLazyArrayMetricLoader:
         row = con.execute("SELECT metric_name, month_start FROM metrics").fetchone()
         assert row[0] == "test_metric"
         assert str(row[1]) == "2024-03-01"
+
+    def test_load_alias_delegates_to_process(self):
+        """array_metric.py line 107: load = process alias runs same code as process."""
+        con = duckdb.connect()
+        con.execute("CREATE OR REPLACE VIEW src AS SELECT 'u1' AS user_id, 5.0 AS revenue")
+        sink = InMemorySink()
+        loader = LazyArrayMetricLoader(
+            table="metrics_load_alias",
+            partition_key="user_id",
+            value_column="revenue",
+            metric_name="rev",
+            month_start=date(2024, 1, 1),
+            sink=sink,
+            con=con,
+        )
+        n = loader.load("src", target_date=date(2024, 1, 15))
+        assert n == 1
+
+    def test_aload_delegates_to_process(self):
+        """array_metric.py line 104: aload() runs process in a thread pool executor."""
+        import asyncio as _asyncio
+        con = duckdb.connect()
+        con.execute("CREATE OR REPLACE VIEW src AS SELECT 'u1' AS user_id, 7.0 AS revenue")
+        sink = InMemorySink()
+        loader = LazyArrayMetricLoader(
+            table="metrics_aload",
+            partition_key="user_id",
+            value_column="revenue",
+            metric_name="rev",
+            month_start=date(2024, 1, 1),
+            sink=sink,
+            con=con,
+        )
+        n = _asyncio.run(loader.aload("src", date(2024, 1, 1)))
+        assert n == 1
 
 
 # ---------------------------------------------------------------------------
@@ -532,7 +601,7 @@ class TestLazyEdgeProjectionLoader:
         self._player_game_view(con)
         sink = InMemorySink()
         loader = LazyEdgeProjectionLoader(
-            table_name="graph_player_game",
+            table="graph_player_game",
             subject_key="player_id",
             object_key="game_id",
             sink=sink,
@@ -549,7 +618,7 @@ class TestLazyEdgeProjectionLoader:
         self._player_game_view(con)
         sink = InMemorySink()
         loader = LazyEdgeProjectionLoader(
-            table_name="g",
+            table="g",
             subject_key="player_id",
             object_key="game_id",
             sink=sink,
@@ -567,7 +636,7 @@ class TestLazyEdgeProjectionLoader:
         self._player_game_view(con)
         sink = InMemorySink()
         loader = LazyEdgeProjectionLoader(
-            table_name="g",
+            table="g",
             subject_key="player_id",
             object_key="game_id",
             property_map={"pts": "edge_pts"},
@@ -585,7 +654,7 @@ class TestLazyEdgeProjectionLoader:
         self._player_game_view(con)
         sink = InMemorySink()
         loader = LazyEdgeProjectionLoader(
-            table_name="graph_player_player",
+            table="graph_player_player",
             subject_key="player_id",
             object_key="player_id",
             self_join=True,
@@ -605,7 +674,7 @@ class TestLazyEdgeProjectionLoader:
         self._player_game_view(con)
         sink = InMemorySink()
         loader = LazyEdgeProjectionLoader(
-            table_name="pp_edges",
+            table="pp_edges",
             subject_key="player_id",
             object_key="player_id",
             self_join=True,
@@ -718,7 +787,6 @@ class TestLazyBackfillScd2:
 
     def test_creates_new_connection_when_none_given(self):
         """lazy_backfill_scd2 accepts con=None and creates its own connection."""
-        import tempfile, os
         # Write a temp parquet that the function can read
         con_tmp = duckdb.connect()
         con_tmp.execute("""
@@ -759,7 +827,6 @@ class TestBitmaskerLoader:
     """Tests for the narwhals BitmaskerLoader (pandas path)."""
 
     def _frame(self, dates_lists):
-        from datetime import date
         df = pd.DataFrame({
             "user_id": list(range(len(dates_lists))),
             "dates_active": dates_lists,

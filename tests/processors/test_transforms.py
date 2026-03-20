@@ -6,7 +6,7 @@ import narwhals as nw
 
 from sqldim.core.kimball.dimensions.scd.processors.transforms import (
     col, TransformPipeline, Transform,
-    _types_compatible, _python_type_to_nw, _AppliedTransform,
+    _types_compatible, _python_type_to_nw,
 )
 from sqldim.exceptions import TransformTypeError
 
@@ -386,4 +386,4 @@ def test_col_transforms_all_branches():
     assert nw.to_native(res)["s"][0] == "a"
 
     assert col("n").drop_nulls().apply(frame).is_empty()
-    assert col("i").is_null().apply(frame)["i"][0] == False
+    assert not col("i").is_null().apply(frame)["i"][0]

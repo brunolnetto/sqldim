@@ -10,7 +10,7 @@ pytest-postgresql is unavailable (or postgres is not installed):
 """
 from __future__ import annotations
 
-from unittest.mock import MagicMock, call
+from unittest.mock import MagicMock
 
 from sqldim.sinks.postgresql import PostgreSQLSink
 
@@ -109,7 +109,6 @@ class TestWriteNamedHappyPath:
 
     def test_single_chunk_no_debug_log(self):
         """With 1 chunk, n_chunks == 1, so no debug _log.debug() call should branch."""
-        import logging
         sink = PostgreSQLSink("dsn=ignored")
         con = self._con_with_count(5)
         # Should not raise; n_chunks=1 means the debug branch is skipped
@@ -149,3 +148,101 @@ class TestCloseVersions:
         update_sql = next(s for s in all_sql if "UPDATE" in s)
         assert "t.order_id = n.order_id" in update_sql
         assert "t.line_no = n.line_no" in update_sql
+
+
+class TestWriteHappyPath:
+    """Covers postgresql.py lines 105-113: write() when total > 0."""
+
+    def test_returns_total_rows_inserted(self):
+        sink = PostgreSQLSink("dsn=ignored")
+        con = MagicMock()
+        con.execute.return_value.fetchone.return_value = (7,)
+        result = sink.write(con, "v_rows", "dim_emp")
+        assert result == 7
+
+    def test_executes_insert_statement(self):
+        sink = PostgreSQLSink("dsn=ignored")
+        con = MagicMock()
+        con.execute.return_value.fetchone.return_value = (3,)
+        sink.write(con, "v_rows", "dim_emp")
+        all_sql = [c[0][0] for c in con.execute.call_args_list]
+        insert_calls = [s for s in all_sql if "INSERT INTO" in s]
+        assert len(insert_calls) == 1
+        assert "v_rows" in insert_calls[0]
+
+
+class TestUpdateAttributes:
+    """Covers postgresql.py lines 198-208: update_attributes() body."""
+
+    def test_returns_row_count(self):
+        sink = PostgreSQLSink("dsn=ignored")
+        con = MagicMock()
+        con.execute.return_value.fetchone.return_value = (4,)
+        result = sink.update_attributes(
+            con, "dim_emp", "emp_id", "updates_view", ["name", "dept"]
+        )
+        assert result == 4
+
+    def test_executes_update_with_set_clause(self):
+        sink = PostgreSQLSink("dsn=ignored")
+        con = MagicMock()
+        con.execute.return_value.fetchone.return_value = (2,)
+        sink.update_attributes(
+            con, "dim_emp", "emp_id", "updates_view", ["name", "dept"]
+        )
+        all_sql = [c[0][0] for c in con.execute.call_args_list]
+        update_calls = [s for s in all_sql if "UPDATE" in s]
+        assert len(update_calls) == 1
+        assert "name = u.name" in update_calls[0]
+        assert "dept = u.dept" in update_calls[0]
+
+
+class TestRotateAttributes:
+    """Covers postgresql.py lines 223-234: rotate_attributes() body."""
+
+    def test_returns_row_count(self):
+        sink = PostgreSQLSink("dsn=ignored")
+        con = MagicMock()
+        con.execute.return_value.fetchone.return_value = (3,)
+        result = sink.rotate_attributes(
+            con, "dim_emp", "emp_id", "rot_view", [("status", "prev_status")]
+        )
+        assert result == 3
+
+    def test_executes_update_with_rotation(self):
+        sink = PostgreSQLSink("dsn=ignored")
+        con = MagicMock()
+        con.execute.return_value.fetchone.return_value = (1,)
+        sink.rotate_attributes(
+            con, "dim_emp", "emp_id", "rot_view", [("status", "prev_status")]
+        )
+        all_sql = [c[0][0] for c in con.execute.call_args_list]
+        update_calls = [s for s in all_sql if "UPDATE" in s]
+        assert len(update_calls) == 1
+        assert "prev_status = t.status" in update_calls[0]
+        assert "status = r.status" in update_calls[0]
+
+
+class TestUpdateMilestones:
+    """Covers postgresql.py lines 249-258: update_milestones() body."""
+
+    def test_returns_row_count(self):
+        sink = PostgreSQLSink("dsn=ignored")
+        con = MagicMock()
+        con.execute.return_value.fetchone.return_value = (5,)
+        result = sink.update_milestones(
+            con, "dim_orders", "order_id", "milestones_view", ["shipped_at", "delivered_at"]
+        )
+        assert result == 5
+
+    def test_executes_update_with_coalesce(self):
+        sink = PostgreSQLSink("dsn=ignored")
+        con = MagicMock()
+        con.execute.return_value.fetchone.return_value = (2,)
+        sink.update_milestones(
+            con, "dim_orders", "order_id", "milestones_view", ["shipped_at"]
+        )
+        all_sql = [c[0][0] for c in con.execute.call_args_list]
+        update_calls = [s for s in all_sql if "UPDATE" in s]
+        assert len(update_calls) == 1
+        assert "COALESCE(u.shipped_at, t.shipped_at)" in update_calls[0]

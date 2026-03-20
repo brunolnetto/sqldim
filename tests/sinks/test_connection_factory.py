@@ -3,7 +3,6 @@ Tests for sqldim.sinks._connection.make_connection() factory.
 Red-green target: 100 % line coverage on _connection.py.
 """
 import os
-import pytest
 import duckdb
 from unittest.mock import patch
 

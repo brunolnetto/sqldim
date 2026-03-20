@@ -15,7 +15,6 @@ sqldim/processors/_lazy_type3_6.py  → process_stream() on LazyType3Processor &
 from __future__ import annotations
 
 import duckdb
-import pytest
 
 from sqldim.core.kimball.dimensions.scd.processors.scd_engine import (
     LazySCDProcessor,
@@ -23,7 +22,7 @@ from sqldim.core.kimball.dimensions.scd.processors.scd_engine import (
     LazyType3Processor,
     LazyType6Processor,
 )
-from sqldim.sources.stream import StreamSourceAdapter, StreamResult
+from sqldim.sources.stream import StreamSourceAdapter
 
 
 # ---------------------------------------------------------------------------
@@ -68,12 +67,12 @@ class InMemorySink:
 
     def close_versions(self, con, table_name, nk_col, nk_view, valid_to):
         if isinstance(nk_col, list):
-            cond = " AND ".join(
+            " AND ".join(
                 f"cast({table_name}.{c} as varchar) = cast({nk_view}.{c} as varchar)"
                 for c in nk_col
             )
         else:
-            cond = f"{table_name}.{nk_col} = {nk_view}.{nk_col}"
+            pass
         con.execute(f"""
             UPDATE {table_name}
                SET is_current = FALSE, valid_to = '{valid_to}'

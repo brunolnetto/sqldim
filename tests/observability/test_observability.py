@@ -131,7 +131,7 @@ class TestOTelCollectorSpans:
     def test_span_error_on_exception(self):
         col = OTelCollector()
         with pytest.raises(ValueError):
-            with col.start_span("bad") as span:
+            with col.start_span("bad"):
                 raise ValueError("boom")
         assert col.spans()[0].status is SpanStatus.ERROR
         assert "boom" in col.spans()[0].error
@@ -180,3 +180,29 @@ class TestOTelCollectorMetrics:
         col.clear()
         assert col.spans() == []
         assert col.metrics() == []
+
+
+# ---------------------------------------------------------------------------
+# _print_fallback — observability showcase helper
+# ---------------------------------------------------------------------------
+
+class TestPrintFallback:
+    def test_fetchall_success_prints_rows(self, capsys):
+        from sqldim.examples.features.observability.showcase import _print_fallback
+        from unittest.mock import MagicMock
+        rel = MagicMock()
+        rel.fetchall.return_value = [("row1",), ("row2",)]
+        _print_fallback(rel, Exception("ignored"))
+        out = capsys.readouterr().out
+        assert "row1" in out
+        assert "row2" in out
+
+    def test_fetchall_raises_prints_query_error(self, capsys):
+        from sqldim.examples.features.observability.showcase import _print_fallback
+        from unittest.mock import MagicMock
+        rel = MagicMock()
+        rel.fetchall.side_effect = RuntimeError("db gone")
+        _print_fallback(rel, Exception("original error"))
+        out = capsys.readouterr().out
+        assert "query error" in out
+        assert "original error" in out

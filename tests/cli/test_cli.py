@@ -39,14 +39,14 @@ def test_build_parser():
     parser = build_parser()
     assert parser.prog == "sqldim"
 
-def test_main_as_module(capsys):
-    import subprocess, sys
-    result = subprocess.run(
-        [sys.executable, "-m", "sqldim.cli"],
-        capture_output=True, text=True
-    )
+def test_main_as_module(monkeypatch):
+    import runpy
+    import sys
+    monkeypatch.setattr(sys, "argv", ["sqldim.cli"])
+    with pytest.raises(SystemExit) as exc:
+        runpy.run_module("sqldim.cli", run_name="__main__")
     # No subcommand → help printed, exit 1
-    assert result.returncode == 1
+    assert exc.value.code == 1
 
 
 # ---------------------------------------------------------------------------

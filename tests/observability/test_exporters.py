@@ -198,7 +198,7 @@ class TestOTLPSpanExporterMocked:
         """Return (patch_dict_cm, mod_ref, mock_otel, mock_trace, mock_provider_cls)."""
         import importlib
         import sys
-        from unittest.mock import MagicMock, patch
+        from unittest.mock import patch
 
         mock_otel = MagicMock()
         mock_trace = MagicMock()
@@ -290,7 +290,7 @@ class TestOTLPMetricExporterMocked:
         """Return (patch_dict_cm, mod_ref, mock_meter, counter, histogram, updown)."""
         import importlib
         import sys
-        from unittest.mock import MagicMock, patch
+        from unittest.mock import patch
 
         # Build flat independent mocks per module path to avoid parent-child spec issues
         mock_otel = MagicMock(name="opentelemetry")

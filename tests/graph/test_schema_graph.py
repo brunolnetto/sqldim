@@ -1,14 +1,11 @@
 """Tests for extended SchemaGraph — Task 6.5."""
-import pytest
 from typing import Optional
 from sqlmodel import Field
 
-from typing import Optional
 from sqldim import Field, GraphSchemaGraph
 from sqldim.core.graph import VertexModel, EdgeModel
 from sqldim.core.graph.schema_graph import SchemaGraph, GraphSchema, _safe_subclass
 from sqldim.core.kimball.models import DimensionModel, FactModel
-from sqldim.exceptions import SchemaError
 
 
 # ---------------------------------------------------------------------------
@@ -381,3 +378,211 @@ def test_schema_graph_validation_orphans_final():
     sg = SchemaGraph([OrphanEdge2])
     errors = sg.validate()
     assert len(errors) >= 2
+
+
+# ---------------------------------------------------------------------------
+# SchemaGraph.diff() — SchemaDiff, ColumnDiff, _collect_column_diff
+# ---------------------------------------------------------------------------
+
+class SDimV1(DimensionModel, table=True):
+    __tablename__ = "sg_dim_v1_cov"
+    __natural_key__ = ["code"]
+    id: Optional[int] = Field(default=None, primary_key=True)
+    code: str
+
+
+class SDimV2(DimensionModel, table=True):
+    """V1 + extra 'label' column."""
+    __tablename__ = "sg_dim_v2_cov"
+    __natural_key__ = ["code"]
+    id: Optional[int] = Field(default=None, primary_key=True)
+    code: str
+    label: str = "default"
+
+
+class SExtraDim(DimensionModel, table=True):
+    __tablename__ = "sg_extra_dim_cov"
+    __natural_key__ = ["code"]
+    id: Optional[int] = Field(default=None, primary_key=True)
+    code: str
+
+
+class TestSchemaDiff:
+    def test_empty_diff_is_empty(self):
+        sg = SchemaGraph([SDimV1])
+        diff = sg.diff(SchemaGraph([SDimV1]))
+        assert diff.is_empty
+        assert diff.edit_distance == 0
+
+    def test_added_vertex(self):
+        sg_old = SchemaGraph([SDimV1])
+        sg_new = SchemaGraph([SDimV1, SExtraDim])
+        diff = sg_old.diff(sg_new)
+        assert SExtraDim in diff.added_vertices
+        assert diff.edit_distance >= 1
+        assert not diff.is_empty
+
+    def test_removed_vertex(self):
+        sg_old = SchemaGraph([SDimV1, SExtraDim])
+        sg_new = SchemaGraph([SDimV1])
+        diff = sg_old.diff(sg_new)
+        assert SExtraDim in diff.removed_vertices
+
+    def test_column_diff_added(self):
+        """SDimV1 → SDimV2 adds 'label' column."""
+        sg_old = SchemaGraph([SDimV1])
+        sg_new = SchemaGraph([SDimV2])
+        diff = sg_old.diff(sg_new)
+        # SDimV1 and SDimV2 have different names so they appear as add/remove
+        # column diff won't apply here; verify edit_distance is non-zero
+        assert diff.edit_distance > 0
+
+    def test_summary_empty_diff(self):
+        sg = SchemaGraph([SDimV1])
+        diff = sg.diff(SchemaGraph([SDimV1]))
+        summary = diff.summary()
+        assert "SchemaDiff" in summary
+        assert "edit_distance=0" in summary
+
+    def test_summary_with_added_vertex(self):
+        sg_old = SchemaGraph([SDimV1])
+        sg_new = SchemaGraph([SDimV1, SExtraDim])
+        diff = sg_old.diff(sg_new)
+        summary = diff.summary()
+        assert "+ vertices" in summary
+        assert "SExtraDim" in summary
+
+    def test_summary_with_removed_vertex(self):
+        sg_old = SchemaGraph([SDimV1, SExtraDim])
+        sg_new = SchemaGraph([SDimV1])
+        diff = sg_old.diff(sg_new)
+        summary = diff.summary()
+        assert "- vertices" in summary
+
+    def test_column_diff_is_empty_predicate(self):
+        from sqldim.core.graph.schema_graph import ColumnDiff
+        cd_empty = ColumnDiff("M", "vertex", [], [])
+        assert cd_empty.is_empty
+        cd_nonempty = ColumnDiff("M", "vertex", ["a"], [])
+        assert not cd_nonempty.is_empty
+
+
+class TestCollectColumnDiff:
+    def test_added_column_detected(self):
+        from sqldim.core.graph.schema_graph import _collect_column_diff, ColumnDiff
+
+        out: list[ColumnDiff] = []
+        _collect_column_diff("SDimV1", "vertex", SDimV1, SDimV2, out)
+        assert len(out) == 1
+        assert "label" in out[0].added_columns
+
+    def test_removed_column_detected(self):
+        from sqldim.core.graph.schema_graph import _collect_column_diff, ColumnDiff
+
+        out: list[ColumnDiff] = []
+        _collect_column_diff("SDimV2", "vertex", SDimV2, SDimV1, out)
+        assert len(out) == 1
+        assert "label" in out[0].removed_columns
+
+    def test_no_diff_when_equal(self):
+        from sqldim.core.graph.schema_graph import _collect_column_diff, ColumnDiff
+
+        out: list[ColumnDiff] = []
+        _collect_column_diff("SDimV1", "vertex", SDimV1, SDimV1, out)
+        assert len(out) == 0
+
+    def test_old_cls_none(self):
+        """old_cls=None means entirely new model → all columns added."""
+        from sqldim.core.graph.schema_graph import _collect_column_diff, ColumnDiff
+
+        out: list[ColumnDiff] = []
+        _collect_column_diff("SDimV1", "vertex", None, SDimV1, out)
+        assert len(out) == 1
+        assert out[0].removed_columns == []
+
+    def test_new_cls_none(self):
+        """new_cls=None means deleted model → all columns removed."""
+        from sqldim.core.graph.schema_graph import _collect_column_diff, ColumnDiff
+
+        out: list[ColumnDiff] = []
+        _collect_column_diff("SDimV1", "vertex", SDimV1, None, out)
+        assert len(out) == 1
+        assert out[0].added_columns == []
+
+
+# ---------------------------------------------------------------------------
+# SchemaDiff.summary with column_diffs (covers _schema_diff.py lines 75, 77)
+# ---------------------------------------------------------------------------
+
+class TestSchemaDiffColumnDiffSummary:
+    def test_summary_includes_nonempty_column_diff(self):
+        """SchemaDiff.summary() formats column_diffs where is_empty is False."""
+        from sqldim.core.graph.schema_graph import ColumnDiff
+        from sqldim.core.graph._schema_diff import SchemaDiff
+
+        cd = ColumnDiff("MyModel", "vertex", ["new_col"], [])
+        diff = SchemaDiff([], [], [], [], [cd])
+        summary = diff.summary()
+        assert "~ MyModel" in summary
+        assert "new_col" in summary
+
+    def test_summary_skips_empty_column_diff(self):
+        """SchemaDiff.summary() skips column_diffs where is_empty is True."""
+        from sqldim.core.graph.schema_graph import ColumnDiff
+        from sqldim.core.graph._schema_diff import SchemaDiff
+
+        cd_empty = ColumnDiff("MyModel", "vertex", [], [])
+        diff = SchemaDiff([], [], [], [], [cd_empty])
+        summary = diff.summary()
+        # empty ColumnDiff should not appear in summary
+        assert "~ MyModel" not in summary
+
+    def test_summary_includes_added_edges(self):
+        """SchemaDiff.summary() includes added_edges when non-empty."""
+        from sqldim.core.graph._schema_diff import SchemaDiff
+
+        FakeEdge = type("FakeEdge", (), {})
+        diff = SchemaDiff(added_edges=[FakeEdge])
+        summary = diff.summary()
+        assert "FakeEdge" in summary
+        assert "+" in summary
+
+    def test_summary_includes_removed_edges(self):
+        """SchemaDiff.summary() includes removed_edges when non-empty."""
+        from sqldim.core.graph._schema_diff import SchemaDiff
+
+        FakeEdge = type("FakeEdge", (), {})
+        diff = SchemaDiff(removed_edges=[FakeEdge])
+        summary = diff.summary()
+        assert "FakeEdge" in summary
+        assert "-" in summary
+
+
+# ---------------------------------------------------------------------------
+# SchemaGraph.diff with edge models (covers schema_graph.py lines 311-313)
+# ---------------------------------------------------------------------------
+
+class SEdgeFactDiff(FactModel, table=True):
+    """FactModel used for edge-diff coverage tests."""
+    __tablename__ = "sg_edge_fact_diff_cov"
+    __grain__ = "test diff"
+    id: Optional[int] = Field(default=None, primary_key=True)
+    v1_id: int = Field(foreign_key="sg_dim_v1_cov.id", dimension=SDimV1)
+    extra_id: Optional[int] = Field(default=None, foreign_key="sg_extra_dim_cov.id", dimension=SExtraDim)
+    amount: float = 0.0
+
+
+class TestSchemaGraphEdgeDiff:
+    def test_diff_with_fact_model_visits_edge_loop(self):
+        """diff() iterates over edges so _collect_column_diff is called for edge models."""
+        sg_old = SchemaGraph([SDimV1, SExtraDim, SEdgeFactDiff])
+        sg_new = SchemaGraph([SDimV1, SExtraDim])
+        diff = sg_old.diff(sg_new)
+        # The fact was removed, so edit_distance should reflect removed edge
+        assert diff.edit_distance > 0
+
+    def test_diff_same_facts_produces_no_edge_change(self):
+        """diff() of identical schemas with facts gives edit_distance=0."""
+        sg = SchemaGraph([SDimV1, SExtraDim, SEdgeFactDiff])
+        diff = sg.diff(sg)
+        assert diff.edit_distance == 0

@@ -1,6 +1,5 @@
 """Tests for NarwhalsHashStrategy and NarwhalsSCDProcessor — Task 7.2."""
 import hashlib
-import sys
 import pytest
 from datetime import date, datetime, timezone
 from typing import Optional

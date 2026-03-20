@@ -19,7 +19,6 @@ import duckdb
 from sqldim.examples.datasets import (
     BaseSource,
     DatasetFactory,
-    DatasetSpec,
     SourceProvider,
     ProductsSource,
     CustomersSource,
@@ -497,32 +496,32 @@ class TestGitHubIssuesSource:
 
 class TestEventBatchValueError:
     def test_products_raises(self):
-        from sqldim.examples.datasets.ecommerce import ProductsSource
+        from sqldim.examples.datasets.domains.ecommerce import ProductsSource
         with pytest.raises(ValueError, match="1 event batch"):
             ProductsSource(n=3, seed=1).event_batch(2)
 
     def test_customers_raises(self):
-        from sqldim.examples.datasets.ecommerce import CustomersSource
+        from sqldim.examples.datasets.domains.ecommerce import CustomersSource
         with pytest.raises(ValueError, match="1 event batch"):
             CustomersSource(n=3, seed=1).event_batch(2)
 
     def test_stores_raises(self):
-        from sqldim.examples.datasets.ecommerce import StoresSource
+        from sqldim.examples.datasets.domains.ecommerce import StoresSource
         with pytest.raises(ValueError, match="1 event batch"):
             StoresSource(n=3, seed=1).event_batch(2)
 
     def test_employees_raises(self):
-        from sqldim.examples.datasets.enterprise import EmployeesSource
+        from sqldim.examples.datasets.domains.enterprise import EmployeesSource
         with pytest.raises(ValueError, match="1 event batch"):
             EmployeesSource(n=3, seed=1).event_batch(2)
 
     def test_movies_raises(self):
-        from sqldim.examples.datasets.media import MoviesSource
+        from sqldim.examples.datasets.domains.media import MoviesSource
         with pytest.raises(ValueError, match="1 event batch"):
             MoviesSource().new_releases(2)
 
     def test_githubissues_raises(self):
-        from sqldim.examples.datasets.devops import GitHubIssuesSource
+        from sqldim.examples.datasets.domains.devops import GitHubIssuesSource
         with pytest.raises(ValueError, match="1 event batch"):
             GitHubIssuesSource(n=3, seed=1).event_batch(2)
 
@@ -544,7 +543,7 @@ def test_base_source_setup_raises_not_implemented():
 # ── OrdersSource.orders property ─────────────────────────────────────────────
 
 def test_orders_source_orders_property():
-    from sqldim.examples.datasets.ecommerce import OrdersSource
+    from sqldim.examples.datasets.domains.ecommerce import OrdersSource
 
     src = OrdersSource(n=3, seed=42)
     result = src.orders
@@ -803,7 +802,7 @@ class TestEventSpec:
         assert result[0]["ts"] == "old"   # unchanged
 
     def test_apply_new_rows_fn(self):
-        from sqldim.examples.datasets.schema import ChangeRule, EventSpec
+        from sqldim.examples.datasets.schema import EventSpec
         spec = EventSpec(
             changes=[],
             new_rows_fn=lambda rows, fake: [{"id": 99, "val": 0, "ts": "new"}],
@@ -893,23 +892,23 @@ class TestDatasetSpec:
 
     def test_orders_spec_source_ddl(self):
         """Smoke-test the real _ORDERS_SPEC used by OrdersSource."""
-        from sqldim.examples.datasets.ecommerce import _ORDERS_SPEC
+        from sqldim.examples.datasets.domains.ecommerce import _ORDERS_SPEC
         ddl = _ORDERS_SPEC.source.oltp_ddl()
         assert "order_id" in ddl
         assert "{table}" in ddl
 
     def test_orders_spec_fact_ddl(self):
-        from sqldim.examples.datasets.ecommerce import _ORDERS_SPEC
+        from sqldim.examples.datasets.domains.ecommerce import _ORDERS_SPEC
         ddl = _ORDERS_SPEC.fact.oltp_ddl()
         assert "placed_at" in ddl
 
     def test_accounts_spec_snapshot_ddl(self):
-        from sqldim.examples.datasets.enterprise import _ACCOUNTS_SPEC
+        from sqldim.examples.datasets.domains.enterprise import _ACCOUNTS_SPEC
         ddl = _ACCOUNTS_SPEC.snapshot.oltp_ddl()
         assert "snapshot_date" in ddl
 
     def test_movies_spec_roles(self):
-        from sqldim.examples.datasets.media import _MOVIES_SPEC
+        from sqldim.examples.datasets.domains.media import _MOVIES_SPEC
         assert _MOVIES_SPEC.cast.name   == "cast"
         assert _MOVIES_SPEC.edge.name   == "edge"
         assert _MOVIES_SPEC.actors.name == "actors"
@@ -939,7 +938,7 @@ class TestDatasetSpec:
 
     def test_repr_shows_events_suffix(self):
         from sqldim.examples.datasets.schema import (
-            ChangeRule, DatasetSpec, EntitySchema, EventSpec, FieldSpec,
+            DatasetSpec, EntitySchema, EventSpec, FieldSpec,
         )
         spec = DatasetSpec("x", {
             "source": EntitySchema("x", fields=[FieldSpec("id", "INTEGER")]),
@@ -951,27 +950,27 @@ class TestDatasetSpec:
         assert "EventSpec" not in repr(spec)
 
     def test_products_spec_has_events(self):
-        from sqldim.examples.datasets.ecommerce import _PRODUCTS_SPEC
+        from sqldim.examples.datasets.domains.ecommerce import _PRODUCTS_SPEC
         from sqldim.examples.datasets.schema import EventSpec
         assert isinstance(_PRODUCTS_SPEC.events, EventSpec)
         assert _PRODUCTS_SPEC.source.name == "product"
 
     def test_employees_spec_has_events(self):
-        from sqldim.examples.datasets.enterprise import _EMPLOYEES_SPEC
+        from sqldim.examples.datasets.domains.enterprise import _EMPLOYEES_SPEC
         from sqldim.examples.datasets.schema import EventSpec
         assert isinstance(_EMPLOYEES_SPEC.events, EventSpec)
 
     def test_github_spec_has_events(self):
-        from sqldim.examples.datasets.devops import _GITHUB_SPEC
+        from sqldim.examples.datasets.domains.devops import _GITHUB_SPEC
         from sqldim.examples.datasets.schema import EventSpec
         assert isinstance(_GITHUB_SPEC.events, EventSpec)
 
     def test_orders_spec_has_no_events(self):
-        from sqldim.examples.datasets.ecommerce import _ORDERS_SPEC
+        from sqldim.examples.datasets.domains.ecommerce import _ORDERS_SPEC
         assert _ORDERS_SPEC.events is None
 
     def test_movies_spec_has_no_events(self):
-        from sqldim.examples.datasets.media import _MOVIES_SPEC
+        from sqldim.examples.datasets.domains.media import _MOVIES_SPEC
         assert _MOVIES_SPEC.events is None
 
 

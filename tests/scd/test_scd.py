@@ -48,7 +48,7 @@ async def test_scd_lifecycle(session):
     all_versions = session.exec(select(UserDim).where(UserDim.user_code == "U1")).all()
     assert len(all_versions) == 2
     
-    current = session.exec(select(UserDim).where(UserDim.user_code == "U1", UserDim.is_current == True)).one()
+    current = session.exec(select(UserDim).where(UserDim.user_code == "U1", UserDim.is_current)).one()
     assert current.email == "new@b.com"
     assert current.valid_to is None
 
@@ -142,6 +142,7 @@ class TestSCDHandlerMissingLines:
         mock_session = MagicMock()
         mock_session.exec.return_value.first.return_value = None
         mock_session.commit.return_value = None
+        mock_session.exec.return_value.all.return_value = []
 
         def capture_add(obj):
             added_objects.append(obj)
@@ -154,6 +155,7 @@ class TestSCDHandlerMissingLines:
             id=1, code="S6", city="Seattle", is_current=True, checksum="old_hash"
         )
         mock_session.exec.return_value.first.return_value = existing
+        mock_session.exec.return_value.all.return_value = [existing]
         await handler.process([{"code": "S6", "city": "Portland"}])
 
         new_rows = [

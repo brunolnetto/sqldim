@@ -1,5 +1,4 @@
 """Tests for backfill_scd2_narwhals — Task 7.5."""
-import pytest
 import polars as pl
 import pandas as pd
 import narwhals as nw
@@ -22,7 +21,6 @@ def _snapshot_pl():
 
 
 def _snapshot_pd():
-    import pandas as pd
     return pd.DataFrame({
         "player_name":   ["Jordan", "Jordan", "Jordan"],
         "season":        [1990,     1991,     1992],
