@@ -70,7 +70,53 @@ def _edge_info(e: type, dimensions: list) -> dict[str, Any]:
         "directed": directed,
         "self_referential": subject_cls is not None and subject_cls is object_cls,
         "columns": list(e.model_fields.keys()),
+        "valid_from": "valid_from" in e.model_fields,
+        "valid_to": "valid_to" in e.model_fields,
     }
+
+
+def _has_column(model_cls: type, col: str) -> bool:
+    """Return True if *col* is present in model_fields (O(1) dict lookup)."""
+    return col in model_cls.model_fields
+
+
+def _verb_adj_entries(
+    fact_cls: type, fk_dims: dict, fadj: dict[str, list[str]]
+) -> None:
+    """Add forward verb edges (dim→fact) for *fact_cls* into *fadj* in-place."""
+    fact_name = fact_cls.__name__
+    for dim_cls in fk_dims.values():
+        dim_name = dim_cls.__name__
+        if dim_name in fadj:
+            fadj[dim_name].append(fact_name)
+
+
+def _cls_name(obj: object) -> str:
+    """Return `obj.__name__` when *obj* is a type, else `str(obj)` (CC=1)."""
+    return obj.__name__ if isinstance(obj, type) else str(obj)  # type: ignore[union-attr]
+
+
+def _bridge_adj_entries(bridge_cls: type, fadj: dict[str, list[str]]) -> None:
+    """Add forward bridge edge (subject→object) for *bridge_cls* into *fadj*."""
+    subj = getattr(bridge_cls, "__subject__", None)
+    obj = getattr(bridge_cls, "__object__", None)
+    if subj is None or obj is None:
+        return
+    subj_name = _cls_name(subj)
+    obj_name = _cls_name(obj)
+    if subj_name in fadj:
+        fadj[subj_name].append(obj_name)
+
+
+def _build_transposed_adj(
+    node_names: list[str], forward: dict[str, list[str]]
+) -> dict[str, list[str]]:
+    """Reverse all forward edges to build G^T adjacency list (DGM §2.1, D18)."""
+    tadj: dict[str, list[str]] = {n: [] for n in node_names}
+    for src, targets in forward.items():
+        for tgt in targets:
+            tadj[tgt].append(src)
+    return tadj
 
 
 def _bridge_edge_info(b: type) -> dict[str, Any]:
@@ -84,6 +130,8 @@ def _bridge_edge_info(b: type) -> dict[str, Any]:
         "directed": getattr(b, "__directed__", False),
         "columns": list(b.model_fields.keys()),
         "has_weight": "weight" in b.model_fields,
+        "valid_from": _has_column(b, "valid_from"),
+        "valid_to": _has_column(b, "valid_to"),
     }
 
 
@@ -279,6 +327,44 @@ class SchemaGraph(_BaseSchemaGraph):
             star = self.get_star_schema(fact)
             _render_edge_relations(fact, lines, star)
         return "\n".join(lines)
+
+    # ------------------------------------------------------------------
+
+    # ------------------------------------------------------------------
+    # DGM §2.1: N = D ∪ F, forward adjacency, G^T transposed adjacency
+    # ------------------------------------------------------------------
+
+    @property
+    def all_nodes(self) -> list:
+        """N = D ∪ F: both dimension and fact model classes per DGM §2.1."""
+        return list(self.vertices) + list(self.edges)
+
+    @property
+    def forward_adj(self) -> dict[str, list[str]]:
+        """Forward adjacency: class_name → [reachable class_names].
+
+        Verb edges contribute dim → fact entries.
+        Bridge edges with explicit ``__subject__``/``__object__`` contribute
+        subject → object entries.
+        """
+        node_names = [n.__name__ for n in self.all_nodes]
+        fadj: dict[str, list[str]] = {n: [] for n in node_names}
+        for fact in self.edges:
+            _verb_adj_entries(fact, self._fk_dimensions(fact), fadj)
+        for bridge in self._bridge_models:
+            _bridge_adj_entries(bridge, fadj)
+        return fadj
+
+    @property
+    def transposed_adj(self) -> dict[str, list[str]]:
+        """G^T adjacency: reverse all forward edges (DGM §2.1, D18).
+
+        Used for backward-cone computation (REACHABLE_TO), SINCE/ONCE/
+        PREVIOUSLY TemporalMode SQL, and INCOMING_SIGNATURES algorithms.
+        Built in O(|E|) — all edges traversed exactly once.
+        """
+        node_names = [n.__name__ for n in self.all_nodes]
+        return _build_transposed_adj(node_names, self.forward_adj)
 
     # ------------------------------------------------------------------
 
