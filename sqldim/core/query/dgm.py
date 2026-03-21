@@ -34,6 +34,7 @@ from sqldim.core.query._dgm_refs import (  # noqa: F401
     _paren_if_compound,
     _ConstExpr,
     ArithExpr,
+    SignatureRef,
 )
 from sqldim.core.query._dgm_preds import (  # noqa: F401
     ScalarPred,
@@ -55,6 +56,7 @@ from sqldim.core.query._dgm_preds import (  # noqa: F401
     _path_pred_sql,
     PathPred,
     PathAgg,
+    SignaturePred,
 )
 # ---------------------------------------------------------------------------
 # Model-first FK inference
@@ -131,6 +133,17 @@ def _has_path_pred(pred: object) -> bool:
     return False
 
 
+def _has_signature_pred(pred: object) -> bool:
+    """Return True if *pred* subtree contains any SignaturePred node."""
+    if isinstance(pred, SignaturePred):
+        return True
+    if isinstance(pred, (AND, OR)):
+        return any(_has_signature_pred(sub) for sub in pred.preds)
+    if isinstance(pred, NOT):
+        return _has_signature_pred(pred.pred)
+    return False
+
+
 def _check_where_pred(pred: object) -> None:
     if isinstance(pred, (str, RawPred)):
         return  # raw SQL strings bypass Ref-kind checking
@@ -145,22 +158,34 @@ def _check_where_pred(pred: object) -> None:
 def _check_having_pred(pred: object) -> None:
     if _has_path_pred(pred):
         raise SemanticError("PathPred is not allowed in Having (B2).")
+    if _has_signature_pred(pred):
+        raise SemanticError("SignaturePred is not allowed in Having (B2); use Where (B1).")
     for ref in _iter_scalar_refs(pred):
         if isinstance(ref, (PropRef, WinRef)):
             raise SemanticError(
                 f"B2 Having only admits AggRef; found {type(ref).__name__}. "
                 "Use Where (B1) for PropRef or Qualify (B3) for WinRef."
             )
+        if isinstance(ref, SignatureRef):
+            raise SemanticError(
+                "SignatureRef is B1-only; not allowed in Having (B2)."
+            )
 
 
 def _check_qualify_pred(pred: object) -> None:
     if _has_path_pred(pred):
         raise SemanticError("PathPred is not allowed in Qualify (B3).")
+    if _has_signature_pred(pred):
+        raise SemanticError("SignaturePred is not allowed in Qualify (B3); use Where (B1).")
     for ref in _iter_scalar_refs(pred):
         if isinstance(ref, (PropRef, AggRef)):
             raise SemanticError(
                 f"B3 Qualify only admits WinRef; found {type(ref).__name__}. "
                 "Use Where (B1) for PropRef or Having (B2) for AggRef."
+            )
+        if isinstance(ref, SignatureRef):
+            raise SemanticError(
+                "SignatureRef is B1-only; not allowed in Qualify (B3)."
             )
 
 

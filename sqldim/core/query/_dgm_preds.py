@@ -231,8 +231,43 @@ def _flatten_path(path: object) -> list:
     return [path]
 
 
+# ---------------------------------------------------------------------------
+# TemporalMode SQL template mapping  (DGM §6.1)
+# ---------------------------------------------------------------------------
+
+# Deferred import to avoid circularity — accessed via _TEMPORAL_MODE_WRAPPERS
+_TEMPORAL_MODE_WRAPPERS: dict[object, str] = {}
+
+
+def _temporal_mode_sql_wrapper(mode: object, base_exists: str) -> str:
+    """Wrap *base_exists* in the appropriate CTL temporal SQL template."""
+    from sqldim.core.query._dgm_temporal import (
+        EVENTUALLY, GLOBALLY, NEXT, ONCE, PREVIOUSLY, UntilMode, SinceMode
+    )
+    if mode is EVENTUALLY or mode is EVENTUALLY or isinstance(mode, type) and mode is EVENTUALLY:
+        return base_exists  # EVENTUALLY ≅ plain EXISTS (any forward hop)
+    if mode is GLOBALLY or (isinstance(mode, type) and mode is GLOBALLY):
+        # GLOBALLY ≅ NOT EXISTS (NOT sub_filter anywhere)
+        return f"NOT EXISTS (SELECT 1 FROM (SELECT 1 WHERE NOT ({base_exists})))"
+    if mode is NEXT or (isinstance(mode, type) and mode is NEXT):
+        return base_exists  # NEXT ≅ single-hop EXISTS (path already single hop)
+    if mode is ONCE or (isinstance(mode, type) and mode is ONCE):
+        # ONCE ≅ backward single-hop exists on G^T
+        return f"/* G^T */ {base_exists}"
+    if mode is PREVIOUSLY or (isinstance(mode, type) and mode is PREVIOUSLY):
+        # PREVIOUSLY ≅ NOT EXISTS (NOT sub_filter on any prior hop via G^T)
+        return f"/* G^T */ NOT EXISTS (SELECT 1 FROM (SELECT 1 WHERE NOT ({base_exists})))"
+    if isinstance(mode, UntilMode):
+        # UNTIL(ψ) ≅ recursive CTE, hold_pred at every intermediate node
+        return f"/* UNTIL */ {base_exists}"
+    if isinstance(mode, SinceMode):
+        # SINCE(ψ) ≅ backward CTE on G^T
+        return f"/* SINCE G^T */ {base_exists}"
+    return base_exists  # pragma: no cover
+
+
 def _path_pred_sql(pp: "PathPred") -> str:
-    """Build EXISTS subquery SQL from a PathPred."""
+    """Build EXISTS subquery SQL from a PathPred, applying TemporalMode wrapper."""
     hops = _flatten_path(pp.path)
     if not hops:  # pragma: no cover
         return "TRUE"
@@ -243,7 +278,10 @@ def _path_pred_sql(pp: "PathPred") -> str:
     sql = f"EXISTS (SELECT 1 FROM {from_clause}"
     if join_sql:
         sql += f" {join_sql}"
-    return sql + " WHERE " + " AND ".join(where_terms) + ")"
+    base = sql + " WHERE " + " AND ".join(where_terms) + ")"
+    if pp.temporal_mode is None:
+        return base
+    return _temporal_mode_sql_wrapper(pp.temporal_mode, base)
 
 
 # ---------------------------------------------------------------------------
