@@ -208,18 +208,42 @@ def _render_edge_relations(fact: type, lines: list, star: dict) -> None:
 
 
 class GraphSchema:
-    """Serialisable representation of the graph portion of a schema."""
+    """Serialisable representation of the graph portion of a schema.
+
+    The optional *annotations* parameter holds the Σ set of SchemaAnnotation
+    objects defined in §2.4 of the DGM v0.16 spec.  It defaults to an empty
+    list so that all existing call-sites remain unchanged.
+    """
 
     def __init__(
         self,
         vertices: list[dict[str, Any]],
         edges: list[dict[str, Any]],
+        annotations: list | None = None,
     ) -> None:
         self.vertices = vertices
         self.edges = edges
+        self.annotations: list = annotations if annotations is not None else []
 
     def to_dict(self) -> dict[str, Any]:
-        return {"vertices": self.vertices, "edges": self.edges}
+        from sqldim.core.query._dgm_annotations import annotation_kind
+
+        def _ann_to_dict(ann: object) -> dict[str, Any]:
+            kind = annotation_kind(ann)  # type: ignore[arg-type]
+            d: dict[str, Any] = {"kind": kind}
+            for k, v in vars(ann).items():
+                if isinstance(v, (set, frozenset)):
+                    d[k] = sorted(v)
+                else:
+                    d[k] = v
+            return d
+
+        result: dict[str, Any] = {"vertices": self.vertices, "edges": self.edges}
+        if self.annotations:
+            result["annotations"] = [_ann_to_dict(a) for a in self.annotations]
+        else:
+            result["annotations"] = []
+        return result
 
 
 # ---------------------------------------------------------------------------

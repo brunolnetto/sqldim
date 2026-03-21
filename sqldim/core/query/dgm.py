@@ -337,6 +337,27 @@ from sqldim.core.query._dgm_preds import (  # noqa: F401
 )
 
 # -- Re-export: Temporal types (DGM §3.2, §4.1, §4.2, §5.1) ---------------
+from sqldim.core.query._dgm_annotations import (  # noqa: F401
+    GrainKind,
+    SCDKind,
+    WeightConstraintKind,
+    BridgeSemanticsKind,
+    RAGGED,
+    SchemaAnnotation,
+    Conformed,
+    Grain,
+    SCDType,
+    Degenerate,
+    RolePlaying,
+    ProjectsFrom,
+    FactlessFact,
+    DerivedFact,
+    WeightConstraint,
+    BridgeSemantics,
+    Hierarchy,
+    annotation_kind,
+    AnnotationSigma,
+)
 from sqldim.core.query._dgm_temporal import (  # noqa: F401
     TemporalMode,
     EVENTUALLY,
