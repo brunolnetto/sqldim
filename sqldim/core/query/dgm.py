@@ -288,11 +288,104 @@ from sqldim.core.query._dgm_graph import (  # noqa: F401
     # TrimJoin / TrimCriterion (DGM §10.1, §18.8)
     TrimCriterion,
     REACHABLE_BETWEEN,
+    REACHABLE_FROM,
+    REACHABLE_TO,
     MIN_DEGREE,
     SINK_FREE,
     SOURCE_FREE,
     TrimJoin,
 )
+
+# -- Re-export: Refs (DGM §4.1) --------------------------------------------
+from sqldim.core.query._dgm_refs import SignatureRef  # noqa: F401
+
+# -- Re-export: Preds (DGM §4.1) -------------------------------------------
+from sqldim.core.query._dgm_preds import (  # noqa: F401
+    VerbHopInverse,
+    SAFETY,
+    LIVENESS,
+    RESPONSE,
+    PERSISTENCE,
+    RECURRENCE,
+    SequenceMatch,
+    SignaturePred,
+)
+
+# -- Re-export: Temporal types (DGM §3.2, §4.1, §4.2, §5.1) ---------------
+from sqldim.core.query._dgm_temporal import (  # noqa: F401
+    TemporalMode,
+    EVENTUALLY,
+    GLOBALLY,
+    NEXT,
+    ONCE,
+    PREVIOUSLY,
+    UntilMode,
+    SinceMode,
+    TemporalOrdering,
+    BEFORE,
+    AFTER,
+    CONCURRENT,
+    MEETS,
+    MET_BY,
+    OVERLAPS,
+    OVERLAPPED_BY,
+    STARTS,
+    STARTED_BY,
+    DURING,
+    CONTAINS,
+    FINISHES,
+    FINISHED_BY,
+    EQUALS,
+    UntilOrdering,
+    SinceOrdering,
+    TemporalWindow,
+    ROLLING,
+    TRAILING,
+    PERIOD,
+    YTD,
+    QTD,
+    MTD,
+    TemporalAgg,
+    DeltaSpec,
+    ADDED_NODES,
+    REMOVED_NODES,
+    ADDED_EDGES,
+    REMOVED_EDGES,
+    CHANGED_PROPERTY,
+    ROLE_DRIFT,
+    DeltaQuery,
+)
+
+
+# ---------------------------------------------------------------------------
+# TemporalContext  (DGM §5.1)
+# ---------------------------------------------------------------------------
+
+
+class TemporalContext:
+    """Snapshot-query temporal context — sets the default as-of point and
+    version-resolution modes for all joins in a query.
+
+    Parameters
+    ----------
+    default_as_of:
+        ISO-8601 timestamp applied as the implicit SCD2 snapshot point.
+    node_resolution:
+        ``"STRICT"`` — reject tuples with missing versions;
+        ``"LAX"`` (default) — silently drop them.
+    edge_resolution:
+        ``"STRICT"`` / ``"LAX"`` (default) applied to edge validity windows.
+    """
+
+    def __init__(
+        self,
+        default_as_of: str,
+        node_resolution: str = "LAX",
+        edge_resolution: str = "LAX",
+    ) -> None:
+        self.default_as_of = default_as_of
+        self.node_resolution = node_resolution
+        self.edge_resolution = edge_resolution
 
 
 # ---------------------------------------------------------------------------
@@ -319,11 +412,35 @@ class DGMQuery:
         self._having_pred: object = None
         self._window_exprs: dict[str, str] = {}
         self._qualify_pred: object = None
+        self._temporal_context: "TemporalContext | None" = None
         # Maps alias → model class for FK inference in model-first path_join
         self._alias_registry: dict[str, type] = {}
         if fact_table is not None:
             self._anchor_table = fact_table
             self._anchor_alias = "f"
+
+    # -- Temporal Context (DGM §5.1) ----------------------------------------
+
+    def temporal_context(
+        self,
+        default_as_of: str,
+        *,
+        node_resolution: str = "LAX",
+        edge_resolution: str = "LAX",
+    ) -> "DGMQuery":
+        """Set the snapshot temporal context for all joins in the query.
+
+        This is the ``TemporalContext`` operator from DGM §5.1. It applies
+        ``default_as_of`` as the default SCD2 snapshot point and configures
+        version-resolution modes for nodes and edges.
+
+        Explicit :meth:`temporal_join` / :meth:`as_of` calls on individual
+        joins continue to override the context for those sub-joins.
+        """
+        self._temporal_context = TemporalContext(
+            default_as_of, node_resolution, edge_resolution
+        )
+        return self
 
     # -- B1 Context --------------------------------------------------------
 

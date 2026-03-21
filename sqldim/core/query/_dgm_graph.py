@@ -31,6 +31,8 @@ __all__ = [
     # TrimJoin / TrimCriterion (DGM §10.1, §18.8)
     "TrimCriterion",
     "REACHABLE_BETWEEN",
+    "REACHABLE_FROM",
+    "REACHABLE_TO",
     "MIN_DEGREE",
     "SINK_FREE",
     "SOURCE_FREE",
@@ -304,6 +306,35 @@ class REACHABLE_BETWEEN(TrimCriterion):
 
     def to_sql(self) -> str:
         return f"REACHABLE_BETWEEN(source={self.source!r}, target={self.target!r})"
+
+
+class REACHABLE_FROM(TrimCriterion):
+    """Restrict context to the forward cone G_A* via BFS on G (Bound→Free).
+
+    Retains only nodes reachable from *source* via forward traversal on the
+    schema graph.  Computed as BFS/DFS on G starting from *source*.
+    """
+
+    def __init__(self, source: str) -> None:
+        self.source = source
+
+    def to_sql(self) -> str:
+        return f"REACHABLE_FROM(source={self.source!r})"
+
+
+class REACHABLE_TO(TrimCriterion):
+    """Restrict context to the backward cone G_*B via BFS on G^T (Free→Bound).
+
+    Retains only nodes from which *target* is reachable — computed via BFS on
+    the transposed graph G^T.  Enables ``INCOMING_SIGNATURES`` and SINCE/ONCE
+    temporal modes that require reverse traversal.
+    """
+
+    def __init__(self, target: str) -> None:
+        self.target = target
+
+    def to_sql(self) -> str:
+        return f"REACHABLE_TO(target={self.target!r})"
 
 
 class MIN_DEGREE(TrimCriterion):

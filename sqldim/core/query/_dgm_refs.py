@@ -62,6 +62,24 @@ def _paren_if_compound(parts: list[str], op: str) -> str:
     return "(" + f" {op} ".join(parts) + ")"
 
 
+class SignatureRef:
+    """Reference to the label-sequence signature of a named BoundPath instance.
+
+    Valid only in B₁ (Where/PathPred context).  Renders as
+    ``{path_alias}.signature`` and is expanded by the executor into the
+    path-array CTE column holding the edge-label sequence.
+    """
+
+    def __init__(self, path_alias: str) -> None:
+        self.path_alias = path_alias
+
+    def to_sql(self) -> str:
+        return f"{self.path_alias}.signature"
+
+    def __repr__(self) -> str:
+        return f"SignatureRef({self.path_alias!r})"
+
+
 # ---------------------------------------------------------------------------
 # Expression types  (DGM §8)
 # ---------------------------------------------------------------------------

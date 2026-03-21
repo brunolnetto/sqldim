@@ -33,12 +33,22 @@ __all__ = [
     "Quantifier",
     "_HopBase",
     "VerbHop",
+    "VerbHopInverse",
     "BridgeHop",
     "Compose",
     "_flatten_path",
     "_path_pred_sql",
     "PathPred",
     "PathAgg",
+    # TemporalProperty sugar (DGM §4.1)
+    "SAFETY",
+    "LIVENESS",
+    "RESPONSE",
+    "PERSISTENCE",
+    "RECURRENCE",
+    # Signature predicate (DGM §4.1)
+    "SequenceMatch",
+    "SignaturePred",
 ]
 
 # ---------------------------------------------------------------------------
@@ -184,6 +194,17 @@ class VerbHop(_HopBase):
     kind = "verb"
 
 
+class VerbHopInverse(_HopBase):
+    """Reverse verb-edge hop: traverses from a fact table back to a dimension.
+
+    Corresponds to VerbHop⁻¹(f, label, d) in the DGM spec.  Enables
+    constellation paths (e.g. f₁ ← shared_dim → f₂) and INCOMING_SIGNATURES
+    traversal via G^T.
+    """
+
+    kind = "verb_inverse"
+
+
 class BridgeHop(_HopBase):
     """Bridge-edge hop: traverses a bridge table (BridgeModel edge)."""
 
@@ -237,6 +258,23 @@ class PathPred:
     By default renders as EXISTS (SELECT 1 FROM <path joins> WHERE <sub_filter>
     AND <correlation>).  Supply ``quantifier`` and ``strategy`` to express
     quantified / strategy-controlled path predicates per DGM §18.3–18.4.
+
+    Parameters
+    ----------
+    anchor:
+        Alias of the context node the path is rooted at.
+    path:
+        A BoundPath (VerbHop, BridgeHop, VerbHopInverse, Compose, …).
+    sub_filter:
+        Predicate evaluated inside the path traversal context.
+    quantifier:
+        EXISTS (∃, default) or FORALL (∀, De Morgan'd to NOT…EXISTS…NOT).
+    strategy:
+        Path selection strategy (ALL, SHORTEST, K_SHORTEST, MIN_WEIGHT).
+    temporal_mode:
+        CTL temporal mode applied to the traversal (DGM §4.1).
+    promote:
+        When True + single-instance strategy, lift path-local context L into C.
     """
 
     def __init__(
@@ -247,12 +285,16 @@ class PathPred:
         *,
         quantifier: "Quantifier | None" = None,
         strategy: "Strategy | None" = None,
+        temporal_mode: "object | None" = None,
+        promote: "bool | None" = None,
     ) -> None:
         self.anchor = anchor
         self.path = path
         self.sub_filter = sub_filter
         self.quantifier = quantifier
         self.strategy = strategy
+        self.temporal_mode = temporal_mode
+        self.promote = promote
 
     def to_sql(self) -> str:
         return _path_pred_sql(self)
@@ -283,3 +325,105 @@ class PathAgg:
     def to_sql(self) -> str:
         """Render a placeholder aggregation expression."""
         return f"{self.fn}({self.ref})"
+
+
+# ---------------------------------------------------------------------------
+# TemporalProperty sugar  (DGM §4.1)
+# ---------------------------------------------------------------------------
+
+
+class SAFETY:
+    """AG(¬bad) — the bad state is globally unreachable on all paths."""
+
+    def __init__(self, bad: object) -> None:
+        self.bad = bad
+
+    def to_sql(self) -> str:
+        return f"AG(NOT ({self.bad.to_sql()}))"
+
+
+class LIVENESS:
+    """AF(good) — the good state is eventually reached on all paths."""
+
+    def __init__(self, good: object) -> None:
+        self.good = good
+
+    def to_sql(self) -> str:
+        return f"AF({self.good.to_sql()})"
+
+
+class RESPONSE:
+    """AG(trigger → AF(response)) — every trigger is eventually followed by a response."""
+
+    def __init__(self, trigger: object, response: object) -> None:
+        self.trigger = trigger
+        self.response = response
+
+    def to_sql(self) -> str:
+        return f"AG({self.trigger.to_sql()} -> AF({self.response.to_sql()}))"
+
+
+class PERSISTENCE:
+    """AF(AG(good)) — the good state is eventually and permanently reached."""
+
+    def __init__(self, good: object) -> None:
+        self.good = good
+
+    def to_sql(self) -> str:
+        return f"AF(AG({self.good.to_sql()}))"
+
+
+class RECURRENCE:
+    """good occurs in every window period (liveness within a bounded window)."""
+
+    def __init__(self, good: object, window: object) -> None:
+        self.good = good
+        self.window = window
+
+    def to_sql(self) -> str:
+        win_sql = self.window.to_sql() if hasattr(self.window, "to_sql") else str(self.window)
+        return f"G_win({self.good.to_sql()}, {win_sql})"
+
+
+# ---------------------------------------------------------------------------
+# SignaturePred  (DGM §4.1)
+# ---------------------------------------------------------------------------
+
+
+class SequenceMatch(enum.Enum):
+    """Match mode for :class:`SignaturePred`."""
+
+    EXACT = "EXACT"
+    PREFIX = "PREFIX"
+    CONTAINS = "CONTAINS"
+    REGEX = "REGEX"
+
+
+class SignaturePred:
+    """Filter on the label-sequence signature of a named path instance.
+
+    Parameters
+    ----------
+    path_alias:
+        Alias of the BoundPath instance whose signature is matched.
+    sequence:
+        Ordered list of edge labels (or ``None`` for a wildcard position).
+    match:
+        Matching strategy — EXACT, PREFIX, CONTAINS, or REGEX.
+    """
+
+    def __init__(
+        self,
+        path_alias: str,
+        sequence: list,
+        match: SequenceMatch,
+    ) -> None:
+        self.path_alias = path_alias
+        self.sequence = sequence
+        self.match = match
+
+    def to_sql(self) -> str:
+        seq_repr = repr(self.sequence)
+        return (
+            f"signature_match({self.path_alias}, {seq_repr}, {self.match.value!r})"
+        )
