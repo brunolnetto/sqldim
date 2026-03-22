@@ -1,923 +1,1302 @@
 # Dimensional Graph Model — Formal Specification
-**Version 0.11 — Draft**
 
 ---
 
 ## Contents
 
 1. [Overview](#1-overview)
-2. [Graph Structure](#2-graph-structure)
-3. [Node Types](#3-node-types)
-4. [Edge Types](#4-edge-types)
-5. [Traversal Paths](#5-traversal-paths)
-6. [Path Strategy](#6-path-strategy)
-7. [Predicate Language](#7-predicate-language)
-8. [Expression Language](#8-expression-language)
-9. [Query Structure](#9-query-structure)
-10. [Band 1 — Context Layer](#10-band-1--context-layer)
-11. [Band 2 — Aggregation Layer](#11-band-2--aggregation-layer)
-12. [Band 3 — Ranking Layer](#12-band-3--ranking-layer)
-13. [Evaluation Order](#13-evaluation-order)
-14. [Worked Examples](#14-worked-examples)
-15. [Summary](#15-summary)
-16. [Relationship to sqldim](#16-relationship-to-sqldim)
-17. [Related Work](#17-related-work)
-18. [Design Decisions](#18-design-decisions)
-19. [References](#19-references)
+2. [Graph Model](#2-graph-model)
+   - 2.1 Structure and invariants
+   - 2.2 Node types
+   - 2.3 Edge types
+   - 2.4 Schema annotation layer (Σ)
+   - 2.5 Temporal properties and snapshots
+3. [Traversal Paths](#3-traversal-paths)
+   - 3.1 Unbound paths
+   - 3.2 Bound paths and TemporalOrdering
+   - 3.3 Path strategy and lattice
+   - 3.4 RelationshipSubgraph
+   - 3.5 Evaluation contexts and L-promotion
+4. [Query Language](#4-query-language)
+   - 4.1 Predicate language
+   - 4.2 Expression language
+5. [Query Structure](#5-query-structure)
+   - 5.1 Query forms
+   - 5.2 Bands
+     - 5.2.1 Band 1 — Context layer
+     - 5.2.2 Band 2 — Aggregation layer
+     - 5.2.3 Band 3 — Ranking layer
+   - 5.3 Evaluation order
+6. [Execution Architecture](#6-execution-architecture)
+   - 6.1 BDD canonical predicate representation
+   - 6.2 Query planner
+   - 6.3 Query exporter
+7. [Recommender Architecture](#7-recommender-architecture)
+8. [Theoretical Foundations](#8-theoretical-foundations)
+9. [Implementation Guide](#9-implementation-guide)
+   - 9.1 Alignment with sqldim
+   - 9.2 Implementation roadmap
+10. [Reference](#10-reference)
+    - 10.1 Worked examples
+    - 10.2 Summary tables
+    - 10.3 Related work
+    - 10.4 Design decisions
+    - 10.5 References
 
 ---
 
 ## 1  Overview
 
-The **Dimensional Graph Model (DGM)** is a typed directed graph framework that unifies dimensional analysis with graph modelling. It provides a formal basis for representing domain entities, their relationships, measurable events, and structural connections — together with a query language for filtering, joining, aggregating, and qualifying over the resulting graph.
+The **Dimensional Graph Model (DGM)** is a typed directed graph framework that unifies dimensional analysis, graph modelling, and temporal logic. It provides a formal basis for representing domain entities, their relationships, measurable events, structural connections, and their evolution over time.
 
-The framework rests on nine core ideas:
+The framework rests on fifteen core ideas:
 
 - **Dimensions and facts are both first-class nodes**, distinguished by the kind of data they carry.
-- **Relationships are typed directed edges**: verb edges bind dimensions to facts (`V ⊆ D×F×L`); bridge edges are general structural connectors between any two nodes (`B ⊆ N×N×L`).
-- **Joins are path traversals** that expand the query context. Temporal resolution (SCD2) and structural trimming are first-class `Join` modifiers.
-- **Path strategy is explicit**: every path-based operation declares how paths are selected and, in predicates, what quantifier scopes the truth condition. Multiplicity is never implicit.
-- **Path-local bindings** allow hops in a `BoundPath` to introduce named aliases for intermediate nodes and edges, evaluated over `C ∪ L`. For single-instance strategies, path-local bindings may be promoted into `C`.
-- **A unified predicate language** governs all filter clauses via two constructors (`ScalarPred`, `PathPred`) and a typed `Ref` system.
-- **A unified expression language** governs all computed values. `GraphExpr` is typed by **granularity** — node, pair, or subgraph — and placement rules follow directly from granularity.
-- **Graph algorithms are dimensionally grounded**: every `GraphExpr` references aliases already in context `C`. Classical graph algorithms (Floyd-Warshall, Tarjan SCC, trim) are accommodated either as execution strategies, `CommAlg` variants, or `Join` modifiers — each at the layer that matches their dimensional semantics.
-- **Structural trimming** at the `Join` layer restricts the anchor node set to those satisfying a structural criterion before path expansion, keeping the expression language purely scalar.
+- **Relationships are typed directed edges**: verb edges bind dimensions to facts (V ⊆ D×F×L); bridge edges are general structural connectors (B ⊆ N×N×L), optionally bounded by validity windows.
+- **A schema annotation layer Σ** carries semantic metadata — grain, SCD type, weight constraints, bridge semantics, hierarchy structure, and fact/dimension taxonomy — that drives decisions in the planner, recommender, and exporter without changing graph topology.
+- **Joins are path traversals** expanding the query context. Temporal resolution, edge validity, and structural trimming are first-class Join modifiers.
+- **Path strategy is explicit** — every path-based operation declares how paths are selected and what quantifier scopes the truth condition.
+- **Reverse verb hops** are permitted in BoundPath, enabling traversal from fact to dimension against the natural verb direction.
+- **Temporal path ordering** supports point-based ordering, Allen's full 13-relation interval algebra, and LTL UNTIL/SINCE operators.
+- **Path-local bindings** allow hops in a BoundPath to introduce named aliases evaluated over C ∪ L.
+- **A unified predicate language** governs all filter clauses via three constructors (ScalarPred, PathPred, SignaturePred). Functionally complete; realises full CTL via TemporalMode.
+- **A unified expression language** governs all computed values. TrailExpr algorithms operate over RelationshipSubgraph scopes with relaxed or fixed endpoints — enabling forward-cone, backward-cone, and full traversal-space analysis.
+- **DGM is a Kripke structure** — nodes are states, edges are transitions, property bags are labels. The transposed graph G^T enables backward-cone computation and past-temporal model checking.
+- **Temporal queries** come in two forms: snapshot queries (Q) and delta queries (Q_delta).
+- **A query planner** makes DGM-specific physical execution decisions informed by schema annotations, including cone containment optimisation (Rule 9) for relaxed-endpoint traversals.
+- **A query exporter** translates physical plans to multiple query and sink targets.
+- **A recommender** surfaces analytically useful next steps via a two-stage trail exploration flow grounded in endpoint relaxation.
 
 ---
 
-## 2  Graph Structure
+## 2  Graph Model
 
-A DGM graph is a 5-tuple:
+### 2.1  Structure and invariants
+
+A DGM graph is a 6-tuple:
 
 ```
-G = (N, E, τ_N, τ_E, P)
+G = (N, E, τ_N, τ_E, P, Σ)
 ```
 
 | Symbol | Definition |
 |---|---|
-| `N` | Finite set of nodes. |
-| `E ⊆ N×N×L` | Set of directed labeled edges. `L` is the set of verb labels. |
-| `τ_N : N → {dim, fact}` | Node type function. Partitions `N` into `D` (dimension) and `F` (fact). |
-| `τ_E : E → {verb, bridge}` | Edge type function. Partitions `E` into `V` (verb) and `B` (bridge). |
-| `P : N∪E → (K→V)` | Property function. Maps every node and edge to a key-value property bag. |
+| N | Finite set of nodes. |
+| E ⊆ N×N×L | Set of directed labeled edges. L is the set of verb labels. |
+| τ_N : N → {dim, fact} | Node type function. Partitions N into D (dimension) and F (fact). |
+| τ_E : E → {verb, bridge} | Edge type function. Partitions E into V (verb) and B (bridge). |
+| P : N∪E → (K→V) | Property function. Maps every node and edge to a key-value property bag. |
+| Σ | Schema annotation set. See §2.4. |
 
-**Structural invariants:**
+Structural invariants:
 
 ```
 D ∩ F = ∅,   D ∪ F = N
 V ∩ B = ∅,   V ∪ B = E
-V ⊆ D × F × L     -- verb edges: dim → fact only
+V ⊆ D × F × L     -- verb edges: dim → fact only (schema direction)
 B ⊆ N × N × L     -- bridge edges: any node → any node
 ```
 
----
+**Transposed graph.** G^T = (N, E^R, τ_N, τ_E, P, Σ) where E^R = { (b,a,l) | (a,b,l) ∈ E }. Reverses all edge directions. Produced by adjacency-list reversal at graph load time (O(|E|)); shared across all queries. Used by the planner for Free→Bound backward-cone computation and by SINCE/ONCE/PREVIOUSLY TemporalMode SQL generation.
 
-## 3  Node Types
+**Kripke equivalence.** G is formally a Kripke structure K = (S, R, L) under S=N, R=E, L=P. G^T is the time-reversal of K — past-temporal model checking runs on G^T. See §8.1.
 
-### 3.1  Dimension nodes
+### 2.2  Node types
 
-`d ∈ D` — domain entity. `P(d)` carries **attributes** for filtering and grouping. May be SCD2-versioned (§10.1). Notation: `d.attr`.
+**Dimension nodes** d ∈ D — domain entities. P(d) carries attributes for filtering and grouping. May be SCD-versioned (SCDType annotation, §2.4). Notation: d.attr.
 
-### 3.2  Fact nodes
+**Fact nodes** f ∈ F — measurable events or states. P(f) carries measures and a timestamp or interval depending on grain annotation (§2.4). Notation: f.measure, f.occurred_on.
 
-`f ∈ F` — measurable event. `P(f)` carries **measures** — numeric values for aggregation. Notation: `f.measure`.
+Fact nodes may not be the source of verb edges (§10.4, D6).
 
-Fact nodes connect to any number of dimension nodes via verb edges, eliminating the reification problem for N-ary events. Fact nodes may also be endpoints of bridge edges, enabling structural relationships between events (causal chains, temporal succession, supersession) without implying a new event.
+### 2.3  Edge types
 
----
-
-## 4  Edge Types
-
-### 4.1  Verb edges
-
-`v = (d, f, label) ∈ V`. Directed from participating dimension toward the event.
+**Verb edges** v = (d, f, label) ∈ V. Schema direction: dim → fact. Query-time reverse traversal permitted via VerbHop⁻¹ (§3.2).
 
 ```
 V ⊆ D × F × L
 ```
 
-Examples: `placed`, `included in`, `occurred on`, `fulfilled by`.
-
-### 4.2  Bridge edges
-
-`b = (n₁, n₂, label) ∈ B`. Connects any two nodes with no event semantics.
+**Bridge edges** b = (n₁, n₂, label) ∈ B.
 
 ```
 B ⊆ N × N × L
-
-P(b).weight ∈ ℝ⁺   (optional; defaults to 1 when absent)
+P(b).weight ∈ ℝ⁺ (optional; defaults to 1)
+P(b).valid_from/to : Timestamp (optional)
 ```
 
-**Endpoint taxonomy:**
+| Source | Target | Typical use | Bridge semantics |
+|---|---|---|---|
+| dim | dim | Hierarchy, geography, organisation | STRUCTURAL |
+| fact | fact | Causal chain, succession, supersession | CAUSAL/TEMPORAL/SUPERSESSION |
+| fact | dim | Event-to-entity structural link | STRUCTURAL |
+| dim | fact | Structural reference | STRUCTURAL |
 
-| Source | Target | Typical use |
-|---|---|---|
-| `dim` | `dim` | Taxonomic, geographic, organisational hierarchy |
-| `fact` | `fact` | Causal chain, temporal succession, supersession |
-| `fact` | `dim` | Event-to-entity structural link |
-| `dim` | `fact` | Structural reference (not verb-role participation) |
+### 2.4  Schema annotation layer (Σ)
 
-Weight is a first-class property. Applied only when explicitly referenced in an expression — never implicitly (§18.5).
+Σ carries semantic metadata. Annotations do not change graph topology or property bags.
+
+```
+Σ ⊆ SchemaAnnotation*
+
+SchemaAnnotation ::=
+    Conformed(d: D, fact_types: set[τ_N])
+  | Grain(f: F, grain: EVENT | PERIOD | ACCUMULATING)
+  | SCDType(d: D, scd: SCD1|SCD2|SCD3|SCD6,
+             versioned_attrs?: set[K], overwrite_attrs?: set[K], prev_attrs?: set[K])
+  | Degenerate(d: D)
+  | RolePlaying(d: D, roles: list[L])
+  | ProjectsFrom(d_mini: D, d_full: D)
+  | FactlessFact(f: F)
+  | DerivedFact(f: F, sources: list[F], expr: Expr)
+  | WeightConstraint(b: B, constraint: ALLOCATIVE | UNCONSTRAINED)
+  | BridgeSemantics(b: B, sem: CAUSAL|TEMPORAL|SUPERSESSION|STRUCTURAL)
+  | Hierarchy(root: D, depth: ℕ | RAGGED)
+```
+
+Key annotation semantics:
+
+**Conformed(d, fact_types)** — d reachable via verb edges from each fact type. Enables constellation paths. Bound→Free TrailExpr can discover candidates empirically.
+
+**Grain(f, grain)** — EVENT: additive; PERIOD: state (SUM invalid); ACCUMULATING: lifecycle row.
+
+**SCDType** — SCD1: strip temporal resolution. SCD2: effective_from/to. SCD3: current/previous props. SCD6: per-attribute policy.
+
+**BridgeSemantics(CAUSAL)** — DAG; drop cycle guard; use DAG BFS on both G and G^T.
+
+**Σ is an operational decision table**: every annotation drives specified planner, recommender, and exporter behaviour.
+
+### 2.5  Temporal properties and snapshots
+
+```
+P(n).effective_from/to : Timestamp (NULL = open)
+P(e).valid_from/to     : Timestamp (NULL = open)
+```
+
+Snapshot G(t): nodes/edges valid at t. Delta ΔG(t₁, t₂): N_added, N_removed, E_added, E_removed, P_changed.
 
 ---
 
-## 5  Traversal Paths
+## 3  Traversal Paths
 
-### 5.1  Unbound paths
-
-Structural skeleton of a traversal — no named aliases:
+### 3.1  Unbound paths
 
 ```
 Path ::= NodeRef(n: N)
        | VerbHop(d: D, label: L, f: F)
+       | VerbHop⁻¹(f: F, label: L, d: D)    -- reverse: fact → dim (query-time)
        | BridgeHop(n₁: N, label: L, n₂: N)
        | Compose(Path, Path)
 ```
 
-Used in `Join` and `Window` partition arguments.
-
-### 5.2  Bound paths
-
-Strict superset of `Path`. Each hop may introduce named aliases:
+### 3.2  Bound paths and TemporalOrdering
 
 ```
 BoundPath ::= NodeRef(n: N)
-            | VerbHop(d: D, label: L, f: F,
-                      node_alias?: A,
-                      edge_alias?: A)
-            | BridgeHop(n₁: N, label: L, n₂: N,
-                        node_alias?: A,
-                        edge_alias?: A)
-            | Compose(BoundPath, BoundPath)
+            | VerbHop(d,label,f, node_alias?,edge_alias?)
+            | VerbHop⁻¹(f,label,d, node_alias?,edge_alias?)
+            | BridgeHop(n₁,label,n₂, node_alias?,edge_alias?)
+            | Compose(BoundPath, BoundPath, temporal?: TemporalOrdering)
+
+TemporalOrdering ::=
+  -- Point-based:
+    BEFORE(left_ts,right_ts) | AFTER(left_ts,right_ts)
+  | CONCURRENT(left_ts,right_ts,tolerance?)
+  -- Allen's 13 interval relations:
+  | MEETS(l,r) | MET_BY(l,r) | OVERLAPS(l,r) | OVERLAPPED_BY(l,r)
+  | STARTS(l,r) | STARTED_BY(l,r) | DURING(l,r) | CONTAINS(l,r)
+  | FINISHES(l,r) | FINISHED_BY(l,r) | EQUALS(l,r)
+  -- LTL operators:
+  | UNTIL(hold_pred: Pred, trigger_pred: Pred)
+  | SINCE(hold_pred: Pred, trigger_pred: Pred)
+
+Interval ::= (start: PropRef, end: PropRef)
 ```
 
-Every `Path` is a valid `BoundPath` with all aliases omitted. Used in `PathPred` and `PathAgg`.
+Allen's relations apply to PERIOD/ACCUMULATING grain facts. UNTIL(φ,ψ): φ holds at every intermediate hop until first ψ. SINCE is the past dual.
 
-**Alias uniqueness.** All declared aliases within a `BoundPath` must be distinct. `C ∩ L ≠ ∅` is rejected at construction time.
-
-### 5.3  Evaluation contexts
+**Constellation path** — two-hop via conformed dimension:
 
 ```
-C  -- outer join context: aliases from Join (extended by L-promotion)
-L  -- path-local context: aliases from BoundPath hop bindings (per path instance)
+Compose(VerbHop⁻¹(f₁,verb₁,dim,node_alias=shared_dim),
+        VerbHop(shared_dim,verb₂,f₂,node_alias=fact2))
+-- valid when Conformed(dim,{type(f₁),type(f₂)}) ∈ Σ
 ```
 
-`PropRef(alias.prop)` inside `sub_filter` or `PathAgg` resolves against `C ∪ L`. `AggRef` and `WinRef` are not valid in `C ∪ L`.
+Alias uniqueness enforced at construction: C ∩ L ≠ ∅ rejected.
 
-### 5.4  L-promotion for single-instance strategies
-
-By default `L` is ephemeral — discarded after `sub_filter` or `PathAgg` evaluates.
-
-When `Strategy ∈ {SHORTEST, MIN_WEIGHT}`, a `PathPred` or `PathAgg` may declare `promote: true`. The path-local bindings from `L` are then lifted into `C`, available to all downstream clauses and bands. Promotion is one-way and irreversible within a query.
-
-`promote: true` is rejected at construction time for `ALL` and `K_SHORTEST` — those strategies may produce multiple path instances per tuple, and promoting `L` from them would silently fan-out `C`.
-
----
-
-## 6  Path Strategy
+### 3.3  Path strategy and lattice
 
 ```
-Strategy ::= ALL                  -- every matching path; explicit fan-out
-           | SHORTEST             -- single path minimising hop count
-           | K_SHORTEST(k: ℕ)    -- k paths minimising hop count, k ≥ 1
-           | MIN_WEIGHT           -- single path minimising sum of P(e).weight
+Strategy ::= ALL | SHORTEST | K_SHORTEST(k: ℕ) | MIN_WEIGHT
+
+SHORTEST ⊆ K_SHORTEST(1) ⊆ K_SHORTEST(k) ⊆ ALL
+MIN_WEIGHT ⊆ ALL
 ```
 
-**Single-instance strategies** (`SHORTEST`, `MIN_WEIGHT`): select exactly one path per outer tuple. Compatible with `promote: true`.
+Single-instance (SHORTEST, MIN_WEIGHT): promote: true compatible.
+Multi-instance (ALL, K_SHORTEST): explicit fan-out.
 
-**Multi-instance strategies** (`ALL`, `K_SHORTEST`): select a multiset. Fan-out is explicit.
+### 3.4  RelationshipSubgraph
 
-**Execution note — Floyd-Warshall.** When a query involves `PairExpr(SHORTEST_PATH_LENGTH, ...)` or `PairExpr(MIN_WEIGHT_PATH_LENGTH, ...)` over many source-target pairs in `C`, the query planner may execute the underlying shortest-path computation using the Floyd-Warshall all-pairs algorithm and look up results from the materialised distance matrix. This is a **planner-level optimisation**, transparent to the query author. The grammar does not expose Floyd-Warshall as a named algorithm — the semantic intent is always expressed as `PairExpr` with a specific pair of context aliases. See §18.6.
-
-**`MIN_WEIGHT` path weight.** Sum of `P(e).weight` along the path, defaulting to 1 for edges without a weight property.
-
----
-
-## 7  Predicate Language
-
-A single unified predicate language governs all filter clauses. Band validity is a typing rule on the `Ref` kind.
-
-### 7.1  Reference types
+#### 3.4.1  Endpoint type
 
 ```
-Ref ::= PropRef(alias.prop)    -- raw context property      (B₁; C∪L inside PathPred)
-      | AggRef(aᵢ)             -- named Agg attribute        (B₂)
-      | WinRef(wᵢ)             -- named Window attribute     (B₃)
+Endpoint ::= Bound(alias: A)   -- fixed node, resolved in C
+           | Free               -- all nodes satisfying traversal criterion
 ```
 
-| Band | Filter clause | Valid `Ref` kinds | `PathPred` allowed |
+#### 3.4.2  Extended definition
+
+```
+RelationshipSubgraph(source: Endpoint, target: Endpoint, strategy: Strategy)
+  → G_src_tgt = (N_src_tgt, E_src_tgt, τ_N, τ_E, P, Σ)
+```
+
+**Case 1 — Bound(A) → Bound(B)** (fixed endpoints; existing):
+
+```
+N_AB = { n ∈ N | n lies on ≥1 simple path A →* B under strategy }
+E_AB = { e ∈ E | e lies on ≥1 such path }
+```
+
+Computed via TrimJoin(REACHABLE_BETWEEN(A,B)).
+
+**Case 2 — Bound(A) → Free** (forward cone):
+
+```
+N_A* = { n ∈ N | ∃ simple path A →* n under strategy }
+E_A* = { e ∈ E | e lies on ≥1 simple path starting at A }
+```
+
+Computed via forward BFS/DFS from A on G. TrimJoin(REACHABLE_FROM(A)).
+
+**Case 3 — Free → Bound(B)** (backward cone):
+
+```
+N_*B = { n ∈ N | ∃ simple path n →* B under strategy }
+E_*B = { e ∈ E | e lies on ≥1 simple path terminating at B }
+```
+
+Computed via forward BFS/DFS from B on G^T. TrimJoin(REACHABLE_TO(B)).
+
+**Case 4 — Free → Free** (full traversal space):
+
+```
+N_** = N  (weakly connected component of C when inside a query)
+E_** = E
+```
+
+Only permitted in Agg or Window — not in Where PathPred scope (§10.4, D17).
+
+**Containment invariant:**
+
+```
+G_AB ⊆ G_A*  and  G_AB ⊆ G_*B  and  G_A* ⊆ G_**  and  G_*B ⊆ G_**
+```
+
+Cone intersection identity: G_A* ∩ G_*B = G_AB (basis for Rule 9, §6.2).
+
+#### 3.4.3  Granularity tier by endpoint case
+
+| Source | Target | Tier | Produces |
 |---|---|---|---|
-| B₁ | `Where` | `PropRef` from `C` | Yes (evaluates over `C∪L`) |
-| B₂ | `Having` | `AggRef` | No |
-| B₃ | `Qualify` | `WinRef` | No |
+| Bound(A) | Bound(B) | PairExpr | One value per (A,B) pair in C |
+| Bound(A) | Free | NodeExpr | One value per A node in C |
+| Free | Bound(B) | NodeExpr | One value per B node in C |
+| Free | Free | SubgraphExpr | One graph-level scalar |
 
-### 7.2  Predicate constructors
+Tier assignment preserves the granularity placement rule (§4.2) without modification.
+
+#### 3.4.4  Semantic interpretation
+
+| Case | Algorithm | Meaning |
+|---|---|---|
+| Bound→Bound | DENSITY | Richness of connection between pair |
+| Bound→Bound | MAX_FLOW | Total analytical bandwidth |
+| Bound→Free | OUTGOING_SIGNATURES | Relationship type inventory from A |
+| Bound→Free | SIGNATURE_DIVERSITY | Normalised variety of outgoing paths |
+| Free→Bound | INCOMING_SIGNATURES | Provenance type inventory into B |
+| Free→Bound | SIGNATURE_DIVERSITY | Normalised variety of incoming paths |
+| Free→Free | SIGNATURE_ENTROPY | Graph-scope relationship diversity |
+
+### 3.5  Evaluation contexts and L-promotion
+
+```
+C  -- outer join context (extended by L-promotion)
+L  -- path-local context (per path instance; ephemeral by default)
+```
+
+PropRef inside sub_filter or PathAgg resolves against C ∪ L. alias ∈ C ∩ L rejected at construction.
+
+L-promotion: promote: true valid only for SHORTEST and MIN_WEIGHT. Lifts L into C; one-way. Rejected for ALL and K_SHORTEST.
+
+---
+
+## 4  Query Language
+
+### 4.1  Predicate language
+
+```
+Ref ::= PropRef(alias.prop)      -- B₁; C∪L inside PathPred
+      | AggRef(aᵢ)               -- B₂
+      | WinRef(wᵢ)               -- B₃
+      | SignatureRef(path_alias) -- label sequence of BoundPath instance (B₁ only)
+```
+
+| Band | Filter | Valid Ref | PathPred | SignaturePred |
+|---|---|---|---|---|
+| B₁ | Where | PropRef from C | Yes (C∪L) | Yes |
+| B₂ | Having | AggRef | No | No |
+| B₃ | Qualify | WinRef | No | No |
 
 ```
 Pred ::= ScalarPred(ref: Ref, pred: V → Bool)
        | PathPred(alias: A, path: BoundPath,
                   quantifier: Quantifier,
                   strategy: Strategy,
+                  temporal_mode?: TemporalMode,
                   promote?: Bool,
                   sub_filter: Pred)
+       | SignaturePred(path_alias: A,
+                       sequence: list[L | WILDCARD],
+                       match: EXACT|PREFIX|CONTAINS|REGEX)
 
-Quantifier ::= EXISTS | FORALL
+Quantifier   ::= EXISTS | FORALL
+
+TemporalMode ::= EVENTUALLY | GLOBALLY | NEXT
+               | UNTIL(φ: Pred) | SINCE(φ: Pred)
+               | ONCE | PREVIOUSLY
 ```
 
-`promote: true` valid only for `SHORTEST` and `MIN_WEIGHT`.
+FORALL ≡ NOT PathPred(EXISTS, ..., NOT(sub_filter)) — De Morgan at construction.
 
-**Trim as PathPred.** Degree-based trimming — removing nodes with no incident edges of a given type — is expressible directly as a `PathPred` existence check without any new primitive:
+**CTL operator map:**
+
+| Quantifier | Mode | CTL |
+|---|---|---|
+| FORALL | GLOBALLY | AG φ — safety |
+| EXISTS | GLOBALLY | EG φ |
+| FORALL | EVENTUALLY | AF φ — liveness |
+| EXISTS | EVENTUALLY | EF φ |
+| FORALL | NEXT | AX φ |
+| EXISTS | NEXT | EX φ |
+| FORALL | UNTIL(ψ) | A(φ U ψ) |
+| EXISTS | UNTIL(ψ) | E(φ U ψ) |
+
+**Temporal property classes** (syntactic sugar over PathPred compositions):
 
 ```
--- Keep only nodes that have at least one outgoing bridge edge
-PathPred(n, BridgeHop(n, ANY, m), EXISTS, ALL,
-         ScalarPred(PropRef(m.id), IS_NOT_NULL))
+TemporalProperty ::= SAFETY(bad)          -- AG(¬bad)
+                   | LIVENESS(good)        -- AF(good)
+                   | RESPONSE(trig,resp)   -- AG(trig → AF(resp))
+                   | PERSISTENCE(good)     -- AF(AG(good))
+                   | RECURRENCE(good,win)  -- good in every window period
 ```
 
-This covers `MIN_DEGREE(1, OUT)` and similar degree filters. Structural trim (on-path reduction) requires `TrimJoin` — see §10.1.
-
-### 7.3  Boolean filter tree
+**Minterm/maxterm duality:**
 
 ```
-T ::= AND(T₁, ..., Tₙ) | OR(T₁, ..., Tₙ) | NOT(T) | Pred
+PathPred(EXISTS, ALL, φ) ≅ disjunction over path instances ≅ minterms
+PathPred(FORALL, ALL, φ) ≅ conjunction over path instances ≅ maxterms
 ```
 
-`NOT` is tuple-level. `NOT(NOT(T)) ≡ T`.
+Boolean filter tree: T ::= AND(...) | OR(...) | NOT(T) | Pred. NOT is tuple-level.
 
----
-
-## 8  Expression Language
-
-Unified expression language for all computed values in `Agg` (B₂) and `Window` (B₃).
+### 4.2  Expression language
 
 ```
 Expr ::= AggFn(fn: AggFn, ref: PropRef)
-       | PathAgg(alias: A, path: BoundPath,
-                 strategy: Strategy,
-                 promote?: Bool,
-                 fn: AggFn, ref: Ref_L)
+       | PathAgg(alias, path: BoundPath, strategy, promote?, fn: AggFn, ref: Ref_L)
+       | TemporalAgg(fn: AggFn, ref: PropRef, timestamp: PropRef, window: TemporalWindow)
        | GraphExpr(algorithm: GraphAlgorithm)
-       | ArithExpr(Expr, op: {+, -, *, /}, Expr)
-       | Const(c: ℝ)
+       | ArithExpr(Expr, op, Expr) | Const(c: ℝ)
 
-AggFn  ::= SUM | COUNT | AVG | MIN | MAX | PROD
-Ref_L  ::= PropRef(alias.prop)   where alias ∈ C ∪ L
+AggFn          ::= SUM|COUNT|AVG|MIN|MAX|PROD
+TemporalWindow ::= ROLLING(Duration)|TRAILING(n,unit)|PERIOD(start,end)|YTD|QTD|MTD
 ```
 
-### 8.1  AggFn
-
-Plain aggregation over a `PropRef` in outer context `C'`.
-
-### 8.2  PathAgg
-
-Aggregation over values collected along path instances selected by `strategy`. Uses `BoundPath`; `ref` resolves against `C ∪ L`. Weight is applied only when explicitly referenced in `ref` — no implicit weighting.
-
-`promote: true` valid for `SHORTEST` and `MIN_WEIGHT` only. Promoted `L` bindings enter the group context after `Agg` evaluates, available to `Having`, `Window`, and `Qualify`.
-
-### 8.3  GraphExpr
-
-Graph-algorithmic expressions typed by **granularity**. The general placement rule: *a `GraphExpr` in `Window` must produce one value per tuple*.
+GraphExpr algorithms distributed across tiers by endpoint case:
 
 ```
 GraphAlgorithm ::= NodeExpr(algorithm: NodeAlg, alias: A)
                  | PairExpr(algorithm: PairAlg, source: A, target: A)
                  | SubgraphExpr(algorithm: SubgraphAlg,
-                                partition?: [PropRef])
+                                partition?: [PropRef],
+                                scope?: RelationshipSubgraph)
 
-NodeAlg     ::= PAGE_RANK(damping: ℝ, iterations: ℕ)
-              | BETWEENNESS_CENTRALITY
-              | CLOSENESS_CENTRALITY
-              | DEGREE(direction: {IN, OUT, BOTH})
-              | COMMUNITY_LABEL(algorithm: CommAlg)
+NodeAlg ::= PAGE_RANK(damping,iterations)
+          | BETWEENNESS_CENTRALITY | CLOSENESS_CENTRALITY
+          | DEGREE(direction: {IN,OUT,BOTH})
+          | COMMUNITY_LABEL(algorithm: CommAlg)
+          -- TrailExpr single-relaxation (Bound→Free or Free→Bound):
+          | OUTGOING_SIGNATURES(max_depth?: ℕ)
+          | INCOMING_SIGNATURES(max_depth?: ℕ)
+          | DOMINANT_OUTGOING_SIGNATURE(max_depth?: ℕ)
+          | DOMINANT_INCOMING_SIGNATURE(max_depth?: ℕ)
+          | SIGNATURE_DIVERSITY
 
-CommAlg     ::= LOUVAIN
-              | LABEL_PROPAGATION
-              | CONNECTED_COMPONENTS        -- undirected / weak connectivity
-              | TARJAN_SCC                  -- directed strong connectivity
+CommAlg ::= LOUVAIN|LABEL_PROPAGATION|CONNECTED_COMPONENTS|TARJAN_SCC
 
-PairAlg     ::= SHORTEST_PATH_LENGTH        -- Floyd-Warshall eligible (§6)
-              | MIN_WEIGHT_PATH_LENGTH      -- Floyd-Warshall eligible (§6)
-              | REACHABLE
+PairAlg ::= SHORTEST_PATH_LENGTH|MIN_WEIGHT_PATH_LENGTH|REACHABLE
+          -- TrailExpr fixed-endpoint (Bound→Bound):
+          | DISTINCT_SIGNATURES(max_depth?: ℕ)
+          | DOMINANT_SIGNATURE(max_depth?: ℕ)
+          | SIGNATURE_SIMILARITY(reference: list[L])
 
-SubgraphAlg ::= MAX_FLOW(source: A, target: A, capacity: PropRef)
-              | DENSITY
-              | DIAMETER
+SubgraphAlg ::= MAX_FLOW(source,target,capacity)|DENSITY|DIAMETER
+              -- TrailExpr fully-free (Free→Free):
+              | GLOBAL_SIGNATURE_COUNT(max_depth?: ℕ)
+              | GLOBAL_DOMINANT_SIGNATURE(max_depth?: ℕ)
+              | SIGNATURE_ENTROPY(max_depth?: ℕ)
 ```
 
-**`TARJAN_SCC`.** Finds strongly connected components — maximal subsets of nodes where every node is reachable from every other via directed edges. Unlike `CONNECTED_COMPONENTS` (which ignores edge direction) and `LOUVAIN` (which optimises modularity on undirected structure), `TARJAN_SCC` respects the directed topology of verb and bridge edges. In DGM this has direct analytical meaning: an SCC in fact-to-fact bridges identifies a cycle of events (e.g. a chain of orders and returns that loops back to itself). Each node receives a component label identifying its SCC. See §18.7.
+**TrailExpr definitions:**
 
-**Floyd-Warshall note.** `SHORTEST_PATH_LENGTH` and `MIN_WEIGHT_PATH_LENGTH` under `PairAlg` express the semantic intent. The planner may execute them using Floyd-Warshall when many pairs are involved. The grammar does not expose this choice.
+OUTGOING_SIGNATURES(A): count of distinct label sequences on all simple paths starting at A.
 
-**Granularity and placement:**
+INCOMING_SIGNATURES(B): count of distinct label sequences on all simple paths ending at B. Computed via BFS on G^T.
 
-| Granularity | Kind | In `Agg` | In `Window` |
-|---|---|---|---|
-| Node | `NodeExpr` | ✅ | ✅ always |
-| Pair | `PairExpr` | ✅ | ✅ always |
-| Subgraph | `SubgraphExpr` | ✅ | ✅ with non-empty `partition` only |
+DOMINANT_OUTGOING_SIGNATURE(A): most frequent label sequence in forward cone of A.
 
-`SubgraphExpr` with `partition` computes one value per partition group and broadcasts to each tuple in that group.
+DOMINANT_INCOMING_SIGNATURE(B): most frequent label sequence in backward cone of B.
 
-**Structure-producing algorithms.** Algorithms that produce new nodes or edges are outside DGM scope. The query language produces result sets; it does not mutate `G`. Derived scalar results (e.g. SCC labels) may be persisted as `P(n).attr` via an ETL step outside the query.
+SIGNATURE_DIVERSITY: ratio of distinct label sequences to total path instances in the applicable cone. Scalar in [0,1].
+
+DISTINCT_SIGNATURES(A,B): count of distinct label sequences connecting A to B.
+
+DOMINANT_SIGNATURE(A,B): most frequent label sequence connecting A to B.
+
+SIGNATURE_SIMILARITY(A,B,ref): fraction of A→B paths whose label sequence matches ref.
+
+GLOBAL_SIGNATURE_COUNT: distinct label sequences across the full scope.
+
+GLOBAL_DOMINANT_SIGNATURE: most frequent label sequence globally.
+
+SIGNATURE_ENTROPY: Shannon entropy over path signature distribution:
+
+```
+H = -Σ p(s) × log₂ p(s)   where p(s) = count(paths with sequence s) / total paths
+```
+
+H=0: all paths same type (focused). H=log₂(k): k equally frequent types (maximally diverse). Range [0, log₂(|distinct signatures|)].
+
+scope on SubgraphExpr: accepts any endpoint case. All four cases satisfy the scope requirement for granularity placement.
+
+**Granularity placement rule:**
+
+| Kind | In Agg | In Window |
+|---|---|---|
+| NodeExpr (incl. single-relaxation TrailExpr) | ✅ | ✅ always |
+| PairExpr (incl. fixed-endpoint TrailExpr) | ✅ | ✅ always |
+| SubgraphExpr (incl. free-free TrailExpr) | ✅ | ✅ with non-empty partition or scope only |
 
 ---
 
-## 9  Query Structure
+## 5  Query Structure
+
+### 5.1  Query forms
+
+**Snapshot query:** Q = TemporalContext? ∘ B₁ ∘ B₂? ∘ B₃?
 
 ```
-Q = B₁  ∘  B₂?  ∘  B₃?
+TemporalContext(default_as_of: Timestamp,
+                node_resolution: STRICT|LAX, edge_resolution: STRICT|LAX)
 ```
 
-| Band | Name | Role | Clauses | Required |
-|---|---|---|---|---|
-| B₁ | Context | Define working subgraph | `Join`, `Where` | Always |
-| B₂ | Aggregation | Collapse and summarise | `GroupBy`, `Agg`, `Having` | Optional |
-| B₃ | Ranking | Assign per-tuple values; filter | `Window`, `Qualify` | Optional |
+STRICT: reject missing versions. LAX: silently drop. Explicit TemporalJoin overrides TemporalContext for its sub-join. Valid forms: B₁, B₁∘B₂, B₁∘B₃, B₁∘B₂∘B₃.
 
-**Valid query forms:**
+**Delta query:**
 
 ```
-Q = B₁   ·   Q = B₁ ∘ B₂   ·   Q = B₁ ∘ B₃   ·   Q = B₁ ∘ B₂ ∘ B₃
+Q_delta = (t₁, t₂, spec: DeltaSpec, filter?: T_W)
+
+DeltaSpec ::= ADDED_NODES(τ_N) | REMOVED_NODES(τ_N)
+            | ADDED_EDGES(τ_E) | REMOVED_EDGES(τ_E)
+            | CHANGED_PROPERTY(alias,prop,comparator)
+            | ROLE_DRIFT(alias,from_type,to_type)
 ```
 
-**Within-band co-dependency.** B₂ clauses appear together; B₃ clauses appear together.
+Q_delta operates outside the three-band structure.
 
----
+### 5.2  Bands
 
-## 10  Band 1 — Context Layer
+B₁ = what, B₂ = how to collapse, B₃ = which tuples. Cross-band Ref rules enforced at construction.
+
+#### 5.2.1  Band 1 — Context layer
 
 ```
 B₁ = (Join, Where?)
-```
 
-It answers: *what nodes and tuples am I working with?*
-
-### 10.1  Join
-
-```
 Join ::= Anchor(node_type: τ_N, alias: A)
        | PathJoin(alias: A, path: Path, alias': A')
        | CrossJoin(Join, Join)
-       | TemporalJoin(join: Join, as_of: Timestamp)
-       | TrimJoin(join: Join, criterion: TrimCriterion)
+       | TemporalJoin(join, as_of, node_resolution?, edge_resolution?)
+       | TrimJoin(join, criterion: TrimCriterion)
 
-TrimCriterion ::= REACHABLE_BETWEEN(source: A, target: A)
-                | MIN_DEGREE(n: ℕ, direction: {IN, OUT, BOTH})
-                | SINK_FREE
-                | SOURCE_FREE
+TrimCriterion ::= REACHABLE_BETWEEN(source: A, target: A)  -- Bound→Bound
+                | REACHABLE_FROM(source: A)                 -- Bound→Free (new)
+                | REACHABLE_TO(target: A)                   -- Free→Bound (new)
+                | MIN_DEGREE(n,direction) | SINK_FREE | SOURCE_FREE
 ```
 
-**`TrimJoin`.** Wraps any `Join` expression and restricts the resulting node set to those satisfying a structural criterion, evaluated before any subsequent path expansion. `TrimJoin` modifiers may be nested and combined:
+REACHABLE_FROM(A): restricts context to forward cone G_A* via BFS on G.
+REACHABLE_TO(B): restricts context to backward cone G_*B via BFS on G^T.
 
-```
-TrimJoin(
-  TrimJoin(
-    Anchor(dim, c),
-    MIN_DEGREE(1, OUT)           -- remove isolated nodes
-  ),
-  REACHABLE_BETWEEN(source=c, target=st)  -- keep only nodes on c→st paths
-)
-```
+TemporalJoin resolves both node SCD versions and edge validity. SCDType(SCD1) causes planner to strip temporal resolution entirely.
 
-**`TrimCriterion` semantics:**
+Where: T [ PropRef from C, PathPred(BoundPath,TemporalMode) and SignaturePred allowed ]
 
-| Criterion | Retains |
-|---|---|
-| `REACHABLE_BETWEEN(source, target)` | Nodes lying on at least one directed path from `source` to `target` (backbone / on-path trim) |
-| `MIN_DEGREE(n, direction)` | Nodes with at least `n` incident edges in the given direction |
-| `SINK_FREE` | Nodes with at least one outgoing edge (no dead-end sinks) |
-| `SOURCE_FREE` | Nodes with at least one incoming edge (no dangling sources) |
-
-**Relationship to `PathPred`.** `MIN_DEGREE`, `SINK_FREE`, and `SOURCE_FREE` are structurally expressible as `PathPred` existence checks in `Where`. `TrimJoin` is provided as a declarative shorthand and, critically, as a planner hint: trimming at join time avoids expanding paths from nodes that will be discarded, whereas a `PathPred` in `Where` expands first and filters second. `REACHABLE_BETWEEN` is not expressible as a single `PathPred` because it requires global knowledge of which nodes lie on any source-to-target path — it is the structural trim that genuinely requires `TrimJoin`.
-
-**`TemporalJoin`.** Resolves SCD2-versioned dimension nodes at expansion time:
-
-```
-effective_from <= as_of  AND  (effective_to > as_of  OR  effective_to IS NULL)
-```
-
-**`CrossJoin`.** Cartesian product; aliases must be disjoint across branches (§18.8).
-
-### 10.2  Where
-
-```
-Where: T [ Ref ∈ {PropRef from C}, PathPred(BoundPath) allowed ]
-```
-
-`PathPred` evaluates `sub_filter` over `C ∪ L`. If `promote: true` and `strategy ∈ {SHORTEST, MIN_WEIGHT}`, `L` bindings are lifted into `C` after evaluation. `NOT` is tuple-level.
-
----
-
-## 11  Band 2 — Aggregation Layer
+#### 5.2.2  Band 2 — Aggregation layer
 
 ```
 B₂ = (GroupBy, Agg, Having)
 ```
 
-### 11.1  GroupBy
+GroupBy: PropRef list from C'. Degenerate dims excluded. Agg: { aᵢ := Exprᵢ }. Grain-aware. Free→Free SubgraphExpr valid in Agg — scalar broadcast to all groups. Having: T [AggRef].
 
-Ordered list of `PropRef` values from `C'`, including promoted `L` bindings and edge properties.
-
-### 11.2  Agg
-
-```
-Agg = { aᵢ := Exprᵢ  |  i = 1..k }
-```
-
-`Exprᵢ` drawn from the unified expression language (§8).
-
-### 11.3  Having
-
-```
-Having: T [ Ref ∈ {AggRef}, PathPred not allowed ]
-```
-
----
-
-## 12  Band 3 — Ranking Layer
+#### 5.2.3  Band 3 — Ranking layer
 
 ```
 B₃ = (Window, Qualify)
+
+WinExpr ::= RankFn(fn,partition,order)
+          | RunningAgg(fn,ref,partition,order)
+          | StatFn(fn,ref,partition,order?)
+          | GraphExpr(NodeExpr|PairExpr|SubgraphExpr[partition or scope])
+
+RankFn ::= ROW_NUMBER|RANK|DENSE_RANK|NTILE(n)|LEAD(ref,offset)|LAG(ref,offset)
+StatFn ::= PERCENT_RANK|CUME_DIST|PERCENTILE_CONT(p)|PERCENTILE_DISC(p)
 ```
 
-Operates on B₂ output when present, B₁ output otherwise.
+Qualify: T [WinRef].
 
-### 12.1  Window
+### 5.3  Evaluation order
 
-```
-Window = { wᵢ := WinExprᵢ  |  i = 1..m }
+#### Snapshot query
 
-WinExpr ::= RankFn(fn: RankFn, partition: [PropRef], order: [PropRef × {ASC,DESC}])
-          | RunningAgg(fn: AggFn, ref: PropRef,
-                       partition: [PropRef], order: [PropRef × {ASC,DESC}])
-          | StatFn(fn: StatFn, ref: PropRef,
-                   partition: [PropRef], order: [PropRef × {ASC,DESC}]?)
-          | GraphExpr(algorithm: GraphAlgorithm)
+| Phase | Clause | Action |
+|---|---|---|
+| 0 | TemporalContext | Set snapshot policy; SCD annotation overrides. |
+| 1 | Join | Traverse (incl. VerbHop⁻¹); resolve validity per Σ; TrimJoin incl. G^T BFS for REACHABLE_TO; build C. |
+| 2 | Where | T[PropRef]; PathPred with TemporalMode over C∪L; SignaturePred; L-promotion. |
+| 3 | GroupBy | Partition C' (degenerate excluded). |
+| 4 | Agg | Evaluate Expr per group; grain-aware; Free→Free scalars broadcast. |
+| 5 | Having | T[AggRef]; retain groups. |
+| 6 | Window | WinExpr per tuple; SubgraphExpr per partition or scope. |
+| 7 | Qualify | T[WinRef]; retain tuples. |
 
-RankFn  ::= ROW_NUMBER | RANK | DENSE_RANK | NTILE(n: ℕ)
-          | LEAD(ref: PropRef, offset: ℕ) | LAG(ref: PropRef, offset: ℕ)
+L-promotion phase 2 → available from phase 3. Phase 4 → available from phase 5.
 
-StatFn  ::= PERCENT_RANK | CUME_DIST
-          | PERCENTILE_CONT(p: [0,1]) | PERCENTILE_DISC(p: [0,1])
-```
+#### Delta query
 
-`GraphExpr` in `Window`: `NodeExpr` and `PairExpr` always valid; `SubgraphExpr` requires non-empty `partition`.
-
-### 12.2  Qualify
-
-```
-Qualify: T [ Ref ∈ {WinRef}, PathPred not allowed ]
-```
+Phase 1: Materialise G(t₁), G(t₂) per SCDType. Phase 2: Compute ΔG. Phase 3: Apply T_W. Phase 4: Return typed diff.
 
 ---
 
-## 13  Evaluation Order
+## 6  Execution Architecture
 
-| Band | Phase | Clause | Action | Input | Output |
-|---|---|---|---|---|---|
-| B₁ | 1 | `Join` | Traverse paths; apply `TrimJoin` criteria; apply `TemporalJoin`; build `C`. | `G` | `C` |
-| B₁ | 2 | `Where` | Apply `T[PropRef]`; `PathPred` over `C∪L`; L-promotion updates `C` if `promote:true`. | `C` | `C'` |
-| B₂ | 3 | `GroupBy` | Partition `C'` by `PropRef` list (incl. promoted bindings). | `C'` | groups |
-| B₂ | 4 | `Agg` | Evaluate `Expr` per group; `PathAgg` L-promotion updates group context if `promote:true`. | groups | agg |
-| B₂ | 5 | `Having` | Apply `T[AggRef]`; retain groups. | agg | `G'` |
-| B₃ | 6 | `Window` | Evaluate `WinExpr` per tuple; `SubgraphExpr` per partition when `partition` non-empty. | `G'` or `C'` | `W'` |
-| B₃ | 7 | `Qualify` | Apply `T[WinRef]`; retain tuples. | `W'` | result |
+### 6.1  BDD canonical predicate representation
 
-**`TrimJoin` timing.** Trim criteria are evaluated during Phase 1, after path expansion for the wrapped `Join` but before any subsequent `PathJoin` steps use the trimmed set as a base. Multiple nested `TrimJoin` modifiers are applied inside-out.
+BDD provides O(1) equivalence, satisfiability/tautology, implication, minterm enumeration, and foundations for recommender and planner.
 
-**L-promotion timing.** Promotion in Phase 2 makes bindings available from Phase 3 onward. Promotion in Phase 4 makes bindings available from Phase 5 onward.
+Core: BDDNode (var, low, high), FALSE_NODE=0, TRUE_NODE=1. Unique table (var,low,high)→id; computed cache (op,u,v)→result.
+
+Operations: make (elimination+sharing), apply (Shannon expansion; memoised), negate (single-pass), FORALL→NOT EXISTS NOT at construction.
+
+PathPred + TemporalMode opaque atoms. SQL templates:
+
+```
+EVENTUALLY  → EXISTS (CTE to any node)
+GLOBALLY    → NOT EXISTS (NOT sub_filter anywhere)
+NEXT        → EXISTS, single-hop CTE
+UNTIL(ψ)   → EXISTS recursive CTE, hold_pred at every intermediate node
+SINCE(ψ)   → EXISTS reverse-direction CTE on G^T
+ONCE        → EXISTS backward CTE on G^T
+PREVIOUSLY  → EXISTS single backward hop via G^T
+```
+
+SignaturePred: opaque atom, expanded as label sequence filter on CTE path array.
+
+Variable ordering: PropRef(B₁)→AggRef(B₂)→WinRef(B₃); within B₁: ScalarPred→PathPred→SignaturePred; within ScalarPred: by selectivity.
+
+SQL translation: if |minterms| ≤ THRESHOLD → UNION ALL; else → BDD-structured CASE expression.
+
+Logical optimisation pipeline:
+
+```
+1. Tautology / empty-result short-circuit
+2. Redundant clause elimination (AND)
+3. Predicate subsumption (OR)
+4. Cross-band implication (Where → Having)
+5. PathPred boolean context propagation
+6. TemporalMode SQL template selection
+7. Minterm count → SQL translation strategy
+8. FORALL → NOT EXISTS NOT (at construction)
+```
+
+### 6.2  Query planner
+
+Formal structure:
+
+```
+Planner = (cost_model, statistics: GraphStatistics, annotations: Σ,
+           rules, query_target: QueryTarget, sink_target: SinkTarget?)
+
+GraphStatistics = (node_count, edge_count, degree_dist,
+                   path_cardinality: BoundPath→ℕ,
+                   property_dist: PropRef→Distribution,
+                   temporal_density: PropRef×Duration→ℝ,
+                   scc_sizes: N→ℕ,
+                   transposed_adj: N→list[N])   -- G^T adjacency; built at load time
+
+ExportPlan = (query_target, query_text, pre_compute: list[PreComputation],
+              sink_target?, write_plan?, cost_estimate,
+              alternatives: list[(ExportPlan, CostEstimate)])
+```
+
+alternatives: structured plan explanation — mechanical, auditable, no natural language.
+
+**Rule 1a — Path execution strategy:**
+
+```
+Bound→Bound (REACHABLE_BETWEEN):
+    if path_card ≤ SMALL: recursive CTE with cycle prevention
+        -- CAUSAL: drop cycle guard; DAG BFS
+    elif strategy ∈ {SHORTEST,MIN_WEIGHT}: recursive CTE ORDER BY + LIMIT 1
+        -- TEMPORAL: push ordering into CTE WHERE
+    else: pre-materialise path table
+
+Bound→Free (REACHABLE_FROM(A)):
+    forward BFS/DFS from A on G
+    -- CAUSAL: DAG BFS (no visited-set)
+    -- SHORTEST: BFS terminates at first visit per node
+    -- ALL: full DFS collecting all simple paths
+
+Free→Bound (REACHABLE_TO(B)):
+    forward BFS/DFS from B on G^T (using transposed_adj)
+    -- CAUSAL: reverse topological order BFS on G^T
+    -- semantically equivalent to backward BFS in G
+
+Free→Free:
+    weakly-connected-component from C
+    -- only in Agg or Window
+    -- pre-materialise when |N| > CLOSURE_THRESHOLD
+```
+
+**Rule 1b — Grain-aware aggregation:**
+
+```
+Grain(PERIOD):        SUM → reject; suggest LAST; TemporalAgg(SUM) → rewrite
+Grain(ACCUMULATING):  cross-row agg → warn; NULL → COALESCE
+FactlessFact:         SUM/AVG/MIN/MAX → reject at construction
+```
+
+**Rule 1c — SCD resolution:**
+
+```
+SCD1: strip TemporalJoin predicate
+SCD2: standard effective_from/to
+SCD3: PropRef(d.current_value)/PropRef(d.previous_value)
+SCD6: lateral join — SCD2 for versioned_attrs; direct for others
+```
+
+**Rule 1d — TemporalMode SQL:** see §6.1 template table.
+
+**Rule 2 — Floyd-Warshall for PairExpr:**
+
+```
+if pair_count × avg_path_len > node_count²:
+    pre-compute Floyd-Warshall distance matrix
+else:
+    per-pair CTE with LIMIT 1
+```
+
+**Rule 3 — GraphExpr scheduling:**
+
+```
+for each GraphExpr:
+    if target.supports_native(algorithm): emit inline
+    else: schedule PreComputation
+
+NodeExpr(OUTGOING_SIGNATURES|DOMINANT_OUTGOING|SIGNATURE_DIVERSITY):
+    forward BFS/DFS per anchor alias; pre-compute if stable
+
+NodeExpr(INCOMING_SIGNATURES|DOMINANT_INCOMING):
+    BFS on G^T per anchor alias; pre-compute if stable
+
+SubgraphExpr(GLOBAL_SIGNATURE_COUNT|GLOBAL_DOMINANT|SIGNATURE_ENTROPY):
+    schedule PreComputation unless |N| < SMALL_GRAPH_THRESHOLD
+    broadcast graph-level scalar to all tuples
+    SIGNATURE_ENTROPY: compute distribution p(s), then -Σ p(s) log₂ p(s)
+
+SubgraphExpr(scope=RelationshipSubgraph(Bound,Free) or (Free,Bound)):
+    compute cone via BFS / G^T BFS first; then run algorithm over cone
+```
+
+**Rule 4 — Band reordering:**
+
+```
+for each having_pred:
+    if bdd.implies(where_bdd, having_bdd): remove having_pred
+```
+
+**Rule 5 — Hierarchy execution:**
+
+```
+Hierarchy(depth ≤ 4): unroll CTE into fixed-depth join chain
+Hierarchy(RAGGED):    recursive CTE with depth limit
+|N| > CLOSURE_THRESHOLD: pre-materialised closure table
+```
+
+**Rule 6 — Annotation-driven optimisations:**
+
+```
+RolePlaying:             single scan under multiple aliases
+ProjectsFrom(mini,full): eliminate mini join if full ∈ C
+DerivedFact(f,srcs,e):   inline if srcs ∩ C ≠ ∅
+WeightConstraint(ALLOC): PathAgg without weight → warn
+BridgeSemantics(CAUSAL): drop cycle guard; DAG BFS on G and G^T
+BridgeSemantics(SUPERS): CASE WHEN superseded THEN -1*measure ELSE measure
+Degenerate(d):           exclude from GroupBy candidates
+```
+
+**Rule 7 — TemporalAgg window scheduling:**
+
+```
+density > DENSE: pre-aggregate to daily summary
+window = ROLLING: recursive window frame
+else: date filter + AggFn
+```
+
+**Rule 8 — Sink-aware write planning:**
+
+```
+DUCKDB/MOTHERDUCK: CREATE TABLE AS / INSERT INTO
+POSTGRESQL:        COPY via postgres extension
+PARQUET:           COPY TO (FORMAT PARQUET, PARTITION_BY)
+DELTA:             CREATE OR REPLACE / INSERT INTO delta_scan
+ICEBERG:           INSERT INTO iceberg_scan
+
+if TemporalAgg and sink ∈ {PARQUET,DELTA,ICEBERG}: partition by timestamp unit
+if Q_delta and sink = DELTA: APPEND mode
+if Grain(ACCUMULATING) and CHANGED_PROPERTY: APPEND mode
+```
+
+**Rule 9 — Cone containment optimisation (new):**
+
+```
+if TrimJoin(REACHABLE_FROM(A)) and TrimJoin(REACHABLE_TO(B))
+both present on the same Join branch:
+    replace with TrimJoin(REACHABLE_BETWEEN(A, B))
+```
+
+Grounded in the lattice identity G_A* ∩ G_*B = G_AB (§8.7). Always correct; not a heuristic. Fires naturally when both constraints are added incrementally — the planner collapses them to the strictly smaller fixed-endpoint subgraph.
+
+### 6.3  Query exporter
+
+```
+QueryTarget ::= SQL_DUCKDB|SQL_POSTGRESQL|SQL_MOTHERDUCK|CYPHER|SPARQL|DGM_JSON|DGM_YAML
+SinkTarget  ::= DUCKDB|POSTGRESQL|MOTHERDUCK|PARQUET(URI)|DELTA(URI)|ICEBERG(URI)
+```
+
+Expressiveness constraints:
+
+```
+Construct                 DuckDB  PG(DD)  Parq  Delta  Ice  MDuck  Cypher   SPARQL
+──────────────────────────────────────────────────────────────────────────────────────
+VerbHop⁻¹                 CTE     CTE     CTE   CTE    CTE  CTE    MATCH    ✗
+BoundPath/PathPred        CTE     CTE     CTE   CTE    CTE  CTE    MATCH    FILTER
+TemporalMode UNTIL/SINCE  CTE     CTE     CTE   CTE    CTE  CTE    ✗        ✗
+SignaturePred             CTE     CTE     CTE   CTE    CTE  CTE    partial  ✗
+TemporalJoin (node)       native  native  nat   nat    nat  native ✗        partial
+TemporalAgg               native  native  nat   nat    nat  native ✗        ✗
+TrailExpr Bound→Bound     ext/py  ext/py  py    py     py   ext/py native   partial
+TrailExpr Bound→Free      py      py      py    py     py   py     partial  ✗
+TrailExpr Free→Bound      py      py      py    py     py   py     partial  ✗
+TrailExpr Free→Free       py      py      py    py     py   py     ✗        ✗
+SIGNATURE_ENTROPY         py      py      py    py     py   py     ✗        ✗
+REACHABLE_FROM/TO         CTE     CTE     CTE   CTE    CTE  CTE    MATCH*   ✗
+QUALIFY                   native  via DD  nat   nat    nat  native ✗        ✗
+Q_delta                   SQL     SQL     SQL   SQL    SQL  SQL    ✗        ✗
+```
+
+MATCH*: Cypher variable-length pattern approximates REACHABLE_FROM/TO but does not enforce exact cone boundary.
+
+native=direct; SQL=standard SQL; CTE=recursive CTE; ext/py=extension or Python pre-computation; py=Python only; partial=approximate with warning; ✗=rejected at construction.
+
+SQL emitter flow:
+
+```
+1. PreComputation steps → temporary columns in C'
+   (incl. G^T BFS for Free→Bound and INCOMING_* algorithms)
+2. WITH clauses: recursive CTEs (cone CTEs for REACHABLE_FROM/TO)
+3. Annotation-aware transforms: SCD1 strip, CAUSAL no-cycle, SUPERSESSION negation
+4. Main SELECT: B₁ JOIN, B₂ GROUP BY/AGG, B₃ WINDOW
+5. QUALIFY (or subquery for PostgreSQL direct)
+6. HAVING
+7. WritePlan emission
+```
+
+Cypher: REACHABLE_FROM(A) → MATCH (a)-[*]->(n). INCOMING_SIGNATURES → apoc.path.incomingRelationshipTypes. Full cone enforcement requires Python pre-computation.
+
+DGM_JSON/YAML: round-trippable AST including endpoint cases, SIGNATURE_ENTROPY scope, cone containment applied flag, annotation optimisations.
+
+Sink write semantics:
+
+```
+DUCKDB/MOTHERDUCK:  CREATE TABLE AS / INSERT INTO
+POSTGRESQL:         ATTACH ... AS pg; CREATE/INSERT
+PARQUET:            COPY TO (FORMAT PARQUET, PARTITION_BY)
+DELTA:              CREATE OR REPLACE / INSERT INTO delta_scan
+ICEBERG:            INSERT INTO iceberg_scan (preferred)
+```
+
+Delta+Q_delta: APPEND. Parquet+TemporalAgg: PARTITION_BY timestamp.
 
 ---
 
-## 14  Worked Examples
+## 7  Recommender Architecture
 
-### 14.1  TrimJoin — backbone subgraph then aggregate
-
-Restrict the graph to customers and stores that lie on any directed path in the promotional network, then aggregate weighted revenue per region.
+### 7.1  Three-layer architecture
 
 ```
--- Band 1: Context
-Join:
-  TrimJoin(
-    TemporalJoin(
-      Anchor(dim, c)
-      PathJoin(c, VerbHop(c, 'placed', s), s)
-      PathJoin(s, VerbHop(d, 'included in', s), d)
-      PathJoin(d, BridgeHop(d, 'promoted in', st), st)
-      as_of = '2024-06-30'
-    ),
-    REACHABLE_BETWEEN(source=c, target=st)
-    -- retain only (c, s, d, st) tuples where c lies on
-    -- a directed path to st in the promotional subgraph
-  )
-
-Where:
-  AND(
-    ScalarPred(PropRef(c.segment),          (= "retail")),
-    ScalarPred(PropRef(s.occurred_on.year), (= 2024))
-  )
-
--- Band 2: Aggregation
-GroupBy: [ c.region ]
-
-Agg:
-  weighted_rev := PathAgg(
-    d,
-    BridgeHop(d, 'promoted in', st, edge_alias=promo),
-    ALL, fn=SUM,
-    ArithExpr(PropRef(s.revenue), *, PropRef(promo.weight))
-  )
-
-Having:
-  ScalarPred(AggRef(weighted_rev), (> 5000))
+Layer 1 — Schema atom generation     (bounded)
+       ↓
+Layer 2 — BDD feasibility filter      (O(n × BDD_size))
+       ↓
+Layer 3 — Data scoring                (small surviving set)
+       ↓
+Ranked suggestions
 ```
 
-### 14.2  TARJAN_SCC — detect event cycles
+### 7.2  Two-stage trail exploration flow
 
-Find all sales that participate in a directed cycle of `succeeded` fact-to-fact bridges (indicating a circular chain of events), ranked by cycle size.
+The endpoint relaxation extension gives the recommender a natural two-stage exploration protocol:
 
-```
--- Band 1: Context
-Join:
-  TrimJoin(
-    Anchor(fact, s),
-    MIN_DEGREE(1, OUT)      -- discard isolated sale facts
-  )
+**Stage 1 — Free-endpoint characterisation.** Before fixing a target, surface OUTGOING_SIGNATURES(A) or INCOMING_SIGNATURES(B): "Your anchor node has N distinct outgoing path types. Dominant type: X (Y% of paths). SIGNATURE_DIVERSITY = Z."
 
--- Band 3: Ranking
-Window:
-  scc_label := GraphExpr(NodeExpr(COMMUNITY_LABEL(TARJAN_SCC), s))
-  scc_size  := GraphExpr(SubgraphExpr(DENSITY,
-                                      partition=[scc_label]))
-  rank_in_scc := RANK() OVER (PARTITION BY scc_label
-                               ORDER BY s.revenue DESC)
+High entropy / high diversity → recommend Stage 1 characterisation before drilling down.
+Low entropy / low diversity → recommend direct Bound→Bound query.
 
-Qualify:
-  AND(
-    ScalarPred(WinRef(scc_size), (> 1)),    -- only non-trivial SCCs (actual cycles)
-    ScalarPred(WinRef(rank_in_scc), (<= 3)) -- top-3 sales per cycle by revenue
-  )
-```
+**Stage 2 — Fixed-endpoint deep-dive.** Once a path type is identified via SignaturePred, narrow to a specific Bound→Bound pair using DISTINCT_SIGNATURES and DOMINANT_SIGNATURE. "REACHABLE_BETWEEN subgraph: DENSITY=D, MAX_FLOW=F."
 
-`TARJAN_SCC` assigns each sale a strongly connected component label. `scc_size > 1` retains only nodes that are part of a genuine directed cycle — a trivial SCC (a single node with no self-loop) has size 1.
+### 7.3  Suggestion types per band
 
-### 14.3  Floyd-Warshall transparent use — average distance per region
+**B₁:** ScalarPred; PathPred including constellation paths; TrimJoin (incl. REACHABLE_FROM/TO); TemporalCompose; strategy lattice; temporal property classes; trail space pivots.
 
-Compute the average shortest-path length from each customer to their nearest store, grouped by region. The planner executes Floyd-Warshall internally for the `PairExpr`.
+**B₂:** GroupBy alternatives (hierarchy roll-ups, cross-role); TemporalAgg variants; PathAgg over unused bridges; Having calibration.
 
-```
--- Band 1: Context
-Join:
-  Anchor(dim, c)
-  PathJoin(c, VerbHop(c, 'placed', s), s)
-  PathJoin(d, BridgeHop(d, 'promoted in', st), st)
+**B₃:** Community partition; K for K_SHORTEST; percentile thresholds; TARJAN_SCC partition; RelationshipSubgraph characterisation.
 
-Where:
-  ScalarPred(PropRef(s.occurred_on.year), (= 2024))
+**Temporal pivots:** rolling window; period-over-period; Q_delta; temporal property class alternatives.
 
--- Band 2: Aggregation
-GroupBy: [ c.region ]
+**Trail pivots:** "Other DISTINCT_SIGNATURES connecting these nodes." "Dominant path is X — restrict via SignaturePred." "Before fixing target: OUTGOING_SIGNATURES inventory from anchor."
 
-Agg:
-  avg_dist := AVG(GraphExpr(PairExpr(SHORTEST_PATH_LENGTH, c, st)))
+### 7.4  Annotation-driven suggestion rules
 
-Having:
-  ScalarPred(AggRef(avg_dist), (< 5))
-```
+| Annotation | Suppressed | Added |
+|---|---|---|
+| Degenerate(d) | GroupBy; PathPred from d | ScalarPred on d.key |
+| Conformed(d,Fs) | — | Constellation paths; Bound→Free from d to confirm/extend Fs |
+| Grain(PERIOD) | SUM across periods | LAST; Q_delta |
+| Grain(ACCUMULATING) | Row aggregation | Stage predicates; time-between-stages |
+| SCDType(SCD1) | Temporal pivots | — |
+| SCDType(SCD3) | — | PropRef(d.previous_value) comparison |
+| FactlessFact | SUM/AVG/MIN/MAX | COUNT; EXISTS |
+| DerivedFact | Direct measures | Drill-down to sources |
+| WeightConstraint(ALLOC) | Unweighted PathAgg | Weighted form |
+| BridgeSemantics(CAUSAL) | — | BETWEENNESS on G_AB; TARJAN_SCC; Free→Bound provenance |
+| BridgeSemantics(SUPERS) | Plain aggregation | Negation-aware aggregation |
+| Hierarchy(root,depth) | — | Drill-down/roll-up |
+| RolePlaying(d,roles) | — | Cross-role comparisons |
 
-The query author writes `PairExpr(SHORTEST_PATH_LENGTH, c, st)`. If `C` contains many `(c, st)` pairs, the planner may execute the full Floyd-Warshall matrix once and serve all lookups from it — transparent to the query.
+### 7.5  TrailExpr-driven suggestion rules
 
-### 14.4  Nested TrimJoin — composing criteria
+| Condition | Suppressed | Added |
+|---|---|---|
+| OUTGOING_SIGNATURES(d) high | — | SignaturePred to isolate dominant; TrimJoin(REACHABLE_FROM(d)) |
+| INCOMING_SIGNATURES(f) high | — | TrimJoin(REACHABLE_TO(f)); BridgeSemantics(CAUSAL) if absent |
+| SIGNATURE_DIVERSITY low on d | — | Bound→Bound (focused; Free adds noise) |
+| SIGNATURE_DIVERSITY high on d | Bound→Bound suggestions | DOMINANT_OUTGOING_SIGNATURE first |
+| CAUSAL + Free→Bound | — | BETWEENNESS on G_*B; ancestor path queries |
+| Conformed(dim,Fs) | — | Bound→Free from dim to surface all reachable fact types |
+| SIGNATURE_ENTROPY low | — | Restrict scope to dominant signature |
+| SIGNATURE_ENTROPY high | — | GLOBAL_DOMINANT_SIGNATURE as first characterisation |
 
-Restrict to nodes reachable between customer and store, then further restrict to those with at least one outgoing edge (removing dead-end sinks introduced by the backbone trim).
+### 7.6  Graph algorithm signals
 
-```
-Join:
-  TrimJoin(
-    TrimJoin(
-      Anchor(dim, c)
-      PathJoin(c, BridgeHop(c, 'near', st), st),
-      REACHABLE_BETWEEN(source=c, target=st)
-    ),
-    SINK_FREE     -- remove any sinks introduced after backbone trim
-  )
-```
-
-`TrimJoin` modifiers are applied inside-out: `REACHABLE_BETWEEN` first, then `SINK_FREE` over the result.
-
-### 14.5  B₁ ∘ B₂ ∘ B₃ — full pipeline with fact-to-fact bridge and L-promotion
-
-Retail customers whose top-2 sales by revenue in 2024 each succeeded a prior sale, with total weighted revenue exceeding 5000.
-
-```
--- Band 1: Context
-Join:
-  TemporalJoin(
-    Anchor(dim, c)
-    PathJoin(c, VerbHop(c, 'placed', s), s)
-    PathJoin(s, VerbHop(d, 'included in', s), d)
-    as_of = '2024-06-30'
-  )
-
-Where:
-  AND(
-    ScalarPred(PropRef(c.segment),          (= "retail")),
-    ScalarPred(PropRef(s.occurred_on.year), (= 2024)),
-    PathPred(
-      s,
-      BridgeHop(s, 'succeeded', s_prior, node_alias=prior_sale),
-      EXISTS, SHORTEST, promote: true,
-      ScalarPred(PropRef(prior_sale.occurred_on),
-                 (< PropRef(s.occurred_on)))
-    )
-  )
-
--- Band 2: Aggregation
-GroupBy: [ c.id, c.region ]
-
-Agg:
-  weighted_rev := PathAgg(
-    d,
-    BridgeHop(d, 'promoted in', st, edge_alias=promo),
-    ALL, fn=SUM,
-    ArithExpr(PropRef(s.revenue), *, PropRef(promo.weight))
-  )
-  order_count := COUNT(s)
-
-Having:
-  AND(
-    ScalarPred(AggRef(weighted_rev), (> 5000)),
-    ScalarPred(AggRef(order_count),  (>= 3))
-  )
-
--- Band 3: Ranking
-Window:
-  rank_by_rev := RANK() OVER (PARTITION BY c.id ORDER BY s.revenue DESC)
-
-Qualify:
-  ScalarPred(WinRef(rank_by_rev), (<= 2))
-```
+PAGE_RANK → GroupBy/Where on high-importance nodes.
+COMMUNITY_LABEL → community-aligned GroupBy.
+TARJAN_SCC + CAUSAL → event cycle detection.
+BETWEENNESS on G_AB → pivotal intermediates.
+OUTGOING_SIGNATURES high → two-stage exploration.
+SIGNATURE_ENTROPY high → GLOBAL_DOMINANT_SIGNATURE first.
 
 ---
 
-## 15  Summary
+## 8  Theoretical Foundations
 
-### Graph elements
+### 8.1  DGM as Kripke structure
 
-| Element | Kind | Connects | Carries |
-|---|---|---|---|
-| Dimension node | `dim` | — | Attributes; optionally SCD2-versioned |
-| Fact node | `fact` | — | Measures (aggregable) |
-| Verb edge | `verb` | `dim → fact` | Verb label |
-| Bridge edge | `bridge` | `N → N` (any node types) | Verb label + optional weight |
+**Theorem.** G = (N,E,τ_N,τ_E,P,Σ) is a Kripke structure K=(S,R,L) under S=N, R=E, L=P.
 
-### Join modifiers
+Consequences: CTL/LTL model checking applies directly. BDD layer is standard symbolic CTL machinery (Bryant 1986; Clarke et al. 1986). PathPred(FORALL/EXISTS,ALL) are CTL path quantifiers A/E. TemporalMode realises full CTL operator hierarchy.
 
-| Modifier | Wraps | Effect |
-|---|---|---|
-| `TemporalJoin(join, as_of)` | Any `Join` | Resolves SCD2-versioned nodes at expansion time |
-| `TrimJoin(join, criterion)` | Any `Join` | Restricts node set by structural criterion before further expansion |
+G^T is the time-reversal of K. Backward-cone RelationshipSubgraph(Free,Bound(B)) is the computation tree for past-temporal formulas about "all paths leading to B." SINCE/ONCE/PREVIOUSLY TemporalMode execute as model checking on G^T.
 
-### TrimCriterion
+### 8.2  Functional completeness
 
-| Criterion | Retains | PathPred equivalent? |
-|---|---|---|
-| `REACHABLE_BETWEEN(source, target)` | On-path nodes | No — requires global path knowledge |
-| `MIN_DEGREE(n, direction)` | Nodes with ≥ n edges | Yes — `PathPred` existence check |
-| `SINK_FREE` | Nodes with ≥ 1 outgoing edge | Yes — `PathPred` existence check |
-| `SOURCE_FREE` | Nodes with ≥ 1 incoming edge | Yes — `PathPred` existence check |
+**Theorem.** DGM filter tree language over ScalarPred atoms is functionally complete.
 
-### Classical algorithms
+Proof sketch: AND/OR/NOT/ScalarPred generates all DNF formulas over finite atom set A. PathPred and SignaturePred extend without restricting. ∎
 
-| Algorithm | DGM placement | Grammar element |
-|---|---|---|
-| Floyd-Warshall | Planner strategy for `PairAlg` | Transparent; no grammar exposure |
-| Tarjan SCC | Directed community detection | `CommAlg :: TARJAN_SCC` |
-| Trim (degree-based) | `PathPred` existence check | `PathPred` in `Where` |
-| Trim (on-path / structural) | Context restriction at join time | `TrimJoin(criterion: REACHABLE_BETWEEN)` |
+### 8.3  Minterms, maxterms, canonical form
 
-### GraphExpr granularity and placement
+Satisfiable minterms bounded by |C|. Equivalence: same minterm set. Unsatisfiability: empty. Tautology: full. Implication: subset.
 
-| Granularity | Kind | In `Agg` | In `Window` |
-|---|---|---|---|
-| Node | `NodeExpr` | ✅ | ✅ always |
-| Pair | `PairExpr` | ✅ | ✅ always |
-| Subgraph | `SubgraphExpr` | ✅ | ✅ with non-empty `partition` |
+### 8.4  PathPred as exponential compression
 
-### Path grammar
+PathPred(EXISTS,ALL,φ) over k instances: k-disjunct DNF compressed. FORALL: dual k-conjunct CNF via NOT EXISTS NOT. TemporalMode extends to continuous path properties.
 
-| Grammar | Aliases | Used in |
-|---|---|---|
-| `Path` | None | `Join`, `Window` partition |
-| `BoundPath` | Optional per hop | `PathPred`, `PathAgg` |
+### 8.5  EXISTS/FORALL as minterm/maxterm duality
 
-### Evaluation contexts
+EXISTS = disjunction/minterms. FORALL = conjunction/maxterms. SHORTEST/MIN_WEIGHT collapse both to single term.
 
-| Symbol | Content | Scope |
-|---|---|---|
-| `C` | Aliases from `Join`; promoted `L` bindings | All phases |
-| `L` | Aliases from `BoundPath` bindings | Per path instance, within `PathPred`/`PathAgg` |
-| `C ∪ L` | Combined | Inside `sub_filter` and `PathAgg` ref |
+### 8.6  Finite traversal space
 
-### L-promotion
+total ≤ Σₖ |N|! / (|N|-k)! (finite). BridgeSemantics(CAUSAL): DAG — eliminates cycles.
 
-| Strategy | `promote: true` | Effect |
-|---|---|---|
-| `SHORTEST` | Allowed | Lifts `L` into `C` |
-| `MIN_WEIGHT` | Allowed | Lifts `L` into `C` |
-| `ALL` | Rejected | `L` always ephemeral |
-| `K_SHORTEST(k)` | Rejected | `L` always ephemeral |
+### 8.7  RelationshipSubgraph containment lattice
 
-### Query bands
+The four endpoint cases form a containment lattice:
 
-| Band | Clauses | Role | Required | Admitted predicates |
-|---|---|---|---|---|
-| B₁ Context | `Join`, `Where` | Define working subgraph | Always | `ScalarPred[PropRef∈C]`, `PathPred[C∪L]` |
-| B₂ Aggregation | `GroupBy`, `Agg`, `Having` | Collapse and summarise | Optional | `ScalarPred[AggRef]` |
-| B₃ Ranking | `Window`, `Qualify` | Rank tuples and filter | Optional | `ScalarPred[WinRef]` |
+```
+G_AB ⊆ G_A*  ⊆  G_**
+G_AB ⊆ G_*B  ⊆  G_**
+```
+
+**Cone intersection theorem.** G_A* ∩ G_*B = G_AB.
+
+Proof: n ∈ G_A* iff A →* n. n ∈ G_*B iff n →* B. Their intersection is {n | A →* n →* B} = N_AB. ∎
+
+Rule 9 exploits this: replacing two independent cone computations with one fixed-endpoint computation is provably correct and produces a strictly smaller (or equal) subgraph. The optimisation is always safe to apply.
+
+### 8.8  Allen's interval algebra completeness
+
+Allen's 13 relations are mutually exclusive and jointly exhaustive over non-degenerate time intervals. Complete coverage of all interval-to-interval temporal relationships.
+
+### 8.9  Temporal property class hierarchy
+
+```
+SAFETY, LIVENESS ∈ Π₁/Σ₁.  RESPONSE ∈ Π₂.  PERSISTENCE ∈ Σ₂.  RECURRENCE ∈ GF.
+```
+
+### 8.10  SIGNATURE_ENTROPY as information-theoretic measure
+
+H = -Σ p(s) log₂ p(s). H=0: maximally focused. H=log₂(k): k equally frequent types.
+
+Relationship to recommender routing: high H → Stage 1 characterisation (Free endpoint) before fixing target. Low H → proceed directly to Bound→Bound deep-dive. SIGNATURE_ENTROPY is the formal routing signal for the two-stage exploration flow.
 
 ---
 
-## 16  Relationship to sqldim
+## 9  Implementation Guide
 
-### 16.1  Node and edge alignment
+### 9.1  Alignment with sqldim
 
 | DGM Concept | sqldim | Status |
 |---|---|---|
-| Dimension nodes (`D`) | `DimensionModel` → implicit vertex | ✅ Aligned |
-| Fact nodes (`F`) | `FactModel` → binary edge | ⚠️ Partial |
-| Verb edges (`V ⊆ D×F×L`) | FK relationships | ⚠️ Implicit |
-| Bridge edges (`B ⊆ N×N×L`) | dim→dim hierarchy only | ⚠️ Partial |
-| Fact-to-fact bridge edges | Not implemented | ❌ Missing |
-| `τ_E : E → {verb, bridge}` | Not present | ❌ Missing |
+| Dimension nodes (D) | DimensionModel | ✅ Aligned |
+| Fact nodes (F) | FactModel → binary edge | ⚠️ Partial |
+| Verb edges + VerbHop⁻¹ | FK; no reverse | ⚠️ Partial |
+| Bridge edges B ⊆ N×N×L | dim→dim only | ⚠️ Partial |
+| Schema annotation layer Σ | Not present | ❌ Missing |
+| TemporalJoin (node+edge) | .as_of() node only | ⚠️ Partial |
+| TemporalContext | Not implemented | ❌ Missing |
+| TrimJoin (incl. REACHABLE_FROM/TO) | Not implemented | ❌ Missing |
+| PathPred + TemporalMode | Not implemented | ❌ Missing |
+| SignaturePred / SignatureRef | Not implemented | ❌ Missing |
+| CTL temporal property classes | Not implemented | ❌ Missing |
+| Allen interval ordering | Not implemented | ❌ Missing |
+| RelationshipSubgraph (all 4 cases) | Not named | ⚠️ Case 1 only via REACHABLE_BETWEEN |
+| G^T transposed graph | Not present | ❌ Missing |
+| TrailExpr (all forms) | Not implemented | ❌ Missing |
+| GroupBy | .by(*attributes) | ✅ Aligned |
+| PathAgg | aggregate_sql(weighted=True) | ⚠️ Partial |
+| TemporalAgg | Not implemented | ❌ Missing |
+| Having / Qualify | Not public | ❌ / ⚠️ |
+| GraphExpr | Not implemented | ❌ Missing |
+| Q_delta | Schema diff only | ⚠️ Partial |
+| BDD predicate layer | Not implemented | ❌ Missing |
+| Query planner | Not implemented | ❌ Missing |
+| Query exporter (multi-target) | Implicit SQL only | ⚠️ Partial |
+| Sink export (Parquet/Delta/Iceberg) | Sinks exist; not planner-integrated | ⚠️ Partial |
+| Recommender | Not implemented | ❌ Missing |
 
-### 16.2  Query algebra alignment
-
-| DGM | sqldim | Status |
-|---|---|---|
-| B₁ `TrimJoin` | Not implemented | ❌ Missing |
-| B₁ `PathPred` with `BoundPath`, quantifier, strategy, `promote` | Not implemented | ❌ Missing |
-| B₂ `PathAgg` with strategy, `promote`, `C∪L` | `aggregate_sql(weighted=True)` (implicit ALL) | ⚠️ Partial |
-| B₂/B₃ `GraphExpr` — `NodeExpr`, `PairExpr`, `SubgraphExpr` | Not implemented | ❌ Missing |
-| `TARJAN_SCC` | Not implemented | ❌ Missing |
-| Floyd-Warshall planner optimisation | Not implemented | ❌ Missing |
-| B₁ `TemporalJoin` | `.as_of(timestamp)` | ✅ Aligned |
-| B₂ `Having` | Not implemented | ❌ Missing |
-| B₃ `Qualify` | Internal SCD processors only | ⚠️ Not exposed |
-
-### 16.3  Implementation roadmap
+### 9.2  Implementation roadmap
 
 **Phase 1 — Schema layer (2–3 days)**
-- Extend `GraphSchema` to `B ⊆ N×N×L` (fact-to-fact and fact-to-dim bridges).
-- Add `τ_E : E → {verb, bridge}` classification.
-- Extend `to_graph()` for fact-as-node (N-ary events).
+- Extend GraphSchema to B ⊆ N×N×L; τ_E; P(e).valid_from/to; fact-as-node.
+- Build G^T adjacency list at load time.
 
 **Phase 2 — Query DSL (1 week)**
-- Implement `TrimJoin` with all four `TrimCriterion` variants.
-- Implement `BoundPath` with `node_alias`/`edge_alias` and `promote` flag.
-- Implement `PathPred` with `Quantifier`, `Strategy`, `promote`, `C∪L` scope.
-- Implement `PathAgg` with `Strategy`, `promote`, cross-context `ArithExpr`.
-- Implement L-promotion mechanics (single-instance strategies only).
-- Promote `Qualify` to public API.
+- PathJoin / VerbHop / VerbHop⁻¹ / BridgeHop.
+- TemporalJoin, TemporalContext, TrimJoin (incl. REACHABLE_FROM, REACHABLE_TO).
+- Full TemporalOrdering (point + Allen + UNTIL/SINCE).
+- PathPred with Quantifier, Strategy, TemporalMode, promote.
+- SignaturePred; SignatureRef; PathAgg; TemporalAgg; Qualify public.
 
-**Phase 3 — Filter tree typing (3–4 days)**
-- `Ref` kind enforcement across all bands.
-- Reject `promote: true` with `ALL`/`K_SHORTEST` at construction.
-- Cross-band reference rule enforcement.
+**Phase 3a — Filter tree typing (3–4 days)**
+- ScalarPred / PathPred / SignaturePred with Ref kind enforcement.
+- FORALL → NOT EXISTS NOT; TemporalMode SQL templates.
 
-**Phase 4 — Graph algorithms (ongoing)**
-- `NodeExpr`: `PAGE_RANK`, `BETWEENNESS_CENTRALITY`, `CLOSENESS_CENTRALITY`, `DEGREE`, `CONNECTED_COMPONENTS`, `TARJAN_SCC`, `LOUVAIN`, `LABEL_PROPAGATION`.
-- `PairExpr`: `SHORTEST_PATH_LENGTH`, `MIN_WEIGHT_PATH_LENGTH`, `REACHABLE`; Floyd-Warshall planner for multi-pair queries.
-- `SubgraphExpr`: `MAX_FLOW`, `DENSITY`, `DIAMETER`; partition broadcast in `Window`.
-- Dimensional grounding constraint at construction time.
+**Phase 3b — BDD layer (~1.5 weeks)**
+- Core BDD; DGMPredicateBDD compiler (TemporalMode, SignaturePred atoms).
+- Equivalence, satisfiability, implication; minterm enumeration.
+- Logical optimisation pipeline (8 steps).
 
----
+**Phase 4 — Schema annotation layer (1 week)**
+- SchemaAnnotation grammar; Σ in GraphSchema.
+- Annotation consequences wired into planner, recommender, exporter.
 
-## 17  Related Work
+**Phase 5 — Graph algorithms (ongoing)**
+- NodeExpr: PageRank, centrality, SCC, community, OUTGOING/INCOMING_SIGNATURES, SIGNATURE_DIVERSITY.
+- PairExpr: shortest/min-weight, reachability, DISTINCT_SIGNATURES, DOMINANT_SIGNATURE, SIGNATURE_SIMILARITY.
+- SubgraphExpr: max-flow, density, diameter, GLOBAL_SIGNATURE_COUNT, GLOBAL_DOMINANT_SIGNATURE, SIGNATURE_ENTROPY.
+- RelationshipSubgraph all four endpoint cases; G^T BFS for Case 3; cone containment (Rule 9).
 
-### 17.1  Graph OLAP
+**Phase 6 — Recommender (ongoing)**
+- Three-layer recommender; annotation-driven (§7.4) and TrailExpr-driven (§7.5) rules.
+- Two-stage trail exploration flow; SIGNATURE_ENTROPY as routing signal.
+- Temporal property class suggestions; Q_delta full implementation.
 
-Chen et al. (2008, 2009) [1, 2] introduced informational and topological OLAP. DGM extends the aggregation layer with path strategies, path-local context, L-promotion, `TrimJoin`, and `GraphExpr` typed by granularity.
-
-### 17.2  Graphoids
-
-Gómez, Kuijpers, and Vaisman (2017, 2019) [3, 4] formalised OLAP over directed multi-hypergraphs in Neo4j. DGM adds the `dim`/`fact` split, `B ⊆ N×N×L`, `BoundPath` with L-promotion, `TrimJoin`, and `GraphExpr`.
-
-### 17.3  Multi-dimensional event data on graphs
-
-Esser and Fahland (2021) [5] arrived at reified event-nodes from process mining. DGM extends their model with generalised bridge edges (including fact-to-fact), `TrimJoin`, `TemporalJoin`, quantified `PathPred` with L-promotion, `PathAgg`, and `GraphExpr` with directed algorithms including `TARJAN_SCC`.
-
-### 17.4  Knowledge Graph OLAP
-
-Schuetz et al. (2021) [6] introduced KG-OLAP over RDF context dimensions. DGM targets numeric aggregation with graph-algorithmic enrichment. Complementary frameworks.
-
-### 17.5  Novel contributions of DGM
-
-| Aspect | Status in literature |
-|---|---|
-| Typed `dim`/`fact` split as schema constraint | Not present |
-| Verb edge constraint (`V ⊆ D×F×L`) | Implicit in [5]; not formalised |
-| Generalised bridge edge `B ⊆ N×N×L` (incl. fact-to-fact) | Novel |
-| `TemporalJoin` as first-class SCD2 modifier | Novel |
-| `TrimJoin` as structural context restriction at join time | Novel |
-| `BoundPath` with path-local bindings and L-promotion | Novel |
-| Explicit path strategy with `EXISTS`/`FORALL` quantifier | Novel |
-| `PathAgg` with cross-context `ArithExpr` (`C∪L`) | Novel |
-| `GraphExpr` typed by granularity with unified placement rule | Novel |
-| `TARJAN_SCC` for directed SCC in dimensional context | Novel |
-| Floyd-Warshall as transparent planner strategy for `PairExpr` | Novel |
-| `SubgraphExpr` in `Window` with partition broadcast | Novel |
-| Unified predicate and expression languages across three bands | Novel |
+**Phase 7 — Planner and exporter (~2 weeks)**
+- GraphStatistics with transposed_adj, scc_sizes, temporal_density.
+- Planning rules 1–9 (Rules 1a cone extension, Rule 3 TrailExpr, Rule 9 cone containment).
+- SQL emitter with G^T BFS for Free→Bound; cone containment optimisation.
+- Sink integration; Cypher, SPARQL, DGM_JSON/YAML exporters.
 
 ---
 
-## 18  Design Decisions
+## 10  Reference
 
-### 18.1  Bridge edges relaxed to B ⊆ N×N×L
+### 10.1  Worked examples
 
-**Decision.** Bridge edges connect any two nodes. Verb edge constraint `V ⊆ D×F×L` unchanged.
+**Example 1 — Constellation path**
 
-**Rationale.** Fact-to-fact structural relationships (causal chains, succession, supersession) require bridge edges between fact nodes. The semantic distinction between fact and dimension is preserved at the node type level; the bridge adds no event semantics.
+```
+-- Σ: Conformed(customer, {Sale, Return})
+Join: Anchor(fact, sale)
+      PathJoin(sale, Compose(VerbHop⁻¹(sale,'placed',c,node_alias=customer),
+                             VerbHop(c,'initiated',ret,node_alias=return_ev)), ret)
+Where: AND(ScalarPred(PropRef(sale.occurred_on.year),(= 2024)),
+           ScalarPred(PropRef(return_ev.occurred_on),(> PropRef(sale.occurred_on))))
+GroupBy: [ customer.region ]
+Agg: return_rate := COUNT(return_ev) / COUNT(sale)
+```
 
-### 18.2  NOT: tuple level
+**Example 2 — Forward cone: outgoing signature inventory (Stage 1)**
 
-**Decision.** `NOT` is tuple-level. `NOT(NOT(T)) ≡ T`.
+```
+Join: Anchor(dim, c)
+Where: ScalarPred(PropRef(c.lifetime_value), (> 10000))
+GroupBy: [ c.id ]
+Agg:
+  out_sigs  := GraphExpr(NodeExpr(OUTGOING_SIGNATURES(max_depth=4), c))
+  dom_sig   := GraphExpr(NodeExpr(DOMINANT_OUTGOING_SIGNATURE(max_depth=4), c))
+  diversity := GraphExpr(NodeExpr(SIGNATURE_DIVERSITY, c))
+-- Stage 1: characterise space; use dom_sig to construct SignaturePred for Stage 2
+```
 
-**Rationale.** Preserves compositionality. Graph-level exclusion would be order-dependent.
+**Example 3 — Backward cone: provenance of a high-value sale**
 
-### 18.3  PathPred: explicit quantifier and strategy
+```
+Join: TrimJoin(Anchor(fact, s), REACHABLE_TO(s))
+Where: ScalarPred(PropRef(s.revenue), (> 50000))
+GroupBy: [ τ_N(n) ]
+Agg:
+  path_count := COUNT(n)
+  in_sigs    := GraphExpr(NodeExpr(INCOMING_SIGNATURES(max_depth=3), s))
+```
 
-**Decision.** `PathPred` requires explicit `Quantifier` and `Strategy`. No defaults.
+**Example 4 — Cone containment (Rule 9 fires automatically)**
 
-**Rationale.** Implicit quantifier or fan-out produces topology-dependent results silently.
+```
+Join:
+  TrimJoin(
+    TrimJoin(Anchor(dim,c) PathJoin(c,VerbHop(c,'placed',s),s),
+             REACHABLE_FROM(c)),   -- forward cone of c
+    REACHABLE_TO(s)                -- backward cone of s
+  )
+-- Planner Rule 9: REACHABLE_FROM(c) ∩ REACHABLE_TO(s) → REACHABLE_BETWEEN(c,s)
+-- Single cone CTE emitted; strictly smaller subgraph
+```
 
-### 18.4  L-promotion: single-instance strategies only
+**Example 5 — Global signature entropy**
 
-**Decision.** `promote: true` valid only for `SHORTEST` and `MIN_WEIGHT`.
+```
+Join: Anchor(dim,c) PathJoin(c,VerbHop(c,'placed',s),s)
+GroupBy: [ c.region ]
+Agg:
+  entropy := GraphExpr(SubgraphExpr(SIGNATURE_ENTROPY(max_depth=3),
+               scope=RelationshipSubgraph(Free, Free)))
+-- High entropy → diverse region; route to Stage 1 exploration
+-- Low entropy  → focused region; Bound→Bound queries are efficient
+```
 
-**Rationale.** Single-instance strategies guarantee cardinality 1 per outer tuple — promotion produces no fan-out. Multi-instance strategies may yield multiple instances; promoting `L` from them would silently fan-out `C`. If fan-out is intended, `PathJoin` expresses it explicitly.
+**Example 6 — CTL safety + UNTIL**
 
-### 18.5  No implicit weighting
+```
+Join: Anchor(dim,c) PathJoin(c,VerbHop(c,'placed',s),s)
+Where:
+  AND(
+    PathPred(c, VerbHop(c,'placed',s2,node_alias=sale),
+             FORALL, ALL, GLOBALLY,
+             ScalarPred(PropRef(sale.revenue),(>= 0))),       -- AG safety
+    PathPred(c, Compose(VerbHop(c,'placed',s3,node_alias=sc),
+               temporal=UNTIL(hold_pred=ScalarPred(PropRef(sc.revenue),(> 0)),
+                              trigger_pred=ScalarPred(PropRef(sc.churn_flag),(= true)))),
+             EXISTS, ALL,
+             ScalarPred(PropRef(sc.churn_flag),(= true)))     -- UNTIL
+  )
+```
 
-**Decision.** Weight applied only when explicitly referenced. Absence means "ignore weight" — no error raised.
+**Example 7 — Full pipeline**
 
-**Rationale.** The earlier "raises error" formulation was over-specified. Not referencing weight is a valid and common intent.
+```
+-- Σ: Conformed(customer,{Sale,Return}), Grain(sale,EVENT),
+--    SCDType(customer,SCD2), BridgeSemantics(promo,CAUSAL), WeightConstraint(promo,ALLOCATIVE)
 
-### 18.6  Floyd-Warshall as planner strategy
+TemporalContext(default_as_of='2024-06-30', node_resolution=STRICT, edge_resolution=LAX)
 
-**Decision.** Floyd-Warshall is not exposed in the grammar. It is a planner-level execution strategy for `PairExpr(SHORTEST_PATH_LENGTH, ...)` and `PairExpr(MIN_WEIGHT_PATH_LENGTH, ...)` when many pairs are present in `C`.
+Join:
+  TrimJoin(
+    Anchor(dim,c) PathJoin(c,VerbHop(c,'placed',s),s)
+    PathJoin(s,VerbHop(d,'included in',s),d)
+    PathJoin(d,BridgeHop(d,'promoted in',st,edge_alias=promo),st),
+    SINK_FREE
+  )
+Where:
+  AND(ScalarPred(PropRef(c.segment),(= "retail")),
+      ScalarPred(PropRef(s.occurred_on.year),(= 2024)),
+      PathPred(c,VerbHop(c,'placed',s2,node_alias=fs),
+               FORALL,ALL,EVENTUALLY, ScalarPred(PropRef(fs.revenue),(> 500))))
+GroupBy: [ c.id, c.region ]
+Agg:
+  weighted_rev  := PathAgg(d,BridgeHop(d,'promoted in',st,edge_alias=p2),
+                           ALL,SUM,ArithExpr(PropRef(s.revenue),*,PropRef(p2.weight)))
+  rev_30d       := TemporalAgg(SUM,s.revenue,s.occurred_on,ROLLING(30 days))
+  out_diversity := GraphExpr(NodeExpr(SIGNATURE_DIVERSITY, c))
+Having:
+  AND(ScalarPred(AggRef(weighted_rev),(> 5000)),
+      ScalarPred(AggRef(rev_30d),(> 1000)))
+Window:
+  scc_label   := GraphExpr(NodeExpr(COMMUNITY_LABEL(TARJAN_SCC),s))
+  rank_by_rev := RANK() OVER (PARTITION BY c.id ORDER BY s.revenue DESC)
+Qualify:
+  AND(ScalarPred(WinRef(scc_label),IS_NOT_NULL),
+      ScalarPred(WinRef(rank_by_rev),(<= 2)))
+```
 
-**Rationale.** Floyd-Warshall computes the same semantic result as per-pair shortest-path queries — the all-pairs distance matrix — but more efficiently when the full matrix is needed. The query author expresses intent via `PairExpr`; the planner selects the algorithm. Exposing Floyd-Warshall as a named `PairAlg` would conflate semantic intent with execution strategy.
+### 10.2  Summary tables
 
-### 18.7  Tarjan SCC as CommAlg variant
+**RelationshipSubgraph endpoint cases:**
 
-**Decision.** `TARJAN_SCC` is added to `CommAlg` as a directed strongly-connected-components algorithm.
+| Source | Target | Subgraph | Tier | TrimCriterion | Primary algorithms |
+|---|---|---|---|---|---|
+| Bound(A) | Bound(B) | Paths A→B | PairExpr | REACHABLE_BETWEEN | DISTINCT_SIGNATURES, DOMINANT_SIGNATURE, DENSITY, DIAMETER, MAX_FLOW |
+| Bound(A) | Free | Forward cone of A | NodeExpr | REACHABLE_FROM | OUTGOING_SIGNATURES, DOMINANT_OUTGOING, SIGNATURE_DIVERSITY |
+| Free | Bound(B) | Backward cone of B | NodeExpr | REACHABLE_TO | INCOMING_SIGNATURES, DOMINANT_INCOMING, SIGNATURE_DIVERSITY |
+| Free | Free | Full traversal space | SubgraphExpr | — | GLOBAL_SIGNATURE_COUNT, GLOBAL_DOMINANT, SIGNATURE_ENTROPY |
 
-**Rationale.** `CONNECTED_COMPONENTS` and `LOUVAIN` operate on undirected or weakly connected structure. DGM's verb and bridge edges are directed — `TARJAN_SCC` is semantically distinct because it respects edge direction. In DGM, an SCC in fact-to-fact bridges identifies a directed cycle of events, which `CONNECTED_COMPONENTS` cannot detect. It belongs in `CommAlg` because it assigns a component label to each node, fitting the existing `NodeExpr` interface.
+**Schema annotations (Σ):**
 
-### 18.8  TrimJoin as Join modifier
+| Annotation | Annotates | Key consequence |
+|---|---|---|
+| Conformed | dim | Constellation paths; Bound→Free discovery |
+| Grain | fact | Aggregation validity; TemporalAgg semantics |
+| SCDType | dim | Temporal resolution strategy |
+| Degenerate | dim | Excluded from GroupBy |
+| RolePlaying | dim | Shared scan; cross-role suggestions |
+| ProjectsFrom | dim | Join elimination |
+| FactlessFact | fact | COUNT only |
+| DerivedFact | fact | Inline computation |
+| WeightConstraint | bridge | Allocation warning |
+| BridgeSemantics | bridge | CTE optimisation; negation; DAG BFS on G and G^T |
+| Hierarchy | dim | CTE vs unrolled join |
 
-**Decision.** Structural graph trimming is a `TrimJoin(join, criterion)` modifier in the `Join` grammar. Four criteria: `REACHABLE_BETWEEN`, `MIN_DEGREE`, `SINK_FREE`, `SOURCE_FREE`.
+**CTL operator map:**
 
-**Rationale.** Three of the four criteria (`MIN_DEGREE`, `SINK_FREE`, `SOURCE_FREE`) are expressible as `PathPred` existence checks. `TrimJoin` is provided as a declarative shorthand and a planner hint — trimming at join time avoids expanding paths from nodes that will be discarded. `REACHABLE_BETWEEN` is not expressible as a single `PathPred` because it requires global knowledge of which nodes lie on any directed path between two endpoints; it genuinely requires join-time evaluation over the full graph.
+| Mode | EXISTS | FORALL |
+|---|---|---|
+| EVENTUALLY | EF φ | AF φ |
+| GLOBALLY | EG φ | AG φ |
+| NEXT | EX φ | AX φ |
+| UNTIL(ψ) | E(φ U ψ) | A(φ U ψ) |
 
-### 18.9  GraphExpr typed by granularity; SubgraphExpr in Window with partition
+**Query forms:** Q = TemporalContext? ∘ B₁ ∘ B₂? ∘ B₃? | Q_delta = (t₁,t₂,DeltaSpec,filter?)
 
-**Decision.** Unified placement rule: a `GraphExpr` in `Window` must produce one value per tuple. `SubgraphExpr` satisfies this with a non-empty `partition` via broadcast semantics.
+**Strategy lattice:** SHORTEST ⊆ K_SHORTEST(1) ⊆ K_SHORTEST(k) ⊆ ALL; MIN_WEIGHT ⊆ ALL
 
-**Rationale.** `SubgraphExpr` is `GraphExpr` at coarser granularity, not a structurally different kind. A single unified rule replaces the prior special-case restriction.
+**Export targets:** SQL_DUCKDB|SQL_POSTGRESQL|SQL_MOTHERDUCK|CYPHER|SPARQL|DGM_JSON|DGM_YAML; DUCKDB|POSTGRESQL|MOTHERDUCK|PARQUET|DELTA|ICEBERG
 
-### 18.10  Unified predicate language
+### 10.3  Related work
 
-**Decision.** `ScalarPred` and `PathPred` with typed `Ref`. Band validity via `Ref` kind.
+**Graph OLAP.** Chen et al. (2008, 2009) [1,2] — DGM adds Σ, CTL, Allen, relaxed-endpoint trail semantics, planner/exporter.
 
-### 18.11  Unified expression language
+**Graphoids.** Gómez et al. (2017, 2019) [3,4] — DGM adds Σ, VerbHop⁻¹, full endpoint lattice, CTL.
 
-**Decision.** `AggFn`, `PathAgg`, `GraphExpr` share a common `Expr` interface.
+**Multi-dimensional event data.** Esser and Fahland (2021) [5] — DGM extends with constellation paths, SCD, UNTIL/SINCE, Allen, endpoint relaxation.
 
-### 18.12  L context: ephemeral by default; explicit promotion
+**KG-OLAP.** Schuetz et al. (2021) [6] — complementary; DGM adds temporal logic and trail space analysis.
 
-**Decision.** `L` ephemeral by default. `promote: true` on single-instance strategies lifts `L` into `C`. Irreversible within a query.
+**BDD.** Bryant (1986) [7] — DGM applies to graph dimensional predicates; Kripke equivalence grounds it.
 
-### 18.13  Three-band structure
+**Model checking.** Clarke et al. (1986) [8] — PathPred×TemporalMode realises full CTL; G^T enables past-temporal checking. **Interval algebra.** Allen (1983) [9] — 13 relations in TemporalOrdering.
 
-**Decision.** `Q = B₁ ∘ B₂? ∘ B₃?`. Four valid forms. B₁ defines *what*, B₂ *how to collapse*, B₃ *which tuples to keep*.
+Novel contributions added in v0.16: Endpoint type with Bound/Free variants; four-case RelationshipSubgraph endpoint lattice; forward cone via forward BFS; backward cone via BFS on G^T; full traversal space as SubgraphExpr; containment lattice theorem and cone intersection identity; REACHABLE_FROM/REACHABLE_TO as TrimCriterion; TrailExpr single-relaxation algorithms as NodeAlg; SIGNATURE_DIVERSITY; SIGNATURE_ENTROPY as Shannon entropy; global SubgraphAlg variants; granularity tier shift by endpoint case; Rule 9 cone containment optimisation; G^T at GraphStatistics load time; two-stage trail exploration flow; SIGNATURE_ENTROPY as recommender routing signal.
 
----
+### 10.4  Design decisions
 
-## 19  References
+**D1** — G as 6-tuple with Σ (operational decision table, not metadata).
+**D2** — VerbHop⁻¹ as query-time operation; V ⊆ D×F×L unchanged.
+**D3** — TemporalMode realises CTL; Kripke equivalence gives 70-year formal foundation.
+**D4** — L-promotion: SHORTEST/MIN_WEIGHT only; cardinality 1 guarantee.
+**D5** — No implicit weighting; WeightConstraint(ALLOC) → warning not error.
+**D6** — Fact nodes: bridge endpoints permitted; verb sources prohibited.
+**D7** — Allen's relations: PERIOD/ACCUMULATING grains only; point events use BEFORE/AFTER.
+**D8** — RelationshipSubgraph first-class; reveals implicit schema of node-pair relationships.
+**D9** — Temporal property classes as syntactic sugar over PathPred compositions.
+**D10** — Annotation consequence table as integration contract.
+**D11** — Q_delta outside three-band structure.
+**D12** — BDD = logical layer; planner = physical layer; DuckDB = cost-based physical.
+**D13** — Three-band structure: B₁=what, B₂=how to collapse, B₃=which tuples.
+**D14** — Floyd-Warshall as planner rule; threshold |pairs|×avg_path_len > |N|².
+**D15** — ExportPlan.alternatives: mechanical, auditable plan explanation.
+**D16** — Endpoint relaxation shifts granularity tier (Bound→Free = NodeExpr; Free→Free = SubgraphExpr). Preserves placement rule without modification.
+**D17** — Free→Free scope restricted to Agg/Window. Graph-scope computation in Where PathPred scope is semantically undefined and computationally unscalable.
+**D18** — G^T built at load time O(|E|), amortised across all queries needing backward traversal (SINCE, ONCE, PREVIOUSLY, REACHABLE_TO, INCOMING_SIGNATURES).
+**D19** — Cone containment (Rule 9) as structural theorem, not heuristic. Grounded in G_A* ∩ G_*B = G_AB. Always correct; fires whenever both constraints present on same Join branch.
 
-[1] Chen, C., Yan, X., Zhu, F., Han, J., Yu, P. S. (2008). Graph OLAP: Towards Online Analytical Processing on Graphs. *Proceedings of the 8th IEEE International Conference on Data Mining (ICDM 2008)*, 103–112. https://doi.org/10.1109/ICDM.2008.45
+### 10.5  References
 
-[2] Chen, C., Yan, X., Zhu, F., Han, J., Yu, P. S. (2009). Graph OLAP: A Multi-Dimensional Framework for Graph Data Analysis. *Knowledge and Information Systems*, 21(1), 41–63. https://doi.org/10.1007/s10115-009-0228-8
+[1] Chen, C., et al. (2008). Graph OLAP: Towards Online Analytical Processing on Graphs. *ICDM 2008*. https://doi.org/10.1109/ICDM.2008.45
 
-[3] Gómez, L. I., Kuijpers, B., Vaisman, A. A. (2017). Performing OLAP over Graph Data: Query Language, Implementation, and a Case Study. *Proceedings of the International Workshop on Real-Time Business Intelligence and Analytics (BIRTE 2017)*, 6:1–6:8.
+[2] Chen, C., et al. (2009). Graph OLAP: A Multi-Dimensional Framework. *Knowledge and Information Systems*, 21(1). https://doi.org/10.1007/s10115-009-0228-8
 
-[4] Gómez, L. I., Kuijpers, B., Vaisman, A. A. (2019). Online Analytical Processing on Graph Data. *Intelligent Data Analysis*, 24(3), 515–541. arXiv:1909.01216. https://doi.org/10.3233/IDA-194576
+[3] Gómez, L. I., et al. (2017). Performing OLAP over Graph Data. *BIRTE 2017*.
 
-[5] Esser, S., Fahland, D. (2021). Multi-Dimensional Event Data in Graph Databases. *Journal on Data Semantics*, 10(1–2), 109–141. arXiv:2005.14552. https://doi.org/10.1007/s13740-021-00122-1
+[4] Gómez, L. I., et al. (2019). Online Analytical Processing on Graph Data. *Intelligent Data Analysis*, 24(3). https://doi.org/10.3233/IDA-194576
 
-[6] Schuetz, C. G., Bozzato, L., Neumayr, B., Schrefl, M., Serafini, L. (2021). Knowledge Graph OLAP: A Multidimensional Model and Query Operations for Contextualized Knowledge Graphs. *Semantic Web*, 12(4), 649–683. https://doi.org/10.3233/SW-200419
+[5] Esser, S., Fahland, D. (2021). Multi-Dimensional Event Data in Graph Databases. *Journal on Data Semantics*, 10(1–2). https://doi.org/10.1007/s13740-021-00122-1
+
+[6] Schuetz, C. G., et al. (2021). Knowledge Graph OLAP. *Semantic Web*, 12(4). https://doi.org/10.3233/SW-200419
+
+[7] Bryant, R. E. (1986). Graph-Based Algorithms for Boolean Function Manipulation. *IEEE Transactions on Computers*, C-35(8). https://doi.org/10.1109/TC.1986.1676819
+
+[8] Clarke, E. M., Emerson, E. A., Sistla, A. P. (1986). Automatic Verification of Finite-State Concurrent Systems. *ACM TOPLAS*, 8(2). https://doi.org/10.1145/5397.5399
+
+[9] Allen, J. F. (1983). Maintaining Knowledge About Temporal Intervals. *CACM*, 26(11). https://doi.org/10.1145/182.358434
 
 ---
 

@@ -322,11 +322,16 @@ class TestRule1a:
         result = p.apply_rule_1a(endpoint_case="BF", strategy="ALL", path_card=10)
         assert "bfs" in result.query_text.lower() or "forward" in result.query_text.lower()
 
-    def test_fb_transposed_bfs(self):
+    def test_fb_forward_bfs_default(self):
         p = _make_planner()
         result = p.apply_rule_1a(endpoint_case="FB", strategy="ALL", path_card=10)
         # Free→Bound uses G^T (transposed adjacency)
         assert "transposed" in result.query_text.lower() or "g^t" in result.query_text.lower() or "bfs" in result.query_text.lower()
+
+    def test_fb_causal_reverse_topological(self):
+        p = _make_planner()
+        result = p.apply_rule_1a(endpoint_case="FB", strategy="CAUSAL", path_card=10)
+        assert "topological" in result.query_text.lower() or "reverse" in result.query_text.lower() or "g^t" in result.query_text.lower()
 
     def test_ff_wcc(self):
         p = _make_planner()
@@ -485,6 +490,24 @@ class TestRule3:
         result = p.apply_rule_3(expr)
         assert "broadcast" in result.lower() or "scalar" in result.lower() or "inline" in result.lower()
 
+    def test_inline_node_expr_fallback(self):
+        """NodeExpr with a non-TrailExpr alg (e.g. DEGREE) hits the inline fallback."""
+        from sqldim.core.query._dgm_graph import DEGREE
+        p = _make_planner()
+        expr = NodeExpr(DEGREE(), alias="x")
+        result = p.apply_rule_3(expr)
+        assert "inline" in result.lower()
+        assert "DEGREE" in result
+
+    def test_inline_subgraph_expr_fallback(self):
+        """SubgraphExpr with a non-TrailExpr alg (e.g. DENSITY) hits the inline fallback."""
+        from sqldim.core.query._dgm_graph import DENSITY
+        p = _make_planner()
+        expr = SubgraphExpr(DENSITY())
+        result = p.apply_rule_3(expr)
+        assert "inline" in result.lower()
+        assert "DENSITY" in result
+
 
 # ---------------------------------------------------------------------------
 # Rule 4 — Band reordering (BDD implies)
@@ -623,6 +646,27 @@ class TestRule6:
         p = _make_planner()
         # pass arbitrary object → no rule matches → empty list
         result = p.apply_rule_6(object())
+        assert result == []
+
+    def test_derived_fact_no_src_intersection_empty(self):
+        """DerivedFact with no overlap between sources and candidate_set → []."""
+        p = _make_planner()
+        ann = DerivedFact(fact="derived_sales", sources=["base_sales"], expr="...")
+        result = p.apply_rule_6(ann, candidate_set={"other_table"})
+        assert result == []
+
+    def test_weight_non_allocative_empty(self):
+        """WeightConstraint(UNCONSTRAINED) → no optimisation → []."""
+        p = _make_planner()
+        ann = WeightConstraint(bridge="b", constraint=WeightConstraintKind.UNCONSTRAINED)
+        result = p.apply_rule_6(ann)
+        assert result == []
+
+    def test_bridge_structural_empty(self):
+        """BridgeSemantics(STRUCTURAL) is neither CAUSAL nor SUPERSESSION → []."""
+        p = _make_planner()
+        ann = BridgeSemantics(bridge="b", sem=BridgeSemanticsKind.STRUCTURAL)
+        result = p.apply_rule_6(ann)
         assert result == []
 
 
@@ -908,6 +952,30 @@ class TestDGMJSONExporter:
         assert isinstance(result["pre_compute"], list)
         assert result["pre_compute"][0]["name"] == "gt_bfs"
 
+    def test_with_cost_estimate(self):
+        """Export with a CostEstimate populates the cost_estimate dict."""
+        ce = CostEstimate(cpu_ops=1000, io_ops=50, note="estimated")
+        plan = ExportPlan(QueryTarget.DGM_JSON, "SELECT 1", cost_estimate=ce)
+        exporter = DGMJSONExporter()
+        result = exporter.export(plan)
+        assert result["cost_estimate"] is not None
+        assert result["cost_estimate"]["cpu_ops"] == 1000
+        assert result["cost_estimate"]["note"] == "estimated"
+
+    def test_with_alternatives(self):
+        """Export with alternatives emits the alternatives list."""
+        alt_plan = ExportPlan(QueryTarget.SQL_DUCKDB, "SELECT * FROM fact")
+        alt_ce = CostEstimate(cpu_ops=500, io_ops=20, note="alt")
+        plan = ExportPlan(
+            QueryTarget.DGM_JSON,
+            "SELECT 1",
+            alternatives=[(alt_plan, alt_ce)],
+        )
+        exporter = DGMJSONExporter()
+        result = exporter.export(plan)
+        assert len(result["alternatives"]) == 1
+        assert result["alternatives"][0]["query_text"] == "SELECT * FROM fact"
+
 
 # ---------------------------------------------------------------------------
 # DGMYAMLExporter
@@ -949,6 +1017,79 @@ class TestDGMYAMLExporter:
         for key in ("query_target", "query_text"):
             assert key in json_result
             assert key in yaml_result
+
+    def test_yaml_scalar_bool_true(self):
+        exporter = DGMYAMLExporter()
+        assert exporter._scalar(True) == "true"
+
+    def test_yaml_scalar_bool_false(self):
+        exporter = DGMYAMLExporter()
+        assert exporter._scalar(False) == "false"
+
+    def test_yaml_scalar_none(self):
+        exporter = DGMYAMLExporter()
+        assert exporter._scalar(None) == "null"
+
+    def test_yaml_scalar_int(self):
+        exporter = DGMYAMLExporter()
+        assert exporter._scalar(42) == "42"
+
+    def test_yaml_scalar_string_with_colon_quoted(self):
+        """Strings containing ':' must be YAML-quoted."""
+        exporter = DGMYAMLExporter()
+        result = exporter._scalar("key: value")
+        assert result.startswith('"') and result.endswith('"')
+
+    def test_yaml_scalar_string_with_newline_quoted(self):
+        exporter = DGMYAMLExporter()
+        result = exporter._scalar("line1\nline2")
+        assert '"' in result
+
+    def test_yaml_scalar_empty_string_quoted(self):
+        exporter = DGMYAMLExporter()
+        result = exporter._scalar("")
+        assert result.startswith('"')
+
+    def test_dict_to_yaml_scalar_passthrough(self):
+        """_dict_to_yaml with a scalar (non-dict, non-list) renders the scalar (line 161)."""
+        exporter = DGMYAMLExporter()
+        result = exporter._dict_to_yaml(42, 0)
+        assert "42" in result
+
+    def test_dict_to_yaml_empty_list(self):
+        """_dict_to_yaml with an empty list renders [] (line 183)."""
+        exporter = DGMYAMLExporter()
+        result = exporter._dict_to_yaml([], 0)
+        assert "[]" in result
+
+    def test_render_list_item_scalar(self):
+        """_render_list_item with a scalar (non-dict) renders '- value' (line 183)."""
+        exporter = DGMYAMLExporter()
+        result = exporter._render_list_item("hello", 0, "")
+        assert "- hello" in result
+
+    def test_yaml_with_cost_estimate(self):
+        """Export plan with cost_estimate populates YAML with nested dict."""
+        ce = CostEstimate(cpu_ops=200, io_ops=10, note="yaml:test")
+        plan = ExportPlan(QueryTarget.DGM_YAML, "SELECT 1", cost_estimate=ce)
+        exporter = DGMYAMLExporter()
+        result = exporter.export(plan)
+        assert "cost_estimate" in result
+        assert "cpu_ops" in result
+
+    def test_yaml_with_alternatives(self):
+        """Export plan with alternatives populates YAML list section."""
+        alt_plan = ExportPlan(QueryTarget.SQL_DUCKDB, "SELECT * FROM t")
+        alt_ce = CostEstimate(cpu_ops=100, io_ops=5, note="alt")
+        plan = ExportPlan(
+            QueryTarget.DGM_YAML,
+            "SELECT 1",
+            alternatives=[(alt_plan, alt_ce)],
+        )
+        exporter = DGMYAMLExporter()
+        result = exporter.export(plan)
+        assert "alternatives" in result
+        assert "SELECT * FROM t" in result or "query_text" in result
 
 
 # ---------------------------------------------------------------------------

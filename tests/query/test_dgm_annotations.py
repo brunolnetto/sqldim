@@ -381,6 +381,14 @@ class TestAnnotationKind:
     def test_hierarchy(self):
         assert annotation_kind(Hierarchy(root="r", depth=1)) == "Hierarchy"
 
+    def test_unknown_type_returns_class_name(self):
+        """annotation_kind on an unknown subclass falls back to __name__."""
+        class CustomAnnotation(SchemaAnnotation):
+            pass
+        obj = CustomAnnotation()
+        result = annotation_kind(obj)
+        assert result == "CustomAnnotation"
+
 
 # ---------------------------------------------------------------------------
 # AnnotationSigma — collection / lookup helper
@@ -432,6 +440,10 @@ class TestAnnotationSigma:
     def test_is_conformed(self):
         assert self.sigma.is_conformed("customer", "Sale") is True
         assert self.sigma.is_conformed("customer", "Invoice") is False
+
+    def test_is_conformed_unknown_dim_returns_false(self):
+        """is_conformed returns False (line 374 fallback) when dim is not Conformed."""
+        assert self.sigma.is_conformed("unknown_dim", "Sale") is False
 
     def test_hierarchy_depth(self):
         assert self.sigma.hierarchy_depth_of("geography") == 3

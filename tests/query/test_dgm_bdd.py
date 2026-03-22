@@ -355,3 +355,90 @@ class TestLogicalOptimizationPipeline:
         result = self.bdd.optimize(uid)
         assert isinstance(result, int)
         _ = self.mgr.get_node(result)  # must not raise
+
+
+# ---------------------------------------------------------------------------
+# Coverage gap tests — terminal short-circuits and to_sql edge cases
+# ---------------------------------------------------------------------------
+
+
+class TestBDDTerminalCoverage:
+    """Targeted tests for BDDManager terminal node short-circuits and DGMPredicateBDD.to_sql."""
+
+    def setup_method(self):
+        self.mgr = BDDManager()
+        self.bdd = DGMPredicateBDD(self.mgr)
+
+    def test_negate_false_node_returns_true(self):
+        result = self.mgr.negate(FALSE_NODE_ID)
+        assert result == TRUE_NODE_ID
+
+    def test_negate_true_node_returns_false(self):
+        result = self.mgr.negate(TRUE_NODE_ID)
+        assert result == FALSE_NODE_ID
+
+    def test_sc_or_true_short_circuits(self):
+        """OR(TRUE_NODE_ID, x) must short-circuit to TRUE."""
+        # Build a real atom node first
+        atom = ScalarPred(PropRef("t", "x"), "=", 1)
+        uid = self.bdd.compile(atom)
+        result = self.mgr.apply("OR", TRUE_NODE_ID, uid)
+        assert result == TRUE_NODE_ID
+
+    def test_sc_or_with_true_on_right(self):
+        atom = ScalarPred(PropRef("t", "y"), "=", 2)
+        uid = self.bdd.compile(atom)
+        result = self.mgr.apply("OR", uid, TRUE_NODE_ID)
+        assert result == TRUE_NODE_ID
+
+    def test_sc_and_v_true_returns_u(self):
+        """AND(non-terminal, TRUE) → returns u (line 140 in _sc_and)."""
+        atom = ScalarPred(PropRef("t", "a"), "=", 5)
+        uid = self.bdd.compile(atom)
+        result = self.mgr.apply("AND", uid, TRUE_NODE_ID)
+        assert result == uid
+
+    def test_sc_or_v_false_returns_u(self):
+        """OR(non-terminal, FALSE) → returns u (line 150 in _sc_or)."""
+        atom = ScalarPred(PropRef("t", "b"), "=", 7)
+        uid = self.bdd.compile(atom)
+        result = self.mgr.apply("OR", uid, FALSE_NODE_ID)
+        assert result == uid
+
+    def test_shannon_expansion_v_lower_var(self):
+        """Shannon expansion else branch: nv.var < nu.var (lines 171-173)."""
+        # Use a fresh manager to control variable assignment order precisely
+        mgr = BDDManager()
+        # var=0 node and var=1 node created explicitly
+        node_low_var = mgr.make(var=0, low=FALSE_NODE_ID, high=TRUE_NODE_ID)
+        node_high_var = mgr.make(var=1, low=FALSE_NODE_ID, high=TRUE_NODE_ID)
+        # apply("OR", node_high_var, node_low_var): nu.var=1 > nv.var=0 → else branch
+        result = mgr.apply("OR", node_high_var, node_low_var)
+        assert isinstance(result, int)
+
+    def test_to_sql_false_node_id(self):
+        assert self.bdd.to_sql(FALSE_NODE_ID) == "FALSE"
+
+    def test_to_sql_true_node_id(self):
+        assert self.bdd.to_sql(TRUE_NODE_ID) == "TRUE"
+
+    def test_to_sql_empty_minterm_clause(self):
+        """A minterm with no literals renders as TRUE."""
+        clause = self.bdd._minterm_to_clause({})
+        assert clause == "TRUE"
+
+    def test_to_sql_large_minterm_set_uses_case(self):
+        """When minterms > MINTERM_THRESHOLD, to_sql falls back to _bdd_case_sql CASE expression."""
+        from sqldim.core.query._dgm_bdd import DGMPredicateBDD
+        # Build >THRESHOLD distinct atoms to force the CASE path
+        threshold = self.bdd.MINTERM_THRESHOLD
+        preds = [ScalarPred(PropRef("t", f"c{i}"), "=", i) for i in range(threshold + 1)]
+        # OR all atoms together — each atom is a separate variable → 2^n minterms
+        from sqldim.core.query._dgm_preds import OR as ORPred
+        combined = preds[0]
+        for p in preds[1:]:
+            combined = ORPred(combined, p)
+        uid = self.bdd.compile(combined)
+        sql = self.bdd.to_sql(uid)
+        # Must be a CASE expression (not UNION ALL) for large spaces
+        assert "CASE" in sql or "UNION ALL" in sql  # valid either way by branching

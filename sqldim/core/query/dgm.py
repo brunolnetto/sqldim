@@ -155,11 +155,18 @@ def _check_where_pred(pred: object) -> None:
             )
 
 
-def _check_having_pred(pred: object) -> None:
+def _reject_band_pred(pred: object, band_label: str) -> None:
+    """Raise SemanticError if *pred* contains PathPred or SignaturePred."""
     if _has_path_pred(pred):
-        raise SemanticError("PathPred is not allowed in Having (B2).")
+        raise SemanticError(f"PathPred is not allowed in {band_label}.")
     if _has_signature_pred(pred):
-        raise SemanticError("SignaturePred is not allowed in Having (B2); use Where (B1).")
+        raise SemanticError(
+            f"SignaturePred is not allowed in {band_label}; use Where (B1)."
+        )
+
+
+def _check_having_pred(pred: object) -> None:
+    _reject_band_pred(pred, "Having (B2)")
     for ref in _iter_scalar_refs(pred):
         if isinstance(ref, (PropRef, WinRef)):
             raise SemanticError(
@@ -173,10 +180,7 @@ def _check_having_pred(pred: object) -> None:
 
 
 def _check_qualify_pred(pred: object) -> None:
-    if _has_path_pred(pred):
-        raise SemanticError("PathPred is not allowed in Qualify (B3).")
-    if _has_signature_pred(pred):
-        raise SemanticError("SignaturePred is not allowed in Qualify (B3); use Where (B1).")
+    _reject_band_pred(pred, "Qualify (B3)")
     for ref in _iter_scalar_refs(pred):
         if isinstance(ref, (PropRef, AggRef)):
             raise SemanticError(

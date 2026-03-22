@@ -196,17 +196,48 @@ class TestAllenOrdering:
         assert "a.end > b.start" in sql
         assert "a.end < b.end" in sql
 
-    def test_during_to_sql(self):
-        o = DURING(("a.start", "a.end"), ("b.start", "b.end"))
+    def test_overlapped_by_to_sql(self):
+        o = OVERLAPPED_BY(("a.start", "a.end"), ("b.start", "b.end"))
         sql = o.to_sql()
-        assert "a.start > b.start" in sql
-        assert "a.end < b.end" in sql
+        assert "b.start < a.start" in sql
+        assert "b.end > a.start" in sql
+        assert "b.end < a.end" in sql
 
     def test_starts_to_sql(self):
         o = STARTS(("a.start", "a.end"), ("b.start", "b.end"))
         sql = o.to_sql()
         assert "a.start = b.start" in sql
         assert "a.end < b.end" in sql
+
+    def test_started_by_to_sql(self):
+        o = STARTED_BY(("a.start", "a.end"), ("b.start", "b.end"))
+        sql = o.to_sql()
+        assert "a.start = b.start" in sql
+        assert "a.end > b.end" in sql
+
+    def test_during_to_sql(self):
+        o = DURING(("a.start", "a.end"), ("b.start", "b.end"))
+        sql = o.to_sql()
+        assert "a.start > b.start" in sql
+        assert "a.end < b.end" in sql
+
+    def test_contains_to_sql(self):
+        o = CONTAINS(("a.start", "a.end"), ("b.start", "b.end"))
+        sql = o.to_sql()
+        assert "a.start < b.start" in sql
+        assert "a.end > b.end" in sql
+
+    def test_finishes_to_sql(self):
+        o = FINISHES(("a.start", "a.end"), ("b.start", "b.end"))
+        sql = o.to_sql()
+        assert "a.end = b.end" in sql
+        assert "a.start > b.start" in sql
+
+    def test_finished_by_to_sql(self):
+        o = FINISHED_BY(("a.start", "a.end"), ("b.start", "b.end"))
+        sql = o.to_sql()
+        assert "a.end = b.end" in sql
+        assert "a.start < b.start" in sql
 
     def test_allen_stores_left_right(self):
         l_iv = ("a.start", "a.end")
@@ -247,6 +278,13 @@ class TestLTLOrdering:
         sql = UntilOrdering(hold, trig).to_sql()
         assert "e.ok" in sql
         assert "e.status" in sql
+
+    def test_since_ordering_to_sql_contains_subpreds(self):
+        hold = ScalarPred(PropRef("e", "active"), "=", True)
+        trig = ScalarPred(PropRef("e", "start"), "=", "launch")
+        sql = SinceOrdering(hold, trig).to_sql()
+        assert "e.active" in sql
+        assert "e.start" in sql
 
 
 # ---------------------------------------------------------------------------
@@ -335,6 +373,28 @@ class TestTemporalAgg:
         sql = ta.to_sql()
         assert "s.created_at" in sql
 
+    def test_window_sql_with_string_window(self):
+        """TemporalAgg._window_sql falls back to str() for unknown window types."""
+        ref = PropRef("s", "val")
+        ts = PropRef("s", "ts")
+        # Pass a raw string as window (triggers the str(self.window) fallback)
+        ta = TemporalAgg("SUM", ref, ts, "CUSTOM_WINDOW_EXPR")
+        sql = ta._window_sql()
+        assert "CUSTOM_WINDOW_EXPR" in sql
+
+    def test_singleton_window_instance_to_sql(self):
+        """_SingletonWindow instance to_sql() returns sql_operator (line 318)."""
+        w = YTD()
+        assert w.to_sql() == "YTD"
+
+    def test_window_sql_with_singleton_instance(self):
+        """TemporalAgg._window_sql handles a _SingletonWindow *instance* (line 405)."""
+        ref = PropRef("s", "amt")
+        ts = PropRef("s", "ts")
+        ta = TemporalAgg("SUM", ref, ts, YTD())
+        sql = ta._window_sql()
+        assert sql == "YTD"
+
 
 # ---------------------------------------------------------------------------
 # DeltaSpec / DeltaQuery
@@ -405,3 +465,12 @@ class TestDeltaQuery:
         sql = dq.to_sql()
         assert "2024-01-01" in sql
         assert "2024-06-30" in sql
+
+    def test_to_sql_with_filter_appends_where(self):
+        """DeltaQuery with a filter should include WHERE clause in to_sql."""
+        spec = CHANGED_PROPERTY("c", "region", "!=")
+        filt = ScalarPred(PropRef("c", "active"), "=", True)
+        dq = DeltaQuery("2024-01-01", "2024-06-30", spec, filter=filt)
+        sql = dq.to_sql()
+        assert "WHERE" in sql
+        assert "c.active" in sql

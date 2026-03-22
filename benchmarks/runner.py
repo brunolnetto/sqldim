@@ -51,6 +51,10 @@ from benchmarks.suite import (
     group_m_loaders_medallion,
     group_n_drift_observatory,
     group_o_dgm_query,
+    group_p_bdd_predicate,
+    group_q_recommender,
+    group_r_planner,
+    group_s_exporter,
 )
 
 
@@ -489,6 +493,10 @@ GROUP_MAP: dict[str, Callable] = {
     "M": group_m_loaders_medallion,
     "N": group_n_drift_observatory,
     "O": group_o_dgm_query,
+    "P": group_p_bdd_predicate,
+    "Q": group_q_recommender,
+    "R": group_r_planner,
+    "S": group_s_exporter,
 }
 
 GROUP_DESCRIPTIONS = {
@@ -507,6 +515,10 @@ GROUP_DESCRIPTIONS = {
     "M": "ORM loader throughput and Medallion registry compute",
     "N": "Schema/quality drift observability pipeline (DriftObservatory star schema)",
     "O": "DGM three-band query builder (B1 / B1\u2218B2 / B1\u2218B3 / B1\u2218B2\u2218B3) throughput",
+    "P": "BDD predicate compilation throughput (compile / satisfiability / to_sql)",
+    "Q": "DGMRecommender annotation + trail rule throughput",
+    "R": "DGMPlanner rule cycle throughput (1a, 9, build_plan)",
+    "S": "DGM multi-target exporter throughput (JSON/YAML \u00d7 simple/complex)",
 }
 
 

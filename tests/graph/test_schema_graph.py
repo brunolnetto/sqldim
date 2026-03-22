@@ -586,3 +586,19 @@ class TestSchemaGraphEdgeDiff:
         sg = SchemaGraph([SDimV1, SExtraDim, SEdgeFactDiff])
         diff = sg.diff(sg)
         assert diff.edit_distance == 0
+
+
+def test_to_dict_annotation_frozenset_field_sorted():
+    """GraphSchema.to_dict() converts frozenset annotation fields to sorted lists (line 235-236)."""
+    from sqldim.core.query._dgm_annotations import Conformed
+    from sqldim.core.graph.schema_graph import GraphSchema
+
+    schema = GraphSchema(
+        vertices=[{"name": "customer", "columns": []}],
+        edges=[],
+        annotations=[Conformed(dim="customer", fact_types=frozenset({"Sale", "Return"}))],
+    )
+    d = schema.to_dict()
+    ann_dict = d["annotations"][0]
+    assert isinstance(ann_dict["fact_types"], list)
+    assert ann_dict["fact_types"] == sorted(["Sale", "Return"])

@@ -31,6 +31,8 @@ from sqldim import (
     WinRef,
     ScalarPred,
     PathPred,
+    AND,
+    OR,
     NOT,
     VerbHop,
     BridgeHop,
@@ -339,6 +341,129 @@ def demo_bridge_path(con: duckdb.DuckDBPyConnection) -> None:
 
 
 # ---------------------------------------------------------------------------
+# BDD predicate compilation
+# ---------------------------------------------------------------------------
+
+
+def demo_bdd_predicate() -> None:
+    """Demonstrate BDD compile, satisfiability, implication, and to_sql."""
+    from sqldim.core.query._dgm_bdd import BDDManager, DGMPredicateBDD
+
+    _section("BDD predicate compilation and canonical form")
+
+    mgr = BDDManager()
+    bdd = DGMPredicateBDD(mgr)
+
+    p1 = ScalarPred(PropRef("s", "revenue"), ">", 1000)
+    p2 = ScalarPred(PropRef("s", "sale_year"), "=", 2024)
+    pred = AND(p1, p2)
+
+    uid = bdd.compile(pred)
+    print(f"  BDD node ID for AND(p1,p2): {uid}")
+    print(f"  Satisfiable: {bdd.is_satisfiable(uid)}")
+    print(f"  To SQL:\n    {bdd.to_sql(uid)}")
+
+    # Implication: (p1 AND p2) → p1
+    uid_p1 = bdd.compile(p1)
+    print(f"  AND(p1,p2) implies p1: {bdd.implies(uid, uid_p1)}")
+    print(f"  p1 implies AND(p1,p2): {bdd.implies(uid_p1, uid)}")
+
+
+# ---------------------------------------------------------------------------
+# Schema annotation layer (Σ) + recommender
+# ---------------------------------------------------------------------------
+
+
+def demo_annotation_sigma() -> None:
+    """Build an AnnotationSigma and run the DGMRecommender over it."""
+    from sqldim.core.query._dgm_annotations import (
+        AnnotationSigma,
+        Grain,
+        GrainKind,
+        SCDType,
+        SCDKind,
+        Conformed,
+        BridgeSemantics,
+        BridgeSemanticsKind,
+    )
+    from sqldim.core.query._dgm_recommender import DGMRecommender
+
+    _section("Schema annotation layer Σ and recommender")
+
+    sigma = AnnotationSigma(
+        annotations=[
+            Grain(fact="dgm_showcase_sale", grain=GrainKind.PERIOD),
+            SCDType(dim="dgm_showcase_customer", scd=SCDKind.SCD2),
+            Conformed(dim="dgm_showcase_customer", fact_types=frozenset({"Sale"})),
+            BridgeSemantics(bridge="dgm_showcase_prod_seg", sem=BridgeSemanticsKind.STRUCTURAL),
+        ]
+    )
+    print(f"  Annotations loaded: {len(sigma)}")
+    print(f"  scd_of('dgm_showcase_customer'): {sigma.scd_of('dgm_showcase_customer').value}")
+    print(f"  is_conformed('dgm_showcase_customer', 'Sale'): "
+          f"{sigma.is_conformed('dgm_showcase_customer', 'Sale')}")
+    print(f"  grain_of('dgm_showcase_sale'): {sigma.grain_of('dgm_showcase_sale').value}")
+
+    rec = DGMRecommender(sigma)
+    suggestions = rec.run_annotation_rules()
+    print(f"  Recommender suggestions: {len(suggestions)}")
+    for s in suggestions[:3]:
+        print(f"    • {s.text}")
+
+    # Routing: high entropy → stage1 (Free-endpoint characterisation)
+    route = rec.route(entropy=0.9)
+    print(f"  Route (entropy=0.9): {route}")
+    route_low = rec.route(entropy=0.1)
+    print(f"  Route (entropy=0.1): {route_low}")
+
+
+# ---------------------------------------------------------------------------
+# DGM planner
+# ---------------------------------------------------------------------------
+
+
+def demo_planner() -> None:
+    """DGMPlanner: build an ExportPlan with rules 1a–9."""
+    from sqldim.core.query._dgm_annotations import AnnotationSigma
+    from sqldim.core.query._dgm_planner import DGMPlanner, QueryTarget, SinkTarget
+    from sqldim.core.query._dgm_graph import GraphStatistics
+    from sqldim.core.query._dgm_exporters import (
+        DGMJSONExporter,
+        DGMYAMLExporter,
+    )
+
+    _section("DGM query planner and exporters")
+
+    sigma = AnnotationSigma(annotations=[])
+    stats = GraphStatistics(node_count=3, edge_count=6)
+    planner = DGMPlanner(
+        cost_model=None,
+        statistics=stats,
+        annotations=sigma,
+        rules=None,
+        query_target=QueryTarget.SQL_DUCKDB,
+        sink_target=SinkTarget.DUCKDB,
+    )
+
+    sql = (
+        DGMQuery()
+        .anchor("dgm_showcase_sale", "s")
+        .where(ScalarPred(PropRef("s", "sale_year"), "=", 2024))
+        .to_sql()
+    )
+    plan = planner.build_plan(sql)
+    print(f"  Query target : {plan.query_target.value}")
+    print(f"  Sink target  : {plan.sink_target.value if plan.sink_target else 'none'}")
+    print(f"  Cost estimate: {plan.cost_estimate}")
+
+    json_out = DGMJSONExporter().export(plan)
+    yaml_out = DGMYAMLExporter().export(plan)
+    print(f"  JSON export  : {len(json_out)} chars")
+    print(f"  YAML export  : {len(yaml_out)} chars")
+    print(f"  YAML snippet :\n    {yaml_out.splitlines()[0]}")
+
+
+# ---------------------------------------------------------------------------
 # Entry point
 # ---------------------------------------------------------------------------
 
@@ -355,6 +480,9 @@ def run_all() -> None:
     demo_b1_b3_qualify(con)
     demo_full_pipeline(con)
     demo_bridge_path(con)
+    demo_bdd_predicate()
+    demo_annotation_sigma()
+    demo_planner()
 
     con.close()
     print("\nDGM showcase complete.")

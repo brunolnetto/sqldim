@@ -271,7 +271,47 @@ class TestAnnotationDrivenRules:
         between = [s for s in suggestions if "BETWEENNESS" in s.text or "TARJAN" in s.text]
         assert len(between) >= 1
 
-    def test_role_playing_adds_cross_role(self):
+    def test_bridge_supersession_adds_negation_advice(self):
+        """BridgeSemantics(SUPERSESSION) → suppress with negation-aware hint."""
+        sigma = AnnotationSigma([
+            BridgeSemantics(bridge="override_bridge", sem=BridgeSemanticsKind.SUPERSESSION)
+        ])
+        rec = DGMRecommender(sigma=sigma)
+        suggestions = rec.run_annotation_rules()
+        supp = [s for s in suggestions if "SUPERSESSION" in s.text or "negation" in s.text.lower()]
+        assert len(supp) >= 1
+
+    def test_grain_accumulating_adds_temporal_pivot(self):
+        """Grain(ACCUMULATING) → TEMPORAL_PIVOT suggestion."""
+        sigma = AnnotationSigma([Grain(fact="pipeline", grain=GrainKind.ACCUMULATING)])
+        rec = DGMRecommender(sigma=sigma)
+        suggestions = rec.run_annotation_rules()
+        pivots = [s for s in suggestions if s.kind is SuggestionKind.TEMPORAL_PIVOT]
+        assert len(pivots) >= 1
+
+    def test_scd1_strip_temporal_suggestion(self):
+        """SCDType(SCD1) → suppress TemporalJoin suggestion."""
+        sigma = AnnotationSigma([SCDType(dim="d_customer", scd=SCDKind.SCD1)])
+        rec = DGMRecommender(sigma=sigma)
+        suggestions = rec.run_annotation_rules()
+        supp = [s for s in suggestions if "SCD1" in s.text or "strip" in s.text.lower()]
+        assert len(supp) >= 1
+
+    def test_factless_fact_adds_count_suggestion(self):
+        """FactlessFact → AGG/COUNT suggestion."""
+        sigma = AnnotationSigma([FactlessFact(fact="event_attendance")])
+        rec = DGMRecommender(sigma=sigma)
+        suggestions = rec.run_annotation_rules()
+        agg = [s for s in suggestions if "COUNT" in s.text or "EXISTS" in s.text]
+        assert len(agg) >= 1
+
+    def test_derived_fact_adds_path_pred(self):
+        """DerivedFact → PATH_PRED suggestion to drill into sources."""
+        sigma = AnnotationSigma([DerivedFact(fact="derived_margin", sources=["revenue", "cost"], expr="...")])
+        rec = DGMRecommender(sigma=sigma)
+        suggestions = rec.run_annotation_rules()
+        paths = [s for s in suggestions if s.kind is SuggestionKind.PATH_PRED]
+        assert len(paths) >= 1
         sigma = AnnotationSigma([RolePlaying(dim="date", roles=["order_date", "ship_date"])])
         rec = DGMRecommender(sigma=sigma)
         suggestions = rec.run_annotation_rules()

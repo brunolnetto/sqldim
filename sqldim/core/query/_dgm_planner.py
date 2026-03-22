@@ -340,30 +340,37 @@ class DGMPlanner:
 
     def apply_rule_3(self, expr: "NodeExpr | SubgraphExpr") -> str:
         """Rule 3: Schedule or inline a GraphExpr algorithm."""
+        from sqldim.core.query._dgm_graph import NodeExpr, SubgraphExpr
+
+        if isinstance(expr, NodeExpr):
+            return self._rule3_node_expr(expr)
+        return self._rule3_subgraph_expr(expr)
+
+    def _rule3_node_expr(self, expr: "NodeExpr") -> str:
         from sqldim.core.query._dgm_graph import (
-            NodeExpr,
-            SubgraphExpr,
             OUTGOING_SIGNATURES,
             INCOMING_SIGNATURES,
             DOMINANT_OUTGOING_SIGNATURE,
             DOMINANT_INCOMING_SIGNATURE,
             SIGNATURE_DIVERSITY,
-            SIGNATURE_ENTROPY,
+        )
+
+        alg = expr.algorithm
+        if isinstance(alg, (OUTGOING_SIGNATURES, DOMINANT_OUTGOING_SIGNATURE, SIGNATURE_DIVERSITY)):
+            return "forward_bfs per anchor alias; pre-compute if stable"
+        if isinstance(alg, (INCOMING_SIGNATURES, DOMINANT_INCOMING_SIGNATURE)):
+            return "bfs on transposed G^T per anchor alias; pre-compute if stable"
+        return f"inline NodeExpr({type(alg).__name__})"
+
+    def _rule3_subgraph_expr(self, expr: "SubgraphExpr") -> str:
+        from sqldim.core.query._dgm_graph import (
             GLOBAL_SIGNATURE_COUNT,
             GLOBAL_DOMINANT_SIGNATURE,
+            SIGNATURE_ENTROPY,
         )
 
         alg = expr.algorithm
         node_count = self.statistics.node_count if self.statistics else 0
-
-        if isinstance(expr, NodeExpr):
-            if isinstance(alg, (OUTGOING_SIGNATURES, DOMINANT_OUTGOING_SIGNATURE, SIGNATURE_DIVERSITY)):
-                return "forward_bfs per anchor alias; pre-compute if stable"
-            if isinstance(alg, (INCOMING_SIGNATURES, DOMINANT_INCOMING_SIGNATURE)):
-                return "bfs on transposed G^T per anchor alias; pre-compute if stable"
-            return f"inline NodeExpr({type(alg).__name__})"
-
-        # SubgraphExpr
         if isinstance(alg, (GLOBAL_SIGNATURE_COUNT, GLOBAL_DOMINANT_SIGNATURE)):
             return "broadcast graph-level scalar inline to all tuples"
         if isinstance(alg, SIGNATURE_ENTROPY):
@@ -417,60 +424,63 @@ class DGMPlanner:
         ann: object,
         candidate_set: "set[str] | None" = None,
     ) -> list[str]:
-        """Rule 6: Return optimisation messages for *ann* (§6.2).
-
-        Parameters
-        ----------
-        ann:
-            A schema annotation instance.
-        candidate_set:
-            Optional set of table/alias names currently present in the
-            query — used for ProjectsFrom and DerivedFact decisions.
-        """
+        """Rule 6: Return optimisation messages for *ann* (§6.2)."""
         from sqldim.core.query._dgm_annotations import (
-            RolePlaying,
-            ProjectsFrom,
-            DerivedFact,
-            WeightConstraint,
-            WeightConstraintKind,
-            BridgeSemantics,
-            BridgeSemanticsKind,
-            Degenerate,
+            RolePlaying, ProjectsFrom, DerivedFact,
+            WeightConstraint, BridgeSemantics, Degenerate,
         )
 
         c = candidate_set or set()
+        _dispatch = {
+            RolePlaying: self._r6_role_playing,
+            ProjectsFrom: self._r6_projects_from,
+            DerivedFact: self._r6_derived_fact,
+            WeightConstraint: self._r6_weight_constraint,
+            BridgeSemantics: self._r6_bridge_semantics,
+            Degenerate: self._r6_degenerate,
+        }
+        handler = _dispatch.get(type(ann))
+        if handler is None:
+            return []
+        return handler(ann, c)
 
-        if isinstance(ann, RolePlaying):
+    @staticmethod
+    def _r6_role_playing(ann: object, _c: "set[str]") -> list[str]:
+        return [f"RolePlaying({ann.dim}): single scan under multiple aliases {ann.roles}"]  # type: ignore[attr-defined]
+
+    @staticmethod
+    def _r6_projects_from(ann: object, c: "set[str]") -> list[str]:
+        if ann.dim_full in c:  # type: ignore[attr-defined]
             return [
-                f"RolePlaying({ann.dim}): single scan under multiple aliases {ann.roles}"
+                f"ProjectsFrom: eliminate mini join {ann.dim_mini!r} — full table {ann.dim_full!r} present"  # type: ignore[attr-defined]
             ]
-        if isinstance(ann, ProjectsFrom):
-            if ann.dim_full in c:
-                return [
-                    f"ProjectsFrom: eliminate mini join {ann.dim_mini!r} — full table {ann.dim_full!r} present"
-                ]
-            return []
-        if isinstance(ann, DerivedFact):
-            if c.intersection(ann.sources):
-                return [f"DerivedFact({ann.fact}): inline — srcs ∩ C ≠ ∅"]
-            return []
-        if isinstance(ann, WeightConstraint):
-            if ann.is_allocative:
-                return [f"WeightConstraint(ALLOCATIVE) on {ann.bridge}: PathAgg without weight → use weighted form"]
-            return []
-        if isinstance(ann, BridgeSemantics):
-            if ann.sem is BridgeSemanticsKind.CAUSAL:
-                return [
-                    f"BridgeSemantics(CAUSAL) on {ann.bridge}: drop cycle guard; dag_bfs on G and G^T"
-                ]
-            if ann.sem is BridgeSemanticsKind.SUPERSESSION:
-                return [
-                    f"BridgeSemantics(SUPERSESSION) on {ann.bridge}: CASE WHEN superseded THEN -1*measure ELSE measure"
-                ]
-            return []
-        if isinstance(ann, Degenerate):
-            return [f"Degenerate({ann.dim}): exclusion from GroupBy candidates"]
         return []
+
+    @staticmethod
+    def _r6_derived_fact(ann: object, c: "set[str]") -> list[str]:
+        if c.intersection(ann.sources):  # type: ignore[attr-defined]
+            return [f"DerivedFact({ann.fact}): inline — srcs ∩ C ≠ ∅"]  # type: ignore[attr-defined]
+        return []
+
+    @staticmethod
+    def _r6_weight_constraint(ann: object, _c: "set[str]") -> list[str]:
+        if ann.is_allocative:  # type: ignore[attr-defined]
+            return [f"WeightConstraint(ALLOCATIVE) on {ann.bridge}: PathAgg without weight → use weighted form"]  # type: ignore[attr-defined]
+        return []
+
+    @staticmethod
+    def _r6_bridge_semantics(ann: object, _c: "set[str]") -> list[str]:
+        from sqldim.core.query._dgm_annotations import BridgeSemanticsKind
+
+        if ann.sem is BridgeSemanticsKind.CAUSAL:  # type: ignore[attr-defined]
+            return [f"BridgeSemantics(CAUSAL) on {ann.bridge}: drop cycle guard; dag_bfs on G and G^T"]  # type: ignore[attr-defined]
+        if ann.sem is BridgeSemanticsKind.SUPERSESSION:  # type: ignore[attr-defined]
+            return [f"BridgeSemantics(SUPERSESSION) on {ann.bridge}: CASE WHEN superseded THEN -1*measure ELSE measure"]  # type: ignore[attr-defined]
+        return []
+
+    @staticmethod
+    def _r6_degenerate(ann: object, _c: "set[str]") -> list[str]:
+        return [f"Degenerate({ann.dim}): exclusion from GroupBy candidates"]  # type: ignore[attr-defined]
 
     # ------------------------------------------------------------------
     # Rule 7 — TemporalAgg window scheduling
@@ -498,7 +508,6 @@ class DGMPlanner:
         """Rule 8: Return the write plan string for *sink_target*."""
         from sqldim.core.query._dgm_annotations import GrainKind
 
-        # Determine base write strategy
         _base: dict[SinkTarget, str] = {
             SinkTarget.DUCKDB: "CREATE TABLE AS / INSERT INTO",
             SinkTarget.MOTHERDUCK: "CREATE TABLE AS / INSERT INTO",
@@ -508,27 +517,29 @@ class DGMPlanner:
             SinkTarget.ICEBERG: "INSERT INTO iceberg_scan",
         }
         plan = _base.get(sink_target, "INSERT INTO")
+        plan = self._r8_partition_flag(plan, sink_target, has_temporal_agg)
+        plan = self._r8_delta_append_flag(plan, sink_target, has_q_delta)
+        if grain_kind is not None:
+            plan = self._r8_grain_append_flag(plan, sink_target, grain_kind, GrainKind)
+        return plan
 
-        # TemporalAgg + file sinks → PARTITION_BY timestamp unit
-        if has_temporal_agg and sink_target in (
-            SinkTarget.PARQUET,
-            SinkTarget.DELTA,
-            SinkTarget.ICEBERG,
-        ):
+    @staticmethod
+    def _r8_partition_flag(plan: str, sink_target: SinkTarget, has_temporal_agg: bool) -> str:
+        _file_sinks = (SinkTarget.PARQUET, SinkTarget.DELTA, SinkTarget.ICEBERG)
+        if has_temporal_agg and sink_target in _file_sinks:
             plan += "; PARTITION_BY timestamp_unit"
+        return plan
 
-        # Q_delta + DELTA → APPEND mode
+    @staticmethod
+    def _r8_delta_append_flag(plan: str, sink_target: SinkTarget, has_q_delta: bool) -> str:
         if has_q_delta and sink_target is SinkTarget.DELTA:
             plan += "; APPEND mode"
+        return plan
 
-        # ACCUMULATING grain + DELTA → APPEND mode
-        if (
-            grain_kind is not None
-            and grain_kind is GrainKind.ACCUMULATING
-            and sink_target is SinkTarget.DELTA
-        ):
+    @staticmethod
+    def _r8_grain_append_flag(plan: str, sink_target: SinkTarget, grain_kind: object, GrainKind: type) -> str:
+        if grain_kind is GrainKind.ACCUMULATING and sink_target is SinkTarget.DELTA:
             plan += "; APPEND mode"
-
         return plan
 
     # ------------------------------------------------------------------

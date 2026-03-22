@@ -202,9 +202,7 @@ ScalarPred(AggRef("total_rev"), ">", 5000)        → valid in B2 Having
 ScalarPred(WinRef("rnk"), "<=", 2)                → valid in B3 Qualify
 ```
 
-`PathPred` is the only predicate restricted to B1 — it fires an `EXISTS` subquery
-over a multi-hop path traversal, which is meaningful only while the graph context
-is live (before aggregation collapses it).
+`PathPred` is the only predicate restricted to B1 — it fires an `EXISTS` subquery over a multi-hop path traversal, which is meaningful only while the graph context is live (before aggregation collapses it).
 
 ### DGM vs. Property Graph Engines (Neo4j, Gremlin)
 
@@ -217,15 +215,11 @@ is live (before aggregation collapses it).
 | Bridge weights | Ad-hoc property | First-class `P(b).weight` in Band 2 |
 | Backend | JVM / specialized | DuckDB; any SQL engine |
 
-DGM does not aim to replace Neo4j for deeply recursive graph workloads (e.g., social
-graph community detection). Its sweet spot is analytical OLAP workloads where
-dimensional structure is known, SCD2 history matters, and the graph relationships
-are the star schema FK topology.
+DGM does not aim to replace Neo4j for deeply recursive graph workloads (e.g., social graph community detection). Its sweet spot is analytical OLAP workloads where dimensional structure is known, SCD2 history matters, and the graph relationships are the star schema FK topology.
 
 ### Further Reading
 
-- [DGM Feature Reference](../features/dimensional_graph_model.md) — API reference with
-  code examples for all four query forms
+- [DGM Feature Reference](../features/dimensional_graph_model.md) — API reference with code examples for all four query forms
 - [Graph Analytics Roadmap ADR](./adr/graph-analytics-roadmap.md) — four-tier
   implementation plan for closing the remaining gaps
 

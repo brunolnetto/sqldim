@@ -239,29 +239,28 @@ def _flatten_path(path: object) -> list:
 _TEMPORAL_MODE_WRAPPERS: dict[object, str] = {}
 
 
+def _build_temporal_dispatch() -> "dict[object, object]":
+    """Build singleton-mode dispatch table (deferred to avoid circular import)."""
+    from sqldim.core.query._dgm_temporal import EVENTUALLY, GLOBALLY, NEXT, ONCE, PREVIOUSLY
+    return {
+        EVENTUALLY: lambda s: s,
+        GLOBALLY: lambda s: f"NOT EXISTS (SELECT 1 FROM (SELECT 1 WHERE NOT ({s})))",
+        NEXT: lambda s: s,
+        ONCE: lambda s: f"/* G^T */ {s}",
+        PREVIOUSLY: lambda s: f"/* G^T */ NOT EXISTS (SELECT 1 FROM (SELECT 1 WHERE NOT ({s})))",
+    }
+
+
 def _temporal_mode_sql_wrapper(mode: object, base_exists: str) -> str:
     """Wrap *base_exists* in the appropriate CTL temporal SQL template."""
-    from sqldim.core.query._dgm_temporal import (
-        EVENTUALLY, GLOBALLY, NEXT, ONCE, PREVIOUSLY, UntilMode, SinceMode
-    )
-    if mode is EVENTUALLY or mode is EVENTUALLY or isinstance(mode, type) and mode is EVENTUALLY:
-        return base_exists  # EVENTUALLY ≅ plain EXISTS (any forward hop)
-    if mode is GLOBALLY or (isinstance(mode, type) and mode is GLOBALLY):
-        # GLOBALLY ≅ NOT EXISTS (NOT sub_filter anywhere)
-        return f"NOT EXISTS (SELECT 1 FROM (SELECT 1 WHERE NOT ({base_exists})))"
-    if mode is NEXT or (isinstance(mode, type) and mode is NEXT):
-        return base_exists  # NEXT ≅ single-hop EXISTS (path already single hop)
-    if mode is ONCE or (isinstance(mode, type) and mode is ONCE):
-        # ONCE ≅ backward single-hop exists on G^T
-        return f"/* G^T */ {base_exists}"
-    if mode is PREVIOUSLY or (isinstance(mode, type) and mode is PREVIOUSLY):
-        # PREVIOUSLY ≅ NOT EXISTS (NOT sub_filter on any prior hop via G^T)
-        return f"/* G^T */ NOT EXISTS (SELECT 1 FROM (SELECT 1 WHERE NOT ({base_exists})))"
+    from sqldim.core.query._dgm_temporal import UntilMode, SinceMode
+    dispatch = _build_temporal_dispatch()
+    fn = dispatch.get(mode)
+    if fn is not None:
+        return fn(base_exists)
     if isinstance(mode, UntilMode):
-        # UNTIL(ψ) ≅ recursive CTE, hold_pred at every intermediate node
         return f"/* UNTIL */ {base_exists}"
     if isinstance(mode, SinceMode):
-        # SINCE(ψ) ≅ backward CTE on G^T
         return f"/* SINCE G^T */ {base_exists}"
     return base_exists  # pragma: no cover
 

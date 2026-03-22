@@ -130,22 +130,30 @@ class BDDManager:
         self._computed[cache_key] = result
         return result
 
+    def _sc_and(self, u: int, v: int) -> "int | None":
+        """Short-circuit terminals for AND; return None to continue Shannon."""
+        if u == FALSE_NODE_ID or v == FALSE_NODE_ID:
+            return FALSE_NODE_ID
+        if u == TRUE_NODE_ID:
+            return v
+        if v == TRUE_NODE_ID:
+            return u
+        return None
+
+    def _sc_or(self, u: int, v: int) -> "int | None":
+        """Short-circuit terminals for OR; return None to continue Shannon."""
+        if u == TRUE_NODE_ID or v == TRUE_NODE_ID:
+            return TRUE_NODE_ID
+        if u == FALSE_NODE_ID:
+            return v
+        if v == FALSE_NODE_ID:
+            return u
+        return None
+
     def _apply_uncached(self, op: str, u: int, v: int) -> int:
-        # Terminal short-circuits
-        if op == "AND":
-            if u == FALSE_NODE_ID or v == FALSE_NODE_ID:
-                return FALSE_NODE_ID
-            if u == TRUE_NODE_ID:
-                return v
-            if v == TRUE_NODE_ID:
-                return u
-        else:  # OR
-            if u == TRUE_NODE_ID or v == TRUE_NODE_ID:
-                return TRUE_NODE_ID
-            if u == FALSE_NODE_ID:
-                return v
-            if v == FALSE_NODE_ID:
-                return u
+        sc = self._sc_and(u, v) if op == "AND" else self._sc_or(u, v)
+        if sc is not None:
+            return sc
 
         nu = self._nodes[u]
         nv = self._nodes[v]
@@ -215,36 +223,46 @@ class DGMPredicateBDD:
         """Compile a DGM predicate tree to a BDD node ID."""
         return self._compile(pred)
 
-    def _compile(self, pred: object) -> int:
-        from sqldim.core.query._dgm_preds import (
-            ScalarPred, AND, OR, NOT, PathPred, SignaturePred, Quantifier
+    def _compile_and(self, pred: "AND") -> int:
+        result = TRUE_NODE_ID
+        for sub in pred.preds:
+            result = self.manager.apply("AND", result, self._compile(sub))
+        return result
+
+    def _compile_or(self, pred: "OR") -> int:
+        result = FALSE_NODE_ID
+        for sub in pred.preds:
+            result = self.manager.apply("OR", result, self._compile(sub))
+        return result
+
+    def _compile_forall(self, pred: "PathPred") -> int:
+        from sqldim.core.query._dgm_preds import NOT, PathPred, Quantifier
+        inner = NOT(pred.sub_filter)
+        exists_pred = PathPred(
+            pred.anchor,
+            pred.path,
+            inner,
+            quantifier=Quantifier.EXISTS,
+            strategy=pred.strategy,
+            temporal_mode=pred.temporal_mode,
+            promote=pred.promote,
         )
-        if isinstance(pred, AND):
-            result = TRUE_NODE_ID
-            for sub in pred.preds:
-                result = self.manager.apply("AND", result, self._compile(sub))
-            return result
-        if isinstance(pred, OR):
-            result = FALSE_NODE_ID
-            for sub in pred.preds:
-                result = self.manager.apply("OR", result, self._compile(sub))
-            return result
+        return self.manager.negate(self._compile(exists_pred))
+
+    def _compile(self, pred: object) -> int:
+        from sqldim.core.query._dgm_preds import AND, OR
+        _dispatch = {AND: self._compile_and, OR: self._compile_or}
+        handler = _dispatch.get(type(pred))
+        if handler is not None:
+            return handler(pred)
+        return self._compile_structural(pred)
+
+    def _compile_structural(self, pred: object) -> int:
+        from sqldim.core.query._dgm_preds import NOT, PathPred, Quantifier
         if isinstance(pred, NOT):
             return self.manager.negate(self._compile(pred.pred))
         if isinstance(pred, PathPred) and pred.quantifier is Quantifier.FORALL:
-            # De Morgan: FORALL φ ≡ NOT EXISTS NOT φ (step 8 of pipeline)
-            inner = NOT(pred.sub_filter)
-            exists_pred = PathPred(
-                pred.anchor,
-                pred.path,
-                inner,
-                quantifier=Quantifier.EXISTS,
-                strategy=pred.strategy,
-                temporal_mode=pred.temporal_mode,
-                promote=pred.promote,
-            )
-            return self.manager.negate(self._compile(exists_pred))
-        # Atom (ScalarPred, PathPred with EXISTS, SignaturePred)
+            return self._compile_forall(pred)
         return self._atom_id(pred)
 
     def _atom_id(self, atom: object) -> int:
@@ -348,19 +366,23 @@ class DGMPredicateBDD:
             return "TRUE"
         terms = self.minterms(uid)
         if len(terms) <= self.MINTERM_THRESHOLD:
-            parts = []
-            for term in terms:
-                if not term:
-                    parts.append("TRUE")
-                else:
-                    clauses = " AND ".join(
-                        f"var_{v} = {str(b).upper()}"
-                        for v, b in sorted(term.items())
-                    )
-                    parts.append(clauses)
-            return " UNION ALL ".join(f"SELECT 1 WHERE {p}" for p in parts)
-        # BDD-structured CASE expression for large predicate spaces
+            return self._terms_to_union_all(terms)
         return self._bdd_case_sql(uid)
+
+    @staticmethod
+    def _minterm_to_clause(term: "dict[int, bool]") -> str:
+        """Render one minterm dict as a SQL AND clause."""
+        if not term:
+            return "TRUE"
+        return " AND ".join(
+            f"var_{v} = {str(b).upper()}"
+            for v, b in sorted(term.items())
+        )
+
+    def _terms_to_union_all(self, terms: "list[dict[int, bool]]") -> str:
+        """Render a list of minterms as UNION ALL of SELECT 1 WHERE …."""
+        parts = [self._minterm_to_clause(t) for t in terms]
+        return " UNION ALL ".join(f"SELECT 1 WHERE {p}" for p in parts)
 
     def _bdd_case_sql(self, uid: int) -> str:
         """Render a CASE expression that walks the BDD at query time."""

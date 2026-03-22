@@ -242,140 +242,154 @@ class DGMRecommender:
 
     def _apply_annotation_rule(self, ann: object, out: list[Suggestion]) -> None:
         from sqldim.core.query._dgm_annotations import (
-            Degenerate, Conformed, Grain, GrainKind,
-            SCDType, SCDKind, FactlessFact, DerivedFact,
-            WeightConstraint, WeightConstraintKind,
-            BridgeSemantics, BridgeSemanticsKind,
+            Degenerate, Conformed, Grain, SCDType, FactlessFact,
+            DerivedFact, WeightConstraint, BridgeSemantics,
             Hierarchy, RolePlaying,
         )
-        if isinstance(ann, Degenerate):
+
+        _dispatch = {
+            Degenerate: self._ann_degenerate,
+            Conformed: self._ann_conformed,
+            Grain: self._ann_grain,
+            SCDType: self._ann_scd_type,
+            FactlessFact: self._ann_factless_fact,
+            DerivedFact: self._ann_derived_fact,
+            WeightConstraint: self._ann_weight_constraint,
+            BridgeSemantics: self._ann_bridge_semantics,
+            Hierarchy: self._ann_hierarchy,
+            RolePlaying: self._ann_role_playing,
+        }
+        handler = _dispatch.get(type(ann))
+        if handler is not None:
+            handler(ann, out)
+
+    def _ann_degenerate(self, ann: object, out: list[Suggestion]) -> None:
+        out.append(Suggestion(
+            kind=SuggestionKind.SUPPRESS, band="suppress",
+            text=f"Suppress GroupBy({ann.dim}); Suppress PathPred from {ann.dim}",  # type: ignore[attr-defined]
+            priority=70,
+        ))
+        out.append(Suggestion(
+            kind=SuggestionKind.SCALAR_PRED, band="B1",
+            text=f"Add ScalarPred({ann.dim}.key) instead of GroupBy",  # type: ignore[attr-defined]
+            priority=60,
+        ))
+
+    def _ann_conformed(self, ann: object, out: list[Suggestion]) -> None:
+        out.append(Suggestion(
+            kind=SuggestionKind.PATH_PRED, band="B1",
+            text=(
+                f"Constellation path via Conformed({ann.dim},"  # type: ignore[attr-defined]
+                f" {sorted(ann.fact_types)})"  # type: ignore[attr-defined]
+            ),
+            priority=75,
+        ))
+
+    def _ann_grain(self, ann: object, out: list[Suggestion]) -> None:
+        from sqldim.core.query._dgm_annotations import GrainKind
+
+        if ann.grain is GrainKind.PERIOD:  # type: ignore[attr-defined]
             out.append(Suggestion(
-                kind=SuggestionKind.SUPPRESS,
-                band="suppress",
-                text=f"Suppress GroupBy({ann.dim}); Suppress PathPred from {ann.dim}",
-                priority=70,
-            ))
-            out.append(Suggestion(
-                kind=SuggestionKind.SCALAR_PRED,
-                band="B1",
-                text=f"Add ScalarPred({ann.dim}.key) instead of GroupBy",
-                priority=60,
-            ))
-        elif isinstance(ann, Conformed):
-            out.append(Suggestion(
-                kind=SuggestionKind.PATH_PRED,
-                band="B1",
-                text=(
-                    f"Constellation path via Conformed({ann.dim},"
-                    f" {sorted(ann.fact_types)})"
-                ),
-                priority=75,
-            ))
-        elif isinstance(ann, Grain):
-            if ann.grain is GrainKind.PERIOD:
-                out.append(Suggestion(
-                    kind=SuggestionKind.SUPPRESS,
-                    band="suppress",
-                    text=f"Suppress SUM aggregation — Grain(PERIOD) on {ann.fact}",
-                    priority=80,
-                ))
-                out.append(Suggestion(
-                    kind=SuggestionKind.AGG,
-                    band="B2",
-                    text=f"Use LAST instead of SUM on Grain(PERIOD) {ann.fact}",
-                    priority=65,
-                ))
-                out.append(Suggestion(
-                    kind=SuggestionKind.Q_DELTA,
-                    band="temporal",
-                    text=f"Consider Q_delta for period-over-period diff on {ann.fact}",
-                    priority=60,
-                ))
-            elif ann.grain is GrainKind.ACCUMULATING:
-                out.append(Suggestion(
-                    kind=SuggestionKind.TEMPORAL_PIVOT,
-                    band="temporal",
-                    text=f"Warn: cross-row agg on ACCUMULATING {ann.fact}; add stage predicates",
-                    priority=55,
-                ))
-        elif isinstance(ann, SCDType):
-            if ann.scd is SCDKind.SCD3:
-                out.append(Suggestion(
-                    kind=SuggestionKind.SCALAR_PRED,
-                    band="B1",
-                    text=f"Add PropRef({ann.dim}.previous_value) — SCD3 comparison available",
-                    priority=60,
-                ))
-            elif ann.scd is SCDKind.SCD1:
-                out.append(Suggestion(
-                    kind=SuggestionKind.SUPPRESS,
-                    band="suppress",
-                    text=f"Suppress TemporalJoin — SCDType(SCD1) on {ann.dim}: strip temporal",
-                    priority=70,
-                ))
-        elif isinstance(ann, FactlessFact):
-            out.append(Suggestion(
-                kind=SuggestionKind.AGG,
-                band="B2",
-                text=f"Use COUNT/EXISTS on FactlessFact({ann.fact}); SUM/AVG invalid",
+                kind=SuggestionKind.SUPPRESS, band="suppress",
+                text=f"Suppress SUM aggregation — Grain(PERIOD) on {ann.fact}",  # type: ignore[attr-defined]
                 priority=80,
             ))
-        elif isinstance(ann, DerivedFact):
             out.append(Suggestion(
-                kind=SuggestionKind.PATH_PRED,
-                band="B1",
-                text=f"Drill-down to DerivedFact({ann.fact}) sources: {ann.sources}",
-                priority=55,
+                kind=SuggestionKind.AGG, band="B2",
+                text=f"Use LAST instead of SUM on Grain(PERIOD) {ann.fact}",  # type: ignore[attr-defined]
+                priority=65,
             ))
-        elif isinstance(ann, WeightConstraint):
-            if ann.is_allocative:
-                out.append(Suggestion(
-                    kind=SuggestionKind.PATH_PRED,
-                    band="B1",
-                    text=(
-                        f"Use weighted PathAgg on {ann.bridge}"
-                        " — WeightConstraint(ALLOCATIVE)"
-                    ),
-                    priority=65,
-                ))
-        elif isinstance(ann, BridgeSemantics):
-            if ann.sem is BridgeSemanticsKind.CAUSAL:
-                out.append(Suggestion(
-                    kind=SuggestionKind.PATH_PRED,
-                    band="B1",
-                    text=(
-                        f"BETWEENNESS on G_AB; TARJAN_SCC partition"
-                        f" — BridgeSemantics(CAUSAL) on {ann.bridge}"
-                    ),
-                    priority=70,
-                ))
-            elif ann.sem is BridgeSemanticsKind.SUPERSESSION:
-                out.append(Suggestion(
-                    kind=SuggestionKind.SUPPRESS,
-                    band="suppress",
-                    text=f"Use negation-aware aggregation on SUPERSESSION bridge {ann.bridge}",
-                    priority=65,
-                ))
-        elif isinstance(ann, Hierarchy):
             out.append(Suggestion(
-                kind=SuggestionKind.GROUP_BY,
-                band="B2",
-                text=(
-                    f"Drill-down/roll-up via Hierarchy(root={ann.root},"
-                    f" depth={ann.depth!r})"
-                ),
+                kind=SuggestionKind.Q_DELTA, band="temporal",
+                text=f"Consider Q_delta for period-over-period diff on {ann.fact}",  # type: ignore[attr-defined]
                 priority=60,
             ))
-        elif isinstance(ann, RolePlaying):
+        elif ann.grain is GrainKind.ACCUMULATING:  # type: ignore[attr-defined]
             out.append(Suggestion(
-                kind=SuggestionKind.GROUP_BY,
-                band="B2",
-                text=(
-                    f"Cross-role comparisons via RolePlaying({ann.dim},"
-                    f" roles={ann.roles})"
-                ),
+                kind=SuggestionKind.TEMPORAL_PIVOT, band="temporal",
+                text=f"Warn: cross-row agg on ACCUMULATING {ann.fact}; add stage predicates",  # type: ignore[attr-defined]
                 priority=55,
             ))
+
+    def _ann_scd_type(self, ann: object, out: list[Suggestion]) -> None:
+        from sqldim.core.query._dgm_annotations import SCDKind
+
+        if ann.scd is SCDKind.SCD3:  # type: ignore[attr-defined]
+            out.append(Suggestion(
+                kind=SuggestionKind.SCALAR_PRED, band="B1",
+                text=f"Add PropRef({ann.dim}.previous_value) — SCD3 comparison available",  # type: ignore[attr-defined]
+                priority=60,
+            ))
+        elif ann.scd is SCDKind.SCD1:  # type: ignore[attr-defined]
+            out.append(Suggestion(
+                kind=SuggestionKind.SUPPRESS, band="suppress",
+                text=f"Suppress TemporalJoin — SCDType(SCD1) on {ann.dim}: strip temporal",  # type: ignore[attr-defined]
+                priority=70,
+            ))
+
+    def _ann_factless_fact(self, ann: object, out: list[Suggestion]) -> None:
+        out.append(Suggestion(
+            kind=SuggestionKind.AGG, band="B2",
+            text=f"Use COUNT/EXISTS on FactlessFact({ann.fact}); SUM/AVG invalid",  # type: ignore[attr-defined]
+            priority=80,
+        ))
+
+    def _ann_derived_fact(self, ann: object, out: list[Suggestion]) -> None:
+        out.append(Suggestion(
+            kind=SuggestionKind.PATH_PRED, band="B1",
+            text=f"Drill-down to DerivedFact({ann.fact}) sources: {ann.sources}",  # type: ignore[attr-defined]
+            priority=55,
+        ))
+
+    def _ann_weight_constraint(self, ann: object, out: list[Suggestion]) -> None:
+        if ann.is_allocative:  # type: ignore[attr-defined]
+            out.append(Suggestion(
+                kind=SuggestionKind.PATH_PRED, band="B1",
+                text=(
+                    f"Use weighted PathAgg on {ann.bridge}"  # type: ignore[attr-defined]
+                    " — WeightConstraint(ALLOCATIVE)"
+                ),
+                priority=65,
+            ))
+
+    def _ann_bridge_semantics(self, ann: object, out: list[Suggestion]) -> None:
+        from sqldim.core.query._dgm_annotations import BridgeSemanticsKind
+
+        if ann.sem is BridgeSemanticsKind.CAUSAL:  # type: ignore[attr-defined]
+            out.append(Suggestion(
+                kind=SuggestionKind.PATH_PRED, band="B1",
+                text=(
+                    f"BETWEENNESS on G_AB; TARJAN_SCC partition"
+                    f" — BridgeSemantics(CAUSAL) on {ann.bridge}"  # type: ignore[attr-defined]
+                ),
+                priority=70,
+            ))
+        elif ann.sem is BridgeSemanticsKind.SUPERSESSION:  # type: ignore[attr-defined]
+            out.append(Suggestion(
+                kind=SuggestionKind.SUPPRESS, band="suppress",
+                text=f"Use negation-aware aggregation on SUPERSESSION bridge {ann.bridge}",  # type: ignore[attr-defined]
+                priority=65,
+            ))
+
+    def _ann_hierarchy(self, ann: object, out: list[Suggestion]) -> None:
+        out.append(Suggestion(
+            kind=SuggestionKind.GROUP_BY, band="B2",
+            text=(
+                f"Drill-down/roll-up via Hierarchy(root={ann.root},"  # type: ignore[attr-defined]
+                f" depth={ann.depth!r})"  # type: ignore[attr-defined]
+            ),
+            priority=60,
+        ))
+
+    def _ann_role_playing(self, ann: object, out: list[Suggestion]) -> None:
+        out.append(Suggestion(
+            kind=SuggestionKind.GROUP_BY, band="B2",
+            text=(
+                f"Cross-role comparisons via RolePlaying({ann.dim},"  # type: ignore[attr-defined]
+                f" roles={ann.roles})"  # type: ignore[attr-defined]
+            ),
+            priority=55,
+        ))
 
     # -- TrailExpr-driven rules (§7.5) ---------------------------------------
 

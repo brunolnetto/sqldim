@@ -394,3 +394,74 @@ class TestGraphStatistics:
         assert gs.property_dist is None
         assert gs.temporal_density is None
         assert gs.scc_sizes is None
+
+
+# ---------------------------------------------------------------------------
+# max_depth to_sql coverage — all algorithms with max_depth branch
+# ---------------------------------------------------------------------------
+
+
+class TestMaxDepthToSql:
+    """Ensure max_depth=N branch is covered for all TrailExpr algorithm classes."""
+
+    def test_incoming_signatures_max_depth_to_sql(self):
+        sql = INCOMING_SIGNATURES(max_depth=4).to_sql()
+        assert "INCOMING_SIGNATURES" in sql
+        assert "4" in sql
+
+    def test_dominant_outgoing_signature_max_depth_to_sql(self):
+        sql = DOMINANT_OUTGOING_SIGNATURE(max_depth=7).to_sql()
+        assert "DOMINANT_OUTGOING_SIGNATURE" in sql
+        assert "7" in sql
+
+    def test_dominant_incoming_signature_max_depth_to_sql(self):
+        from sqldim.core.query._dgm_graph import DOMINANT_INCOMING_SIGNATURE
+        sql = DOMINANT_INCOMING_SIGNATURE(max_depth=3).to_sql()
+        assert "DOMINANT_INCOMING_SIGNATURE" in sql
+        assert "3" in sql
+
+    def test_distinct_signatures_max_depth_to_sql(self):
+        sql = DISTINCT_SIGNATURES(max_depth=6).to_sql()
+        assert "DISTINCT_SIGNATURES" in sql
+        assert "6" in sql
+
+    def test_dominant_signature_max_depth_to_sql(self):
+        sql = DOMINANT_SIGNATURE(max_depth=3).to_sql()
+        assert "DOMINANT_SIGNATURE" in sql
+        assert "3" in sql
+
+    def test_global_signature_count_max_depth_to_sql(self):
+        sql = GLOBAL_SIGNATURE_COUNT(max_depth=4).to_sql()
+        assert "GLOBAL_SIGNATURE_COUNT" in sql
+        assert "4" in sql
+
+    def test_global_dominant_signature_max_depth_to_sql(self):
+        sql = GLOBAL_DOMINANT_SIGNATURE(max_depth=2).to_sql()
+        assert "GLOBAL_DOMINANT_SIGNATURE" in sql
+        assert "2" in sql
+
+    def test_signature_entropy_max_depth_to_sql(self):
+        sql = SIGNATURE_ENTROPY(max_depth=10).to_sql()
+        assert "SIGNATURE_ENTROPY" in sql
+        assert "10" in sql
+
+
+class TestMaxFlowEdgeCases:
+    """Cover MAX_FLOW target property and missing-target error."""
+
+    def test_target_property(self):
+        mf = MAX_FLOW(source="a", target="b")
+        assert mf.target == "b"
+
+    def test_sink_property(self):
+        mf = MAX_FLOW(source="a", target="b")
+        assert mf.sink == "b"
+
+    def test_sink_kwarg_backward_compat(self):
+        mf = MAX_FLOW(source="a", sink="b")
+        assert mf.target == "b"
+
+    def test_missing_target_raises(self):
+        import pytest
+        with pytest.raises(TypeError):
+            MAX_FLOW(source="a")
