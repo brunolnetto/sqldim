@@ -97,7 +97,7 @@ class LazyTransactionLoader:
 
         Parameters
         ----------
-        source      : :class:`~sqldim.sources.stream.StreamSourceAdapter`
+        source      : :class:`~sqldim.sources.streaming.stream.StreamSourceAdapter`
         table       : Target table name or FactModel subclass.
         batch_size  : Rows per micro-batch (passed to ``source.stream``).
         max_batches : Stop after *N* batches; ``None`` = run until exhausted.
@@ -106,10 +106,10 @@ class LazyTransactionLoader:
 
         Returns
         -------
-        :class:`~sqldim.sources.stream.StreamResult`
+        :class:`~sqldim.sources.streaming.stream.StreamResult`
         """
         import logging
-        from sqldim.sources.stream import StreamResult
+        from sqldim.sources.streaming.stream import StreamResult
 
         _log = logging.getLogger(__name__)
         _assert_not_dimension(table, "LazyTransactionLoader")
@@ -253,7 +253,7 @@ class LazySnapshotLoader:
 
         Parameters
         ----------
-        source      : :class:`~sqldim.sources.stream.StreamSourceAdapter`
+        source      : :class:`~sqldim.sources.streaming.stream.StreamSourceAdapter`
         table       : Target table name or FactModel subclass.
         batch_size  : Rows per micro-batch (passed to ``source.stream``).
         max_batches : Stop after *N* batches; ``None`` = run until exhausted.
@@ -263,10 +263,10 @@ class LazySnapshotLoader:
 
         Returns
         -------
-        :class:`~sqldim.sources.stream.StreamResult`
+        :class:`~sqldim.sources.streaming.stream.StreamResult`
         """
         import logging
-        from sqldim.sources.stream import StreamResult
+        from sqldim.sources.streaming.stream import StreamResult
 
         _log = logging.getLogger(__name__)
         _assert_not_dimension(table, "LazySnapshotLoader")

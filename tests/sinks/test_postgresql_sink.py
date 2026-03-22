@@ -8,7 +8,7 @@ from __future__ import annotations
 import duckdb
 from pytest_postgresql import factories
 
-from sqldim.sinks.postgresql import PostgreSQLSink
+from sqldim.sinks.sql.postgresql import PostgreSQLSink
 
 # ---------------------------------------------------------------------------
 # Infrastructure

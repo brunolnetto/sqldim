@@ -14,9 +14,9 @@ from __future__ import annotations
 
 import duckdb
 
-from sqldim.sinks.duckdb import DuckDBSink
-from sqldim.sinks.motherduck import MotherDuckSink
-from sqldim.sinks.postgresql import PostgreSQLSink
+from sqldim.sinks.sql.duckdb import DuckDBSink
+from sqldim.sinks.sql.motherduck import MotherDuckSink
+from sqldim.sinks.sql.postgresql import PostgreSQLSink
 
 
 # ---------------------------------------------------------------------------

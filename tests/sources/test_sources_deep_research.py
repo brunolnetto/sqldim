@@ -268,7 +268,7 @@ class TestIcebergSource:
     """IcebergSource from deep_research.md §Sources/iceberg.py"""
 
     def test_class_importable(self):
-        from sqldim.sources.iceberg import IcebergSource
+        from sqldim.sources.batch.iceberg import IcebergSource
         assert IcebergSource is not None
 
     def test_exported_from_sources_init(self):
@@ -276,21 +276,21 @@ class TestIcebergSource:
         assert IcebergSource is not None
 
     def test_as_sql_returns_iceberg_scan(self):
-        from sqldim.sources.iceberg import IcebergSource
+        from sqldim.sources.batch.iceberg import IcebergSource
         con = MagicMock()
         src = IcebergSource("/data/iceberg/my_table")
         sql = src.as_sql(con)
         assert "iceberg_scan(" in sql
 
     def test_path_in_sql(self):
-        from sqldim.sources.iceberg import IcebergSource
+        from sqldim.sources.batch.iceberg import IcebergSource
         con = MagicMock()
         src = IcebergSource("/data/iceberg/my_table")
         sql = src.as_sql(con)
         assert "/data/iceberg/my_table" in sql
 
     def test_install_and_load_called(self):
-        from sqldim.sources.iceberg import IcebergSource
+        from sqldim.sources.batch.iceberg import IcebergSource
         con = MagicMock()
         src = IcebergSource("/data/iceberg/my_table")
         src.as_sql(con)
@@ -298,13 +298,13 @@ class TestIcebergSource:
         assert "iceberg" in calls_text.lower()
 
     def test_is_source_adapter(self):
-        from sqldim.sources.iceberg import IcebergSource
+        from sqldim.sources.batch.iceberg import IcebergSource
         from sqldim.sources.base import SourceAdapter
         src = IcebergSource("/data/iceberg/my_table")
         assert isinstance(src, SourceAdapter)
 
     def test_allow_moved_tables_false_by_default(self):
-        from sqldim.sources.iceberg import IcebergSource
+        from sqldim.sources.batch.iceberg import IcebergSource
         con = MagicMock()
         src = IcebergSource("/data/iceberg/my_table")
         sql = src.as_sql(con)
@@ -312,7 +312,7 @@ class TestIcebergSource:
         assert "allow_moved_tables=false" in sql.lower() or "allow_moved_tables" not in sql.lower()
 
     def test_allow_moved_tables_true(self):
-        from sqldim.sources.iceberg import IcebergSource
+        from sqldim.sources.batch.iceberg import IcebergSource
         con = MagicMock()
         src = IcebergSource(
             "s3://bucket/iceberg/my_table/metadata/v1.metadata.json",
@@ -322,7 +322,7 @@ class TestIcebergSource:
         assert "allow_moved_tables=true" in sql.lower()
 
     def test_s3_metadata_file_path(self):
-        from sqldim.sources.iceberg import IcebergSource
+        from sqldim.sources.batch.iceberg import IcebergSource
         con = MagicMock()
         src = IcebergSource("s3://bucket/table/metadata/v1.metadata.json")
         sql = src.as_sql(con)

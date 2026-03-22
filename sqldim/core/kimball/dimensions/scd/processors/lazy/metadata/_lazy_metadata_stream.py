@@ -81,7 +81,7 @@ class _MetadataStreamMixin:
         Parameters
         ----------
         source      : Any object with a ``.stream(con, batch_size)`` generator
-                      (e.g. :class:`~sqldim.sources.csv_stream.CSVStreamSource`).
+                      (e.g. :class:`~sqldim.sources.streaming.csv_stream.CSVStreamSource`).
         table_name  : Target dimension table in the sink.
         batch_size  : Rows per micro-batch.
         max_batches : Stop after *N* batches; ``None`` = run until exhausted.
@@ -92,10 +92,10 @@ class _MetadataStreamMixin:
 
         Returns
         -------
-        :class:`~sqldim.sources.stream.StreamResult`
+        :class:`~sqldim.sources.streaming.stream.StreamResult`
         """
         import logging
-        from sqldim.sources.stream import StreamResult
+        from sqldim.sources.streaming.stream import StreamResult
         from sqldim.core.kimball.dimensions.scd.processors.lazy.metadata._lazy_metadata import (
             _safe,
         )

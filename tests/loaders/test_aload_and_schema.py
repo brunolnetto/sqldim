@@ -17,12 +17,12 @@ from sqldim.core.kimball.fields import Field
 from sqldim.core.kimball.mixins import SCD2Mixin
 from sqldim.core.kimball.models import DimensionModel, FactModel
 from sqldim.core.kimball.schema import DWSchema
-from sqldim.core.loaders.snapshot import LazySnapshotLoader, LazyTransactionLoader
-from sqldim.core.loaders.accumulating import LazyAccumulatingLoader
-from sqldim.core.loaders.cumulative import LazyCumulativeLoader
-from sqldim.core.loaders.bitmask import LazyBitmaskLoader
-from sqldim.core.loaders.array_metric import LazyArrayMetricLoader
-from sqldim.core.loaders.edge_projection import LazyEdgeProjectionLoader
+from sqldim.core.loaders.fact.snapshot import LazySnapshotLoader, LazyTransactionLoader
+from sqldim.core.loaders.fact.accumulating import LazyAccumulatingLoader
+from sqldim.core.loaders.fact.cumulative import LazyCumulativeLoader
+from sqldim.core.loaders.dimension.bitmask import LazyBitmaskLoader
+from sqldim.core.loaders.dimension.array_metric import LazyArrayMetricLoader
+from sqldim.core.loaders.dimension.edge_projection import LazyEdgeProjectionLoader
 from sqldim.core.kimball.dimensions.scd.handler import SCDHandler, SCDResult
 
 

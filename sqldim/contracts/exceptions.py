@@ -5,7 +5,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
-    from sqldim.contracts.report import ContractReport
+    from sqldim.contracts.reporting.report import ContractReport
 
 
 class ContractViolationError(Exception):

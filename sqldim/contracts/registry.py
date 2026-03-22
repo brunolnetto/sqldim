@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from sqldim.contracts.contract import DataContract
-from sqldim.contracts.version import ContractVersion
+from sqldim.contracts.reporting.version import ContractVersion
 
 
 class ContractRegistry:

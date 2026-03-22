@@ -8,8 +8,8 @@ import csv
 
 import duckdb
 
-from sqldim.sources.csv_stream import CSVStreamSource
-from sqldim.sources.parquet_stream import ParquetStreamSource
+from sqldim.sources.streaming.csv_stream import CSVStreamSource
+from sqldim.sources.streaming.parquet_stream import ParquetStreamSource
 
 
 # ---------------------------------------------------------------------------

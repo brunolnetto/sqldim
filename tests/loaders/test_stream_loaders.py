@@ -13,8 +13,8 @@ from __future__ import annotations
 
 import duckdb
 
-from sqldim.core.loaders.snapshot import LazyTransactionLoader, LazySnapshotLoader
-from sqldim.sources.stream import StreamResult
+from sqldim.core.loaders.fact.snapshot import LazyTransactionLoader, LazySnapshotLoader
+from sqldim.sources.streaming.stream import StreamResult
 
 
 # ---------------------------------------------------------------------------

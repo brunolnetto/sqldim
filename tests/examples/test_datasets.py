@@ -186,13 +186,13 @@ class TestDatasetFactory:
 class TestProductsSource:
 
     def test_snapshot_returns_sql_source(self):
-        from sqldim.sources.sql import SQLSource
+        from sqldim.sources.batch.sql import SQLSource
         src = ProductsSource(n=5, seed=42)
         snap = src.snapshot()
         assert isinstance(snap, SQLSource)
 
     def test_event_batch_returns_sql_source(self):
-        from sqldim.sources.sql import SQLSource
+        from sqldim.sources.batch.sql import SQLSource
         src = ProductsSource(n=5, seed=42)
         batch = src.event_batch(1)
         assert isinstance(batch, SQLSource)
@@ -290,7 +290,7 @@ class TestStoresSource:
 class TestOrdersSource:
 
     def test_snapshot(self):
-        from sqldim.sources.sql import SQLSource
+        from sqldim.sources.batch.sql import SQLSource
         src = OrdersSource(n=4, seed=42)
         assert isinstance(src.snapshot(), SQLSource)
 
@@ -393,7 +393,7 @@ class TestAccountsSource:
 class TestMoviesSource:
 
     def test_snapshot_alias(self):
-        from sqldim.sources.sql import SQLSource
+        from sqldim.sources.batch.sql import SQLSource
         src = MoviesSource(n_movies=3)
         assert isinstance(src.snapshot(), SQLSource)
 
@@ -451,7 +451,7 @@ class TestMoviesSource:
 class TestGitHubIssuesSource:
 
     def test_snapshot(self):
-        from sqldim.sources.sql import SQLSource
+        from sqldim.sources.batch.sql import SQLSource
         src = GitHubIssuesSource(n=5, seed=42)
         assert isinstance(src.snapshot(), SQLSource)
 
@@ -1017,12 +1017,12 @@ class TestSchematicSource:
         assert src.events == []
 
     def test_snapshot_returns_sql_source(self):
-        from sqldim.sources.sql import SQLSource
+        from sqldim.sources.batch.sql import SQLSource
         src = self._make_source()
         assert isinstance(src.snapshot(), SQLSource)
 
     def test_event_batch_returns_sql_source(self):
-        from sqldim.sources.sql import SQLSource
+        from sqldim.sources.batch.sql import SQLSource
         src = self._make_source()
         assert isinstance(src.event_batch(1), SQLSource)
 

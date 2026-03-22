@@ -47,7 +47,7 @@ def _mock_catalog(tables: dict):
 @pytest.fixture()
 def iceberg_sink():
     """IcebergSink with pyiceberg mocked via patch."""
-    from sqldim.sinks.iceberg import IcebergSink
+    from sqldim.sinks.file.iceberg import IcebergSink
     sink = IcebergSink(
         catalog_name="test",
         namespace="ns",
@@ -60,7 +60,7 @@ def iceberg_sink():
 # ── __init__ ─────────────────────────────────────────────────────────────────
 
 def test_init_stores_params():
-    from sqldim.sinks.iceberg import IcebergSink
+    from sqldim.sinks.file.iceberg import IcebergSink
     sink = IcebergSink("cat", "ns", {"uri": "x"}, "/tmp/base")
     assert sink._catalog_name == "cat"
     assert sink._namespace == "ns"
@@ -77,7 +77,7 @@ def test_table_location_with_base(iceberg_sink):
 
 def test_table_location_without_base():
     """Falls back to catalog metadata when no base path given."""
-    from sqldim.sinks.iceberg import IcebergSink
+    from sqldim.sinks.file.iceberg import IcebergSink
     sink = IcebergSink("cat", "ns")
     mock_cat = MagicMock()
     mock_cat.load_table.return_value.location.return_value = "/catalog/loc"
@@ -129,7 +129,7 @@ def test_current_state_sql(iceberg_sink):
 # ── write ─────────────────────────────────────────────────────────────────────
 
 def test_write_appends_arrow_batch():
-    from sqldim.sinks.iceberg import IcebergSink
+    from sqldim.sinks.file.iceberg import IcebergSink
 
     arrow_data = _make_arrow_table({"id": [1], "name": ["Alice"]})
     catalog = _mock_catalog({"dim_t": arrow_data})
@@ -161,7 +161,7 @@ def test_write_raises_on_missing_pyarrow(iceberg_sink):
 
 def test_close_versions_updates_is_current():
     import pyarrow as pa
-    from sqldim.sinks.iceberg import IcebergSink
+    from sqldim.sinks.file.iceberg import IcebergSink
 
     arrow_data = _make_arrow_table({
         "nk": ["NK1", "NK2"],
@@ -184,7 +184,7 @@ def test_close_versions_updates_is_current():
 
 def test_close_versions_noop_when_empty():
     import pyarrow as pa
-    from sqldim.sinks.iceberg import IcebergSink
+    from sqldim.sinks.file.iceberg import IcebergSink
 
     arrow_data = _make_arrow_table({
         "nk": ["NK1"],
@@ -214,7 +214,7 @@ def test_close_versions_raises_on_missing_pyarrow(iceberg_sink):
 # ── update_attributes ─────────────────────────────────────────────────────────
 
 def test_update_attributes():
-    from sqldim.sinks.iceberg import IcebergSink
+    from sqldim.sinks.file.iceberg import IcebergSink
 
     arrow_data = _make_arrow_table({
         "nk": ["NK1", "NK2"],
@@ -246,7 +246,7 @@ def test_update_attributes_raises_on_missing_pyarrow(iceberg_sink):
 
 def test_rotate_attributes():
     import pyarrow as pa
-    from sqldim.sinks.iceberg import IcebergSink
+    from sqldim.sinks.file.iceberg import IcebergSink
 
     arrow_data = _make_arrow_table({
         "nk": ["NK1"],
@@ -280,7 +280,7 @@ def test_rotate_attributes_raises_on_missing_pyarrow(iceberg_sink):
 
 def test_update_milestones():
     import pyarrow as pa
-    from sqldim.sinks.iceberg import IcebergSink
+    from sqldim.sinks.file.iceberg import IcebergSink
 
     arrow_data = _make_arrow_table({
         "order_id": [1, 2],
@@ -318,7 +318,7 @@ def test_update_milestones_raises_on_missing_pyarrow(iceberg_sink):
 def test_enter_falls_back_to_install_when_load_fails():
     """If 'LOAD iceberg' raises, __enter__ retries with INSTALL+LOAD."""
     import types
-    from sqldim.sinks.iceberg import IcebergSink
+    from sqldim.sinks.file.iceberg import IcebergSink
 
     mock_lc = MagicMock(return_value=MagicMock())
     fake_module = types.ModuleType("pyiceberg.catalog")

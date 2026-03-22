@@ -43,7 +43,7 @@ class DuckDBSink:
         """Pull a slim (NK + hash) fingerprint into a local DuckDB TABLE.
 
         For DuckDB-backed sinks this is mostly useful for API parity with
-        :class:`~sqldim.sinks.postgresql.PostgreSQLSink`.  Since the data is
+        :class:`~sqldim.sinks.sql.postgresql.PostgreSQLSink`.  Since the data is
         already local, the main benefit is pinning a consistent snapshot of the
         current state before streaming batches modify it.
 

@@ -25,7 +25,7 @@ class TestDuckDBSinkDeepResearch:
         duckdb.connect(db).close()  # create the file
 
         with patch(
-            "sqldim.sinks.duckdb.make_connection", wraps=make_connection
+            "sqldim.sinks.sql.duckdb.make_connection", wraps=make_connection
         ) as mock_mc:
             with DuckDBSink(db):
                 assert mock_mc.called
@@ -167,7 +167,7 @@ class TestMotherDuckSinkDeepResearch:
         duckdb.connect(db).close()
 
         with patch(
-            "sqldim.sinks.motherduck.make_connection", wraps=make_connection
+            "sqldim.sinks.sql.motherduck.make_connection", wraps=make_connection
         ) as mock_mc:
             with MotherDuckSink(db=db):
                 assert mock_mc.called
@@ -201,7 +201,7 @@ class TestPostgreSQLSinkDeepResearch:
         from sqldim.sinks import PostgreSQLSink
 
         with patch(
-            "sqldim.sinks.postgresql.make_connection", wraps=make_connection
+            "sqldim.sinks.sql.postgresql.make_connection", wraps=make_connection
         ) as mock_mc:
             with patch.object(
                 duckdb.DuckDBPyConnection, "execute", return_value=None
@@ -220,7 +220,7 @@ class TestPostgreSQLSinkDeepResearch:
         sink = PostgreSQLSink(dsn="host=localhost dbname=test")
         mock_con = self._make_mock_con()
 
-        with patch("sqldim.sinks.postgresql.make_connection", return_value=mock_con):
+        with patch("sqldim.sinks.sql.postgresql.make_connection", return_value=mock_con):
             try:
                 sink.__enter__()
             except Exception:
@@ -240,7 +240,7 @@ class TestDeltaLakeSinkDeepResearch:
         from sqldim.sinks import DeltaLakeSink
 
         with patch(
-            "sqldim.sinks.delta.make_connection", wraps=make_connection
+            "sqldim.sinks.file.delta.make_connection", wraps=make_connection
         ) as mock_mc:
             try:
                 with DeltaLakeSink(str(tmp_path), "id"):
@@ -250,7 +250,7 @@ class TestDeltaLakeSinkDeepResearch:
             assert mock_mc.called
 
     def test_write_docstring_mentions_blind_insert(self):
-        from sqldim.sinks.delta import DeltaLakeSink
+        from sqldim.sinks.file.delta import DeltaLakeSink
         doc = DeltaLakeSink.write.__doc__ or ""
         # Deep research says write() should be honest about limitations
         assert doc.strip()  # has some documentation
@@ -272,7 +272,7 @@ class TestIcebergSinkSizeGuard:
 
     def _make_sink_with_large_table(self, row_count: int):
         """Return an IcebergSink whose catalog returns a table with row_count rows."""
-        from sqldim.sinks.iceberg import IcebergSink
+        from sqldim.sinks.file.iceberg import IcebergSink
         import pyarrow as pa
 
         sink = IcebergSink.__new__(IcebergSink)

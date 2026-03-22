@@ -293,7 +293,7 @@ def contract_to_rows(
     checked_at: datetime | None = None,
 ) -> list[QualityRow]:
     """
-    Convert a :class:`~sqldim.contracts.report.ContractReport` to a list of
+    Convert a :class:`~sqldim.contracts.reporting.report.ContractReport` to a list of
     :class:`QualityRow` objects ready for silver-layer ingestion.
 
     An empty list means clean data (no violations recorded as facts).

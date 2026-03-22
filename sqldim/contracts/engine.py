@@ -8,11 +8,11 @@ from typing import TYPE_CHECKING
 
 import duckdb
 
-from sqldim.contracts.report import ContractReport, ContractViolation
-from sqldim.contracts.schema import ColumnSpec
+from sqldim.contracts.reporting.report import ContractReport, ContractViolation
+from sqldim.contracts.validation.schema import ColumnSpec
 
 if TYPE_CHECKING:
-    from sqldim.contracts.composite import Contract
+    from sqldim.contracts.reporting.composite import Contract
 
 
 # ---------------------------------------------------------------------------

@@ -15,12 +15,12 @@ import pytest
 from sqldim.core.kimball.models import DimensionModel, FactModel
 from sqldim.core.kimball.mixins import SCD2Mixin
 from sqldim.core.loaders._factory import build_lazy_loader
-from sqldim.core.loaders.snapshot import LazyTransactionLoader, LazySnapshotLoader
-from sqldim.core.loaders.accumulating import LazyAccumulatingLoader
-from sqldim.core.loaders.cumulative import LazyCumulativeLoader
-from sqldim.core.loaders.bitmask import LazyBitmaskLoader
-from sqldim.core.loaders.array_metric import LazyArrayMetricLoader
-from sqldim.core.loaders.edge_projection import LazyEdgeProjectionLoader
+from sqldim.core.loaders.fact.snapshot import LazyTransactionLoader, LazySnapshotLoader
+from sqldim.core.loaders.fact.accumulating import LazyAccumulatingLoader
+from sqldim.core.loaders.fact.cumulative import LazyCumulativeLoader
+from sqldim.core.loaders.dimension.bitmask import LazyBitmaskLoader
+from sqldim.core.loaders.dimension.array_metric import LazyArrayMetricLoader
+from sqldim.core.loaders.dimension.edge_projection import LazyEdgeProjectionLoader
 from sqldim.core.kimball.dimensions.scd.handler import SCDHandler
 from sqldim.core.kimball.fields import Field
 
@@ -378,7 +378,7 @@ class TestEdgeProjectionMissingBothViaFactory:
 class TestUtilsInternals:
     def test_assert_not_dimension_raises_for_dim_model(self, sink):
         """_utils.py line 35: LazyTransactionLoader.load() rejects DimensionModel subclass."""
-        from sqldim.core.loaders.snapshot import LazyTransactionLoader
+        from sqldim.core.loaders.fact.snapshot import LazyTransactionLoader
 
         class PlainDim(DimensionModel):
             pass

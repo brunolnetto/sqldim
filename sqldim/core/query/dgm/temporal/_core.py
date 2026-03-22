@@ -10,7 +10,7 @@ continues to work unchanged.
 from __future__ import annotations
 
 # Re-export mode and ordering types for backward compatibility
-from sqldim.core.query.dgm.temporal_modes import (  # noqa: F401
+from sqldim.core.query.dgm.temporal._modes import (  # noqa: F401
     TemporalMode,
     EVENTUALLY,
     GLOBALLY,
@@ -20,7 +20,7 @@ from sqldim.core.query.dgm.temporal_modes import (  # noqa: F401
     UntilMode,
     SinceMode,
 )
-from sqldim.core.query.dgm.temporal_ordering import (  # noqa: F401
+from sqldim.core.query.dgm.temporal._ordering import (  # noqa: F401
     TemporalOrdering,
     BEFORE,
     AFTER,

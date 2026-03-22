@@ -368,6 +368,6 @@ class PathAgg:
 # TemporalProperty sugar + SignaturePred (DGM §4.1)
 # ---------------------------------------------------------------------------
 
-from sqldim.core.query.dgm.preds_signature import (  # noqa: F401
+from sqldim.core.query.dgm.preds._signature import (  # noqa: F401
     SAFETY, LIVENESS, RESPONSE, PERSISTENCE, RECURRENCE, SequenceMatch, SignaturePred,
 )

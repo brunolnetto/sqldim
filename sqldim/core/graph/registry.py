@@ -13,7 +13,7 @@ from datetime import date, datetime
 from sqldim.exceptions import SchemaError, GrainCompatibilityError
 from sqldim.core.graph.traversal import TraversalEngine, _temporal_filter_clause
 from sqldim.core.graph.models import EdgeModel, VertexModel
-from sqldim.core.graph._graph_query_mixin import _GraphQueryMixin  # noqa: F401
+from sqldim.core.graph._impl._graph_query_mixin import _GraphQueryMixin  # noqa: F401
 
 if TYPE_CHECKING:
     from sqldim.core.graph.schema_graph import SchemaGraph
@@ -385,6 +385,6 @@ class GraphModel(_GraphQueryMixin):
 # ---------------------------------------------------------------------------
 # UnifiedGraph  (Tier 4 facade — re-exported from _unified_graph)
 # ---------------------------------------------------------------------------
-from sqldim.core.graph._unified_graph import (  # noqa: E402, F401
+from sqldim.core.graph._impl._unified_graph import (  # noqa: E402, F401
     UnifiedGraph,
 )

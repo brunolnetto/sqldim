@@ -6,7 +6,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 
-from sqldim.contracts.rules import Rule
+from sqldim.contracts.validation.rules import Rule
 
 
 @dataclass

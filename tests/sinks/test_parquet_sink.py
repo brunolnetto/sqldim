@@ -7,7 +7,7 @@ from __future__ import annotations
 import duckdb
 import pyarrow as pa
 
-from sqldim.sinks.parquet import ParquetSink
+from sqldim.sinks.file.parquet import ParquetSink
 
 
 # ---------------------------------------------------------------------------

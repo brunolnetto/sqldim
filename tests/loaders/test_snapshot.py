@@ -3,7 +3,7 @@ from sqlalchemy.pool import StaticPool
 from datetime import date
 from sqlmodel import Session, create_engine, SQLModel, select
 from sqldim import DimensionModel, FactModel, Field, SCD2Mixin
-from sqldim.core.loaders.snapshot import SnapshotLoader
+from sqldim.core.loaders.fact.snapshot import SnapshotLoader
 
 class AccountDim(DimensionModel, SCD2Mixin, table=True):
     __natural_key__ = ["account_code"]

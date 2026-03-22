@@ -2,9 +2,9 @@
 ════════════════════════════════════════════════════════════════════════════════
   COVERAGE DISTRIBUTION HISTOGRAM
 ════════════════════════════════════════════════════════════════════════════════
-  Files: 214   Project coverage: 99.1%
+  Files: 217   Project coverage: 100.0%
 
-    0.0–10.0 % │                                        1 ( 0.5%)
+    0.0–10.0 % │                                        0 ( 0.0%)
    10.0–20.0 % │                                        0 ( 0.0%)
    20.0–30.0 % │                                        0 ( 0.0%)
    30.0–40.0 % │                                        0 ( 0.0%)
@@ -13,7 +13,7 @@
    60.0–70.0 % │                                        0 ( 0.0%)
    70.0–80.0 % │                                        0 ( 0.0%)
    80.0–90.0 % │                                        0 ( 0.0%)
-   90.0–100.0% │████████████████████████████████████  213 (99.5%)
+   90.0–100.0% │████████████████████████████████████  217 (100.0%)
 
 ────────────────────────────────────────────────────────────────────────────────
   PERCENTILES
@@ -24,30 +24,12 @@
   p90       100.0%
   p95       100.0%
   p99       100.0%
-  avg        99.5%
-  min         0.0%
+  avg       100.0%
+  min       100.0%
   max       100.0%
-  not-100% 1 files (0.5%)
-  <80%     1 files (0.5%)
-  <60%     1 files (0.5%)
-
-────────────────────────────────────────────────────────────────────────────────
-  MISSING LINES DISTRIBUTION  (non-100% files: 1)
-  [linear scale, 10 bins]
-
-      0–8     lines │                                        0 ( 0.0%)
-      8–16    lines │                                        0 ( 0.0%)
-     16–24    lines │                                        0 ( 0.0%)
-     24–32    lines │                                        0 ( 0.0%)
-     32–40    lines │                                        0 ( 0.0%)
-     40–48    lines │                                        0 ( 0.0%)
-     48–56    lines │                                        0 ( 0.0%)
-     56–64    lines │                                        0 ( 0.0%)
-     64–72    lines │                                        0 ( 0.0%)
-     72–80    lines │████████████████████████████████████    1 (100.0%)
-
-  p50: 80     p75: 80     p90: 80     p99: 80    
-  avg: 80.0   max: 80     total missing: 80 lines
+  not-100% 0 files (0.0%)
+  <80%     0 files (0.0%)
+  <60%     0 files (0.0%)
 
 ════════════════════════════════════════════════════════════════════════════════
   PRAGMA INTERVAL LENGTH HISTOGRAM  (sequential blocks, 44 intervals)
@@ -165,10 +147,9 @@
      1 pragmas  sqldim/core/query/dgm/graph_algs.py
 
 ────────────────────────────────────────────────────────────────────────────────
-  QUALITY BLAME — below 100.0% (Q1=100.0%)   1
+  QUALITY BLAME — below 100.0% (Q1=100.0%)   0
 ────────────────────────────────────────────────────────────────────────────────
-    0.0%    80 lines missing  sqldim/core/query/dgm/planner_targets.py
-         📍 7, 9-11, 18, 35, 38, 41, 44, 52, 55-61, 69, 72-77, 85-86, 99-101, 109-110, 123-125, 133-134, 157-164, 172-173, 176-178, 181, 184-187, 190-193, 196-197, 199-203, 206-207, 215-219, 222-225, 228-231
+  ✅  No files below quality boundary.
 
 ════════════════════════════════════════════════════════════════════════════════
 
@@ -176,731 +157,731 @@
 ════════════════════════════════════════════════════════════════════════════════
   TEST DURATION ANALYSIS
 ════════════════════════════════════════════════════════════════════════════════
-  Tests: 2689   Total: 57.91s (1m 12.2s wall time)   passed: 2689
-           (includes ~14.28s collection/overhead)
+  Tests: 2689   Total: 32.57s (40.02s wall time)   passed: 2689
+           (includes ~7.45s collection/overhead)
 
   PHASE: SETUP
   [log scale, 10 bins, slow >= 1.00s]
 
-      0ms–1ms   │████████████████████████████████████ 1606 (59.7%)  ░
-      1ms–1ms   │██████████████████                    789 (29.3%)  ░
-      1ms–4ms   │████                                  160 ( 6.0%)  ░  ← p90
-      4ms–10ms  │█                                      52 ( 1.9%)  ░
-     10ms–28ms  │                                       21 ( 0.8%)  ░
-     28ms–74ms  │                                        8 ( 0.3%)  ░
-     74ms–198ms │                                       20 ( 0.7%)  ▒
-    198ms–527ms │█                                      31 ( 1.2%)  ▒
-    527ms–1.41s │                                        1 ( 0.0%)  █  ← 1.00s threshold
-    1.41s–3.75s │                                        1 ( 0.0%)  █
+      0ms–0ms   │████████████████████████████████████ 2113 (78.6%)  ░
+      0ms–1ms   │██████                                347 (12.9%)  ░  ← p90
+      1ms–3ms   │██                                    125 ( 4.6%)  ░
+      3ms–7ms   │█                                      32 ( 1.2%)  ░
+      7ms–18ms  │                                       15 ( 0.6%)  ░
+     18ms–46ms  │                                       10 ( 0.4%)  ░
+     46ms–117ms │                                       19 ( 0.7%)  ▒
+    117ms–301ms │                                       27 ( 1.0%)  ▒
+    301ms–774ms │                                        0 ( 0.0%)  ▒
+    774ms–1.99s │                                        1 ( 0.0%)  █  ← 1.00s threshold
 
-  p50: 0ms       p75: 1ms       p90: 2ms       p95: 4ms       p99: 216ms   
-  avg: 6ms       max: 3.75s     total: 17.13s    slow: 1      n: 2689
+  p50: 0ms       p75: 0ms       p90: 1ms       p95: 2ms       p99: 119ms   
+  avg: 3ms       max: 1.99s     total: 9.10s     slow: 1      n: 2689
 
   ----------------------------------------------------------------------------
 
   PHASE: CALL
   [log scale, 10 bins, slow >= 1.00s]
 
-      0ms–0ms   │████████████████████████████████████ 1092 (40.6%)  ░
-      0ms–1ms   │██████████████████                    555 (20.6%)  ░
-      1ms–2ms   │███████                               226 ( 8.4%)  ░
-      2ms–6ms   │██████                                180 ( 6.7%)  ░
-      6ms–13ms  │███                                    81 ( 3.0%)  ░
-     13ms–32ms  │████████                              239 ( 8.9%)  ░
-     32ms–75ms  │██████                                197 ( 7.3%)  ░  ← p90
-     75ms–176ms │███                                    83 ( 3.1%)  ▒
-    176ms–413ms │█                                      29 ( 1.1%)  ▒
-    413ms–972ms │                                        7 ( 0.3%)  ▒
+      0ms–0ms   │████████████████████████████████████ 1532 (57.0%)  ░
+      0ms–1ms   │█████                                 218 ( 8.1%)  ░
+      1ms–2ms   │██████                                239 ( 8.9%)  ░
+      2ms–5ms   │███                                   124 ( 4.6%)  ░
+      5ms–12ms  │███                                   121 ( 4.5%)  ░
+     12ms–28ms  │███████                               307 (11.4%)  ░  ← p90
+     28ms–69ms  │██                                     77 ( 2.9%)  ░
+     69ms–166ms │█                                      57 ( 2.1%)  ▒
+    166ms–403ms │                                        7 ( 0.3%)  ▒
+    403ms–977ms │                                        7 ( 0.3%)  ▒
 
-  p50: 1ms       p75: 4ms       p90: 37ms      p95: 68ms      p99: 205ms   
-  avg: 14ms      max: 971ms     total: 38.90s    slow: 0      n: 2689
+  p50: 0ms       p75: 2ms       p90: 17ms      p95: 31ms      p99: 118ms   
+  avg: 8ms       max: 977ms     total: 22.63s    slow: 0      n: 2689
 
   ----------------------------------------------------------------------------
 
   PHASE: TEARDOWN
   [log scale, 10 bins, slow >= 1.00s]
 
-      0ms–0ms   │█████████████████████████             941 (35.0%)  ░
-      0ms–1ms   │████████████████████████████████████ 1363 (50.7%)  ░
-      1ms–1ms   │████████                              286 (10.6%)  ░  ← p90
-      1ms–2ms   │█                                      45 ( 1.7%)  ░
-      2ms–5ms   │█                                      42 ( 1.6%)  ░
-      5ms–11ms  │                                        4 ( 0.1%)  ░
-     11ms–24ms  │                                        0 ( 0.0%)  ░
-     24ms–51ms  │                                        4 ( 0.1%)  ░
-     51ms–110ms │                                        2 ( 0.1%)  ▒
-    110ms–234ms │                                        2 ( 0.1%)  ▒
+      0ms–0ms   │████████████████████████████████████ 2148 (79.9%)  ░
+      0ms–0ms   │███████                               417 (15.5%)  ░  ← p90
+      0ms–1ms   │█                                      48 ( 1.8%)  ░
+      1ms–2ms   │█                                      44 ( 1.6%)  ░
+      2ms–4ms   │                                       23 ( 0.9%)  ░
+      4ms–8ms   │                                        1 ( 0.0%)  ░
+      8ms–17ms  │                                        5 ( 0.2%)  ░
+     17ms–35ms  │                                        1 ( 0.0%)  ░
+     35ms–72ms  │                                        1 ( 0.0%)  ░
+     72ms–150ms │                                        1 ( 0.0%)  ▒
 
-  p50: 0ms       p75: 0ms       p90: 1ms       p95: 1ms       p99: 4ms     
-  avg: 1ms       max: 234ms     total: 1.88s     slow: 0      n: 2689
+  p50: 0ms       p75: 0ms       p90: 0ms       p95: 0ms       p99: 2ms     
+  avg: 0ms       max: 150ms     total: 843ms     slow: 0      n: 2689
 
   ----------------------------------------------------------------------------
 
   AGGREGATE: TOTAL DURATION
   [log scale, 10 bins, slow >= 1.00s]
 
-      1ms–1ms   │████████████████████████████████████ 1118 (41.6%)  ░
-      1ms–3ms   │█████████████████████                 645 (24.0%)  ░
-      3ms–8ms   │████████                              254 ( 9.4%)  ░
-      8ms–19ms  │███                                    89 ( 3.3%)  ░
-     19ms–48ms  │██████████                            324 (12.0%)  ░  ← p90
-     48ms–118ms │████                                  137 ( 5.1%)  ▒
-    118ms–292ms │███                                    97 ( 3.6%)  ▒
-    292ms–721ms │█                                      21 ( 0.8%)  ▒
-    721ms–1.78s │                                        2 ( 0.1%)  █  ← 1.00s threshold
-    1.78s–4.39s │                                        2 ( 0.1%)  █
+      0ms–1ms   │████████████████████████████████████ 1571 (58.4%)  ░
+      1ms–2ms   │████████                              330 (12.3%)  ░
+      2ms–5ms   │████                                  163 ( 6.1%)  ░
+      5ms–12ms  │███                                   117 ( 4.4%)  ░
+     12ms–29ms  │███████                               311 (11.6%)  ░  ← p90
+     29ms–69ms  │██                                     80 ( 3.0%)  ░
+     69ms–162ms │██                                     97 ( 3.6%)  ▒
+    162ms–382ms │                                       12 ( 0.4%)  ▒
+    382ms–899ms │                                        6 ( 0.2%)  ▒
+    899ms–2.12s │                                        2 ( 0.1%)  █  ← 1.00s threshold
 
-  p50: 2ms       p75: 8ms       p90: 46ms      p95: 108ms     p99: 283ms   
-  avg: 22ms      max: 4.38s     total: 57.91s    slow: 1      n: 2689
+  p50: 1ms       p75: 4ms       p90: 22ms      p95: 54ms      p99: 153ms   
+  avg: 12ms      max: 2.12s     total: 32.57s    slow: 1      n: 2689
 
 ────────────────────────────────────────────────────────────────────────────────
-  QUALITY BLAME — duration outliers  Q3 + 1.5×IQR > 18ms   596
+  QUALITY BLAME — duration outliers  Q3 + 1.5×IQR > 8ms   596
 ────────────────────────────────────────────────────────────────────────────────
-  ✅    4.38s (s:3.75s c:403ms)  …l_sink.py::TestPostgreSQLSinkWrite::test_write_inserts_rows
-  ✅    972ms (s:1ms c:971ms)  tests/examples/test_showcases.py::test_scd_types_showcase
-  ✅    736ms (s:1ms c:735ms)  tests/examples/test_showcases.py::test_integrations_showcase
-  ✅    712ms (s:106ms c:504ms)  …dateAttributes::test_update_attributes_modifies_current_row
-  ✅    672ms (s:285ms c:352ms)  …LSinkRotateAttributes::test_rotate_attributes_shifts_column
-  ✅    664ms (s:1ms c:663ms)  tests/examples/test_showcases.py::test_composition_showcase
-  ✅    646ms (s:184ms c:399ms)  …y::TestPostgreSQLSinkWrite::test_write_returns_source_count
-  ✅    567ms (s:559ms c:6ms)  tests/loaders/test_accumulating.py::test_accumulating_insert
-  ✅    544ms (s:1ms c:543ms)  …sts/examples/test_showcases.py::test_fact_patterns_showcase
-  ✅    528ms (s:154ms c:334ms)  …nkCloseVersions::test_close_versions_marks_is_current_false
-  ✅    428ms (s:1ms c:427ms)  …ergSinkSizeGuard::test_close_versions_raises_when_too_large
-  ✅    417ms (s:1ms c:415ms)  …sts/examples/test_showcases.py::test_prebuilt_dims_showcase
-  ✅    379ms (s:93ms c:254ms)  …dateMilestones::test_update_milestones_fills_null_milestone
-  ✅    373ms (s:1ms c:372ms)  …factory.py::TestDimensionAsLoader::test_returns_scd_handler
-  ✅    357ms (s:351ms c:4ms)  …scd.py::TestSCDHandlerMissingLines::test_scd6_metadata_diff
-  ✅    334ms (s:1ms c:333ms)  …SinkSizeGuard::test_update_attributes_raises_when_too_large
-  ✅    318ms (s:275ms c:41ms)  …s/test_scd_engine.py::test_narwhals_sk_resolver_as_of_logic
-  ✅    318ms (s:93ms c:192ms)  …kContextManager::test_context_manager_attaches_and_detaches
-  ✅    316ms (s:2ms c:313ms)  …stAloadWrapper::test_scd_handler_aload_is_alias_for_process
-  ✅    307ms (s:1ms c:305ms)  tests/examples/test_showcases.py::test_fintech_showcase
-  ✅    304ms (s:1ms c:303ms)  …actory.py::TestDimensionAsLoader::test_infers_track_columns
-  ✅    302ms (s:2ms c:300ms)  ….py::TestDeltaLakeSinkCurrentStateSql::test_real_delta_read
-  ✅    294ms (s:276ms c:13ms)  …est_accumulating.py::test_accumulating_non_milestone_update
-  ✅    293ms (s:270ms c:18ms)  …cd.py::TestSCDHandlerMissingLines::test_scd_type1_overwrite
-  ✅    290ms (s:279ms c:8ms)  tests/loaders/test_loaders.py::test_sk_resolver_cache
-  ✅    285ms (s:267ms c:15ms)  …s/test_loaders.py::test_dimensional_load_with_sk_resolution
-  ✅    284ms (s:272ms c:8ms)  …ts/scd/test_strategies.py::test_upsert_conflict_only_record
-  ✅    283ms (s:241ms c:38ms)  tests/loaders/test_loaders.py::test_loader_strategies
-  ✅    280ms (s:1ms c:278ms)  …and_schema.py::TestAloadWrapper::test_scd_handler_has_aload
-  ✅    273ms (s:1ms c:271ms)  tests/examples/test_showcases.py::test_supply_chain_showcase
-  ✅    270ms (s:1ms c:269ms)  …g_sink.py::test_enter_falls_back_to_install_when_load_fails
-  ✅    264ms (s:3ms c:261ms)  …DeltaLakeSinkDeepResearch::test_enter_calls_make_connection
-  ✅    263ms (s:258ms c:3ms)  tests/scd/test_scd.py::test_backfill_scd2_non_dry_run
-  ✅    257ms (s:245ms c:9ms)  …rs/test_accumulating.py::test_accumulating_update_milestone
-  ✅    254ms (s:1ms c:253ms)  …estDimensionAsLoader::test_explicit_track_columns_respected
-  ✅    254ms (s:249ms c:4ms)  tests/scd/test_strategies.py::test_merge_inserts
-  ✅    252ms (s:238ms c:12ms)  tests/scd/test_scd.py::test_scd_lifecycle
-  ✅    252ms (s:243ms c:6ms)  …/loaders/test_loaders.py::test_sk_resolution_missing_member
-  ✅    248ms (s:241ms c:5ms)  tests/scd/test_strategies.py::test_bulk_insert
-  ✅    248ms (s:236ms c:11ms)  …sors/test_sk_resolver.py::test_resolve_joins_and_returns_sk
-  ✅    246ms (s:240ms c:5ms)  tests/query/test_query.py::test_query_sum_by_dimension
-  ✅    245ms (s:236ms c:6ms)  …mulating.py::test_accumulating_does_not_overwrite_milestone
-  ✅    244ms (s:1ms c:243ms)  tests/cli/test_cli.py::test_example_run_nba
-  ✅    243ms (s:1ms c:241ms)  tests/examples/test_showcases.py::test_ecommerce_showcase
-  ✅    239ms (s:230ms c:6ms)  …s/loaders/test_snapshot.py::test_snapshot_load_inserts_rows
-  ✅    239ms (s:232ms c:4ms)  tests/scd/test_strategies.py::test_upsert_updates_existing
-  ✅    239ms (s:230ms c:6ms)  tests/scd/test_strategies.py::test_merge_updates
-  ✅    237ms (s:228ms c:6ms)  …ders/test_loaders.py::test_loader_accumulating_branch_final
-  ✅    235ms (s:231ms c:2ms)  tests/scd/test_strategies.py::test_upsert_inserts_new
-  ✅    229ms (s:224ms c:2ms)  tests/scd/test_scd.py::test_backfill_scd2_dry_run
-  ✅    221ms (s:216ms c:4ms)  tests/loaders/test_snapshot.py::test_snapshot_date_injected
-  ✅    219ms (s:1ms c:218ms)  tests/cli/test_cli.py::test_example_run_user_activity
-  ✅    219ms (s:215ms c:2ms)  …s/loaders/test_snapshot.py::test_snapshot_custom_date_field
-  ✅    218ms (s:216ms c:0ms)  …TestSCDHandlerMissingLines::test_get_dim_meta_missing_field
-  ✅    217ms (s:214ms c:1ms)  tests/scd/test_strategies.py::test_upsert_empty_records
-  ✅    216ms (s:1ms c:215ms)  tests/examples/test_showcases.py::test_graph_showcase
-  ✅    216ms (s:212ms c:1ms)  …TestSCDHandlerMissingLines::test_get_dim_meta_no_get_method
-  ✅    213ms (s:211ms c:1ms)  …ndlerMissingLines::test_get_dim_meta_json_schema_extra_dict
-  ✅    210ms (s:1ms c:9ms)  …kaSourceFallback::test_stream_consumer_skips_error_messages
-  ✅    209ms (s:3ms c:205ms)  …riftObservatoryFromPath::test_from_path_opens_existing_file
-  ✅    209ms (s:203ms c:3ms)  tests/loaders/test_snapshot.py::test_snapshot_empty_records
-  ✅    208ms (s:2ms c:205ms)  …sts/examples/test_showcases.py::test_nba_analytics_showcase
-  ✅    199ms (s:0ms c:198ms)  …ineage.py::TestExtractSqlLineage::test_parses_simple_select
-  ✅    194ms (s:181ms c:11ms)  …raph/test_registry.py::test_graph_registry_multi_edge_error
-  ✅    194ms (s:0ms c:192ms)  …ons/test_time_dimension.py::test_generate_creates_1440_rows
-  ✅    193ms (s:4ms c:188ms)  …ckDBSinkUpdateMilestones::test_does_not_overwrite_with_null
-  ✅    192ms (s:1ms c:190ms)  …sts/examples/test_showcases.py::test_user_activity_showcase
-  ✅    185ms (s:164ms c:17ms)  …t_registry.py::test_graph_registry_assert_edge_unregistered
-  ✅    183ms (s:156ms c:25ms)  tests/examples/test_nba_pipeline.py::test_nba_full_pipeline
-  ✅    180ms (s:1ms c:179ms)  …sts/examples/test_showcases.py::test_observability_showcase
-  ✅    180ms (s:1ms c:179ms)  …_iceberg_sink.py::test_context_manager_sets_catalog_and_con
-  ✅    178ms (s:4ms c:173ms)  …uckDBSinkUpdateMilestones::test_patches_non_null_milestones
-  ✅    173ms (s:2ms c:170ms)  …test_sinks.py::TestDuckDBSinkWrite::test_write_inserts_rows
-  ✅    171ms (s:150ms c:18ms)  …/dimensions/test_kimball_extended.py::test_scd_type6_hybrid
-  ✅    171ms (s:3ms c:168ms)  …uckDBSinkRotateAttributes::test_rotates_current_to_previous
-  ✅    170ms (s:3ms c:167ms)  …:TestDuckDBSinkUpsert::test_upsert_inserts_new_combinations
-  ✅    168ms (s:1ms c:167ms)  tests/cli/test_cli.py::test_example_run_saas
-  ✅    168ms (s:1ms c:166ms)  …oryFromPath::test_from_path_creates_file_backed_observatory
-  ✅    166ms (s:1ms c:165ms)  …tDatasetSourceAsSql::test_multiple_datasets_same_connection
-  ✅    159ms (s:156ms c:1ms)  …s/graph/test_registry.py::test_graph_registry_no_edge_error
-  ✅    159ms (s:1ms c:158ms)  …cessor::test_base_dim_has_two_versions_after_profile_change
-  ✅    154ms (s:4ms c:149ms)  …est_sinks.py::TestDuckDBSinkWrite::test_write_multiple_rows
-  ✅    153ms (s:2ms c:150ms)  …uckDBSinkCloseVersions::test_non_matching_rows_stay_current
-  ✅    153ms (s:9ms c:144ms)  …y::TestDuckDBSinkWriteNamed::test_write_named_multiple_rows
-  ✅    152ms (s:1ms c:150ms)  tests/examples/test_showcases.py::test_saas_growth_showcase
-  ✅    151ms (s:3ms c:147ms)  …refetchHashesUnit::test_hash_cache_populated_after_prefetch
-  ✅    148ms (s:3ms c:145ms)  …TestDuckDBSinkUpdateAttributes::test_updates_tracked_column
-  ✅    146ms (s:2ms c:143ms)  …stDuckDBSinkUpsert::test_upsert_does_not_duplicate_existing
-  ✅    146ms (s:133ms c:8ms)  …olution.py::test_infer_missing_sets_scd2_temporal_fallbacks
-  ✅    146ms (s:1ms c:144ms)  …essor::test_current_profile_sk_updated_when_profile_changes
-  ✅    146ms (s:3ms c:141ms)  …nit::test_current_state_sql_uses_local_table_after_prefetch
-  ✅    145ms (s:1ms c:144ms)  …5Processor::test_current_profile_sk_set_even_when_unchanged
-  ✅    144ms (s:136ms c:8ms)  …sts/dimensions/test_dimensions.py::test_generate_date_range
-  ✅    143ms (s:1ms c:141ms)  …zyType4Processor::test_changed_profile_triggers_new_version
-  ✅    142ms (s:1ms c:142ms)  tests/examples/test_showcases.py::test_hierarchy_showcase
-  ✅    142ms (s:140ms c:1ms)  tests/core/test_resolution.py::test_resolve_hits_db
-  ✅    141ms (s:3ms c:137ms)  …test_datasets.py::TestGitHubIssuesSource::test_seed_staging
-  ✅    140ms (s:3ms c:136ms)  …uckDBSinkPrefetchHashes::test_prefetch_only_is_current_rows
-  ✅    140ms (s:2ms c:137ms)  …pResearch::test_write_per_thread_output_true_does_not_crash
-  ✅    139ms (s:2ms c:136ms)  ….py::TestDuckDBSinkPrefetchHashes::test_creates_local_table
-  ✅    137ms (s:4ms c:132ms)  …estMotherDuckSinkPrefetchHashes::test_returns_count_of_rows
-  ✅    137ms (s:3ms c:133ms)  …inkWriteNamed::test_write_named_inserts_only_listed_columns
-  ✅    136ms (s:1ms c:135ms)  …yType4Processor::test_mini_dim_not_duplicated_on_second_run
-  ✅    136ms (s:122ms c:10ms)  …imensions/test_kimball_extended.py::test_scd_type3_rotation
-  ✅    136ms (s:3ms c:132ms)  …Hashes::test_current_state_sql_returns_local_after_prefetch
-  ✅    136ms (s:5ms c:130ms)  …motherduck_sink.py::test_upsert_skips_existing_combinations
-  ✅    136ms (s:4ms c:131ms)  …fetchHashesUnit::test_prefetch_with_existing_con_uses_alias
-  ✅    135ms (s:132ms c:3ms)  …/test_resolution.py::test_infer_missing_creates_placeholder
-  ✅    133ms (s:2ms c:131ms)  …ckDBSinkCloseVersions::test_marks_matching_rows_not_current
-  ✅    132ms (s:4ms c:128ms)  …:TestMotherDuckSinkPrefetchHashes::test_creates_local_table
-  ✅    132ms (s:1ms c:131ms)  …:TestLazyType4Processor::test_unchanged_row_stays_unchanged
-  ✅    128ms (s:117ms c:9ms)  …imensions/test_hybrid_scd.py::test_scd_handler_jsonb_change
-  ✅    128ms (s:3ms c:125ms)  …y::TestDuckDBSinkPrefetchHashes::test_returns_count_of_rows
-  ✅    125ms (s:2ms c:123ms)  …uckDBSinkPrefetchHashes::test_prefetch_with_custom_hash_col
-  ✅    124ms (s:2ms c:122ms)  tests/sinks/test_motherduck_sink.py::test_rotate_attributes
-  ✅    123ms (s:112ms c:9ms)  …nsions/test_junk_dimension.py::test_populate_junk_dimension
-  ✅    123ms (s:2ms c:120ms)  tests/sinks/test_motherduck_sink.py::test_close_versions
-  ✅    123ms (s:3ms c:119ms)  …st_motherduck_sink.py::test_upsert_inserts_new_combinations
-  ✅    122ms (s:0ms c:121ms)  …azyType6CrossBatchUpdates::test_type2_change_then_unchanged
-  ✅    122ms (s:3ms c:118ms)  …nkDeepResearch::test_write_per_thread_output_param_accepted
-  ✅    119ms (s:0ms c:118ms)  …pe6CrossBatchUpdates::test_type1_only_change_then_unchanged
-  ✅    118ms (s:3ms c:114ms)  …TestDuckDBSinkPrefetchHashes::test_empty_table_returns_zero
-  ✅    118ms (s:4ms c:113ms)  …MotherDuckSinkPrefetchHashes::test_empty_table_returns_zero
-  ✅    117ms (s:3ms c:114ms)  …::test_current_state_sql_returns_local_table_after_prefetch
-  ✅    117ms (s:4ms c:112ms)  …TestMotherDuckSinkPrefetchHashes::test_hash_cache_populated
-  ✅    117ms (s:3ms c:113ms)  …s.py::TestDuckDBSinkContextManager::test_enter_returns_sink
-  ✅    115ms (s:3ms c:112ms)  tests/sinks/test_motherduck_sink.py::test_write_inserts_rows
-  ✅    114ms (s:3ms c:111ms)  …PrefetchHashesUnit::test_prefetch_no_con_uses_postgres_scan
-  ✅    114ms (s:1ms c:112ms)  ….py::TestLazyBitmaskLoader::test_aload_delegates_to_process
-  ✅    114ms (s:4ms c:110ms)  …DBSinkContextManager::test_database_attached_inside_context
-  ✅    112ms (s:2ms c:109ms)  tests/sinks/test_motherduck_sink.py::test_update_attributes
-  ✅    112ms (s:3ms c:109ms)  …asets.py::TestGitHubIssuesSource::test_seed_staging_updated
-  ✅    111ms (s:102ms c:7ms)  …_junk_dimension.py::test_populate_junk_dimension_idempotent
-  ✅    109ms (s:2ms c:107ms)  tests/sinks/test_motherduck_sink.py::test_update_milestones
-  ✅    109ms (s:3ms c:105ms)  …::TestDuckDBSinkContextManager::test_exit_closes_connection
-  ✅    108ms (s:1ms c:106ms)  …TestLazyBitmaskLoader::test_load_alias_delegates_to_process
-  ✅    105ms (s:79ms c:25ms)  …t_source.py::TestDatasetSourceAsSql::test_attach_idempotent
-  ✅    104ms (s:1ms c:103ms)  tests/cli/test_cli.py::test_example_list
-  ✅    100ms (s:73ms c:26ms)  ….py::TestDatasetSourceAsSql::test_sql_actually_returns_rows
-  ✅     97ms (s:74ms c:22ms)  …e.py::TestDatasetSourceAsSql::test_returns_qualified_select
-  ✅     95ms (s:1ms c:94ms)  …/processors/test_backfill.py::test_works_with_pandas_source
-  ✅     93ms (s:1ms c:92ms)  …TestLazyType5Processor::test_new_row_has_current_profile_sk
-  ✅     93ms (s:72ms c:21ms)  …y::TestDatasetSourceAsSql::test_alias_derived_from_filename
-  ✅     93ms (s:3ms c:90ms)  …estMotherDuckSinkDeepResearch::test_enter_sets_memory_limit
-  ✅     92ms (s:0ms c:91ms)  …Type6ProcessorStream::test_type2_change_creates_new_version
-  ✅     91ms (s:1ms c:89ms)  …::TestLazyBackfillScd2::test_result_has_valid_from_valid_to
-  ✅     90ms (s:0ms c:89ms)  …ocessorStream::test_accumulated_result_across_three_batches
-  ✅     90ms (s:3ms c:87ms)  …inkWriteNamed::test_write_named_returns_zero_for_empty_view
-  ✅     90ms (s:1ms c:89ms)  …metadata.py::TestProcessChanged::test_multiple_changed_rows
-  ✅     89ms (s:4ms c:85ms)  …estDuckDBSinkDeepResearch::test_enter_calls_make_connection
-  ✅     89ms (s:1ms c:87ms)  …_type4_5.py::TestLazyType4Processor::test_new_rows_inserted
-  ✅     88ms (s:1ms c:86ms)  …ceptionSwallowed::test_drop_view_failure_does_not_propagate
-  ✅     88ms (s:1ms c:86ms)  …::TestNarwhalsSCDProcessor::test_process_with_pandas_source
-  ✅     87ms (s:1ms c:86ms)  ….py::TestGoldLayerQueries::test_worst_quality_datasets_runs
-  ✅     86ms (s:1ms c:85ms)  …ft.py::TestGoldLayerQueries::test_breaking_change_rate_runs
-  ✅     86ms (s:1ms c:85ms)  …estLazyType4Processor::test_profile_sk_attached_to_base_row
-  ✅     85ms (s:13ms c:72ms)  …rld_datasets.py::TestDevicesSource::test_setup_and_teardown
-  ✅     85ms (s:1ms c:84ms)  …zyBackfillScd2::test_creates_new_connection_when_none_given
-  ✅     84ms (s:1ms c:83ms)  …atchUpdates::test_changed_nk_in_batch2_re_changed_in_batch3
-  ✅     83ms (s:4ms c:79ms)  …etSinkCloseVersions::test_close_versions_rewrites_partition
-  ✅     83ms (s:1ms c:81ms)  …st_drift.py::TestGoldLayerQueries::test_drift_velocity_runs
-  ✅     83ms (s:1ms c:82ms)  …_5.py::TestLazyType4Processor::test_mini_dim_rows_populated
-  ✅     82ms (s:1ms c:80ms)  …LazyType4Processor::test_mini_dim_deduplicates_same_profile
-  ✅     81ms (s:1ms c:80ms)  …py::TestLazyType5Processor::test_inherits_type4_result_keys
-  ✅     79ms (s:3ms c:76ms)  …y::TestDuckDBSinkDeepResearch::test_enter_sets_memory_limit
-  ✅     78ms (s:0ms c:77ms)  …rossBatchUpdates::test_third_batch_sees_second_batch_change
-  ✅     78ms (s:1ms c:77ms)  …s.py::TestLazyAccumulatingLoader::test_mixed_new_and_update
-  ✅     78ms (s:0ms c:77ms)  …drift.py::TestGoldLayerQueries::test_migration_backlog_runs
-  ✅     77ms (s:1ms c:76ms)  …AccumulatingLoader::test_existing_rows_updated_not_inserted
-  ✅     76ms (s:2ms c:73ms)  …azyType6ProcessorStream::test_single_batch_inserts_new_rows
-  ✅     75ms (s:0ms c:74ms)  …e1ProcessorStream::test_second_batch_overwrites_changed_row
-  ✅     75ms (s:1ms c:74ms)  …s.py::TestLazyBackfillScd2::test_groups_consecutive_streaks
-  ✅     75ms (s:1ms c:74ms)  ….py::TestLazyType4Processor::test_process_returns_dict_keys
-  ✅     74ms (s:0ms c:73ms)  …yType4Processor::test_multiple_customers_different_profiles
-  ✅     73ms (s:1ms c:67ms)  …rocessorStream::test_failed_batch_increments_batches_failed
-  ✅     73ms (s:0ms c:72ms)  …s.py::TestDGMShowcaseSource::test_teardown_drops_all_tables
-  ✅     73ms (s:1ms c:72ms)  …t_drift.py::TestUpsertDbCacheHit::test_dataset_db_cache_hit
-  ✅     73ms (s:1ms c:72ms)  …ft.py::TestGoldLayerQueries::test_rule_failure_heatmap_runs
-  ✅     73ms (s:0ms c:72ms)  …tLazySCDProcessorStream::test_max_batches_limits_processing
-  ✅     72ms (s:1ms c:70ms)  …test_drift.py::TestUpsertDbCacheHit::test_rule_db_cache_hit
-  ✅     72ms (s:3ms c:68ms)  …otherDuckSinkDeepResearch::test_enter_calls_make_connection
-  ✅     71ms (s:1ms c:70ms)  …ft.py::TestTransaction::test_transaction_commits_on_success
-  ✅     71ms (s:2ms c:68ms)  …est_motherduck_sink.py::test_exit_silences_detach_exception
-  ✅     70ms (s:1ms c:69ms)  …y_loaders.py::TestLazyBackfillScd2::test_produces_scd2_rows
-  ✅     70ms (s:1ms c:69ms)  …stGoldLayerQueries::test_quality_score_trend_returns_result
-  ✅     70ms (s:1ms c:69ms)  …st_contract_engine.py::TestNotNull::test_passes_on_no_nulls
-  ✅     69ms (s:0ms c:68ms)  …tiBatch::test_cross_batch_change_detection_via_local_hashes
-  ✅     69ms (s:0ms c:68ms)  …CDProcessorStream::test_second_batch_changed_rows_versioned
-  ✅     69ms (s:1ms c:68ms)  …/test_drift.py::TestUpsertDbCacheHit::test_run_db_cache_hit
-  ✅     69ms (s:1ms c:67ms)  …halsSCDProcessor::test_idempotency_second_run_all_unchanged
-  ✅     69ms (s:0ms c:68ms)  …essorStream::test_commit_called_after_each_successful_batch
-  ✅     68ms (s:29ms c:33ms)  …y::TestDuckDBTraversalEngine::test_paths_returns_path_lists
-  ✅     68ms (s:0ms c:67ms)  …DProcessorStream::test_on_batch_called_per_successful_batch
-  ✅     67ms (s:0ms c:66ms)  …lyReturn::test_ingest_quality_with_violations_returns_count
-  ✅     66ms (s:1ms c:65ms)  …st_contract_engine.py::TestNoDuplicates::test_passes_unique
-  ✅     66ms (s:1ms c:65ms)  …engine.py::test_narwhals_scd_processor_no_is_current_column
-  ✅     66ms (s:1ms c:65ms)  …tLazyEdgeProjectionLoader::test_self_join_with_property_map
-  ✅     66ms (s:1ms c:64ms)  ….py::TestProcessUnchanged::test_mixed_new_changed_unchanged
-  ✅     65ms (s:59ms c:2ms)  …y::TestDuckDBTraversalEngine::test_aggregate_returns_scalar
-  ✅     65ms (s:1ms c:64ms)  …ltiBatch::test_second_batch_changed_row_creates_new_version
-  ✅     65ms (s:0ms c:64ms)  …tLazyType3ProcessorStream::test_second_batch_rotates_region
-  ✅     64ms (s:0ms c:63ms)  …py::TestProcessChanged::test_old_version_marked_not_current
-  ✅     63ms (s:0ms c:62ms)  …y::TestProcessChanged::test_changed_row_creates_new_version
-  ✅     63ms (s:1ms c:61ms)  …estProcessChanged::test_metadata_diff_captures_old_metadata
-  ✅     63ms (s:1ms c:61ms)  …zyEdgeProjectionLoader::test_direct_projection_edge_columns
-  ✅     62ms (s:1ms c:61ms)  …:TestLazyType6ProcessorStream::test_batches_processed_count
-  ✅     62ms (s:0ms c:62ms)  …ions/test_hybrid_scd.py::test_narwhals_scd_jsonb_vectorized
-  ✅     62ms (s:0ms c:61ms)  …::TestTransaction::test_transaction_rolls_back_on_exception
-  ✅     61ms (s:0ms c:60ms)  …:TestLazyType3ProcessorStream::test_batches_processed_count
-  ✅     61ms (s:4ms c:56ms)  …st_motherduck_sink.py::test_context_manager_attached_schema
-  ✅     61ms (s:1ms c:56ms)  …FailurePaths::test_failed_batch_does_not_halt_later_batches
-  ✅     60ms (s:1ms c:59ms)  …TestLazyType6ProcessorStream::test_max_batches_limits_type6
-  ✅     60ms (s:1ms c:59ms)  …ders.py::TestLazyAccumulatingLoader::test_new_rows_inserted
-  ✅     60ms (s:1ms c:59ms)  …eProjectionLoader::test_direct_projection_with_property_map
-  ✅     59ms (s:52ms c:7ms)  tests/cli/test_cli.py::test_no_subcommand_returns_1
-  ✅     59ms (s:1ms c:58ms)  …pe6ProcessorStream::test_deduplicate_by_keeps_latest_per_nk
-  ✅     58ms (s:1ms c:57ms)  …aders.py::TestLazyBackfillScd2::test_accepts_source_adapter
-  ✅     57ms (s:1ms c:56ms)  …rocessCompositeKey::test_composite_nk_changed_row_versioned
-  ✅     57ms (s:13ms c:43ms)  …d_datasets.py::TestSaaSUsersSource::test_snapshot_row_count
-  ✅     57ms (s:1ms c:55ms)  …y_loaders.py::TestLazyBitmaskLoader::test_returns_row_count
-  ✅     56ms (s:0ms c:55ms)  …tiBatch::test_on_batch_callback_called_per_successful_batch
-  ✅     56ms (s:1ms c:55ms)  …TestDropStreamViews::test_incoming_view_absent_after_stream
-  ✅     56ms (s:3ms c:52ms)  tests/sinks/test_motherduck_sink.py::test_current_state_sql
-  ✅     56ms (s:3ms c:52ms)  …t_motherduck_sink.py::test_context_manager_opens_and_closes
-  ✅     55ms (s:0ms c:55ms)  …tDropStreamViews::test_classified_table_absent_after_stream
-  ✅     55ms (s:0ms c:54ms)  …ProcessStreamMultiBatch::test_max_batches_limits_processing
-  ✅     54ms (s:1ms c:53ms)  …TestLazyType6ProcessorStream::test_on_batch_callback_called
-  ✅     54ms (s:1ms c:53ms)  …ts/test_contract_engine.py::TestNotNull::test_fails_on_null
-  ✅     53ms (s:1ms c:51ms)  …pe3ProcessorStream::test_deduplicate_by_keeps_latest_per_nk
-  ✅     52ms (s:1ms c:51ms)  …tProcessNowParameter::test_explicit_now_used_for_valid_from
-  ✅     52ms (s:3ms c:49ms)  …quetSinkCloseVersions::test_close_versions_returns_nk_count
-  ✅     51ms (s:1ms c:50ms)  …rlyReturn::test_ingest_evolution_with_changes_returns_count
-  ✅     51ms (s:1ms c:50ms)  …jectionLoader::test_self_join_generates_player_player_edges
-  ✅     51ms (s:1ms c:50ms)  …stLazyType6Processor::test_type2_change_creates_new_version
-  ✅     51ms (s:2ms c:49ms)  …py::TestLazyArrayMetricLoader::test_builds_31_element_array
-  ✅     51ms (s:0ms c:51ms)  …:TestCompactor::test_compact_real_parquet_with_partition_by
-  ✅     51ms (s:1ms c:50ms)  …tLazyCumulativeLoader::test_existing_player_carried_forward
-  ✅     51ms (s:1ms c:49ms)  …:TestLazySCDProcessorStream::test_single_batch_all_new_rows
-  ✅     51ms (s:13ms c:36ms)  …asets.py::TestSaaSUsersSource::test_snapshot_has_key_fields
-  ✅     51ms (s:3ms c:47ms)  …RotateAttributes::test_rotate_attributes_rewrites_partition
-  ✅     50ms (s:1ms c:49ms)  …estGoldLayerQueries::test_quality_score_trend_empty_dataset
-  ✅     50ms (s:5ms c:44ms)  …::TestPlayerSeasonsSource::test_event_batch_advances_season
-  ✅     50ms (s:13ms c:36ms)  …d_datasets.py::TestSaaSUsersSource::test_setup_and_teardown
-  ✅     50ms (s:1ms c:49ms)  …pe1ProcessorStream::test_deduplicate_by_keeps_latest_per_nk
-  ✅     50ms (s:1ms c:49ms)  …estLazySCDInferredPaths::test_reconnect_emits_lineage_event
-  ✅     49ms (s:1ms c:48ms)  …DateAtLoadTime::test_load_call_time_date_overrides_instance
-  ✅     49ms (s:3ms c:46ms)  …CSVStreamSourceStream::test_all_rows_covered_across_batches
-  ✅     49ms (s:0ms c:49ms)  …lazy_scd.py::TestLazyType6Processor::test_unchanged_counted
-  ✅     49ms (s:1ms c:48ms)  …stProcessStreamMultiBatch::test_second_batch_unchanged_rows
-  ✅     49ms (s:0ms c:48ms)  …LazyType6Processor::test_type1_only_change_updates_in_place
-  ✅     49ms (s:3ms c:45ms)  …etSinkWriteNamed::test_write_named_writes_subset_of_columns
-  ✅     49ms (s:0ms c:48ms)  …:TestLazyType1Processor::test_changed_rows_updated_in_place
-  ✅     49ms (s:4ms c:45ms)  …::TestParquetSinkWriteNamed::test_write_named_multiple_rows
-  ✅     48ms (s:1ms c:47ms)  …dPaths::test_write_changed_with_is_inferred_in_target_table
-  ✅     48ms (s:7ms c:41ms)  …tasets.py::TestPlayerSeasonsSource::test_setup_and_teardown
-  ✅     48ms (s:0ms c:48ms)  …py::TestLazySCDProcessorStream::test_unchanged_rows_counted
-  ✅     48ms (s:1ms c:46ms)  …s.py::TestLazyCumulativeLoader::test_new_player_creates_row
-  ✅     48ms (s:1ms c:47ms)  …arlyReturn::test_ingest_evolution_empty_report_returns_zero
-  ✅     48ms (s:3ms c:44ms)  …UpdateAttributes::test_update_attributes_rewrites_partition
-  ✅     48ms (s:4ms c:43ms)  …UpdateMilestones::test_update_milestones_rewrites_partition
-  ✅     48ms (s:0ms c:47ms)  …_units.py::TestBaseSourceSetup::test_setup_executes_dim_ddl
-  ✅     47ms (s:1ms c:46ms)  …SCDProcessorStream::test_deduplicate_by_keeps_latest_per_nk
-  ✅     47ms (s:0ms c:47ms)  …treamEmptyMetaCols::test_no_meta_cols_cross_batch_unchanged
-  ✅     47ms (s:1ms c:46ms)  …:TestLazyArrayMetricLoader::test_aload_delegates_to_process
-  ✅     47ms (s:0ms c:46ms)  …TestLazyType3ProcessorStream::test_on_batch_callback_called
-  ✅     47ms (s:1ms c:45ms)  tests/sinks/test_iceberg_sink.py::test_update_attributes
-  ✅     47ms (s:2ms c:44ms)  …azyType1ProcessorStream::test_single_batch_inserts_new_rows
-  ✅     46ms (s:1ms c:45ms)  …TestLazyArrayMetricLoader::test_value_at_correct_day_offset
-  ✅     46ms (s:1ms c:45ms)  ….py::TestLazySCDProcessorStream::test_composite_natural_key
-  ✅     46ms (s:3ms c:43ms)  …ateAttributes::test_update_attributes_updates_multiple_cols
-  ✅     46ms (s:1ms c:43ms)  …t_lazy_scd.py::TestLazySCDProcessor::test_new_rows_inserted
-  ✅     45ms (s:0ms c:45ms)  …tadata.py::TestProcessUnchanged::test_unchanged_row_counted
-  ✅     45ms (s:21ms c:20ms)  …sal.py::TestDuckDBTraversalEngine::test_register_paths_view
-  ✅     45ms (s:0ms c:44ms)  …rocessorStream::test_deduplicate_by_none_preserves_all_rows
-  ✅     45ms (s:1ms c:43ms)  …yEdgeProjectionLoader::test_direct_projection_creates_edges
-  ✅     44ms (s:1ms c:43ms)  …TestLazyType1ProcessorStream::test_max_batches_limits_type1
-  ✅     44ms (s:0ms c:43ms)  …estLazyType1ProcessorStream::test_on_batch_callback_invoked
-  ✅     44ms (s:1ms c:43ms)  …yArrayMetricLoader::test_metric_name_and_month_start_stored
-  ✅     44ms (s:2ms c:41ms)  …loadWrapper::test_transaction_aload_requires_table_or_model
-  ✅     44ms (s:1ms c:43ms)  …y_scd.py::TestLazySCDProcessor::test_unchanged_rows_counted
-  ✅     44ms (s:1ms c:43ms)  …LazyArrayMetricLoader::test_load_alias_delegates_to_process
-  ✅     44ms (s:4ms c:39ms)  …atasets.py::TestDevicesSource::test_snapshot_has_key_fields
-  ✅     44ms (s:0ms c:43ms)  …lazy_scd.py::TestLazyType6Processor::test_new_rows_inserted
-  ✅     43ms (s:0ms c:43ms)  …scd.py::TestLazyType1Processor::test_unchanged_rows_counted
-  ✅     43ms (s:0ms c:42ms)  …TestLazyType3ProcessorStream::test_max_batches_limits_type3
-  ✅     43ms (s:0ms c:42ms)  …scd.py::TestLazySCDProcessor::test_new_row_has_scd_metadata
-  ✅     43ms (s:1ms c:41ms)  …adWrapper::test_snapshot_aload_succeeds_with_explicit_table
-  ✅     43ms (s:1ms c:42ms)  …y_scd.py::TestLazySCDProcessor::test_changed_rows_versioned
-  ✅     43ms (s:6ms c:37ms)  …:TestParquetSinkWrite::test_write_creates_parquet_partition
-  ✅     43ms (s:1ms c:41ms)  …st_datasets.py::TestProductsSource::test_setup_and_teardown
-  ✅     43ms (s:1ms c:41ms)  …azyType3ProcessorStream::test_single_batch_inserts_new_rows
-  ✅     43ms (s:1ms c:42ms)  …rocessCompositeKey::test_composite_nk_unchanged_row_counted
-  ✅     42ms (s:1ms c:41ms)  …lazy_scd.py::TestLazyType1Processor::test_new_rows_inserted
-  ✅     42ms (s:0ms c:41ms)  …tProcessUnchanged::test_unchanged_does_not_create_duplicate
-  ✅     42ms (s:1ms c:41ms)  …s.py::TestLazyBitmaskLoader::test_produces_one_row_per_user
-  ✅     42ms (s:4ms c:37ms)  …tParquetSinkDeepResearch::test_write_produces_parquet_files
-  ✅     42ms (s:3ms c:38ms)  …sink.py::TestParquetSinkWrite::test_write_returns_row_count
-  ✅     42ms (s:1ms c:41ms)  …s/test_iceberg_sink.py::test_close_versions_noop_when_empty
-  ✅     41ms (s:1ms c:40ms)  …EarlyReturn::test_ingest_quality_no_violations_returns_zero
-  ✅     41ms (s:1ms c:40ms)  …y::TestAloadWrapper::test_cumulative_aload_passes_extra_arg
-  ✅     41ms (s:8ms c:32ms)  …_world_datasets.py::TestPlayerSeasonsSource::test_pts_range
-  ✅     41ms (s:1ms c:40ms)  …les/test_datasets.py::TestDatasetFactory::test_teardown_all
-  ✅     41ms (s:1ms c:39ms)  …DebeziumSource::test_all_deletes_batch_yields_empty_upserts
-  ✅     41ms (s:1ms c:39ms)  …ers.py::TestLazyBitmaskLoader::test_bitmask_all_days_active
-  ✅     40ms (s:5ms c:35ms)  …y::TestTransactionsSource::test_event_batch_changes_amounts
-  ✅     40ms (s:2ms c:38ms)  …s/test_migrations.py::test_introspect_returns_current_state
-  ✅     40ms (s:0ms c:39ms)  …StreamMultiBatch::test_commit_called_after_successful_batch
-  ✅     40ms (s:3ms c:37ms)  …tCSVStreamSourceStream::test_fragment_excludes_rowid_column
-  ✅     40ms (s:1ms c:39ms)  …t_datasets.py::TestMoviesSource::test_custom_setup_teardown
-  ✅     40ms (s:1ms c:38ms)  …st_stream.py::TestDebeziumSource::test_multiple_cdc_batches
-  ✅     40ms (s:1ms c:36ms)  …rocessorStream::test_failed_batch_increments_batches_failed
-  ✅     40ms (s:6ms c:33ms)  …orld_datasets.py::TestEventsSource::test_setup_and_teardown
-  ✅     39ms (s:1ms c:38ms)  tests/sinks/test_iceberg_sink.py::test_update_milestones
-  ✅     39ms (s:1ms c:38ms)  …y::TestLazySKResolver::test_resolve_all_chains_multiple_fks
-  ✅     39ms (s:0ms c:38ms)  …MetadataColumns::test_empty_metadata_unchanged_on_reprocess
-  ✅     39ms (s:1ms c:38ms)  tests/sinks/test_iceberg_sink.py::test_rotate_attributes
-  ✅     39ms (s:29ms c:5ms)  …poralNeighbors::test_neighbors_at_scd1_vertex_ignores_as_of
-  ✅     39ms (s:1ms c:38ms)  …aders.py::TestLazyTransactionLoader::test_load_inserts_rows
-  ✅     39ms (s:1ms c:38ms)  …est_iceberg_sink.py::test_close_versions_updates_is_current
-  ✅     39ms (s:1ms c:38ms)  …lazy_scd.py::TestLazyType3Processor::test_unchanged_counted
-  ✅     39ms (s:2ms c:35ms)  …uetStreamSourceStream::test_all_rows_covered_across_batches
-  ✅     38ms (s:3ms c:35ms)  …SVStreamSourceStream::test_yields_correct_number_of_batches
-  ✅     38ms (s:1ms c:37ms)  …TestLazyTransactionLoader::test_load_appends_on_second_call
-  ✅     38ms (s:4ms c:34ms)  …kDeepResearch::test_write_preserve_insertion_order_restored
-  ✅     38ms (s:29ms c:3ms)  …::TestDuckDBTraversalEngine::test_degree_returns_edge_count
-  ✅     38ms (s:1ms c:37ms)  …e.py::TestNarwhalsSCDProcessor::test_process_counts_correct
-  ✅     38ms (s:2ms c:35ms)  …TestParquetSinkDeepResearch::test_write_parquet_re_readable
-  ✅     38ms (s:1ms c:37ms)  …sSCDProcessor::test_process_to_close_and_to_insert_attached
-  ✅     38ms (s:0ms c:37ms)  …data.py::TestProcessAllNew::test_multiple_new_rows_inserted
-  ✅     38ms (s:0ms c:37ms)  …amples/test_datasets.py::TestDatasetFactory::test_setup_all
-  ✅     38ms (s:1ms c:37ms)  …sets.py::TestProductsSource::test_snapshot_has_correct_rows
-  ✅     38ms (s:0ms c:37ms)  …estLazyType3Processor::test_changed_row_rotates_to_previous
-  ✅     38ms (s:0ms c:37ms)  …:TestProcessAllNew::test_metadata_diff_is_null_for_new_rows
-  ✅     38ms (s:0ms c:37ms)  …ingleBatch::test_single_batch_accumulates_all_result_fields
-  ✅     38ms (s:0ms c:37ms)  …azy_metadata.py::TestProcessAllNew::test_row_hash_populated
-  ✅     38ms (s:0ms c:37ms)  …ns/test_migrations.py::test_introspect_parses_nk_from_index
-  ✅     37ms (s:5ms c:32ms)  …atasets.py::TestEventsSource::test_event_batch_has_new_urls
-  ✅     37ms (s:1ms c:35ms)  …berg_sink.py::test_close_versions_raises_on_missing_pyarrow
-  ✅     37ms (s:2ms c:34ms)  …er_factory.py::TestBitmaskStrategy::test_explicit_classvars
-  ✅     37ms (s:1ms c:36ms)  …ssStreamEmptyMetaCols::test_no_meta_cols_inserts_empty_json
-  ✅     37ms (s:0ms c:36ms)  …_loaders.py::TestLazySnapshotLoader::test_returns_row_count
-  ✅     37ms (s:1ms c:36ms)  …y::TestSnapshotDateAtLoadTime::test_load_uses_instance_date
-  ✅     37ms (s:1ms c:36ms)  …contract_engine.py::TestNullRate::test_fails_over_threshold
-  ✅     37ms (s:1ms c:36ms)  …azy_metadata.py::TestProcessAllNew::test_returns_scd_result
-  ✅     37ms (s:4ms c:33ms)  …tCSVStreamSourceStream::test_empty_file_yields_no_fragments
-  ✅     36ms (s:1ms c:33ms)  …ts/migrations/test_migrations.py::test_diff_from_connection
-  ✅     36ms (s:1ms c:35ms)  …etadata.py::TestProcessAllNew::test_single_new_row_inserted
-  ✅     36ms (s:1ms c:34ms)  …ts/processors/test_backfill.py::test_multiple_track_columns
-  ✅     36ms (s:1ms c:35ms)  …estProcessStreamSingleBatch::test_single_batch_all_new_rows
-  ✅     36ms (s:5ms c:31ms)  …ts.py::TestTransactionsSource::test_snapshot_has_key_fields
-  ✅     36ms (s:6ms c:29ms)  …s.py::TestPlayerSeasonsSource::test_snapshot_has_key_fields
-  ✅     36ms (s:2ms c:33ms)  …shotDateAtLoadTime::test_construction_without_date_succeeds
-  ✅     36ms (s:1ms c:34ms)  …t_query.py::TestDGMQueryLegacyAPI::test_join_dim_is_current
-  ✅     36ms (s:1ms c:35ms)  …ostgreSQLSinkDeepResearch::test_enter_calls_make_connection
-  ✅     35ms (s:29ms c:5ms)  …st_dgm_query.py::TestDGMQueryB1::test_b1_path_pred_in_where
-  ✅     35ms (s:1ms c:34ms)  …reamNowParameter::test_custom_now_string_used_in_valid_from
-  ✅     35ms (s:0ms c:34ms)  …stLazyType3Processor::test_new_rows_inserted_with_null_prev
-  ✅     35ms (s:0ms c:34ms)  …ta.py::TestProcessAllNew::test_is_current_true_for_new_rows
-  ✅     35ms (s:1ms c:30ms)  …tionLoaderStream::test_failed_batch_does_not_halt_remaining
-  ✅     34ms (s:1ms c:33ms)  …ransactionLoaderStream::test_commit_called_after_each_batch
-  ✅     34ms (s:1ms c:33ms)  …::TestLazyTransactionLoader::test_load_creates_target_table
-  ✅     34ms (s:1ms c:33ms)  …ts/query/test_query.py::TestDGMQueryLegacyAPI::test_as_view
-  ✅     34ms (s:6ms c:28ms)  …orld_datasets.py::TestEventsSource::test_snapshot_row_count
-  ✅     34ms (s:1ms c:33ms)  …ta.py::TestProcessNullNk::test_null_nk_row_silently_dropped
-  ✅     34ms (s:1ms c:33ms)  …::TestNarwhalsSCDProcessor::test_process_returns_scd_result
-  ✅     34ms (s:1ms c:33ms)  …etadataColumns::test_empty_metadata_columns_uses_empty_json
-  ✅     34ms (s:1ms c:32ms)  …g_sink.py::test_update_attributes_raises_on_missing_pyarrow
-  ✅     34ms (s:1ms c:32ms)  …g_sink.py::test_rotate_attributes_raises_on_missing_pyarrow
-  ✅     34ms (s:3ms c:30ms)  …CSVStreamSourceStream::test_total_cached_after_first_stream
-  ✅     33ms (s:6ms c:27ms)  …::TestPlayerSeasonsSource::test_snapshot_has_advanced_stats
-  ✅     33ms (s:3ms c:30ms)  …ourceCheckpointCommitReset::test_stream_resumes_from_offset
-  ✅     33ms (s:0ms c:32ms)  …ts/core/test_utils.py::test_tmp_db_cleanup_silences_oserror
-  ✅     33ms (s:0ms c:32ms)  …y::TestProcessNowParameter::test_none_now_uses_current_time
-  ✅     33ms (s:1ms c:31ms)  …azyTransactionLoaderStream::test_max_batches_limits_loading
-  ✅     33ms (s:0ms c:32ms)  …st_migrations.py::test_introspect_nonexistent_table_skipped
-  ✅     33ms (s:1ms c:30ms)  …g_sink.py::test_update_milestones_raises_on_missing_pyarrow
-  ✅     33ms (s:0ms c:32ms)  …ata.py::TestProcessCompositeKey::test_composite_nk_new_rows
-  ✅     33ms (s:2ms c:30ms)  …pshotDateAtLoadTime::test_load_raises_when_no_date_supplied
-  ✅     33ms (s:0ms c:32ms)  …derStream::test_two_batches_written_with_same_snapshot_date
-  ✅     32ms (s:1ms c:31ms)  tests/core/test_utils.py::test_tmp_db_yields_valid_path
-  ✅     32ms (s:1ms c:31ms)  …er_factory.py::TestBulkStrategy::test_none_strategy_is_bulk
-  ✅     32ms (s:0ms c:31ms)  tests/core/test_utils.py::test_tmp_db_cleans_up_after_exit
-  ✅     32ms (s:0ms c:31ms)  …ntract_engine.py::TestNullRate::test_passes_under_threshold
-  ✅     32ms (s:1ms c:31ms)  …pe4_5.py::TestLazyType5Processor::test_is_instance_of_type4
-  ✅     32ms (s:3ms c:28ms)  …CSVStreamSourceStream::test_offset_advances_after_streaming
-  ✅     32ms (s:6ms c:25ms)  ….py::TestCounterpartiesSource::test_snapshot_has_key_fields
-  ✅     31ms (s:1ms c:29ms)  …/test_iceberg_sink.py::test_write_raises_on_missing_pyarrow
-  ✅     31ms (s:0ms c:31ms)  …y::test_introspect_exception_on_indexes_query_uses_model_nk
-  ✅     31ms (s:8ms c:23ms)  …sets.py::TestSaaSUsersSource::test_event_batch_has_upgrades
-  ✅     31ms (s:1ms c:30ms)  …asets.py::TestBaseSource::test_default_teardown_drops_table
-  ✅     31ms (s:2ms c:29ms)  …actory.py::TestArrayMetricStrategy::test_explicit_classvars
-  ✅     31ms (s:1ms c:30ms)  …les/test_datasets.py::TestOrdersSource::test_shipped_events
-  ✅     31ms (s:1ms c:29ms)  …est_loader_factory.py::TestBulkStrategy::test_explicit_bulk
-  ✅     31ms (s:1ms c:30ms)  …y::TestDebeziumSource::test_stream_creates_deleted_nks_view
-  ✅     31ms (s:3ms c:28ms)  …stParquetStreamSourceStream::test_order_by_streams_in_order
-  ✅     31ms (s:1ms c:30ms)  …ine.py::TestNarwhalsSCDProcessor::test_process_custom_as_of
-  ✅     30ms (s:2ms c:28ms)  …etStreamSourceStream::test_yields_correct_number_of_batches
-  ✅     30ms (s:0ms c:27ms)  …yType6ProcessorStream::test_failed_batch_increments_counter
-  ✅     30ms (s:1ms c:29ms)  …TestLazyTransactionLoader::test_load_accepts_source_adapter
-  ✅     30ms (s:5ms c:25ms)  …datasets.py::TestEventsSource::test_snapshot_has_key_fields
-  ✅     30ms (s:0ms c:29ms)  …LazyTransactionLoaderStream::test_on_batch_callback_invoked
-  ✅     30ms (s:1ms c:29ms)  …ders.py::TestLazySnapshotLoader::test_injects_snapshot_date
-  ✅     30ms (s:6ms c:24ms)  …asets.py::TestSuppliersSource::test_snapshot_has_key_fields
-  ✅     30ms (s:25ms c:2ms)  …stTraversalEngineSQLExtended::test_aggregate_sql_undirected
-  ✅     30ms (s:2ms c:28ms)  …py::TestAloadWrapper::test_transaction_aload_uses_model_cls
-  ✅     30ms (s:1ms c:29ms)  …sts/examples/test_datasets.py::TestOrdersSource::test_setup
-  ✅     30ms (s:1ms c:29ms)  …::TestBaseSourceSetup::test_setup_raises_when_dim_ddl_empty
-  ✅     30ms (s:1ms c:28ms)  …ory.py::TestAccumulatingStrategy::test_inferred_from_fields
-  ✅     30ms (s:1ms c:29ms)  …pshotLoaderStream::test_max_batches_limits_snapshot_loading
-  ✅     30ms (s:3ms c:26ms)  …quetStreamSourceStream::test_fragment_excludes_rowid_column
-  ✅     30ms (s:1ms c:29ms)  …stLazySKResolver::test_resolve_all_uses_default_output_view
-  ✅     30ms (s:1ms c:29ms)  …:TestDebeziumSource::test_snapshot_read_included_in_upserts
-  ✅     30ms (s:0ms c:29ms)  …y/test_query.py::TestDGMQueryLegacyAPI::test_join_dim_as_of
-  ✅     30ms (s:1ms c:28ms)  …stSnapshotStrategy::test_snapshot_with_date_at_construction
-  ✅     29ms (s:3ms c:26ms)  …napshotDateAtLoadTime::test_load_stream_raises_when_no_date
-  ✅     29ms (s:1ms c:28ms)  ….py::TestAloadWrapper::test_edge_aload_delegates_to_process
-  ✅     29ms (s:0ms c:29ms)  …_datasets.py::TestSchematicSource::test_setup_creates_table
-  ✅     29ms (s:1ms c:28ms)  …ers.py::TestLazySnapshotLoader::test_custom_date_field_name
-  ✅     29ms (s:1ms c:28ms)  …InferredPaths::test_classify_changed_when_is_inferred_false
-  ✅     29ms (s:1ms c:28ms)  …TestSnapshotStrategy::test_snapshot_no_date_at_construction
-  ✅     29ms (s:0ms c:28ms)  …/sinks/test_iceberg_sink.py::test_write_appends_arrow_batch
-  ✅     29ms (s:1ms c:27ms)  …hema.py::TestAloadWrapper::test_cumulative_loader_has_aload
-  ✅     29ms (s:3ms c:26ms)  …uetStreamSourceStream::test_total_cached_after_first_stream
-  ✅     29ms (s:5ms c:24ms)  …tasets.py::TestPlayerSeasonsSource::test_snapshot_row_count
-  ✅     29ms (s:1ms c:28ms)  …amples/test_datasets.py::TestStoresSource::test_event_batch
-  ✅     29ms (s:0ms c:28ms)  …atasets.py::TestCustomersSource::test_event_batch_not_empty
-  ✅     29ms (s:0ms c:28ms)  …engine.py::TestSCD2Invariants::test_fails_duplicate_current
-  ✅     29ms (s:1ms c:28ms)  …ransactionLoaderStream::test_two_batches_accumulate_inserts
-  ✅     29ms (s:1ms c:27ms)  …tAloadWrapper::test_accumulating_aload_delegates_to_process
-  ✅     29ms (s:3ms c:25ms)  …tasets.py::TestReceiptsSource::test_snapshot_has_key_fields
-  ✅     29ms (s:20ms c:5ms)  ….py::TestDuckDBTraversalEngine::test_register_neighbor_view
-  ✅     29ms (s:0ms c:28ms)  ….py::TestLazySKResolver::test_resolve_unmatched_key_is_null
-  ✅     29ms (s:0ms c:28ms)  …t_datasets.py::TestCustomersSource::test_snapshot_not_empty
-  ✅     29ms (s:23ms c:2ms)  …ightedAggregationDuckDB::test_duckdb_unweighted_sum_correct
-  ✅     28ms (s:0ms c:25ms)  …yType1ProcessorStream::test_failed_batch_increments_counter
-  ✅     28ms (s:0ms c:27ms)  …seSource::test_setup_raises_not_implemented_when_no_dim_ddl
-  ✅     28ms (s:0ms c:28ms)  …::TestSCD2Invariants::test_fails_null_valid_from_on_current
-  ✅     28ms (s:1ms c:27ms)  …:TestDebeziumSource::test_update_overwrites_in_upserts_view
-  ✅     28ms (s:0ms c:27ms)  …ateLocalHashesAfterBatch::test_update_branch_refreshes_hash
-  ✅     28ms (s:1ms c:27ms)  …gine.py::TestNarwhalsHashStrategy::test_find_changes_counts
-  ✅     28ms (s:2ms c:25ms)  …uetStreamSourceStream::test_offset_advances_after_streaming
-  ✅     28ms (s:1ms c:27ms)  …stLazySnapshotLoaderStream::test_returns_stream_result_type
-  ✅     28ms (s:20ms c:3ms)  …WeightedAggregationDuckDB::test_duckdb_weighted_sum_correct
-  ✅     28ms (s:5ms c:23ms)  …tStreamSourceStream::test_empty_dataset_yields_no_fragments
-  ✅     28ms (s:2ms c:26ms)  …ory.py::TestEdgeProjectionStrategy::test_explicit_classvars
-  ✅     28ms (s:0ms c:27ms)  …st_contract_engine.py::TestTypeMatch::test_fails_wrong_type
-  ✅     28ms (s:1ms c:27ms)  …fy_detects_reconnect_when_current_checksums_has_is_inferred
-  ✅     28ms (s:0ms c:27ms)  …ontract_engine.py::TestNoGapPeriods::test_passes_contiguous
-  ✅     28ms (s:0ms c:27ms)  …engine.py::TestMonotonicValidFrom::test_fails_non_monotonic
-  ✅     28ms (s:1ms c:24ms)  …amFailurePaths::test_failed_batch_increments_batches_failed
-  ✅     28ms (s:0ms c:27ms)  …tSQLTransformPipeline::test_untransformed_columns_unchanged
-  ✅     27ms (s:0ms c:27ms)  tests/query/test_query.py::TestDGMQueryLegacyAPI::test_where
-  ✅     27ms (s:0ms c:27ms)  …::TestLazySnapshotLoaderStream::test_custom_date_field_name
-  ✅     27ms (s:0ms c:27ms)  …tasets.py::TestBaseSource::test_default_setup_creates_table
-  ✅     27ms (s:0ms c:26ms)  …s.py::TestLazyDimensions::test_date_dimension_generate_lazy
-  ✅     27ms (s:23ms c:1ms)  …y::TestDuckDBTraversalEngine::test_neighbors_executes_query
-  ✅     27ms (s:0ms c:27ms)  …tLazySKResolver::test_resolve_maps_natural_key_to_surrogate
-  ✅     27ms (s:1ms c:26ms)  …tSQLTransformPipeline::test_transform_to_numeric_expression
-  ✅     27ms (s:1ms c:26ms)  …apshotLoaderStream::test_single_batch_injects_snapshot_date
-  ✅     27ms (s:20ms c:4ms)  …rs::test_neighbors_at_scd2_past_date_filters_to_old_version
-  ✅     27ms (s:0ms c:26ms)  …amples/test_datasets.py::TestOrdersSource::test_paid_events
-  ✅     27ms (s:2ms c:25ms)  …azyTransactionLoaderStream::test_returns_stream_result_type
-  ✅     27ms (s:2ms c:25ms)  …factory.py::TestCumulativeStrategy::test_explicit_classvars
-  ✅     27ms (s:0ms c:27ms)  …_engine.py::TestSCD2Invariants::test_passes_valid_dimension
-  ✅     27ms (s:1ms c:26ms)  …_engine.py::TestRowCountDelta::test_passes_within_tolerance
-  ✅     27ms (s:2ms c:24ms)  …_schema.py::TestAloadWrapper::test_bitmask_loader_has_aload
-  ✅     27ms (s:0ms c:23ms)  …sactionLoaderStream::test_commit_not_called_on_failed_batch
-  ✅     27ms (s:1ms c:26ms)  …ples/test_datasets.py::TestOrdersSource::test_placed_events
-  ✅     27ms (s:1ms c:26ms)  …RegisterSourceFromSql::test_builds_incoming_table_with_hash
-  ✅     27ms (s:1ms c:26ms)  …ntract_engine.py::TestRowCountDelta::test_fails_large_delta
-  ✅     27ms (s:0ms c:26ms)  …shotLoaderStream::test_commit_called_after_successful_batch
-  ✅     27ms (s:0ms c:24ms)  …ySCDProcessorStream::test_commit_not_called_on_failed_batch
-  ✅     27ms (s:0ms c:26ms)  …ne.py::TestContractEngine::test_none_contract_returns_empty
-  ✅     27ms (s:0ms c:26ms)  …yTransactionLoaderStream::test_rows_written_to_target_table
-  ✅     26ms (s:0ms c:25ms)  …::TestDebeziumSource::test_stream_wraps_raw_in_upserts_view
-  ✅     26ms (s:1ms c:25ms)  …ateAtLoadTime::test_as_loader_snapshot_date_at_construction
-  ✅     26ms (s:1ms c:25ms)  …les/test_datasets.py::TestEmployeesSource::test_event_batch
-  ✅     26ms (s:1ms c:25ms)  …schema.py::TestAloadWrapper::test_snapshot_loader_has_aload
-  ✅     26ms (s:1ms c:24ms)  …::TestSnapshotStrategy::test_snapshot_requires_date_at_load
-  ✅     26ms (s:1ms c:25ms)  …SQLTransformPipeline::test_single_transform_rewrites_column
-  ✅     26ms (s:3ms c:23ms)  …ry.py::TestMakeConnectionBasic::test_temp_directory_applied
-  ✅     26ms (s:0ms c:25ms)  …LazyTransactionLoaderStream::test_single_batch_appends_rows
-  ✅     26ms (s:1ms c:25ms)  …ransformPipeline::test_multiple_transforms_applied_in_order
-  ✅     26ms (s:1ms c:24ms)  …ma.py::TestAloadWrapper::test_accumulating_loader_has_aload
-  ✅     26ms (s:1ms c:25ms)  …ashStrategy::test_find_changes_all_unchanged_when_identical
-  ✅     26ms (s:1ms c:22ms)  …sStreamFailurePaths::test_commit_not_called_on_failed_batch
-  ✅     26ms (s:0ms c:25ms)  …contract_engine.py::TestTypeMatch::test_passes_correct_type
-  ✅     26ms (s:0ms c:25ms)  …ples/test_datasets.py::TestMoviesSource::test_cast_snapshot
-  ✅     25ms (s:1ms c:24ms)  …lsInternals::test_assert_not_dimension_raises_for_dim_model
-  ✅     25ms (s:1ms c:24ms)  …ntract_engine.py::TestFreshness::test_fails_stale_timestamp
-  ✅     25ms (s:2ms c:23ms)  ….py::TestSnapshotStrategy::test_snapshot_date_field_default
-  ✅     25ms (s:1ms c:24ms)  …whalsHashStrategy::test_find_changes_correct_classification
-  ✅     25ms (s:0ms c:24ms)  …m.py::TestRegisterSourceFromSql::test_null_nk_rows_excluded
-  ✅     25ms (s:0ms c:24ms)  tests/query/test_query.py::TestDGMQueryLegacyAPI::test_avg
-  ✅     25ms (s:0ms c:24ms)  …mples/test_datasets.py::TestMoviesSource::test_new_releases
-  ✅     25ms (s:3ms c:21ms)  …ctionPsutilFallback::test_temp_directory_created_if_missing
-  ✅     25ms (s:2ms c:22ms)  …ma.py::TestAloadWrapper::test_array_metric_loader_has_aload
-  ✅     25ms (s:1ms c:24ms)  …sHashStrategy::test_find_changes_all_new_when_current_empty
-  ✅     25ms (s:2ms c:23ms)  …apshotDateAtLoadTime::test_as_loader_snapshot_date_optional
-  ✅     25ms (s:0ms c:24ms)  tests/core/test_utils.py::test_make_tmp_db_is_connectable
-  ✅     25ms (s:0ms c:24ms)  …dateLocalHashesAfterBatch::test_insert_branch_adds_new_rows
-  ✅     25ms (s:1ms c:24ms)  …test_utils.py::test_teardown_dim_drops_table_when_no_method
-  ✅     25ms (s:1ms c:23ms)  …actory.py::TestCumulativeStrategy::test_inferred_list_field
-  ✅     25ms (s:0ms c:24ms)  …derStream::test_drop_view_exception_in_finally_is_swallowed
-  ✅     25ms (s:1ms c:23ms)  …test_datasets.py::TestStoresSource::test_snapshot_not_empty
-  ✅     25ms (s:1ms c:24ms)  …t_datasets.py::TestSchematicSource::test_snapshot_row_count
-  ✅     25ms (s:3ms c:22ms)  …keConnectionEnvFallback::test_env_temp_dir_used_when_no_arg
-  ✅     25ms (s:0ms c:24ms)  …_query.py::TestDGMQueryLegacyAPI::test_init_and_basic_count
-  ✅     25ms (s:20ms c:0ms)  …alEngineSQLExtended::test_degree_sql_delegates_to_aggregate
-  ✅     24ms (s:1ms c:23ms)  …ctory.py::TestAccumulatingStrategy::test_explicit_classvars
-  ✅     24ms (s:1ms c:23ms)  …ct_engine.py::TestContractEngine::test_multiple_rules_union
-  ✅     24ms (s:0ms c:24ms)  …_engine.py::TestHashConsistency::test_passes_correct_hashes
-  ✅     24ms (s:1ms c:23ms)  …st_lazy_metadata.py::TestConstructor::test_single_string_nk
-  ✅     24ms (s:1ms c:23ms)  …processors/test_backfill.py::test_dry_run_returns_dataframe
-  ✅     24ms (s:0ms c:23ms)  …shStrategy::test_find_changes_no_checksum_current_in_output
-  ✅     24ms (s:0ms c:24ms)  …n_factory.py::TestMakeConnectionBasic::test_threads_applied
-  ✅     24ms (s:1ms c:23ms)  …xamples/test_datasets.py::TestAccountsSource::test_snapshot
-  ✅     24ms (s:0ms c:23ms)  …/test_datasets.py::TestGitHubIssuesSource::test_event_batch
-  ✅     24ms (s:1ms c:23ms)  …tMakeConnectionEnvFallback::test_explicit_arg_overrides_env
-  ✅     24ms (s:0ms c:23ms)  …cd.py::TestLazySKResolver::test_resolve_creates_output_view
-  ✅     24ms (s:17ms c:2ms)  …ighbors::test_neighbors_at_scd2_future_date_returns_current
-  ✅     24ms (s:0ms c:23ms)  …derStream::test_drop_view_exception_in_finally_is_swallowed
-  ✅     24ms (s:1ms c:22ms)  …ory.py::TestSnapshotStrategy::test_snapshot_model_cls_bound
-  ✅     24ms (s:0ms c:23ms)  …estLazySnapshotLoaderStream::test_on_batch_callback_invoked
-  ✅     24ms (s:13ms c:1ms)  …ld_datasets.py::TestDevicesSource::test_browser_type_values
-  ✅     24ms (s:1ms c:23ms)  …s.py::TestLazyDimensions::test_time_dimension_generate_lazy
-  ✅     24ms (s:0ms c:23ms)  …engine.py::TestNoOrphanVersions::test_passes_with_successor
-  ✅     24ms (s:1ms c:22ms)  …ema.py::TestAloadWrapper::test_transaction_loader_has_aload
-  ✅     24ms (s:1ms c:22ms)  …rocessors/test_backfill.py::test_no_change_produces_one_row
-  ✅     24ms (s:1ms c:23ms)  …s.py::TestSQLTransformPipeline::test_column_order_preserved
-  ✅     24ms (s:22ms c:1ms)  …y::TestSaaSUsersSource::test_event_batch_returns_sql_source
-  ✅     24ms (s:1ms c:22ms)  …gine.py::TestNoOrphanVersions::test_fails_orphan_historical
-  ✅     24ms (s:22ms c:1ms)  …rld_datasets.py::TestSaaSUsersSource::test_plan_tier_values
-  ✅     24ms (s:1ms c:22ms)  …py::TestMakeConnectionBasic::test_returns_duckdb_connection
-  ✅     23ms (s:1ms c:23ms)  …st_contract_engine.py::TestValueRange::test_fails_below_min
-  ✅     23ms (s:1ms c:22ms)  …t_engine.py::TestHashConsistency::test_fails_corrupted_hash
-  ✅     23ms (s:0ms c:23ms)  …SCDProcessorStream::test_max_batches_zero_processes_nothing
-  ✅     23ms (s:1ms c:23ms)  …amples/test_datasets.py::TestEmployeesSource::test_snapshot
-  ✅     23ms (s:1ms c:22ms)  …rs/test_backfill.py::test_valid_to_is_last_season_of_streak
-  ✅     23ms (s:1ms c:22ms)  …py::TestAloadWrapper::test_edge_projection_loader_has_aload
-  ✅     23ms (s:1ms c:22ms)  …RegisterSourceFromSql::test_empty_meta_cols_uses_empty_json
-  ✅     23ms (s:0ms c:22ms)  …_metadata.py::TestConstructor::test_invalid_meta_col_raises
-  ✅     23ms (s:0ms c:22ms)  …SQLTransformPipeline::test_apply_uses_default_incoming_view
-  ✅     23ms (s:1ms c:22ms)  …act_engine.py::TestContractEngine::test_elapsed_s_populated
-  ✅     23ms (s:0ms c:22ms)  …ierarchy.py::TestOrgChartSource::test_teardown_drops_tables
-  ✅     23ms (s:0ms c:22ms)  …ts/scd/test_lazy_metadata.py::TestConstructor::test_list_nk
-  ✅     23ms (s:1ms c:22ms)  …contract_engine.py::TestRegexMatch::test_fails_non_matching
-  ✅     23ms (s:0ms c:22ms)  …onPsutilFallback::test_uses_4gb_default_when_psutil_missing
-  ✅     23ms (s:0ms c:22ms)  …s.py::TestSQLTransformPipeline::test_empty_pipeline_is_noop
-  ✅     23ms (s:1ms c:21ms)  …nnectionEnvFallback::test_env_memory_limit_used_when_no_arg
-  ✅     23ms (s:1ms c:22ms)  …test_contract_engine.py::TestRowCount::test_fails_below_min
-  ✅     22ms (s:1ms c:21ms)  …engine.py::TestColumnExists::test_fails_when_column_missing
-  ✅     22ms (s:1ms c:21ms)  …dWrapper::test_snapshot_aload_raises_without_table_or_model
-  ✅     22ms (s:0ms c:20ms)  …s.py::TestLazyDimensions::test_junk_dimension_populate_lazy
-  ✅     22ms (s:1ms c:21ms)  …query/test_query.py::TestDGMQueryLegacyAPI::test_by_and_sum
-  ✅     22ms (s:1ms c:21ms)  …st_contract_engine.py::TestRegexMatch::test_passes_matching
-  ✅     22ms (s:1ms c:21ms)  …est_datasets.py::TestAccountsSource::test_snapshot_for_date
-  ✅     22ms (s:0ms c:21ms)  …tory.py::TestMakeConnectionBasic::test_connection_is_usable
-  ✅     22ms (s:1ms c:20ms)  …rocessors/test_backfill.py::test_valid_from_is_first_season
-  ✅     22ms (s:0ms c:21ms)  …py::TestMonotonicValidFrom::test_passes_strictly_increasing
-  ✅     22ms (s:2ms c:19ms)  …CountZeroBypass::test_write_changed_count_zero_returns_zero
-  ✅     22ms (s:1ms c:20ms)  …ors/test_backfill.py::test_output_contains_partition_column
-  ✅     21ms (s:1ms c:20ms)  …ProcessorStream::test_drop_stream_views_exception_swallowed
-  ✅     21ms (s:0ms c:18ms)  …ySnapshotLoaderStream::test_failed_batch_increments_counter
-  ✅     21ms (s:0ms c:20ms)  …zy_metadata.py::TestConstructor::test_invalid_nk_col_raises
-  ✅     21ms (s:1ms c:20ms)  …test_contract_engine.py::TestRowCount::test_fails_above_max
-  ✅     21ms (s:0ms c:20ms)  …ionBasic::test_preserve_insertion_order_true_when_requested
-  ✅     21ms (s:20ms c:1ms)  …world_datasets.py::TestEventsSource::test_initial_row_count
-  ✅     21ms (s:1ms c:20ms)  …_contract_engine.py::TestRowCount::test_passes_within_range
-  ✅     21ms (s:0ms c:20ms)  …dataset_units.py::TestDataset::test_setup_calls_each_source
-  ✅     20ms (s:0ms c:20ms)  …ectionBasic::test_preserve_insertion_order_false_by_default
-  ✅     20ms (s:1ms c:19ms)  …tory.py::TestMakeConnectionBasic::test_memory_limit_applied
-  ✅     20ms (s:0ms c:19ms)  …ProcessorStream::test_drop_stream_views_exception_swallowed
-  ✅     20ms (s:1ms c:19ms)  …ontract_engine.py::TestValueRange::test_passes_within_range
-  ✅     20ms (s:1ms c:19ms)  tests/core/test_utils.py::test_setup_dim_noop_when_no_setup
-  ✅     20ms (s:0ms c:19ms)  …core/test_utils.py::test_setup_dim_calls_setup_when_present
-  ✅     20ms (s:1ms c:19ms)  …edGraph::test_auto_register_registers_fact_with_two_fk_dims
-  ✅     20ms (s:2ms c:17ms)  …rld_datasets.py::TestDevicesSource::test_snapshot_row_count
-  ✅     20ms (s:0ms c:19ms)  …taset_units.py::TestDataset::test_teardown_calls_in_reverse
-  ✅     20ms (s:1ms c:18ms)  tests/graph/test_registry.py::test_graph_paths_execution
-  ✅     20ms (s:1ms c:19ms)  …py::TestProcessInvalidTableName::test_bad_table_name_raises
-  ✅     20ms (s:1ms c:18ms)  …mViewsException::test_drop_stream_views_exception_swallowed
-  ✅     19ms (s:0ms c:19ms)  …st_lazy_metadata.py::TestConstructor::test_meta_cols_sorted
-  ✅     19ms (s:1ms c:18ms)  …estOpenLineageEmitterMocked::test_emit_passes_facets_to_run
-  ✅     19ms (s:0ms c:19ms)  …ples/test_showcases.py::test_close_scd2_rows_empty_to_close
-  ✅     19ms (s:0ms c:19ms)  …ract_engine.py::TestFreshness::test_passes_recent_timestamp
-  ✅     19ms (s:0ms c:19ms)  …ProcessorStream::test_drop_stream_views_exception_swallowed
-  ✅     19ms (s:1ms c:18ms)  tests/processors/test_backfill.py::test_total_row_count
-  ✅     19ms (s:1ms c:18ms)  …_contract_engine.py::TestNoDuplicates::test_fails_duplicate
-  ✅     19ms (s:0ms c:18ms)  ….py::TestConstructor::test_creates_own_connection_when_none
-  ✅     19ms (s:1ms c:17ms)  …backfill.py::test_result_sorted_by_partition_and_valid_from
-  ✅     19ms (s:0ms c:18ms)  …ngine.py::TestColumnExists::test_passes_when_column_present
-  ✅     19ms (s:0ms c:18ms)  …actionLoaderStream::test_max_batches_zero_processes_nothing
-  ✅     19ms (s:0ms c:18ms)  …s/test_contract_engine.py::TestNoGapPeriods::test_fails_gap
-  ✅     18ms (s:0ms c:18ms)  …eNewCountZeroBypass::test_write_new_count_zero_returns_zero
-  ✅     18ms (s:1ms c:17ms)  …itterMocked::test_emit_with_column_lineage_facet_in_dataset
+  ✅    2.12s (s:1.99s c:93ms)  …l_sink.py::TestPostgreSQLSinkWrite::test_write_inserts_rows
+  ✅    979ms (s:2ms c:977ms)  …inkWriteNamed::test_write_named_inserts_only_listed_columns
+  ✅    792ms (s:1ms c:790ms)  …est_sinks.py::TestDuckDBSinkWrite::test_write_multiple_rows
+  ✅    653ms (s:1ms c:652ms)  tests/sinks/test_motherduck_sink.py::test_close_versions
+  ✅    636ms (s:1ms c:634ms)  …test_sinks.py::TestDuckDBSinkWrite::test_write_inserts_rows
+  ✅    611ms (s:0ms c:611ms)  tests/examples/test_showcases.py::test_scd_types_showcase
+  ✅    466ms (s:2ms c:464ms)  …inkWriteNamed::test_write_named_returns_zero_for_empty_view
+  ✅    410ms (s:1ms c:409ms)  tests/examples/test_showcases.py::test_composition_showcase
+  ✅    361ms (s:1ms c:360ms)  tests/examples/test_showcases.py::test_integrations_showcase
+  ✅    306ms (s:1ms c:305ms)  tests/sinks/test_motherduck_sink.py::test_write_inserts_rows
+  ✅    276ms (s:1ms c:275ms)  …sts/examples/test_showcases.py::test_fact_patterns_showcase
+  ✅    260ms (s:254ms c:4ms)  tests/scd/test_strategies.py::test_merge_updates
+  ✅    253ms (s:0ms c:252ms)  tests/cli/test_cli.py::test_example_run_nba
+  ✅    203ms (s:1ms c:202ms)  …sts/examples/test_showcases.py::test_prebuilt_dims_showcase
+  ✅    195ms (s:0ms c:195ms)  …ergSinkSizeGuard::test_close_versions_raises_when_too_large
+  ✅    187ms (s:184ms c:1ms)  tests/scd/test_strategies.py::test_upsert_inserts_new
+  ✅    177ms (s:1ms c:176ms)  tests/examples/test_showcases.py::test_fintech_showcase
+  ✅    177ms (s:41ms c:121ms)  …nkCloseVersions::test_close_versions_marks_is_current_false
+  ✅    174ms (s:42ms c:118ms)  …dateAttributes::test_update_attributes_modifies_current_row
+  ✅    167ms (s:161ms c:4ms)  tests/scd/test_strategies.py::test_bulk_insert
+  ✅    160ms (s:40ms c:106ms)  …LSinkRotateAttributes::test_rotate_attributes_shifts_column
+  ✅    159ms (s:39ms c:106ms)  …dateMilestones::test_update_milestones_fills_null_milestone
+  ✅    158ms (s:1ms c:157ms)  ….py::TestDeltaLakeSinkCurrentStateSql::test_real_delta_read
+  ✅    158ms (s:143ms c:12ms)  tests/scd/test_strategies.py::test_merge_inserts
+  ✅    156ms (s:154ms c:1ms)  tests/scd/test_scd.py::test_backfill_scd2_dry_run
+  ✅    156ms (s:151ms c:3ms)  tests/scd/test_strategies.py::test_upsert_updates_existing
+  ✅    155ms (s:131ms c:23ms)  …s/test_scd_engine.py::test_narwhals_sk_resolver_as_of_logic
+  ✅    153ms (s:0ms c:3ms)  …kaSourceFallback::test_stream_consumer_skips_error_messages
+  ✅    152ms (s:0ms c:152ms)  …SinkSizeGuard::test_update_attributes_raises_when_too_large
+  ✅    151ms (s:1ms c:150ms)  tests/examples/test_showcases.py::test_supply_chain_showcase
+  ✅    149ms (s:1ms c:148ms)  …y::TestDuckDBSinkWriteNamed::test_write_named_multiple_rows
+  ✅    147ms (s:1ms c:146ms)  tests/examples/test_showcases.py::test_ecommerce_showcase
+  ✅    146ms (s:119ms c:25ms)  tests/loaders/test_loaders.py::test_loader_strategies
+  ✅    144ms (s:36ms c:90ms)  …y::TestPostgreSQLSinkWrite::test_write_returns_source_count
+  ✅    143ms (s:135ms c:7ms)  tests/scd/test_scd.py::test_scd_lifecycle
+  ✅    140ms (s:137ms c:2ms)  tests/scd/test_scd.py::test_backfill_scd2_non_dry_run
+  ✅    139ms (s:0ms c:138ms)  tests/cli/test_cli.py::test_example_run_user_activity
+  ✅    135ms (s:131ms c:2ms)  …scd.py::TestSCDHandlerMissingLines::test_scd6_metadata_diff
+  ✅    132ms (s:130ms c:0ms)  tests/scd/test_strategies.py::test_upsert_empty_records
+  ✅    131ms (s:127ms c:2ms)  …ts/scd/test_strategies.py::test_upsert_conflict_only_record
+  ✅    130ms (s:123ms c:6ms)  …cd.py::TestSCDHandlerMissingLines::test_scd_type1_overwrite
+  ✅    130ms (s:123ms c:6ms)  …_junk_dimension.py::test_populate_junk_dimension_idempotent
+  ✅    130ms (s:37ms c:77ms)  …kContextManager::test_context_manager_attaches_and_detaches
+  ✅    129ms (s:128ms c:0ms)  …TestSCDHandlerMissingLines::test_get_dim_meta_missing_field
+  ✅    129ms (s:122ms c:7ms)  …sors/test_sk_resolver.py::test_resolve_joins_and_returns_sk
+  ✅    129ms (s:125ms c:3ms)  tests/query/test_query.py::test_query_sum_by_dimension
+  ✅    128ms (s:119ms c:8ms)  …s/test_loaders.py::test_dimensional_load_with_sk_resolution
+  ✅    126ms (s:124ms c:1ms)  …:TestAccumulatingStrategy::test_missing_match_column_raises
+  ✅    125ms (s:122ms c:2ms)  …s/loaders/test_snapshot.py::test_snapshot_custom_date_field
+  ✅    125ms (s:119ms c:4ms)  …s/loaders/test_snapshot.py::test_snapshot_load_inserts_rows
+  ✅    125ms (s:120ms c:3ms)  …ders/test_loaders.py::test_loader_accumulating_branch_final
+  ✅    125ms (s:123ms c:1ms)  …ndlerMissingLines::test_get_dim_meta_json_schema_extra_dict
+  ✅    124ms (s:1ms c:123ms)  tests/examples/test_showcases.py::test_graph_showcase
+  ✅    123ms (s:120ms c:2ms)  tests/loaders/test_snapshot.py::test_snapshot_date_injected
+  ✅    123ms (s:1ms c:122ms)  …sts/examples/test_showcases.py::test_user_activity_showcase
+  ✅    122ms (s:120ms c:1ms)  …TestSCDHandlerMissingLines::test_get_dim_meta_no_get_method
+  ✅    122ms (s:116ms c:5ms)  tests/loaders/test_accumulating.py::test_accumulating_insert
+  ✅    122ms (s:119ms c:1ms)  tests/loaders/test_snapshot.py::test_snapshot_empty_records
+  ✅    122ms (s:117ms c:4ms)  tests/loaders/test_loaders.py::test_sk_resolver_cache
+  ✅    122ms (s:115ms c:6ms)  …raph/test_registry.py::test_graph_registry_multi_edge_error
+  ✅    121ms (s:116ms c:4ms)  …rs/test_accumulating.py::test_accumulating_update_milestone
+  ✅    121ms (s:110ms c:9ms)  …nsions/test_junk_dimension.py::test_populate_junk_dimension
+  ✅    121ms (s:0ms c:121ms)  …factory.py::TestDimensionAsLoader::test_returns_scd_handler
+  ✅    121ms (s:1ms c:119ms)  …DeltaLakeSinkDeepResearch::test_enter_calls_make_connection
+  ✅    121ms (s:9ms c:112ms)  …MotherDuckSinkPrefetchHashes::test_empty_table_returns_zero
+  ✅    120ms (s:115ms c:4ms)  …est_accumulating.py::test_accumulating_non_milestone_update
+  ✅    120ms (s:0ms c:120ms)  tests/cli/test_cli.py::test_example_run_saas
+  ✅    118ms (s:1ms c:117ms)  …stAloadWrapper::test_scd_handler_aload_is_alias_for_process
+  ✅    118ms (s:0ms c:118ms)  …actory.py::TestDimensionAsLoader::test_infers_track_columns
+  ✅    117ms (s:112ms c:4ms)  …/loaders/test_loaders.py::test_sk_resolution_missing_member
+  ✅    116ms (s:0ms c:116ms)  …estDimensionAsLoader::test_explicit_track_columns_respected
+  ✅    116ms (s:114ms c:1ms)  …s/graph/test_registry.py::test_graph_registry_no_edge_error
+  ✅    116ms (s:0ms c:115ms)  …ineage.py::TestExtractSqlLineage::test_parses_simple_select
+  ✅    116ms (s:102ms c:12ms)  …t_registry.py::test_graph_registry_assert_edge_unregistered
+  ✅    114ms (s:109ms c:4ms)  …mulating.py::test_accumulating_does_not_overwrite_milestone
+  ✅    112ms (s:0ms c:111ms)  …ons/test_time_dimension.py::test_generate_creates_1440_rows
+  ✅    112ms (s:1ms c:111ms)  …and_schema.py::TestAloadWrapper::test_scd_handler_has_aload
+  ✅    110ms (s:1ms c:108ms)  …riftObservatoryFromPath::test_from_path_opens_existing_file
+  ✅    109ms (s:1ms c:108ms)  …g_sink.py::test_enter_falls_back_to_install_when_load_fails
+  ✅    108ms (s:91ms c:15ms)  …/dimensions/test_kimball_extended.py::test_scd_type6_hybrid
+  ✅    106ms (s:1ms c:104ms)  …sts/examples/test_showcases.py::test_nba_analytics_showcase
+  ✅    105ms (s:2ms c:103ms)  …uckDBSinkRotateAttributes::test_rotates_current_to_previous
+  ✅    104ms (s:1ms c:103ms)  tests/examples/test_showcases.py::test_saas_growth_showcase
+  ✅    102ms (s:0ms c:102ms)  …tDatasetSourceAsSql::test_multiple_datasets_same_connection
+  ✅    102ms (s:0ms c:102ms)  …_iceberg_sink.py::test_context_manager_sets_catalog_and_con
+  ✅    101ms (s:99ms c:2ms)  …/test_resolution.py::test_infer_missing_creates_placeholder
+  ✅    100ms (s:88ms c:11ms)  tests/examples/test_nba_pipeline.py::test_nba_full_pipeline
+  ✅     98ms (s:90ms c:5ms)  …olution.py::test_infer_missing_sets_scd2_temporal_fallbacks
+  ✅     97ms (s:1ms c:96ms)  …oryFromPath::test_from_path_creates_file_backed_observatory
+  ✅     94ms (s:1ms c:93ms)  …sts/examples/test_showcases.py::test_observability_showcase
+  ✅     93ms (s:84ms c:8ms)  …imensions/test_hybrid_scd.py::test_scd_handler_jsonb_change
+  ✅     92ms (s:89ms c:4ms)  …sts/dimensions/test_dimensions.py::test_generate_date_range
+  ✅     92ms (s:84ms c:7ms)  …imensions/test_kimball_extended.py::test_scd_type3_rotation
+  ✅     92ms (s:90ms c:1ms)  tests/core/test_resolution.py::test_resolve_hits_db
+  ✅     90ms (s:2ms c:88ms)  …TestMotherDuckSinkPrefetchHashes::test_hash_cache_populated
+  ✅     86ms (s:1ms c:84ms)  …ckDBSinkUpdateMilestones::test_does_not_overwrite_with_null
+  ✅     85ms (s:3ms c:82ms)  …nit::test_current_state_sql_uses_local_table_after_prefetch
+  ✅     85ms (s:2ms c:82ms)  …fetchHashesUnit::test_prefetch_with_existing_con_uses_alias
+  ✅     82ms (s:1ms c:81ms)  …::TestNarwhalsSCDProcessor::test_process_with_pandas_source
+  ✅     82ms (s:1ms c:80ms)  …estMotherDuckSinkPrefetchHashes::test_returns_count_of_rows
+  ✅     80ms (s:1ms c:78ms)  …TestDuckDBSinkUpdateAttributes::test_updates_tracked_column
+  ✅     79ms (s:2ms c:78ms)  …uckDBSinkUpdateMilestones::test_patches_non_null_milestones
+  ✅     79ms (s:2ms c:77ms)  …uckDBSinkCloseVersions::test_non_matching_rows_stay_current
+  ✅     79ms (s:1ms c:77ms)  …ckDBSinkCloseVersions::test_marks_matching_rows_not_current
+  ✅     78ms (s:1ms c:76ms)  …:TestMotherDuckSinkPrefetchHashes::test_creates_local_table
+  ✅     77ms (s:2ms c:75ms)  …PrefetchHashesUnit::test_prefetch_no_con_uses_postgres_scan
+  ✅     76ms (s:0ms c:76ms)  tests/examples/test_showcases.py::test_hierarchy_showcase
+  ✅     76ms (s:1ms c:75ms)  …nkDeepResearch::test_write_per_thread_output_param_accepted
+  ✅     76ms (s:2ms c:73ms)  …::test_current_state_sql_returns_local_table_after_prefetch
+  ✅     75ms (s:1ms c:73ms)  …refetchHashesUnit::test_hash_cache_populated_after_prefetch
+  ✅     75ms (s:2ms c:72ms)  …uckDBSinkPrefetchHashes::test_prefetch_with_custom_hash_col
+  ✅     74ms (s:1ms c:73ms)  …cessor::test_base_dim_has_two_versions_after_profile_change
+  ✅     73ms (s:2ms c:72ms)  …uckDBSinkPrefetchHashes::test_prefetch_only_is_current_rows
+  ✅     73ms (s:1ms c:71ms)  …:TestDuckDBSinkUpsert::test_upsert_inserts_new_combinations
+  ✅     72ms (s:2ms c:70ms)  …Hashes::test_current_state_sql_returns_local_after_prefetch
+  ✅     72ms (s:1ms c:70ms)  …y::TestDuckDBSinkPrefetchHashes::test_returns_count_of_rows
+  ✅     70ms (s:1ms c:69ms)  …pResearch::test_write_per_thread_output_true_does_not_crash
+  ✅     69ms (s:1ms c:68ms)  …asets.py::TestGitHubIssuesSource::test_seed_staging_updated
+  ✅     68ms (s:1ms c:67ms)  …stDuckDBSinkUpsert::test_upsert_does_not_duplicate_existing
+  ✅     68ms (s:1ms c:66ms)  …test_datasets.py::TestGitHubIssuesSource::test_seed_staging
+  ✅     68ms (s:1ms c:66ms)  …::TestDuckDBSinkContextManager::test_exit_closes_connection
+  ✅     66ms (s:2ms c:64ms)  …TestDuckDBSinkPrefetchHashes::test_empty_table_returns_zero
+  ✅     66ms (s:1ms c:64ms)  …s.py::TestDuckDBSinkContextManager::test_enter_returns_sink
+  ✅     62ms (s:1ms c:61ms)  ….py::TestDuckDBSinkPrefetchHashes::test_creates_local_table
+  ✅     62ms (s:1ms c:60ms)  …DBSinkContextManager::test_database_attached_inside_context
+  ✅     61ms (s:0ms c:60ms)  …essor::test_current_profile_sk_updated_when_profile_changes
+  ✅     60ms (s:0ms c:60ms)  …5Processor::test_current_profile_sk_set_even_when_unchanged
+  ✅     59ms (s:1ms c:58ms)  …motherduck_sink.py::test_upsert_skips_existing_combinations
+  ✅     59ms (s:48ms c:10ms)  …e.py::TestDatasetSourceAsSql::test_returns_qualified_select
+  ✅     59ms (s:1ms c:57ms)  …st_motherduck_sink.py::test_upsert_inserts_new_combinations
+  ✅     58ms (s:1ms c:58ms)  …pe6CrossBatchUpdates::test_type1_only_change_then_unchanged
+  ✅     57ms (s:1ms c:56ms)  …azyType6CrossBatchUpdates::test_type2_change_then_unchanged
+  ✅     56ms (s:0ms c:55ms)  …halsSCDProcessor::test_idempotency_second_run_all_unchanged
+  ✅     56ms (s:1ms c:54ms)  tests/sinks/test_motherduck_sink.py::test_rotate_attributes
+  ✅     55ms (s:1ms c:53ms)  tests/sinks/test_motherduck_sink.py::test_update_attributes
+  ✅     54ms (s:0ms c:54ms)  …yType4Processor::test_mini_dim_not_duplicated_on_second_run
+  ✅     54ms (s:42ms c:11ms)  ….py::TestDatasetSourceAsSql::test_sql_actually_returns_rows
+  ✅     53ms (s:42ms c:11ms)  …y::TestDatasetSourceAsSql::test_alias_derived_from_filename
+  ✅     53ms (s:0ms c:52ms)  …zyType4Processor::test_changed_profile_triggers_new_version
+  ✅     53ms (s:1ms c:52ms)  …:TestLazyType4Processor::test_unchanged_row_stays_unchanged
+  ✅     52ms (s:0ms c:52ms)  …ocessorStream::test_accumulated_result_across_three_batches
+  ✅     52ms (s:1ms c:50ms)  tests/sinks/test_motherduck_sink.py::test_update_milestones
+  ✅     52ms (s:41ms c:10ms)  …t_source.py::TestDatasetSourceAsSql::test_attach_idempotent
+  ✅     48ms (s:1ms c:47ms)  …tLazySCDProcessorStream::test_max_batches_limits_processing
+  ✅     46ms (s:1ms c:45ms)  …Type6ProcessorStream::test_type2_change_creates_new_version
+  ✅     44ms (s:1ms c:43ms)  …tiBatch::test_cross_batch_change_detection_via_local_hashes
+  ✅     44ms (s:0ms c:44ms)  …rossBatchUpdates::test_third_batch_sees_second_batch_change
+  ✅     44ms (s:0ms c:43ms)  …metadata.py::TestProcessChanged::test_multiple_changed_rows
+  ✅     43ms (s:2ms c:40ms)  …estDuckDBSinkDeepResearch::test_enter_calls_make_connection
+  ✅     42ms (s:0ms c:42ms)  tests/sinks/test_iceberg_sink.py::test_update_milestones
+  ✅     41ms (s:1ms c:37ms)  …rocessorStream::test_failed_batch_increments_batches_failed
+  ✅     39ms (s:0ms c:39ms)  …essorStream::test_commit_called_after_each_successful_batch
+  ✅     39ms (s:1ms c:38ms)  …CDProcessorStream::test_second_batch_changed_rows_versioned
+  ✅     38ms (s:0ms c:38ms)  …DProcessorStream::test_on_batch_called_per_successful_batch
+  ✅     38ms (s:0ms c:38ms)  …atchUpdates::test_changed_nk_in_batch2_re_changed_in_batch3
+  ✅     37ms (s:1ms c:37ms)  …TestLazyType5Processor::test_new_row_has_current_profile_sk
+  ✅     37ms (s:0ms c:37ms)  …e1ProcessorStream::test_second_batch_overwrites_changed_row
+  ✅     37ms (s:0ms c:36ms)  …_type4_5.py::TestLazyType4Processor::test_new_rows_inserted
+  ✅     36ms (s:0ms c:35ms)  …s/test_iceberg_sink.py::test_close_versions_noop_when_empty
+  ✅     36ms (s:0ms c:35ms)  …engine.py::test_narwhals_scd_processor_no_is_current_column
+  ✅     36ms (s:0ms c:35ms)  …ft.py::TestGoldLayerQueries::test_rule_failure_heatmap_runs
+  ✅     36ms (s:0ms c:35ms)  …ft.py::TestTransaction::test_transaction_commits_on_success
+  ✅     35ms (s:1ms c:34ms)  …py::TestLazyType5Processor::test_inherits_type4_result_keys
+  ✅     35ms (s:0ms c:35ms)  …estLazyType4Processor::test_profile_sk_attached_to_base_row
+  ✅     35ms (s:1ms c:34ms)  …:TestLazyType3ProcessorStream::test_batches_processed_count
+  ✅     35ms (s:0ms c:34ms)  ….py::TestProcessUnchanged::test_mixed_new_changed_unchanged
+  ✅     34ms (s:31ms c:3ms)  tests/cli/test_cli.py::test_no_subcommand_returns_1
+  ✅     34ms (s:0ms c:34ms)  …ltiBatch::test_second_batch_changed_row_creates_new_version
+  ✅     34ms (s:0ms c:34ms)  ….py::TestGoldLayerQueries::test_worst_quality_datasets_runs
+  ✅     34ms (s:0ms c:34ms)  …s.py::TestDGMShowcaseSource::test_teardown_drops_all_tables
+  ✅     34ms (s:0ms c:30ms)  …FailurePaths::test_failed_batch_does_not_halt_later_batches
+  ✅     34ms (s:1ms c:32ms)  …etSinkCloseVersions::test_close_versions_rewrites_partition
+  ✅     34ms (s:0ms c:33ms)  …stGoldLayerQueries::test_quality_score_trend_returns_result
+  ✅     33ms (s:0ms c:32ms)  …ceptionSwallowed::test_drop_view_failure_does_not_propagate
+  ✅     33ms (s:0ms c:32ms)  …LazyType4Processor::test_mini_dim_deduplicates_same_profile
+  ✅     32ms (s:0ms c:32ms)  ….py::TestLazyType4Processor::test_process_returns_dict_keys
+  ✅     32ms (s:1ms c:31ms)  …yType4Processor::test_multiple_customers_different_profiles
+  ✅     32ms (s:1ms c:31ms)  …tLazyType3ProcessorStream::test_second_batch_rotates_region
+  ✅     32ms (s:0ms c:32ms)  …_5.py::TestLazyType4Processor::test_mini_dim_rows_populated
+  ✅     32ms (s:1ms c:31ms)  …test_drift.py::TestUpsertDbCacheHit::test_rule_db_cache_hit
+  ✅     32ms (s:1ms c:31ms)  …pe6ProcessorStream::test_deduplicate_by_keeps_latest_per_nk
+  ✅     32ms (s:0ms c:31ms)  …ProcessStreamMultiBatch::test_max_batches_limits_processing
+  ✅     32ms (s:1ms c:30ms)  …y::TestDuckDBSinkDeepResearch::test_enter_sets_memory_limit
+  ✅     32ms (s:0ms c:31ms)  …ft.py::TestGoldLayerQueries::test_breaking_change_rate_runs
+  ✅     32ms (s:1ms c:31ms)  …drift.py::TestGoldLayerQueries::test_migration_backlog_runs
+  ✅     32ms (s:0ms c:31ms)  …py::TestProcessChanged::test_old_version_marked_not_current
+  ✅     32ms (s:1ms c:30ms)  …est_iceberg_sink.py::test_close_versions_updates_is_current
+  ✅     32ms (s:0ms c:31ms)  …y::TestProcessChanged::test_changed_row_creates_new_version
+  ✅     32ms (s:0ms c:31ms)  …estProcessChanged::test_metadata_diff_captures_old_metadata
+  ✅     31ms (s:1ms c:31ms)  …st_drift.py::TestGoldLayerQueries::test_drift_velocity_runs
+  ✅     31ms (s:0ms c:31ms)  …rocessCompositeKey::test_composite_nk_changed_row_versioned
+  ✅     31ms (s:0ms c:30ms)  …ions/test_hybrid_scd.py::test_narwhals_scd_jsonb_vectorized
+  ✅     31ms (s:0ms c:30ms)  …:TestLazySCDProcessorStream::test_single_batch_all_new_rows
+  ✅     31ms (s:0ms c:30ms)  …s.py::TestLazyAccumulatingLoader::test_mixed_new_and_update
+  ✅     30ms (s:1ms c:30ms)  …zyBackfillScd2::test_creates_new_connection_when_none_given
+  ✅     30ms (s:0ms c:30ms)  …AccumulatingLoader::test_existing_rows_updated_not_inserted
+  ✅     30ms (s:0ms c:29ms)  …lyReturn::test_ingest_quality_with_violations_returns_count
+  ✅     29ms (s:1ms c:28ms)  …azyType6ProcessorStream::test_single_batch_inserts_new_rows
+  ✅     29ms (s:1ms c:28ms)  …TestLazyType6ProcessorStream::test_on_batch_callback_called
+  ✅     29ms (s:0ms c:28ms)  …ders.py::TestLazyAccumulatingLoader::test_new_rows_inserted
+  ✅     29ms (s:1ms c:28ms)  …/test_drift.py::TestUpsertDbCacheHit::test_run_db_cache_hit
+  ✅     29ms (s:1ms c:28ms)  …t_drift.py::TestUpsertDbCacheHit::test_dataset_db_cache_hit
+  ✅     29ms (s:3ms c:26ms)  …::TestPlayerSeasonsSource::test_event_batch_advances_season
+  ✅     29ms (s:0ms c:28ms)  …rlyReturn::test_ingest_evolution_with_changes_returns_count
+  ✅     28ms (s:0ms c:28ms)  …rocessorStream::test_deduplicate_by_none_preserves_all_rows
+  ✅     28ms (s:1ms c:27ms)  …tProcessNowParameter::test_explicit_now_used_for_valid_from
+  ✅     28ms (s:1ms c:26ms)  …otherDuckSinkDeepResearch::test_enter_calls_make_connection
+  ✅     28ms (s:1ms c:27ms)  …SCDProcessorStream::test_deduplicate_by_keeps_latest_per_nk
+  ✅     28ms (s:1ms c:26ms)  …/sinks/test_iceberg_sink.py::test_write_appends_arrow_batch
+  ✅     28ms (s:1ms c:27ms)  …::TestLazyBackfillScd2::test_result_has_valid_from_valid_to
+  ✅     28ms (s:1ms c:27ms)  …TestLazyType6ProcessorStream::test_max_batches_limits_type6
+  ✅     27ms (s:0ms c:27ms)  …treamEmptyMetaCols::test_no_meta_cols_cross_batch_unchanged
+  ✅     27ms (s:1ms c:26ms)  …:TestLazyType6ProcessorStream::test_batches_processed_count
+  ✅     27ms (s:1ms c:26ms)  …estMotherDuckSinkDeepResearch::test_enter_sets_memory_limit
+  ✅     27ms (s:0ms c:27ms)  …:TestLazyType1Processor::test_changed_rows_updated_in_place
+  ✅     27ms (s:1ms c:26ms)  …LazyType6Processor::test_type1_only_change_updates_in_place
+  ✅     27ms (s:1ms c:26ms)  …stLazyType6Processor::test_type2_change_creates_new_version
+  ✅     27ms (s:0ms c:26ms)  …tiBatch::test_on_batch_callback_called_per_successful_batch
+  ✅     27ms (s:0ms c:26ms)  …stProcessStreamMultiBatch::test_second_batch_unchanged_rows
+  ✅     26ms (s:1ms c:26ms)  …tDropStreamViews::test_classified_table_absent_after_stream
+  ✅     26ms (s:0ms c:26ms)  …py::TestLazySCDProcessorStream::test_unchanged_rows_counted
+  ✅     26ms (s:0ms c:26ms)  …:TestCompactor::test_compact_real_parquet_with_partition_by
+  ✅     26ms (s:0ms c:25ms)  …ransactionLoaderStream::test_commit_called_after_each_batch
+  ✅     26ms (s:0ms c:25ms)  ….py::TestLazySCDProcessorStream::test_composite_natural_key
+  ✅     25ms (s:0ms c:25ms)  …y_scd.py::TestLazySCDProcessor::test_changed_rows_versioned
+  ✅     25ms (s:0ms c:25ms)  …y_scd.py::TestLazySCDProcessor::test_unchanged_rows_counted
+  ✅     25ms (s:0ms c:25ms)  …TestDropStreamViews::test_incoming_view_absent_after_stream
+  ✅     25ms (s:1ms c:22ms)  …tionLoaderStream::test_failed_batch_does_not_halt_remaining
+  ✅     25ms (s:1ms c:24ms)  …azyType1ProcessorStream::test_single_batch_inserts_new_rows
+  ✅     25ms (s:0ms c:24ms)  …lazy_scd.py::TestLazyType6Processor::test_unchanged_counted
+  ✅     25ms (s:4ms c:20ms)  …d_datasets.py::TestSaaSUsersSource::test_setup_and_teardown
+  ✅     25ms (s:0ms c:24ms)  …lazy_scd.py::TestLazyType6Processor::test_new_rows_inserted
+  ✅     24ms (s:1ms c:24ms)  …TestLazyType1ProcessorStream::test_max_batches_limits_type1
+  ✅     24ms (s:0ms c:24ms)  …lazy_scd.py::TestLazyType1Processor::test_new_rows_inserted
+  ✅     24ms (s:1ms c:23ms)  …t_lazy_scd.py::TestLazySCDProcessor::test_new_rows_inserted
+  ✅     24ms (s:0ms c:24ms)  …pe1ProcessorStream::test_deduplicate_by_keeps_latest_per_nk
+  ✅     24ms (s:0ms c:23ms)  …ine.py::TestNarwhalsSCDProcessor::test_process_custom_as_of
+  ✅     24ms (s:1ms c:23ms)  …/test_iceberg_sink.py::test_write_raises_on_missing_pyarrow
+  ✅     24ms (s:0ms c:24ms)  …/processors/test_backfill.py::test_works_with_pandas_source
+  ✅     24ms (s:3ms c:21ms)  …tasets.py::TestPlayerSeasonsSource::test_setup_and_teardown
+  ✅     24ms (s:0ms c:24ms)  …y_loaders.py::TestLazyBackfillScd2::test_produces_scd2_rows
+  ✅     24ms (s:1ms c:23ms)  …TestLazyType3ProcessorStream::test_on_batch_callback_called
+  ✅     24ms (s:0ms c:23ms)  …::TestTransaction::test_transaction_rolls_back_on_exception
+  ✅     24ms (s:1ms c:23ms)  …estLazyType3Processor::test_changed_row_rotates_to_previous
+  ✅     24ms (s:1ms c:23ms)  …dPaths::test_write_changed_with_is_inferred_in_target_table
+  ✅     24ms (s:0ms c:23ms)  …estProcessStreamSingleBatch::test_single_batch_all_new_rows
+  ✅     23ms (s:0ms c:23ms)  …sSCDProcessor::test_process_to_close_and_to_insert_attached
+  ✅     23ms (s:0ms c:23ms)  …scd.py::TestLazySCDProcessor::test_new_row_has_scd_metadata
+  ✅     23ms (s:2ms c:21ms)  …est_motherduck_sink.py::test_exit_silences_detach_exception
+  ✅     23ms (s:1ms c:22ms)  …estGoldLayerQueries::test_quality_score_trend_empty_dataset
+  ✅     23ms (s:0ms c:23ms)  …tLazyEdgeProjectionLoader::test_self_join_with_property_map
+  ✅     23ms (s:1ms c:22ms)  …estLazyType1ProcessorStream::test_on_batch_callback_invoked
+  ✅     23ms (s:0ms c:22ms)  …s.py::TestLazyBackfillScd2::test_groups_consecutive_streaks
+  ✅     23ms (s:0ms c:22ms)  …LazyTransactionLoaderStream::test_on_batch_callback_invoked
+  ✅     23ms (s:0ms c:22ms)  …t_datasets.py::TestMoviesSource::test_custom_setup_teardown
+  ✅     23ms (s:1ms c:22ms)  …scd.py::TestLazyType1Processor::test_unchanged_rows_counted
+  ✅     23ms (s:2ms c:21ms)  …y::TestTransactionsSource::test_event_batch_changes_amounts
+  ✅     23ms (s:3ms c:20ms)  …orld_datasets.py::TestEventsSource::test_setup_and_teardown
+  ✅     23ms (s:0ms c:22ms)  …tProcessUnchanged::test_unchanged_does_not_create_duplicate
+  ✅     22ms (s:1ms c:22ms)  …arlyReturn::test_ingest_evolution_empty_report_returns_zero
+  ✅     22ms (s:1ms c:22ms)  …EarlyReturn::test_ingest_quality_no_violations_returns_zero
+  ✅     22ms (s:1ms c:22ms)  …rocessCompositeKey::test_composite_nk_unchanged_row_counted
+  ✅     22ms (s:1ms c:22ms)  …lazy_scd.py::TestLazyType3Processor::test_unchanged_counted
+  ✅     22ms (s:2ms c:20ms)  …quetSinkCloseVersions::test_close_versions_returns_nk_count
+  ✅     22ms (s:0ms c:22ms)  …TestLazyType3ProcessorStream::test_max_batches_limits_type3
+  ✅     22ms (s:1ms c:21ms)  …tadata.py::TestProcessUnchanged::test_unchanged_row_counted
+  ✅     22ms (s:1ms c:21ms)  …pe3ProcessorStream::test_deduplicate_by_keeps_latest_per_nk
+  ✅     22ms (s:0ms c:21ms)  …s/test_migrations.py::test_introspect_returns_current_state
+  ✅     22ms (s:0ms c:21ms)  …MetadataColumns::test_empty_metadata_unchanged_on_reprocess
+  ✅     22ms (s:0ms c:21ms)  …eProjectionLoader::test_direct_projection_with_property_map
+  ✅     22ms (s:1ms c:20ms)  …t_motherduck_sink.py::test_context_manager_opens_and_closes
+  ✅     22ms (s:2ms c:19ms)  …UpdateAttributes::test_update_attributes_rewrites_partition
+  ✅     21ms (s:1ms c:20ms)  …ta.py::TestProcessNullNk::test_null_nk_row_silently_dropped
+  ✅     21ms (s:0ms c:20ms)  …zyEdgeProjectionLoader::test_direct_projection_edge_columns
+  ✅     21ms (s:0ms c:20ms)  …ns/test_migrations.py::test_introspect_parses_nk_from_index
+  ✅     21ms (s:0ms c:20ms)  …estLazySCDInferredPaths::test_reconnect_emits_lineage_event
+  ✅     21ms (s:0ms c:20ms)  tests/core/test_utils.py::test_tmp_db_yields_valid_path
+  ✅     21ms (s:0ms c:20ms)  …st_datasets.py::TestProductsSource::test_setup_and_teardown
+  ✅     21ms (s:2ms c:18ms)  …etSinkWriteNamed::test_write_named_writes_subset_of_columns
+  ✅     21ms (s:0ms c:20ms)  …azyType3ProcessorStream::test_single_batch_inserts_new_rows
+  ✅     20ms (s:1ms c:19ms)  …rld_datasets.py::TestDevicesSource::test_setup_and_teardown
+  ✅     20ms (s:1ms c:19ms)  …quetStreamSourceStream::test_fragment_excludes_rowid_column
+  ✅     20ms (s:2ms c:18ms)  …::TestParquetSinkWriteNamed::test_write_named_multiple_rows
+  ✅     20ms (s:3ms c:17ms)  …orld_datasets.py::TestEventsSource::test_snapshot_row_count
+  ✅     20ms (s:11ms c:7ms)  …sal.py::TestDuckDBTraversalEngine::test_register_paths_view
+  ✅     20ms (s:1ms c:19ms)  …reamNowParameter::test_custom_now_string_used_in_valid_from
+  ✅     20ms (s:11ms c:7ms)  …y::TestDuckDBTraversalEngine::test_paths_returns_path_lists
+  ✅     20ms (s:1ms c:19ms)  …ateAttributes::test_update_attributes_updates_multiple_cols
+  ✅     20ms (s:0ms c:19ms)  …data.py::TestProcessAllNew::test_multiple_new_rows_inserted
+  ✅     20ms (s:0ms c:19ms)  …tLazyCumulativeLoader::test_existing_player_carried_forward
+  ✅     20ms (s:0ms c:19ms)  ….py::TestLazyBitmaskLoader::test_aload_delegates_to_process
+  ✅     20ms (s:1ms c:19ms)  …aders.py::TestLazyBackfillScd2::test_accepts_source_adapter
+  ✅     20ms (s:0ms c:19ms)  …StreamMultiBatch::test_commit_called_after_successful_batch
+  ✅     20ms (s:0ms c:19ms)  …:TestProcessAllNew::test_metadata_diff_is_null_for_new_rows
+  ✅     20ms (s:1ms c:18ms)  …UpdateMilestones::test_update_milestones_rewrites_partition
+  ✅     20ms (s:0ms c:19ms)  …derStream::test_two_batches_written_with_same_snapshot_date
+  ✅     20ms (s:1ms c:18ms)  …CSVStreamSourceStream::test_all_rows_covered_across_batches
+  ✅     19ms (s:0ms c:19ms)  …ingleBatch::test_single_batch_accumulates_all_result_fields
+  ✅     19ms (s:0ms c:19ms)  …derStream::test_drop_view_exception_in_finally_is_swallowed
+  ✅     19ms (s:1ms c:18ms)  …azyTransactionLoaderStream::test_returns_stream_result_type
+  ✅     19ms (s:0ms c:19ms)  …ssStreamEmptyMetaCols::test_no_meta_cols_inserts_empty_json
+  ✅     19ms (s:0ms c:19ms)  …y::TestProcessNowParameter::test_none_now_uses_current_time
+  ✅     19ms (s:0ms c:19ms)  tests/sinks/test_iceberg_sink.py::test_rotate_attributes
+  ✅     19ms (s:1ms c:16ms)  …sactionLoaderStream::test_commit_not_called_on_failed_batch
+  ✅     19ms (s:0ms c:19ms)  …etadata.py::TestProcessAllNew::test_single_new_row_inserted
+  ✅     19ms (s:0ms c:19ms)  …:TestLazyArrayMetricLoader::test_aload_delegates_to_process
+  ✅     19ms (s:16ms c:3ms)  …st_dgm_query.py::TestDGMQueryB1::test_b1_path_pred_in_where
+  ✅     19ms (s:1ms c:19ms)  …stLazyType3Processor::test_new_rows_inserted_with_null_prev
+  ✅     19ms (s:0ms c:19ms)  …sts/examples/test_datasets.py::TestOrdersSource::test_setup
+  ✅     19ms (s:0ms c:19ms)  tests/sinks/test_iceberg_sink.py::test_update_attributes
+  ✅     19ms (s:0ms c:18ms)  …jectionLoader::test_self_join_generates_player_player_edges
+  ✅     19ms (s:4ms c:15ms)  …d_datasets.py::TestSaaSUsersSource::test_snapshot_row_count
+  ✅     19ms (s:0ms c:19ms)  …ples/test_datasets.py::TestMoviesSource::test_cast_snapshot
+  ✅     19ms (s:1ms c:18ms)  tests/sinks/test_motherduck_sink.py::test_current_state_sql
+  ✅     19ms (s:0ms c:18ms)  …_datasets.py::TestSchematicSource::test_setup_creates_table
+  ✅     19ms (s:0ms c:18ms)  …e.py::TestNarwhalsSCDProcessor::test_process_counts_correct
+  ✅     19ms (s:0ms c:18ms)  …amples/test_datasets.py::TestDatasetFactory::test_setup_all
+  ✅     19ms (s:4ms c:15ms)  …s.py::TestPlayerSeasonsSource::test_snapshot_has_key_fields
+  ✅     19ms (s:1ms c:17ms)  …RotateAttributes::test_rotate_attributes_rewrites_partition
+  ✅     19ms (s:3ms c:16ms)  …tasets.py::TestPlayerSeasonsSource::test_snapshot_row_count
+  ✅     19ms (s:0ms c:18ms)  …st_migrations.py::test_introspect_nonexistent_table_skipped
+  ✅     19ms (s:0ms c:18ms)  …asets.py::TestBaseSource::test_default_teardown_drops_table
+  ✅     19ms (s:1ms c:17ms)  …uetStreamSourceStream::test_all_rows_covered_across_batches
+  ✅     19ms (s:0ms c:18ms)  …::TestNarwhalsSCDProcessor::test_process_returns_scd_result
+  ✅     19ms (s:0ms c:18ms)  …azyTransactionLoaderStream::test_max_batches_limits_loading
+  ✅     19ms (s:0ms c:18ms)  …ta.py::TestProcessAllNew::test_is_current_true_for_new_rows
+  ✅     19ms (s:3ms c:16ms)  …_world_datasets.py::TestPlayerSeasonsSource::test_pts_range
+  ✅     18ms (s:2ms c:16ms)  …atasets.py::TestEventsSource::test_event_batch_has_new_urls
+  ✅     18ms (s:3ms c:15ms)  …ts.py::TestTransactionsSource::test_snapshot_has_key_fields
+  ✅     18ms (s:1ms c:17ms)  …ata.py::TestProcessCompositeKey::test_composite_nk_new_rows
+  ✅     18ms (s:1ms c:17ms)  …berg_sink.py::test_close_versions_raises_on_missing_pyarrow
+  ✅     18ms (s:4ms c:14ms)  …asets.py::TestSaaSUsersSource::test_snapshot_has_key_fields
+  ✅     18ms (s:0ms c:15ms)  …rocessorStream::test_failed_batch_increments_batches_failed
+  ✅     18ms (s:0ms c:17ms)  …ateLocalHashesAfterBatch::test_update_branch_refreshes_hash
+  ✅     18ms (s:0ms c:18ms)  …s.py::TestLazyCumulativeLoader::test_new_player_creates_row
+  ✅     18ms (s:1ms c:17ms)  …etadataColumns::test_empty_metadata_columns_uses_empty_json
+  ✅     18ms (s:3ms c:15ms)  …datasets.py::TestEventsSource::test_snapshot_has_key_fields
+  ✅     18ms (s:1ms c:16ms)  …st_motherduck_sink.py::test_context_manager_attached_schema
+  ✅     18ms (s:2ms c:16ms)  …tStreamSourceStream::test_empty_dataset_yields_no_fragments
+  ✅     18ms (s:3ms c:15ms)  ….py::TestCounterpartiesSource::test_snapshot_has_key_fields
+  ✅     18ms (s:14ms c:2ms)  …rs::test_neighbors_at_scd2_past_date_filters_to_old_version
+  ✅     18ms (s:0ms c:17ms)  …amples/test_datasets.py::TestOrdersSource::test_paid_events
+  ✅     18ms (s:0ms c:17ms)  …tSQLTransformPipeline::test_transform_to_numeric_expression
+  ✅     18ms (s:1ms c:17ms)  …SVStreamSourceStream::test_yields_correct_number_of_batches
+  ✅     18ms (s:0ms c:17ms)  tests/core/test_utils.py::test_make_tmp_db_is_connectable
+  ✅     18ms (s:0ms c:17ms)  …ts/migrations/test_migrations.py::test_diff_from_connection
+  ✅     18ms (s:1ms c:17ms)  …azy_metadata.py::TestProcessAllNew::test_returns_scd_result
+  ✅     18ms (s:3ms c:15ms)  …::TestPlayerSeasonsSource::test_snapshot_has_advanced_stats
+  ✅     18ms (s:0ms c:17ms)  …s.py::TestLazyBitmaskLoader::test_produces_one_row_per_user
+  ✅     18ms (s:0ms c:17ms)  …azy_metadata.py::TestProcessAllNew::test_row_hash_populated
+  ✅     18ms (s:2ms c:16ms)  …atasets.py::TestDevicesSource::test_snapshot_has_key_fields
+  ✅     17ms (s:0ms c:17ms)  …les/test_datasets.py::TestOrdersSource::test_shipped_events
+  ✅     17ms (s:1ms c:16ms)  …g_sink.py::test_update_milestones_raises_on_missing_pyarrow
+  ✅     17ms (s:0ms c:17ms)  …st_stream.py::TestDebeziumSource::test_multiple_cdc_batches
+  ✅     17ms (s:0ms c:16ms)  …apshotLoaderStream::test_single_batch_injects_snapshot_date
+  ✅     17ms (s:1ms c:16ms)  …yArrayMetricLoader::test_metric_name_and_month_start_stored
+  ✅     17ms (s:0ms c:17ms)  …ierarchy.py::TestOrgChartSource::test_teardown_drops_tables
+  ✅     17ms (s:0ms c:17ms)  …ts/core/test_utils.py::test_tmp_db_cleanup_silences_oserror
+  ✅     17ms (s:0ms c:17ms)  …TestLazyTransactionLoader::test_load_appends_on_second_call
+  ✅     17ms (s:1ms c:16ms)  …ourceCheckpointCommitReset::test_stream_resumes_from_offset
+  ✅     17ms (s:2ms c:15ms)  …rld_datasets.py::TestDevicesSource::test_snapshot_row_count
+  ✅     17ms (s:0ms c:16ms)  …:TestDebeziumSource::test_update_overwrites_in_upserts_view
+  ✅     17ms (s:2ms c:15ms)  …tCSVStreamSourceStream::test_empty_file_yields_no_fragments
+  ✅     17ms (s:1ms c:16ms)  …:TestParquetSinkWrite::test_write_creates_parquet_partition
+  ✅     17ms (s:0ms c:16ms)  …ransformPipeline::test_multiple_transforms_applied_in_order
+  ✅     17ms (s:0ms c:16ms)  …aders.py::TestLazyTransactionLoader::test_load_inserts_rows
+  ✅     17ms (s:2ms c:15ms)  …TestParquetSinkDeepResearch::test_write_parquet_re_readable
+  ✅     17ms (s:1ms c:16ms)  …yTransactionLoaderStream::test_rows_written_to_target_table
+  ✅     16ms (s:1ms c:15ms)  …tCSVStreamSourceStream::test_fragment_excludes_rowid_column
+  ✅     16ms (s:0ms c:16ms)  …les/test_datasets.py::TestDatasetFactory::test_teardown_all
+  ✅     16ms (s:2ms c:14ms)  …asets.py::TestSuppliersSource::test_snapshot_has_key_fields
+  ✅     16ms (s:0ms c:16ms)  …ers.py::TestLazyBitmaskLoader::test_bitmask_all_days_active
+  ✅     16ms (s:0ms c:16ms)  …yEdgeProjectionLoader::test_direct_projection_creates_edges
+  ✅     16ms (s:0ms c:16ms)  …y_loaders.py::TestLazyBitmaskLoader::test_returns_row_count
+  ✅     16ms (s:1ms c:15ms)  …sink.py::TestParquetSinkWrite::test_write_returns_row_count
+  ✅     16ms (s:2ms c:14ms)  …tasets.py::TestReceiptsSource::test_snapshot_has_key_fields
+  ✅     16ms (s:1ms c:15ms)  …TestLazyBitmaskLoader::test_load_alias_delegates_to_process
+  ✅     16ms (s:0ms c:16ms)  …y::test_introspect_exception_on_indexes_query_uses_model_nk
+  ✅     16ms (s:1ms c:14ms)  …tParquetSinkDeepResearch::test_write_produces_parquet_files
+  ✅     16ms (s:0ms c:16ms)  …ransactionLoaderStream::test_two_batches_accumulate_inserts
+  ✅     16ms (s:0ms c:15ms)  …LazyTransactionLoaderStream::test_single_batch_appends_rows
+  ✅     16ms (s:3ms c:12ms)  …sets.py::TestSaaSUsersSource::test_event_batch_has_upgrades
+  ✅     16ms (s:1ms c:15ms)  …y::TestLazySKResolver::test_resolve_all_chains_multiple_fks
+  ✅     16ms (s:0ms c:15ms)  …_query.py::TestDGMQueryLegacyAPI::test_init_and_basic_count
+  ✅     16ms (s:2ms c:13ms)  …s.py::TestSQLTransformPipeline::test_column_order_preserved
+  ✅     16ms (s:2ms c:14ms)  …CSVStreamSourceStream::test_total_cached_after_first_stream
+  ✅     16ms (s:1ms c:14ms)  …CSVStreamSourceStream::test_offset_advances_after_streaming
+  ✅     16ms (s:0ms c:15ms)  …dateLocalHashesAfterBatch::test_insert_branch_adds_new_rows
+  ✅     16ms (s:0ms c:15ms)  …_loaders.py::TestLazySnapshotLoader::test_returns_row_count
+  ✅     16ms (s:0ms c:15ms)  …shotLoaderStream::test_commit_called_after_successful_batch
+  ✅     16ms (s:1ms c:13ms)  …sStreamFailurePaths::test_commit_not_called_on_failed_batch
+  ✅     16ms (s:0ms c:15ms)  …ontract_engine.py::TestValueRange::test_passes_within_range
+  ✅     16ms (s:0ms c:15ms)  …/test_datasets.py::TestGitHubIssuesSource::test_event_batch
+  ✅     15ms (s:1ms c:14ms)  …kDeepResearch::test_write_preserve_insertion_order_restored
+  ✅     15ms (s:10ms c:2ms)  ….py::TestDuckDBTraversalEngine::test_register_neighbor_view
+  ✅     15ms (s:2ms c:14ms)  …uetStreamSourceStream::test_total_cached_after_first_stream
+  ✅     15ms (s:1ms c:15ms)  …SQLTransformPipeline::test_apply_uses_default_incoming_view
+  ✅     15ms (s:0ms c:15ms)  tests/core/test_utils.py::test_tmp_db_cleans_up_after_exit
+  ✅     15ms (s:0ms c:15ms)  …ples/test_datasets.py::TestOrdersSource::test_placed_events
+  ✅     15ms (s:0ms c:15ms)  …SQLTransformPipeline::test_single_transform_rewrites_column
+  ✅     15ms (s:0ms c:15ms)  …tSQLTransformPipeline::test_untransformed_columns_unchanged
+  ✅     15ms (s:11ms c:2ms)  …ighbors::test_neighbors_at_scd2_future_date_returns_current
+  ✅     15ms (s:0ms c:15ms)  …py::TestLazyArrayMetricLoader::test_builds_31_element_array
+  ✅     15ms (s:0ms c:15ms)  …_units.py::TestBaseSourceSetup::test_setup_executes_dim_ddl
+  ✅     15ms (s:0ms c:14ms)  …SCDProcessorStream::test_max_batches_zero_processes_nothing
+  ✅     15ms (s:13ms c:0ms)  …stTraversalEngineSQLExtended::test_aggregate_sql_undirected
+  ✅     15ms (s:0ms c:14ms)  …gine.py::TestNoOrphanVersions::test_fails_orphan_historical
+  ✅     15ms (s:0ms c:15ms)  …::TestDebeziumSource::test_stream_wraps_raw_in_upserts_view
+  ✅     15ms (s:0ms c:15ms)  …TestLazyArrayMetricLoader::test_value_at_correct_day_offset
+  ✅     15ms (s:1ms c:13ms)  …yType6ProcessorStream::test_failed_batch_increments_counter
+  ✅     15ms (s:0ms c:13ms)  …ySCDProcessorStream::test_commit_not_called_on_failed_batch
+  ✅     15ms (s:0ms c:15ms)  …:TestDebeziumSource::test_snapshot_read_included_in_upserts
+  ✅     15ms (s:1ms c:14ms)  …stParquetStreamSourceStream::test_order_by_streams_in_order
+  ✅     15ms (s:0ms c:15ms)  …tasets.py::TestBaseSource::test_default_setup_creates_table
+  ✅     15ms (s:0ms c:14ms)  …s.py::TestLazyDimensions::test_date_dimension_generate_lazy
+  ✅     15ms (s:1ms c:14ms)  …g_sink.py::test_rotate_attributes_raises_on_missing_pyarrow
+  ✅     15ms (s:11ms c:2ms)  …poralNeighbors::test_neighbors_at_scd1_vertex_ignores_as_of
+  ✅     15ms (s:1ms c:14ms)  …derStream::test_drop_view_exception_in_finally_is_swallowed
+  ✅     15ms (s:0ms c:14ms)  …estLazySnapshotLoaderStream::test_on_batch_callback_invoked
+  ✅     15ms (s:0ms c:14ms)  …t_datasets.py::TestCustomersSource::test_snapshot_not_empty
+  ✅     15ms (s:0ms c:14ms)  …atasets.py::TestCustomersSource::test_event_batch_not_empty
+  ✅     15ms (s:0ms c:14ms)  …mples/test_datasets.py::TestMoviesSource::test_new_releases
+  ✅     15ms (s:1ms c:14ms)  …fy_detects_reconnect_when_current_checksums_has_is_inferred
+  ✅     15ms (s:0ms c:14ms)  …test_utils.py::test_teardown_dim_drops_table_when_no_method
+  ✅     15ms (s:0ms c:14ms)  …::TestLazyTransactionLoader::test_load_creates_target_table
+  ✅     15ms (s:1ms c:14ms)  …sHashStrategyMissingLine::test_pandas_object_dtype_handling
+  ✅     15ms (s:1ms c:14ms)  …::TestLazySnapshotLoaderStream::test_custom_date_field_name
+  ✅     15ms (s:0ms c:14ms)  …ts/query/test_query.py::TestDGMQueryLegacyAPI::test_as_view
+  ✅     15ms (s:0ms c:12ms)  …yType1ProcessorStream::test_failed_batch_increments_counter
+  ✅     15ms (s:0ms c:14ms)  …amples/test_datasets.py::TestEmployeesSource::test_snapshot
+  ✅     15ms (s:0ms c:14ms)  …tAloadWrapper::test_accumulating_aload_delegates_to_process
+  ✅     15ms (s:0ms c:14ms)  …::TestSCD2Invariants::test_fails_null_valid_from_on_current
+  ✅     15ms (s:1ms c:14ms)  …pshotLoaderStream::test_max_batches_limits_snapshot_loading
+  ✅     15ms (s:0ms c:14ms)  …_engine.py::TestRowCountDelta::test_passes_within_tolerance
+  ✅     15ms (s:1ms c:13ms)  …etStreamSourceStream::test_yields_correct_number_of_batches
+  ✅     15ms (s:0ms c:14ms)  …est_datasets.py::TestAccountsSource::test_snapshot_for_date
+  ✅     14ms (s:1ms c:14ms)  ….py::TestAloadWrapper::test_edge_aload_delegates_to_process
+  ✅     14ms (s:0ms c:14ms)  …s.py::TestSQLTransformPipeline::test_empty_pipeline_is_noop
+  ✅     14ms (s:0ms c:14ms)  …InferredPaths::test_classify_changed_when_is_inferred_false
+  ✅     14ms (s:0ms c:14ms)  …engine.py::TestSCD2Invariants::test_fails_duplicate_current
+  ✅     14ms (s:0ms c:14ms)  …DebeziumSource::test_all_deletes_batch_yields_empty_upserts
+  ✅     14ms (s:1ms c:11ms)  …amFailurePaths::test_failed_batch_increments_batches_failed
+  ✅     14ms (s:0ms c:14ms)  …test_datasets.py::TestStoresSource::test_snapshot_not_empty
+  ✅     14ms (s:0ms c:14ms)  …ct_engine.py::TestContractEngine::test_multiple_rules_union
+  ✅     14ms (s:0ms c:14ms)  …st_lazy_metadata.py::TestConstructor::test_single_string_nk
+  ✅     14ms (s:0ms c:14ms)  …ts/test_contract_engine.py::TestNotNull::test_fails_on_null
+  ✅     14ms (s:0ms c:14ms)  …amples/test_datasets.py::TestStoresSource::test_event_batch
+  ✅     14ms (s:0ms c:14ms)  …ers.py::TestLazySnapshotLoader::test_custom_date_field_name
+  ✅     14ms (s:0ms c:13ms)  …tory.py::TestMakeConnectionBasic::test_memory_limit_applied
+  ✅     14ms (s:0ms c:13ms)  …y::TestDebeziumSource::test_stream_creates_deleted_nks_view
+  ✅     14ms (s:11ms c:1ms)  …ightedAggregationDuckDB::test_duckdb_unweighted_sum_correct
+  ✅     14ms (s:1ms c:13ms)  …uetStreamSourceStream::test_offset_advances_after_streaming
+  ✅     14ms (s:1ms c:13ms)  …cd.py::TestLazySKResolver::test_resolve_creates_output_view
+  ✅     14ms (s:0ms c:13ms)  …LazyArrayMetricLoader::test_load_alias_delegates_to_process
+  ✅     14ms (s:0ms c:13ms)  …ders.py::TestLazySnapshotLoader::test_injects_snapshot_date
+  ✅     14ms (s:0ms c:13ms)  …g_sink.py::test_update_attributes_raises_on_missing_pyarrow
+  ✅     14ms (s:0ms c:13ms)  …st_contract_engine.py::TestNotNull::test_passes_on_no_nulls
+  ✅     14ms (s:0ms c:13ms)  …ntract_engine.py::TestNullRate::test_passes_under_threshold
+  ✅     14ms (s:0ms c:13ms)  …seSource::test_setup_raises_not_implemented_when_no_dim_ddl
+  ✅     14ms (s:1ms c:13ms)  …stLazySKResolver::test_resolve_all_uses_default_output_view
+  ✅     13ms (s:10ms c:0ms)  …alEngineSQLExtended::test_degree_sql_delegates_to_aggregate
+  ✅     13ms (s:0ms c:13ms)  …t_query.py::TestDGMQueryLegacyAPI::test_join_dim_is_current
+  ✅     13ms (s:0ms c:13ms)  …_engine.py::TestSCD2Invariants::test_passes_valid_dimension
+  ✅     13ms (s:1ms c:12ms)  …ry.py::TestMakeConnectionBasic::test_temp_directory_applied
+  ✅     13ms (s:1ms c:13ms)  …y::TestAloadWrapper::test_cumulative_aload_passes_extra_arg
+  ✅     13ms (s:0ms c:13ms)  …tory.py::TestMakeConnectionBasic::test_connection_is_usable
+  ✅     13ms (s:0ms c:13ms)  …stLazySnapshotLoaderStream::test_returns_stream_result_type
+  ✅     13ms (s:0ms c:13ms)  …RegisterSourceFromSql::test_builds_incoming_table_with_hash
+  ✅     13ms (s:11ms c:1ms)  …y::TestDuckDBTraversalEngine::test_neighbors_executes_query
+  ✅     13ms (s:0ms c:13ms)  …xamples/test_datasets.py::TestAccountsSource::test_snapshot
+  ✅     13ms (s:0ms c:13ms)  …engine.py::TestNoOrphanVersions::test_passes_with_successor
+  ✅     13ms (s:0ms c:13ms)  …test_contract_engine.py::TestRowCount::test_fails_above_max
+  ✅     13ms (s:0ms c:13ms)  …les/test_datasets.py::TestEmployeesSource::test_event_batch
+  ✅     13ms (s:1ms c:13ms)  …tLazySKResolver::test_resolve_maps_natural_key_to_surrogate
+  ✅     13ms (s:0ms c:13ms)  …_contract_engine.py::TestRowCount::test_passes_within_range
+  ✅     13ms (s:10ms c:1ms)  …::TestDuckDBTraversalEngine::test_degree_returns_edge_count
+  ✅     13ms (s:0ms c:12ms)  …s.py::TestLazyDimensions::test_junk_dimension_populate_lazy
+  ✅     13ms (s:0ms c:13ms)  ….py::TestLazySKResolver::test_resolve_unmatched_key_is_null
+  ✅     13ms (s:0ms c:13ms)  …st_contract_engine.py::TestTypeMatch::test_fails_wrong_type
+  ✅     13ms (s:1ms c:12ms)  …whalsHashStrategy::test_find_changes_correct_classification
+  ✅     13ms (s:0ms c:12ms)  …m.py::TestRegisterSourceFromSql::test_null_nk_rows_excluded
+  ✅     13ms (s:0ms c:13ms)  …_engine.py::TestHashConsistency::test_passes_correct_hashes
+  ✅     13ms (s:0ms c:13ms)  …_contract_engine.py::TestNoDuplicates::test_fails_duplicate
+  ✅     13ms (s:0ms c:12ms)  …s.py::TestLazyDimensions::test_time_dimension_generate_lazy
+  ✅     13ms (s:0ms c:13ms)  …sets.py::TestProductsSource::test_snapshot_has_correct_rows
+  ✅     13ms (s:10ms c:1ms)  …y::TestDuckDBTraversalEngine::test_aggregate_returns_scalar
+  ✅     13ms (s:1ms c:12ms)  …py::TestProcessInvalidTableName::test_bad_table_name_raises
+  ✅     13ms (s:0ms c:12ms)  …contract_engine.py::TestRegexMatch::test_fails_non_matching
+  ✅     13ms (s:0ms c:12ms)  …lsInternals::test_assert_not_dimension_raises_for_dim_model
+  ✅     13ms (s:0ms c:12ms)  …ntract_engine.py::TestFreshness::test_fails_stale_timestamp
+  ✅     13ms (s:1ms c:12ms)  …py::TestAloadWrapper::test_transaction_aload_uses_model_cls
+  ✅     13ms (s:1ms c:12ms)  …adWrapper::test_snapshot_aload_succeeds_with_explicit_table
+  ✅     13ms (s:1ms c:10ms)  …ySnapshotLoaderStream::test_failed_batch_increments_counter
+  ✅     13ms (s:0ms c:12ms)  …st_contract_engine.py::TestNoDuplicates::test_passes_unique
+  ✅     13ms (s:0ms c:12ms)  …actionLoaderStream::test_max_batches_zero_processes_nothing
+  ✅     13ms (s:0ms c:12ms)  …py::TestMonotonicValidFrom::test_passes_strictly_increasing
+  ✅     13ms (s:0ms c:12ms)  …ashStrategy::test_find_changes_all_unchanged_when_identical
+  ✅     13ms (s:0ms c:12ms)  …gine.py::TestContractEngine::test_empty_contract_returns_ok
+  ✅     13ms (s:0ms c:12ms)  …gine.py::TestNarwhalsHashStrategy::test_find_changes_counts
+  ✅     13ms (s:1ms c:12ms)  …pe4_5.py::TestLazyType5Processor::test_is_instance_of_type4
+  ✅     13ms (s:0ms c:12ms)  …y/test_query.py::TestDGMQueryLegacyAPI::test_join_dim_as_of
+  ✅     13ms (s:0ms c:12ms)  …engine.py::TestMonotonicValidFrom::test_fails_non_monotonic
+  ✅     13ms (s:0ms c:12ms)  …query/test_query.py::TestDGMQueryLegacyAPI::test_by_and_sum
+  ✅     13ms (s:9ms c:1ms)  …WeightedAggregationDuckDB::test_duckdb_weighted_sum_correct
+  ✅     13ms (s:0ms c:12ms)  …_utils.py::test_teardown_dim_noop_when_table_does_not_exist
+  ✅     12ms (s:0ms c:12ms)  …act_engine.py::TestContractEngine::test_elapsed_s_populated
+  ✅     12ms (s:0ms c:12ms)  …onPsutilFallback::test_uses_4gb_default_when_psutil_missing
+  ✅     12ms (s:0ms c:12ms)  …t_datasets.py::TestSchematicSource::test_snapshot_row_count
+  ✅     12ms (s:0ms c:12ms)  …engine.py::TestColumnExists::test_fails_when_column_missing
+  ✅     12ms (s:0ms c:12ms)  tests/query/test_query.py::TestDGMQueryLegacyAPI::test_avg
+  ✅     12ms (s:0ms c:12ms)  …ontract_engine.py::TestNoGapPeriods::test_passes_contiguous
+  ✅     12ms (s:0ms c:12ms)  …n_factory.py::TestMakeConnectionBasic::test_threads_applied
+  ✅     12ms (s:0ms c:12ms)  …shStrategy::test_find_changes_no_checksum_current_in_output
+  ✅     12ms (s:1ms c:11ms)  …ory.py::TestAccumulatingStrategy::test_inferred_from_fields
+  ✅     12ms (s:0ms c:12ms)  …ts/scd/test_lazy_metadata.py::TestConstructor::test_list_nk
+  ✅     12ms (s:0ms c:12ms)  …eNewCountZeroBypass::test_write_new_count_zero_returns_zero
+  ✅     12ms (s:1ms c:11ms)  …shotDateAtLoadTime::test_construction_without_date_succeeds
+  ✅     12ms (s:0ms c:11ms)  …CountZeroBypass::test_write_changed_count_zero_returns_zero
+  ✅     12ms (s:0ms c:12ms)  …test_contract_engine.py::TestRowCount::test_fails_below_min
+  ✅     12ms (s:0ms c:12ms)  …st_contract_engine.py::TestRegexMatch::test_passes_matching
+  ✅     12ms (s:0ms c:12ms)  …ionBasic::test_preserve_insertion_order_true_when_requested
+  ✅     12ms (s:0ms c:12ms)  …ract_engine.py::TestFreshness::test_passes_recent_timestamp
+  ✅     12ms (s:1ms c:11ms)  …ma.py::TestAloadWrapper::test_accumulating_loader_has_aload
+  ✅     12ms (s:0ms c:12ms)  …ngine.py::TestColumnExists::test_passes_when_column_present
+  ✅     12ms (s:0ms c:12ms)  …ntract_engine.py::TestRowCountDelta::test_fails_large_delta
+  ✅     12ms (s:1ms c:11ms)  …keConnectionEnvFallback::test_env_temp_dir_used_when_no_arg
+  ✅     12ms (s:1ms c:11ms)  …py::TestMakeConnectionBasic::test_returns_duckdb_connection
+  ✅     12ms (s:0ms c:12ms)  …nnectionEnvFallback::test_env_memory_limit_used_when_no_arg
+  ✅     12ms (s:0ms c:11ms)  …st_contract_engine.py::TestValueRange::test_fails_below_min
+  ✅     12ms (s:0ms c:12ms)  …TestLazyTransactionLoader::test_load_accepts_source_adapter
+  ✅     12ms (s:0ms c:11ms)  tests/query/test_query.py::TestDGMQueryLegacyAPI::test_where
+  ✅     12ms (s:0ms c:11ms)  …RegisterSourceFromSql::test_empty_meta_cols_uses_empty_json
+  ✅     12ms (s:0ms c:11ms)  …ectionBasic::test_preserve_insertion_order_false_by_default
+  ✅     12ms (s:0ms c:11ms)  …taset_units.py::TestDataset::test_teardown_calls_in_reverse
+  ✅     12ms (s:0ms c:11ms)  …ne.py::TestContractEngine::test_none_contract_returns_empty
+  ✅     12ms (s:0ms c:11ms)  …y::TestSnapshotDateAtLoadTime::test_load_uses_instance_date
+  ✅     12ms (s:0ms c:11ms)  …s/test_contract_engine.py::TestNoGapPeriods::test_fails_gap
+  ✅     12ms (s:0ms c:11ms)  …st_lazy_metadata.py::TestConstructor::test_meta_cols_sorted
+  ✅     12ms (s:0ms c:11ms)  …DateAtLoadTime::test_load_call_time_date_overrides_instance
+  ✅     12ms (s:1ms c:10ms)  …factory.py::TestCumulativeStrategy::test_explicit_classvars
+  ✅     12ms (s:0ms c:11ms)  …contract_engine.py::TestNullRate::test_fails_over_threshold
+  ✅     12ms (s:1ms c:10ms)  …TestSnapshotStrategy::test_snapshot_no_date_at_construction
+  ✅     12ms (s:0ms c:11ms)  …_metadata.py::TestConstructor::test_invalid_meta_col_raises
+  ✅     11ms (s:1ms c:10ms)  …ctionPsutilFallback::test_temp_directory_created_if_missing
+  ✅     11ms (s:0ms c:11ms)  …t_engine.py::TestHashConsistency::test_fails_corrupted_hash
+  ✅     11ms (s:0ms c:11ms)  …actory.py::TestArrayMetricStrategy::test_explicit_classvars
+  ✅     11ms (s:0ms c:11ms)  …dataset_units.py::TestDataset::test_setup_calls_each_source
+  ✅     11ms (s:0ms c:11ms)  …contract_engine.py::TestTypeMatch::test_passes_correct_type
+  ✅     11ms (s:0ms c:11ms)  …lity.py::TestOTelCollectorSpans::test_span_records_duration
+  ✅     11ms (s:0ms c:10ms)  …ProcessorStream::test_drop_stream_views_exception_swallowed
+  ✅     11ms (s:0ms c:11ms)  …_datasets.py::test_base_source_setup_raises_not_implemented
+  ✅     11ms (s:0ms c:11ms)  …tMakeConnectionEnvFallback::test_explicit_arg_overrides_env
+  ✅     11ms (s:1ms c:10ms)  …loadWrapper::test_transaction_aload_requires_table_or_model
+  ✅     11ms (s:1ms c:10ms)  …ProcessorStream::test_drop_stream_views_exception_swallowed
+  ✅     11ms (s:0ms c:11ms)  …ProcessorStream::test_drop_stream_views_exception_swallowed
+  ✅     11ms (s:0ms c:10ms)  …ory.py::TestEdgeProjectionStrategy::test_explicit_classvars
+  ✅     11ms (s:0ms c:10ms)  …ples/test_showcases.py::test_close_scd2_rows_empty_to_close
+  ✅     11ms (s:1ms c:10ms)  …ctory.py::TestAccumulatingStrategy::test_explicit_classvars
+  ✅     11ms (s:0ms c:10ms)  …zy_metadata.py::TestConstructor::test_invalid_nk_col_raises
+  ✅     11ms (s:1ms c:9ms)  …er_factory.py::TestBulkStrategy::test_none_strategy_is_bulk
+  ✅     11ms (s:1ms c:10ms)  …py::TestAloadWrapper::test_edge_projection_loader_has_aload
+  ✅     11ms (s:0ms c:10ms)  …er_factory.py::TestBitmaskStrategy::test_explicit_classvars
+  ✅     11ms (s:0ms c:10ms)  …t_decorators.py::TestTracedSync::test_span_records_duration
+  ✅     11ms (s:1ms c:10ms)  …stSnapshotStrategy::test_snapshot_with_date_at_construction
+  ✅     11ms (s:1ms c:10ms)  …core/test_utils.py::test_setup_dim_calls_setup_when_present
+  ✅     11ms (s:1ms c:9ms)  …ateAtLoadTime::test_as_loader_snapshot_date_at_construction
+  ✅     11ms (s:1ms c:10ms)  ….py::TestSnapshotStrategy::test_snapshot_date_field_default
+  ✅     11ms (s:1ms c:9ms)  …actory.py::TestCumulativeStrategy::test_inferred_list_field
+  ✅     11ms (s:1ms c:10ms)  …ory.py::TestSnapshotStrategy::test_snapshot_model_cls_bound
+  ✅     11ms (s:1ms c:10ms)  …est_loader_factory.py::TestBulkStrategy::test_explicit_bulk
+  ✅     10ms (s:0ms c:10ms)  tests/core/test_utils.py::test_setup_dim_noop_when_no_setup
+  ✅     10ms (s:0ms c:10ms)  …ostgreSQLSinkDeepResearch::test_enter_calls_make_connection
+  ✅     10ms (s:0ms c:9ms)  …napshotDateAtLoadTime::test_load_stream_raises_when_no_date
+  ✅     10ms (s:0ms c:10ms)  …::TestBaseSourceSetup::test_setup_raises_when_dim_ddl_empty
+  ✅     10ms (s:1ms c:9ms)  …schema.py::TestAloadWrapper::test_snapshot_loader_has_aload
+  ✅     10ms (s:1ms c:10ms)  …::TestSnapshotStrategy::test_snapshot_requires_date_at_load
+  ✅     10ms (s:1ms c:10ms)  …pshotDateAtLoadTime::test_load_raises_when_no_date_supplied
+  ✅     10ms (s:0ms c:10ms)  …processors/test_backfill.py::test_dry_run_returns_dataframe
+  ✅     10ms (s:1ms c:9ms)  …ma.py::TestAloadWrapper::test_array_metric_loader_has_aload
+  ✅     10ms (s:0ms c:10ms)  …sHashStrategy::test_find_changes_all_new_when_current_empty
+  ✅     10ms (s:1ms c:9ms)  tests/graph/test_registry.py::test_graph_paths_execution
+  ✅     10ms (s:0ms c:10ms)  ….py::TestConstructor::test_creates_own_connection_when_none
+  ✅     10ms (s:0ms c:9ms)  …hema.py::TestAloadWrapper::test_cumulative_loader_has_aload
+  ✅     10ms (s:1ms c:9ms)  …apshotDateAtLoadTime::test_as_loader_snapshot_date_optional
+  ✅     10ms (s:0ms c:9ms)  …_schema.py::TestAloadWrapper::test_bitmask_loader_has_aload
+  ✅     10ms (s:1ms c:9ms)  …ema.py::TestAloadWrapper::test_transaction_loader_has_aload
+  ✅     10ms (s:0ms c:9ms)  …ts/processors/test_backfill.py::test_multiple_track_columns
+  ✅      9ms (s:0ms c:9ms)  …stry.py::TestUnifiedGraph::test_auto_register_is_idempotent
+  ✅      9ms (s:0ms c:9ms)  …mViewsException::test_drop_stream_views_exception_swallowed
+  ✅      9ms (s:1ms c:8ms)  …dWrapper::test_snapshot_aload_raises_without_table_or_model
+  ✅      9ms (s:0ms c:8ms)  …edGraph::test_auto_register_registers_fact_with_two_fk_dims
+  ✅      9ms (s:0ms c:8ms)  …est_utils.py::test_teardown_dim_calls_teardown_when_present
+  ✅      9ms (s:0ms c:8ms)  …::TestNarwhalsHashStrategy::test_checksum_works_with_pandas
+  ✅      8ms (s:0ms c:8ms)  …rocessors/test_backfill.py::test_valid_from_is_first_season
+  ✅      8ms (s:0ms c:8ms)  …est_graph_extended.py::test_to_mermaid_float_and_bool_types
+  ✅      8ms (s:0ms c:8ms)  …rs/test_backfill.py::test_valid_to_is_last_season_of_streak
 
 ════════════════════════════════════════════════════════════════════════════════
 
 ════════════════════════════════════════════════════════════════════════════════
   FILE SIZE DISTRIBUTION  (*.py under 'sqldim')
 ════════════════════════════════════════════════════════════════════════════════
-  Files: 237   Total lines: 33,119   Mean: 140 lines
+  Files: 240   Total lines: 32,724   Mean: 136 lines
 
-      0–84    lines │████████████████████████████████████  100 (42.2%)
-     84–169   lines │███████████████████                    52 (21.9%)
-    169–254   lines │██████████████                         38 (16.0%)
-    254–339   lines │██████████                             28 (11.8%)
-    339–424   lines │█████                                  14 ( 5.9%)
-    424–509   lines │█                                       4 ( 1.7%)
-    509–594   lines │                                        0 ( 0.0%)
-    594–679   lines │                                        0 ( 0.0%)
-    679–764   lines │                                        0 ( 0.0%)
-    764–849   lines │                                        1 ( 0.4%)
+      0–46    lines │████████████████████████████████████   74 (30.8%)
+     46–92    lines │█████████████████                      35 (14.6%)
+     92–139   lines │████████████                           24 (10.0%)
+    139–185   lines │██████████████████                     36 (15.0%)
+    185–232   lines │████████                               16 ( 6.7%)
+    232–278   lines │███████████                            23 ( 9.6%)
+    278–324   lines │█████                                  10 ( 4.2%)
+    324–371   lines │█████                                  11 ( 4.6%)
+    371–417   lines │█████                                  10 ( 4.2%)
+    417–464   lines │                                        1 ( 0.4%)
 
 ────────────────────────────────────────────────────────────────────────────────
   PERCENTILES
 ────────────────────────────────────────────────────────────────────────────────
   min           0 lines
   Q1           34 lines
-  Q2/med      119 lines
+  Q2/med      118 lines
   Q3          217 lines
-  p90         315 lines
-  p95         366 lines
-  p99         463 lines
-  max         848 lines
-  mean        140 lines
+  p90         312 lines
+  p95         362 lines
+  p99         392 lines
+  max         463 lines
+  mean        136 lines
 
 ────────────────────────────────────────────────────────────────────────────────
-  QUALITY BLAME — size outliers  Q3 + 1.5×IQR > 491 lines   1
+  QUALITY BLAME — size outliers  Q3 + 1.5×IQR > 491 lines   0
 ────────────────────────────────────────────────────────────────────────────────
-     848 lines  sqldim/core/query/dgm/core.py
+  ✅  No file size outliers.
 
 ════════════════════════════════════════════════════════════════════════════════
 
 ════════════════════════════════════════════════════════════════════════════════
   CYCLOMATIC COMPLEXITY HISTOGRAM  (per function / method)
 ════════════════════════════════════════════════════════════════════════════════
-  Functions: 2120   Files: 211   Mean CC: 2.0   Ranks: A=1-5  B=6-10  C=11-15  D=16-20  E/F=21+
-  Rank distribution: A:2120
+  Functions: 2111   Files: 214   Mean CC: 2.0   Ranks: A=1-5  B=6-10  C=11-15  D=16-20  E/F=21+
+  Rank distribution: A:2111
 
-  CC 1  │████████████████████████████████████  942 (44.4%)  A
-  CC 2  │████████████████████████              621 (29.3%)  A
-  CC 3  │███████████                           291 (13.7%)  A
-  CC 4  │██████                                151 ( 7.1%)  A
+  CC 1  │████████████████████████████████████  940 (44.5%)  A
+  CC 2  │████████████████████████              618 (29.3%)  A
+  CC 3  │███████████                           287 (13.6%)  A
+  CC 4  │██████                                151 ( 7.2%)  A
   CC 5  │████                                  115 ( 5.4%)  A
 
 ────────────────────────────────────────────────────────────────────────────────
@@ -915,7 +896,7 @@
   max         5  (A)
 
 ────────────────────────────────────────────────────────────────────────────────
-  QUALITY BLAME — files with avg CC > 4.0 AND coverage < 80%   0
+  QUALITY BLAME — files with avg CC > 3.9 AND coverage < 80%   0
 ────────────────────────────────────────────────────────────────────────────────
   ✅  No high-complexity low-coverage files.
 
@@ -924,18 +905,18 @@
 ════════════════════════════════════════════════════════════════════════════════
   MAINTAINABILITY INDEX HISTOGRAM  (higher = more maintainable)
 ════════════════════════════════════════════════════════════════════════════════
-  Files: 214   Mean MI: 81.4   Ranks: A=20-100  B=10-19  C=0-9
+  Files: 217   Mean MI: 81.4   Ranks: A=20-100  B=10-19  C=0-9
 
     0.0–10.0  MI │                                        0 ( 0.0%)  C
    10.0–20.0  MI │                                        0 ( 0.0%)  B
    20.0–30.0  MI │                                        0 ( 0.0%)  A
-   30.0–40.0  MI │                                        1 ( 0.5%)  A
-   40.0–50.0  MI │██                                      4 ( 1.9%)  A
-   50.0–60.0  MI │██████████                             23 (10.7%)  A
-   60.0–70.0  MI │█████████████████                      41 (19.2%)  A
-   70.0–80.0  MI │█████████████                          32 (15.0%)  A
-   80.0–90.0  MI │███████████                            27 (12.6%)  A
-   90.0–100.0 MI │████████████████████████████████████   86 (40.2%)  A
+   30.0–40.0  MI │                                        0 ( 0.0%)  A
+   40.0–50.0  MI │██                                      5 ( 2.3%)  A
+   50.0–60.0  MI │██████████                             23 (10.6%)  A
+   60.0–70.0  MI │█████████████████                      42 (19.4%)  A
+   70.0–80.0  MI │██████████████                         33 (15.2%)  A
+   80.0–90.0  MI │███████████                            27 (12.4%)  A
+   90.0–100.0 MI │████████████████████████████████████   87 (40.1%)  A
 
 ────────────────────────────────────────────────────────────────────────────────
   PERCENTILES
@@ -944,25 +925,25 @@
   Q2/med    82.9  (A)
   Q3       100.0  (A)
   p90      100.0  (A)
-  min       34.6  (A)
+  min       46.4  (A)
 
 ────────────────────────────────────────────────────────────────────────────────
-  QUALITY BLAME — MI below Q1 (66.6)   53
+  QUALITY BLAME — MI below Q1 (66.6)   54
 ────────────────────────────────────────────────────────────────────────────────
   MI       Coverage    File
   ─────  ────────  ──────────────────────────────────────────────────
-   34.6A    100.0%    sqldim/core/query/dgm/core.py
    46.4A    100.0%    sqldim/core/graph/schema_graph.py
    46.9A    100.0%    sqldim/contracts/report.py
-   47.3A    100.0%    sqldim/core/query/dgm/planner.py
    48.5A    100.0%    sqldim/core/query/dgm/bdd.py
+   48.9A    100.0%    sqldim/core/query/dgm/_query_helpers.py
+   49.1A    100.0%    sqldim/core/query/dgm/core.py
    51.7A    100.0%    sqldim/core/query/_dimensional_query.py
    51.9A    100.0%    sqldim/core/query/dgm/annotations.py
    54.3A    100.0%    sqldim/examples/datasets/schema.py
+   54.5A    100.0%    sqldim/core/query/dgm/planner.py
    54.5A    100.0%    sqldim/medallion/layer.py
    54.7A    100.0%    sqldim/io/clustering.py
    54.9A    100.0%    sqldim/examples/real_world/ecommerce/showcase.py
-   55.7A    100.0%    sqldim/core/query/dgm/preds.py
    55.9A    100.0%    sqldim/core/loaders/dimensional.py
    56.2A    100.0%    sqldim/observability/drift/_drift_models.py
    56.2A    100.0%    sqldim/contracts/engine.py
@@ -974,8 +955,8 @@
    57.8A    100.0%    sqldim/contracts/sla.py
    58.2A    100.0%    sqldim/core/kimball/dimensions/scd/processors/lazy/type1/_lazy_type1.py
    58.7A    100.0%    sqldim/core/graph/registry.py
+   58.8A    100.0%    sqldim/core/query/dgm/recommender.py
    58.9A    100.0%    sqldim/core/kimball/models.py
-   59.1A    100.0%    sqldim/core/query/dgm/recommender.py
    59.2A    100.0%    sqldim/core/loaders/snapshot.py
    59.6A    100.0%    sqldim/core/loaders/resolution.py
    59.8A    100.0%    sqldim/examples/real_world/fintech/showcase.py
@@ -984,6 +965,7 @@
    60.2A    100.0%    sqldim/observability/drift/__init__.py
    60.2A    100.0%    sqldim/observability/span.py
    60.3A    100.0%    sqldim/migrations/context.py
+   60.3A    100.0%    sqldim/core/query/dgm/preds.py
    60.5A    100.0%    sqldim/core/kimball/dimensions/scd/processors/lazy/type3/_lazy_type3.py
    60.6A    100.0%    sqldim/examples/datasets/base.py
    60.9A    100.0%    sqldim/core/loaders/_factory.py
@@ -998,8 +980,7 @@
    64.1A    100.0%    sqldim/sinks/iceberg.py
    64.2A    100.0%    sqldim/examples/datasets/dataset.py
    64.3A    100.0%    sqldim/examples/datasets/domains/ecommerce/orders.py
-   64.5A      0.0%    sqldim/core/query/dgm/planner_targets.py
-                 📍 7, 9-11, 18, 35, 38, 41, 44, 52, 55-61, 69, 72-77, 85-86, 99-101, 109-110, 123-125, 133-134, 157-164, 172-173, 176-178, 181, 184-187, 190-193, 196-197, 199-203, 206-207, 215-219, 222-225, 228-231
+   64.5A    100.0%    sqldim/core/query/dgm/planner_targets.py
    64.5A    100.0%    sqldim/sinks/duckdb.py
    65.4A    100.0%    sqldim/core/kimball/schema.py
    65.7A    100.0%    sqldim/core/loaders/_utils.py
@@ -1011,14 +992,14 @@
 ════════════════════════════════════════════════════════════════════════════════
   COMMENT RATIO HISTOGRAM  (comments + docstrings / SLOC)
 ════════════════════════════════════════════════════════════════════════════════
-  Files: 214   Total SLOC: 18,039   Overall comment ratio: 39.4%
+  Files: 217   Total SLOC: 17,698   Overall comment ratio: 39.8%
 
-     0–35  % comment │████████████████████████████████████  100 (46.7%)
-    35–70  % comment │█████████████████████████              69 (32.2%)
-    70–105 % comment │████████                               22 (10.3%)
-   105–140 % comment │███                                     7 ( 3.3%)
+     0–35  % comment │████████████████████████████████████  101 (46.5%)
+    35–70  % comment │█████████████████████████              70 (32.3%)
+    70–105 % comment │████████                               23 (10.6%)
+   105–140 % comment │██                                      7 ( 3.2%)
    140–175 % comment │█                                       3 ( 1.4%)
-   175–210 % comment │████                                   10 ( 4.7%)
+   175–210 % comment │████                                   10 ( 4.6%)
    210–245 % comment │                                        0 ( 0.0%)
    245–280 % comment │                                        0 ( 0.0%)
    280–315 % comment │                                        1 ( 0.5%)
@@ -1029,12 +1010,12 @@
 ────────────────────────────────────────────────────────────────────────────────
   Q1        18.9%
   Q2/med    36.8%
-  Q3        62.3%
+  Q3        62.5%
   p90      113.5%
   mean      51.4%
 
 ────────────────────────────────────────────────────────────────────────────────
-  QUALITY BLAME — comment ratio below Q1 (18.9%)   53
+  QUALITY BLAME — comment ratio below Q1 (18.9%)   54
 ────────────────────────────────────────────────────────────────────────────────
   Comment%    SLOC     Coverage    File
   ────────  ─────  ────────  ──────────────────────────────────────────────────
@@ -1079,14 +1060,15 @@
     10.1%      188   100.0%    sqldim/examples/real_world/ecommerce/showcase.py
     10.3%      156   100.0%    sqldim/contracts/rules.py
     10.5%       38   100.0%    sqldim/contracts/freshness.py
-    11.2%      179   100.0%    sqldim/core/query/dgm/__init__.py
     11.4%      166   100.0%    sqldim/examples/datasets/domains/fintech/sources.py
     11.5%      157   100.0%    sqldim/examples/real_world/fintech/showcase.py
     11.5%      209   100.0%    sqldim/__init__.py
+    11.5%      182   100.0%    sqldim/core/query/dgm/_query_helpers.py
     12.1%       33   100.0%    sqldim/core/kimball/__init__.py
     13.6%      191   100.0%    sqldim/core/kimball/dimensions/scd/processors/lazy/type1/_lazy_type1.py
     15.8%      221   100.0%    sqldim/observability/drift/_drift_models.py
     16.7%       30   100.0%    sqldim/core/query/dgm/temporal_modes.py
+    17.5%      252   100.0%    sqldim/core/query/dgm/recommender.py
     18.3%      120   100.0%    sqldim/core/kimball/schema_graph.py
     18.3%      120   100.0%    sqldim/sinks/_iceberg_mutate.py
     18.8%       16   100.0%    sqldim/contracts/composite.py
@@ -1097,18 +1079,18 @@
 ════════════════════════════════════════════════════════════════════════════════
   HALSTEAD METRICS HISTOGRAM  (estimated bug count per file)
 ════════════════════════════════════════════════════════════════════════════════
-  Files: 214   Total estimated bugs: 5.6   Mean per file: 0.03
+  Files: 217   Total estimated bugs: 5.4   Mean per file: 0.02
 
-   0.00–0.04  bugs │████████████████████████████████████  168 (78.5%)
-   0.04–0.07  bugs │████                                   18 ( 8.4%)
-   0.07–0.11  bugs │████                                   17 ( 7.9%)
-   0.11–0.14  bugs │█                                       5 ( 2.3%)
-   0.14–0.18  bugs │                                        1 ( 0.5%)
-   0.18–0.21  bugs │                                        1 ( 0.5%)
-   0.21–0.25  bugs │                                        1 ( 0.5%)
-   0.25–0.28  bugs │                                        2 ( 0.9%)
-   0.28–0.32  bugs │                                        0 ( 0.0%)
-   0.32–0.35  bugs │                                        1 ( 0.5%)
+   0.00–0.03  bugs │████████████████████████████████████  155 (71.4%)
+   0.03–0.05  bugs │██████                                 25 (11.5%)
+   0.05–0.08  bugs │██                                     10 ( 4.6%)
+   0.08–0.10  bugs │███                                    12 ( 5.5%)
+   0.10–0.13  bugs │██                                      7 ( 3.2%)
+   0.13–0.15  bugs │                                        2 ( 0.9%)
+   0.15–0.18  bugs │                                        2 ( 0.9%)
+   0.18–0.20  bugs │                                        1 ( 0.5%)
+   0.20–0.23  bugs │                                        1 ( 0.5%)
+   0.23–0.25  bugs │                                        2 ( 0.9%)
 
 ────────────────────────────────────────────────────────────────────────────────
   PERCENTILES  (bugs estimate)
@@ -1117,18 +1099,18 @@
   Q3         0.03 bugs
   p90        0.08 bugs
   p95        0.11 bugs
-  max        0.35 bugs
+  max        0.25 bugs
 
 ────────────────────────────────────────────────────────────────────────────────
-  QUALITY BLAME — Halstead bug outliers  Q3+1.5×IQR > 0.07 bugs   29
+  QUALITY BLAME — Halstead bug outliers  Q3+1.5×IQR > 0.07 bugs   28
 ────────────────────────────────────────────────────────────────────────────────
   Bugs      Difficulty    Coverage    File
   ──────  ──────────  ────────  ──────────────────────────────────────────────────
-    0.35         6.4     100.0%    sqldim/core/query/dgm/core.py
-    0.27         7.7     100.0%    sqldim/core/query/dgm/planner.py
     0.25         8.3     100.0%    sqldim/core/query/dgm/bdd.py
     0.24         5.3     100.0%    sqldim/core/graph/schema_graph.py
+    0.20         3.5     100.0%    sqldim/core/query/dgm/core.py
     0.19         7.8     100.0%    sqldim/core/kimball/models.py
+    0.17         7.3     100.0%    sqldim/core/query/dgm/planner.py
     0.16         3.7     100.0%    sqldim/core/query/dgm/annotations.py
     0.14         5.3     100.0%    sqldim/examples/datasets/schema.py
     0.13         4.7     100.0%    sqldim/observability/drift/__init__.py
@@ -1138,6 +1120,7 @@
     0.11         3.7     100.0%    sqldim/core/loaders/_factory.py
     0.10         3.8     100.0%    sqldim/examples/datasets/domains/ecommerce/orders.py
     0.10         5.0     100.0%    sqldim/core/loaders/snapshot.py
+    0.10         4.6     100.0%    sqldim/core/query/dgm/_query_helpers.py
     0.10         3.6     100.0%    sqldim/core/graph/_schema_diff.py
     0.10         3.8     100.0%    sqldim/core/graph/_traversal_base.py
     0.09         3.3     100.0%    sqldim/core/kimball/dimensions/scd/handler.py
@@ -1145,38 +1128,35 @@
     0.09         4.4     100.0%    sqldim/lineage/column.py
     0.09         4.1     100.0%    sqldim/core/graph/registry.py
     0.08         5.1     100.0%    sqldim/core/kimball/dimensions/scd/processors/transforms.py
-    0.08         2.8       0.0%    sqldim/core/query/dgm/planner_targets.py
-                           📍 7, 9-11, 18, 35, 38, 41, 44, 52, 55-61, 69, 72-77, 85-86, 99-101, 109-110, 123-125, 133-134, 157-164, 172-173, 176-178, 181, 184-187, 190-193, 196-197, 199-203, 206-207, 215-219, 222-225, 228-231
+    0.08         2.8     100.0%    sqldim/core/query/dgm/planner_targets.py
     0.08         5.2     100.0%    sqldim/core/query/_dimensional_query.py
     0.08         3.7     100.0%    sqldim/core/loaders/_utils.py
     0.08         5.2     100.0%    sqldim/migrations/context.py
     0.08         6.2     100.0%    sqldim/core/kimball/dimensions/date.py
     0.07         5.3     100.0%    sqldim/examples/datasets/domains/ecommerce/sources.py
-    0.07         3.5     100.0%    sqldim/core/query/dgm/recommender.py
-    0.07         3.9     100.0%    sqldim/core/loaders/dimensional.py
 
 ════════════════════════════════════════════════════════════════════════════════
 
 ════════════════════════════════════════════════════════════════════════════════
   FILE TREE ANALYSIS: /home/pingu/github/sqldim/sqldim
 ════════════════════════════════════════════════════════════════════════════════
-  Total Nodes: 60       Total Files: 237      Total Folders: 59
+  Total Nodes: 60       Total Files: 240      Total Folders: 59
 
   DISTRIBUTION: FILES PER FOLDER
 ────────────────────────────────────────────────────────────────────────────────
      0–1    files │███                                     3 ( 5.0%)
      1–3    files │████████████████████████████████████   37 (61.7%)
-     3–4    files │██████                                  6 (10.0%)
-     4–6    files │█████                                   5 ( 8.3%)
-     6–8    files │███                                     3 ( 5.0%)
-     8–9    files │█                                       1 ( 1.7%)
-     9–11   files │█                                       1 ( 1.7%)
-    11–12   files │█                                       1 ( 1.7%)
+     3–5    files │█████████                               9 (15.0%)
+     5–7    files │█████                                   5 ( 8.3%)
+     7–9    files │█                                       1 ( 1.7%)
+     9–10   files │█                                       1 ( 1.7%)
+    10–12   files │█                                       1 ( 1.7%)
     12–14   files │█                                       1 ( 1.7%)
-    14–16   files │██                                      2 ( 3.3%)
+    14–16   files │█                                       1 ( 1.7%)
+    16–18   files │█                                       1 ( 1.7%)
 
   STATS (Files per Folder):
-  min: 1      max: 16     mean:   4.0
+  min: 1      max: 18     mean:   4.0
   p50: 3      p75: 4      p90: 7     
 
   DISTRIBUTION: SUBFOLDERS PER FOLDER

@@ -18,7 +18,7 @@ from __future__ import annotations
 
 from abc import ABC, abstractmethod
 
-from sqldim.contracts.report import Severity
+from sqldim.contracts.reporting.report import Severity
 
 
 class Rule(ABC):

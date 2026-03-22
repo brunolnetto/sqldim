@@ -31,7 +31,7 @@ class StubFact(FactModel):
 
 def _make_loader(*, emitter=None):
     """Create a DimensionalLoader with a fully mocked session."""
-    from sqldim.core.loaders.dimensional import DimensionalLoader
+    from sqldim.core.loaders.dimension.dimensional import DimensionalLoader
 
     mock_session = MagicMock()
     loader = DimensionalLoader(

@@ -236,10 +236,10 @@ class LazyType1Processor:
 
         Returns
         -------
-        :class:`~sqldim.sources.stream.StreamResult`
+        :class:`~sqldim.sources.streaming.stream.StreamResult`
         """
         import logging
-        from sqldim.sources.stream import StreamResult
+        from sqldim.sources.streaming.stream import StreamResult
 
         _log = logging.getLogger(__name__)
         result = StreamResult()

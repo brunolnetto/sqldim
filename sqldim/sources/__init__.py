@@ -1,18 +1,18 @@
 from sqldim.sources.base import SourceAdapter
-from sqldim.sources.parquet import ParquetSource
-from sqldim.sources.csv import CSVSource
-from sqldim.sources.duckdb_source import DuckDBSource
+from sqldim.sources.batch.parquet import ParquetSource
+from sqldim.sources.batch.csv import CSVSource
+from sqldim.sources.batch.duckdb_source import DuckDBSource
 from sqldim.sources.postgresql import PostgreSQLSource
-from sqldim.sources.delta import DeltaSource
-from sqldim.sources.sql import SQLSource
+from sqldim.sources.batch.delta import DeltaSource
+from sqldim.sources.batch.sql import SQLSource
 from sqldim.sources.dlt_source import DltSource, _DatasetSource
-from sqldim.sources.stream import StreamSourceAdapter, StreamResult
-from sqldim.sources.kafka import KafkaSource
-from sqldim.sources.kinesis import KinesisSource
+from sqldim.sources.streaming.stream import StreamSourceAdapter, StreamResult
+from sqldim.sources.streaming.kafka import KafkaSource
+from sqldim.sources.streaming.kinesis import KinesisSource
 from sqldim.sources.cdc import DebeziumSource
-from sqldim.sources.csv_stream import CSVStreamSource
-from sqldim.sources.parquet_stream import ParquetStreamSource
-from sqldim.sources.iceberg import IcebergSource
+from sqldim.sources.streaming.csv_stream import CSVStreamSource
+from sqldim.sources.streaming.parquet_stream import ParquetStreamSource
+from sqldim.sources.batch.iceberg import IcebergSource
 
 __all__ = [
     "SourceAdapter",

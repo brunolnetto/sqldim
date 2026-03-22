@@ -46,7 +46,7 @@ def _require_runtime(
 def _build_bulk_loader(
     model_cls: type, sink: Any, inferred: dict[str, Any], runtime_kwargs: dict[str, Any]
 ) -> Any:
-    from sqldim.core.loaders.snapshot import LazyTransactionLoader
+    from sqldim.core.loaders.fact.snapshot import LazyTransactionLoader
 
     loader = LazyTransactionLoader(sink)
     loader._model_cls = model_cls
@@ -56,7 +56,7 @@ def _build_bulk_loader(
 def _build_snapshot_loader(
     model_cls: type, sink: Any, inferred: dict[str, Any], runtime_kwargs: dict[str, Any]
 ) -> Any:
-    from sqldim.core.loaders.snapshot import LazySnapshotLoader
+    from sqldim.core.loaders.fact.snapshot import LazySnapshotLoader
 
     loader = LazySnapshotLoader(
         sink,
@@ -70,7 +70,7 @@ def _build_snapshot_loader(
 def _build_accumulating_loader(
     model_cls: type, sink: Any, inferred: dict[str, Any], runtime_kwargs: dict[str, Any]
 ) -> Any:
-    from sqldim.core.loaders.accumulating import LazyAccumulatingLoader
+    from sqldim.core.loaders.fact.accumulating import LazyAccumulatingLoader
 
     match_col = _cv(model_cls, "__match_column__", inferred, "match_column")
     milestones = _cv(model_cls, "__milestones__", inferred, "milestones") or []
@@ -87,7 +87,7 @@ def _build_accumulating_loader(
 def _build_cumulative_loader(
     model_cls: type, sink: Any, inferred: dict[str, Any], runtime_kwargs: dict[str, Any]
 ) -> Any:
-    from sqldim.core.loaders.cumulative import LazyCumulativeLoader
+    from sqldim.core.loaders.fact.cumulative import LazyCumulativeLoader
 
     partition_key = _cv(model_cls, "__partition_key__", inferred, "partition_key")
     cumulative_col = _cv(
@@ -117,7 +117,7 @@ def _build_cumulative_loader(
 def _build_bitmask_loader(
     model_cls: type, sink: Any, inferred: dict[str, Any], runtime_kwargs: dict[str, Any]
 ) -> Any:
-    from sqldim.core.loaders.bitmask import LazyBitmaskLoader
+    from sqldim.core.loaders.dimension.bitmask import LazyBitmaskLoader
 
     partition_key = _cv(model_cls, "__partition_key__", inferred, "partition_key")
     dates_col = _cv(model_cls, "__dates_column__", inferred, "dates_column")
@@ -144,7 +144,7 @@ def _build_bitmask_loader(
 def _build_array_metric_loader(
     model_cls: type, sink: Any, inferred: dict[str, Any], runtime_kwargs: dict[str, Any]
 ) -> Any:
-    from sqldim.core.loaders.array_metric import LazyArrayMetricLoader
+    from sqldim.core.loaders.dimension.array_metric import LazyArrayMetricLoader
 
     partition_key = _cv(model_cls, "__partition_key__", inferred, "partition_key")
     value_col = _cv(model_cls, "__value_column__", inferred, "value_column")
@@ -173,7 +173,7 @@ def _build_array_metric_loader(
 def _build_edge_projection_loader(
     model_cls: type, sink: Any, inferred: dict[str, Any], runtime_kwargs: dict[str, Any]
 ) -> Any:
-    from sqldim.core.loaders.edge_projection import LazyEdgeProjectionLoader
+    from sqldim.core.loaders.dimension.edge_projection import LazyEdgeProjectionLoader
 
     subject_key = getattr(model_cls, "__subject_key__", None)
     object_key = getattr(model_cls, "__object_key__", None)

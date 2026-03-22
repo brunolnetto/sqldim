@@ -55,7 +55,7 @@ class _Type2StreamMixin:
 
         Parameters
         ----------
-        source         : :class:`~sqldim.sources.stream.StreamSourceAdapter`
+        source         : :class:`~sqldim.sources.streaming.stream.StreamSourceAdapter`
         table_name     : Target table in the sink.
         batch_size     : Rows per micro-batch (passed to ``source.stream``).
         max_batches    : Stop after *N* batches; ``None`` = run until exhausted.
@@ -67,11 +67,11 @@ class _Type2StreamMixin:
 
         Returns
         -------
-        :class:`~sqldim.sources.stream.StreamResult`
+        :class:`~sqldim.sources.streaming.stream.StreamResult`
         """
         import logging
         from datetime import datetime, timezone
-        from sqldim.sources.stream import StreamResult
+        from sqldim.sources.streaming.stream import StreamResult
 
         _log = logging.getLogger(__name__)
         result = StreamResult()

@@ -12,9 +12,9 @@ from __future__ import annotations
 
 import duckdb
 
-from sqldim.sources.stream import StreamSourceAdapter, StreamResult
-from sqldim.sources.kafka import KafkaSource
-from sqldim.sources.kinesis import KinesisSource
+from sqldim.sources.streaming.stream import StreamSourceAdapter, StreamResult
+from sqldim.sources.streaming.kafka import KafkaSource
+from sqldim.sources.streaming.kinesis import KinesisSource
 from sqldim.sources.cdc import DebeziumSource
 from sqldim.core.kimball.dimensions.scd.handler import SCDResult
 

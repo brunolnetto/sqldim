@@ -8,7 +8,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any
 
-from sqldim.core.query.dgm.planner_targets import (
+from sqldim.core.query.dgm.planner._targets import (
     CLOSURE_THRESHOLD, DENSE, SMALL, SMALL_GRAPH_THRESHOLD,
     CostEstimate, ExportPlan, PreComputation, QueryTarget, SinkTarget,
     _r6_bridge_semantics, _r6_degenerate, _r6_derived_fact,

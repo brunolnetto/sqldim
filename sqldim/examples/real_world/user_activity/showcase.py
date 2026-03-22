@@ -11,7 +11,7 @@ from sqlmodel import Session, SQLModel, create_engine
 from sqlalchemy.pool import StaticPool
 import duckdb
 from sqldim.examples.real_world.user_activity.models import Device, UserCumulated
-from sqldim.core.loaders.bitmask import LazyBitmaskLoader
+from sqldim.core.loaders.dimension.bitmask import LazyBitmaskLoader
 
 
 class _InProcessSink:

@@ -11,7 +11,7 @@ from datetime import date, datetime
 if TYPE_CHECKING:
     from sqldim.core.graph.models import EdgeModel
 
-from sqldim.core.graph._traversal_base import (  # noqa: F401
+from sqldim.core.graph._impl._traversal_base import (  # noqa: F401
     TraversalEngine,
     _temporal_filter_clause,
     _build_filters,

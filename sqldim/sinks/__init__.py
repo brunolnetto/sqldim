@@ -7,12 +7,12 @@ are storage-agnostic.  Available backends: :class:`DuckDBSink`,
 """
 
 from sqldim.sinks.base import SinkAdapter
-from sqldim.sinks.duckdb import DuckDBSink
-from sqldim.sinks.postgresql import PostgreSQLSink
-from sqldim.sinks.parquet import ParquetSink
-from sqldim.sinks.delta import DeltaLakeSink
-from sqldim.sinks.motherduck import MotherDuckSink
-from sqldim.sinks.iceberg import IcebergSink
+from sqldim.sinks.file.parquet import ParquetSink
+from sqldim.sinks.file.delta import DeltaLakeSink
+from sqldim.sinks.file.iceberg import IcebergSink
+from sqldim.sinks.sql.duckdb import DuckDBSink
+from sqldim.sinks.sql.motherduck import MotherDuckSink
+from sqldim.sinks.sql.postgresql import PostgreSQLSink
 
 __all__ = [
     "SinkAdapter",

@@ -12,7 +12,7 @@ from __future__ import annotations
 
 from unittest.mock import MagicMock
 
-from sqldim.sinks.postgresql import PostgreSQLSink
+from sqldim.sinks.sql.postgresql import PostgreSQLSink
 
 
 class TestCurrentStateSqlWithConSet:

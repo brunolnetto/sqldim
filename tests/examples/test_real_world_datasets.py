@@ -15,7 +15,7 @@ import duckdb
 import pytest
 
 from sqldim.examples.datasets import DatasetFactory
-from sqldim.sources.sql import SQLSource
+from sqldim.sources.batch.sql import SQLSource
 
 from sqldim.examples.datasets.domains.nba_analytics import PlayerSeasonsSource
 from sqldim.examples.datasets.domains.saas_growth import SaaSUsersSource

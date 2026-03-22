@@ -17,7 +17,7 @@ from unittest.mock import MagicMock, patch
 import duckdb
 import pytest
 
-from sqldim.sinks.delta import DeltaLakeSink
+from sqldim.sinks.file.delta import DeltaLakeSink
 
 
 # ---------------------------------------------------------------------------
@@ -240,7 +240,7 @@ class TestDeltaLakeSinkContextManager:
         sink = DeltaLakeSink("/data/lake")
         mock_con = MagicMock()
 
-        with patch("sqldim.sinks.delta.duckdb.connect", return_value=mock_con):
+        with patch("sqldim.sinks.file.delta.duckdb.connect", return_value=mock_con):
             with sink:
                 assert sink._con is mock_con
                 mock_con.execute.assert_any_call("INSTALL delta; LOAD delta;")
@@ -249,7 +249,7 @@ class TestDeltaLakeSinkContextManager:
         sink = DeltaLakeSink("/data/lake")
         mock_con = MagicMock()
 
-        with patch("sqldim.sinks.delta.duckdb.connect", return_value=mock_con):
+        with patch("sqldim.sinks.file.delta.duckdb.connect", return_value=mock_con):
             with sink:
                 pass
 

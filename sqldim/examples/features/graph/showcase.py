@@ -22,7 +22,7 @@ import types
 
 import duckdb
 
-from sqldim.core.loaders.edge_projection import LazyEdgeProjectionLoader
+from sqldim.core.loaders.dimension.edge_projection import LazyEdgeProjectionLoader
 from sqldim.core.graph.traversal import DuckDBTraversalEngine
 from sqldim.sinks import DuckDBSink
 

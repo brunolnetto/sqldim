@@ -13,7 +13,7 @@ class DWSchema:
     the *source_map* passed to :meth:`load` (or :meth:`aload`) are actually
     loaded — unregistered models are silently skipped.
 
-    When to use ``DWSchema`` vs :class:`~sqldim.core.loaders.dimensional.DimensionalLoader`
+    When to use ``DWSchema`` vs :class:`~sqldim.core.loaders.dimension.dimensional.DimensionalLoader`
     ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
     Use ``DWSchema`` when:
 
@@ -23,7 +23,7 @@ class DWSchema:
     * You want a minimal ``schema.load(source_map)`` API with no model
       registration step.
 
-    Use :class:`~sqldim.core.loaders.dimensional.DimensionalLoader` when:
+    Use :class:`~sqldim.core.loaders.dimension.dimensional.DimensionalLoader` when:
 
     * Your fact source is a ``list[Dict]`` of Python records (ORM-style).
     * You need FK → SK resolution across dimension/fact boundaries.

@@ -2,8 +2,8 @@
 
 from __future__ import annotations
 
-from sqldim.contracts.report import Severity
-from sqldim.contracts.rules import Rule
+from sqldim.contracts.reporting.report import Severity
+from sqldim.contracts.validation.rules import Rule
 
 
 class Freshness(Rule):

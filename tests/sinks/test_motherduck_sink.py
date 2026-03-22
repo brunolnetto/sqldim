@@ -1,6 +1,6 @@
 """Tests for MotherDuckSink using a local .duckdb file (no cloud required)."""
 
-from sqldim.sinks.motherduck import MotherDuckSink
+from sqldim.sinks.sql.motherduck import MotherDuckSink
 
 
 # ── Helpers ──────────────────────────────────────────────────────────────────

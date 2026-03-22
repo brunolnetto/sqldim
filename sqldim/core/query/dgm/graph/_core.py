@@ -8,7 +8,7 @@ that ``from sqldim.core.query.dgm.graph import X`` continues to work unchanged.
 from __future__ import annotations
 
 # Re-export algorithm classes for backward compatibility
-from sqldim.core.query.dgm.graph_algs import (  # noqa: F401
+from sqldim.core.query.dgm.graph._algs import (  # noqa: F401
     GraphAlgorithm,
     NodeAlg,
     PairAlg,

@@ -5,7 +5,7 @@ import json
 import pytest
 
 from sqldim.medallion import Layer
-from sqldim.contracts.gates import (
+from sqldim.contracts.validation.gates import (
     CheckResult,
     GateResult,
     QualityGate,

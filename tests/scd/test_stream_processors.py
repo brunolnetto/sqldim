@@ -22,7 +22,7 @@ from sqldim.core.kimball.dimensions.scd.processors.scd_engine import (
     LazyType3Processor,
     LazyType6Processor,
 )
-from sqldim.sources.stream import StreamSourceAdapter
+from sqldim.sources.streaming.stream import StreamSourceAdapter
 
 
 # ---------------------------------------------------------------------------

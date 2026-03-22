@@ -23,7 +23,7 @@ from typing import Any, Iterator
 
 import duckdb
 
-from sqldim.sources.kafka import KafkaSource
+from sqldim.sources.streaming.kafka import KafkaSource
 
 
 class DebeziumSource:

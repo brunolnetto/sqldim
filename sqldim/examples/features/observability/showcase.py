@@ -97,7 +97,7 @@ def _make_evo_reports():
 
 def _make_quality_reports():
     """Simulate quality gate failures across datasets and runs."""
-    from sqldim.contracts.report import ContractReport, ContractViolation
+    from sqldim.contracts.reporting.report import ContractReport, ContractViolation
 
     base = datetime(2026, 3, 1, tzinfo=timezone.utc)
     runs = []

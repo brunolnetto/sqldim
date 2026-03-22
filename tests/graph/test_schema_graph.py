@@ -518,7 +518,7 @@ class TestSchemaDiffColumnDiffSummary:
     def test_summary_includes_nonempty_column_diff(self):
         """SchemaDiff.summary() formats column_diffs where is_empty is False."""
         from sqldim.core.graph.schema_graph import ColumnDiff
-        from sqldim.core.graph._schema_diff import SchemaDiff
+        from sqldim.core.graph._impl._schema_diff import SchemaDiff
 
         cd = ColumnDiff("MyModel", "vertex", ["new_col"], [])
         diff = SchemaDiff([], [], [], [], [cd])
@@ -529,7 +529,7 @@ class TestSchemaDiffColumnDiffSummary:
     def test_summary_skips_empty_column_diff(self):
         """SchemaDiff.summary() skips column_diffs where is_empty is True."""
         from sqldim.core.graph.schema_graph import ColumnDiff
-        from sqldim.core.graph._schema_diff import SchemaDiff
+        from sqldim.core.graph._impl._schema_diff import SchemaDiff
 
         cd_empty = ColumnDiff("MyModel", "vertex", [], [])
         diff = SchemaDiff([], [], [], [], [cd_empty])
@@ -539,7 +539,7 @@ class TestSchemaDiffColumnDiffSummary:
 
     def test_summary_includes_added_edges(self):
         """SchemaDiff.summary() includes added_edges when non-empty."""
-        from sqldim.core.graph._schema_diff import SchemaDiff
+        from sqldim.core.graph._impl._schema_diff import SchemaDiff
 
         FakeEdge = type("FakeEdge", (), {})
         diff = SchemaDiff(added_edges=[FakeEdge])
@@ -549,7 +549,7 @@ class TestSchemaDiffColumnDiffSummary:
 
     def test_summary_includes_removed_edges(self):
         """SchemaDiff.summary() includes removed_edges when non-empty."""
-        from sqldim.core.graph._schema_diff import SchemaDiff
+        from sqldim.core.graph._impl._schema_diff import SchemaDiff
 
         FakeEdge = type("FakeEdge", (), {})
         diff = SchemaDiff(removed_edges=[FakeEdge])

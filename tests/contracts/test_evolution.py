@@ -9,7 +9,7 @@ from sqldim.contracts.engine import (
     _is_widening,
     _classify_type_change,
 )
-from sqldim.contracts.schema import ColumnSpec
+from sqldim.contracts.validation.schema import ColumnSpec
 
 
 # ---------------------------------------------------------------------------

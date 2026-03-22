@@ -19,12 +19,12 @@ from __future__ import annotations
 from datetime import date
 import duckdb
 
-from sqldim.core.loaders.snapshot       import LazyTransactionLoader, LazySnapshotLoader
-from sqldim.core.loaders.accumulating   import LazyAccumulatingLoader
-from sqldim.core.loaders.cumulative     import LazyCumulativeLoader
-from sqldim.core.loaders.bitmask        import LazyBitmaskLoader
-from sqldim.core.loaders.array_metric   import LazyArrayMetricLoader
-from sqldim.core.loaders.edge_projection import LazyEdgeProjectionLoader
+from sqldim.core.loaders.fact.snapshot       import LazyTransactionLoader, LazySnapshotLoader
+from sqldim.core.loaders.fact.accumulating   import LazyAccumulatingLoader
+from sqldim.core.loaders.fact.cumulative     import LazyCumulativeLoader
+from sqldim.core.loaders.dimension.bitmask        import LazyBitmaskLoader
+from sqldim.core.loaders.dimension.array_metric   import LazyArrayMetricLoader
+from sqldim.core.loaders.dimension.edge_projection import LazyEdgeProjectionLoader
 from sqldim.core.kimball.dimensions.scd.processors.backfill      import lazy_backfill_scd2
 
 

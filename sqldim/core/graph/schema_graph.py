@@ -450,7 +450,7 @@ class SchemaGraph(_BaseSchemaGraph):
         )
 
 
-from sqldim.core.graph._schema_diff import ColumnDiff, SchemaDiff, _collect_column_diff  # noqa: E402, F401
+from sqldim.core.graph._impl._schema_diff import ColumnDiff, SchemaDiff, _collect_column_diff  # noqa: E402, F401
 
 
 def _added(absent_from: dict, present_in: dict) -> list:

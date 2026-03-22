@@ -9,13 +9,13 @@ from __future__ import annotations
 import duckdb
 import pytest
 
-from sqldim.contracts.report import (
+from sqldim.contracts.reporting.report import (
     ContractViolation,
     ContractReport,
     Severity,
 )
 from sqldim.contracts.exceptions import ContractViolationError
-from sqldim.contracts.rules import (
+from sqldim.contracts.validation.rules import (
     Rule,
     NotNull,
     NoDuplicates,
@@ -27,19 +27,19 @@ from sqldim.contracts.rules import (
     RegexMatch,
 )
 from sqldim.contracts.engine import ContractEngine
-from sqldim.contracts.composite import (
+from sqldim.contracts.reporting.composite import (
     SourceContract,
     StateContract,
     OutputContract,
 )
-from sqldim.contracts.scd_rules import (
+from sqldim.contracts.validation.scd_rules import (
     SCD2Invariants,
     NoOrphanVersions,
     MonotonicValidFrom,
     NoGapPeriods,
     HashConsistency,
 )
-from sqldim.contracts.freshness import Freshness, RowCountDelta
+from sqldim.contracts.validation.freshness import Freshness, RowCountDelta
 
 
 # ---------------------------------------------------------------------------
@@ -219,7 +219,7 @@ class TestNotNull:
         con = _con_with("CREATE TABLE t AS SELECT 1 AS nk UNION ALL SELECT 2 AS nk")
         v = _view(con, "SELECT * FROM t")
         engine = ContractEngine()
-        from sqldim.contracts.composite import SourceContract
+        from sqldim.contracts.reporting.composite import SourceContract
         sc = SourceContract(rules=[NotNull("nk")])
         report = engine.validate(con, v, sc)
         assert not report.has_errors()

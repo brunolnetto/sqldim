@@ -7,8 +7,8 @@ checks structural properties across version history.
 
 from __future__ import annotations
 
-from sqldim.contracts.report import Severity
-from sqldim.contracts.rules import Rule
+from sqldim.contracts.reporting.report import Severity
+from sqldim.contracts.validation.rules import Rule
 
 
 class SCD2Invariants(Rule):

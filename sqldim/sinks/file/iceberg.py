@@ -45,7 +45,7 @@ from __future__ import annotations
 import duckdb
 
 from sqldim.sinks._connection import make_connection
-from sqldim.sinks._iceberg_mutate import _IcebergMutateMixin  # noqa: F401
+from sqldim.sinks.file._iceberg_mutate import _IcebergMutateMixin  # noqa: F401
 
 
 class IcebergSink(_IcebergMutateMixin):

@@ -5,9 +5,9 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 
 from sqldim.medallion import Layer
-from sqldim.contracts.version import ContractVersion
-from sqldim.contracts.schema import ColumnSpec
-from sqldim.contracts.sla import SLASpec
+from sqldim.contracts.reporting.version import ContractVersion
+from sqldim.contracts.validation.schema import ColumnSpec
+from sqldim.contracts.reporting.sla import SLASpec
 
 
 @dataclass

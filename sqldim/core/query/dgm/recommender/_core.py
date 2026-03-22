@@ -9,7 +9,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING
 
-from sqldim.core.query.dgm.recommender_types import (  # noqa: F401
+from sqldim.core.query.dgm.recommender._types import (  # noqa: F401
     ENTROPY_THRESHOLD, SuggestionKind, Suggestion, Stage1Result, Stage2Result,
 )
 

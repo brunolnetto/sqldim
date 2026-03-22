@@ -15,7 +15,7 @@ import json
 import duckdb
 
 from sqldim.core.kimball.dimensions.scd.processors.lazy.metadata._lazy_metadata import LazySCDMetadataProcessor
-from sqldim.sources.stream import StreamResult
+from sqldim.sources.streaming.stream import StreamResult
 
 
 # ---------------------------------------------------------------------------

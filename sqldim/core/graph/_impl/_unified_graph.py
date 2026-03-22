@@ -12,7 +12,7 @@ from sqldim.core.graph.registry import GraphModel
 
 if TYPE_CHECKING:
     from sqldim.core.graph.schema_graph import SchemaGraph
-    from sqldim.core.graph._schema_diff import SchemaDiff
+    from sqldim.core.graph._impl._schema_diff import SchemaDiff
     from sqldim.core.graph.models import EdgeModel, VertexModel
 
 

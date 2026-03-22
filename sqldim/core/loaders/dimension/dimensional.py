@@ -222,7 +222,7 @@ class DimensionalLoader:
 
             MergeStrategy(match_column=nk).execute(self.session, model, processed_data)
         elif strategy_name == "accumulating":
-            from sqldim.core.loaders.accumulating import AccumulatingLoader
+            from sqldim.core.loaders.fact.accumulating import AccumulatingLoader
 
             loader = AccumulatingLoader(
                 model,
