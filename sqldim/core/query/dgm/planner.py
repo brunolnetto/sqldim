@@ -23,9 +23,9 @@ from enum import Enum
 from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
-    from sqldim.core.query._dgm_bdd import DGMPredicateBDD
-    from sqldim.core.query._dgm_graph import GraphStatistics, NodeExpr, SubgraphExpr
-    from sqldim.core.query._dgm_annotations import AnnotationSigma, GrainKind
+    from sqldim.core.query.dgm.bdd import DGMPredicateBDD
+    from sqldim.core.query.dgm.graph import GraphStatistics, NodeExpr, SubgraphExpr
+    from sqldim.core.query.dgm.annotations import AnnotationSigma, GrainKind
 
 __all__ = [
     "QueryTarget",
@@ -284,7 +284,7 @@ class DGMPlanner:
 
     def apply_rule_1b(self, grain: "GrainKind", fact: str) -> list[str]:
         """Rule 1b: Return advisory messages for grain-aware aggregation."""
-        from sqldim.core.query._dgm_annotations import GrainKind
+        from sqldim.core.query.dgm.annotations import GrainKind
 
         if grain is GrainKind.PERIOD:
             return [
@@ -305,7 +305,7 @@ class DGMPlanner:
 
     def apply_rule_1c(self, scd_kind: "SCDKind") -> str:
         """Rule 1c: Return the SCD resolution strategy string."""
-        from sqldim.core.query._dgm_annotations import SCDKind
+        from sqldim.core.query.dgm.annotations import SCDKind
 
         _map = {
             SCDKind.SCD1: "scd1: strip TemporalJoin predicate",
@@ -340,14 +340,14 @@ class DGMPlanner:
 
     def apply_rule_3(self, expr: "NodeExpr | SubgraphExpr") -> str:
         """Rule 3: Schedule or inline a GraphExpr algorithm."""
-        from sqldim.core.query._dgm_graph import NodeExpr, SubgraphExpr
+        from sqldim.core.query.dgm.graph import NodeExpr, SubgraphExpr
 
         if isinstance(expr, NodeExpr):
             return self._rule3_node_expr(expr)
         return self._rule3_subgraph_expr(expr)
 
     def _rule3_node_expr(self, expr: "NodeExpr") -> str:
-        from sqldim.core.query._dgm_graph import (
+        from sqldim.core.query.dgm.graph import (
             OUTGOING_SIGNATURES,
             INCOMING_SIGNATURES,
             DOMINANT_OUTGOING_SIGNATURE,
@@ -363,7 +363,7 @@ class DGMPlanner:
         return f"inline NodeExpr({type(alg).__name__})"
 
     def _rule3_subgraph_expr(self, expr: "SubgraphExpr") -> str:
-        from sqldim.core.query._dgm_graph import (
+        from sqldim.core.query.dgm.graph import (
             GLOBAL_SIGNATURE_COUNT,
             GLOBAL_DOMINANT_SIGNATURE,
             SIGNATURE_ENTROPY,
@@ -406,7 +406,7 @@ class DGMPlanner:
         node_count:
             Number of nodes in the hierarchy.
         """
-        from sqldim.core.query._dgm_annotations import _Ragged
+        from sqldim.core.query.dgm.annotations import _Ragged
 
         is_ragged = isinstance(depth, _Ragged)
         if not is_ragged and isinstance(depth, int) and depth <= 4:
@@ -425,7 +425,7 @@ class DGMPlanner:
         candidate_set: "set[str] | None" = None,
     ) -> list[str]:
         """Rule 6: Return optimisation messages for *ann* (§6.2)."""
-        from sqldim.core.query._dgm_annotations import (
+        from sqldim.core.query.dgm.annotations import (
             RolePlaying, ProjectsFrom, DerivedFact,
             WeightConstraint, BridgeSemantics, Degenerate,
         )
@@ -470,7 +470,7 @@ class DGMPlanner:
 
     @staticmethod
     def _r6_bridge_semantics(ann: object, _c: "set[str]") -> list[str]:
-        from sqldim.core.query._dgm_annotations import BridgeSemanticsKind
+        from sqldim.core.query.dgm.annotations import BridgeSemanticsKind
 
         if ann.sem is BridgeSemanticsKind.CAUSAL:  # type: ignore[attr-defined]
             return [f"BridgeSemantics(CAUSAL) on {ann.bridge}: drop cycle guard; dag_bfs on G and G^T"]  # type: ignore[attr-defined]
@@ -506,7 +506,7 @@ class DGMPlanner:
         grain_kind: "GrainKind | None",
     ) -> str:
         """Rule 8: Return the write plan string for *sink_target*."""
-        from sqldim.core.query._dgm_annotations import GrainKind
+        from sqldim.core.query.dgm.annotations import GrainKind
 
         _base: dict[SinkTarget, str] = {
             SinkTarget.DUCKDB: "CREATE TABLE AS / INSERT INTO",

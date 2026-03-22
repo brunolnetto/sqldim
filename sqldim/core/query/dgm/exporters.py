@@ -16,7 +16,7 @@ import json
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
-    from sqldim.core.query._dgm_planner import ExportPlan
+    from sqldim.core.query.dgm.planner import ExportPlan
 
 __all__ = [
     "CypherExporter",

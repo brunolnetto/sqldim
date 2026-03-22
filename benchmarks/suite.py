@@ -1871,9 +1871,9 @@ def group_p_bdd_predicate(
     **_,
 ) -> list[BenchmarkResult]:
     """Group P — BDD predicate compilation throughput (compile, satisfiability, to_sql)."""
-    from sqldim.core.query._dgm_bdd import BDDManager, DGMPredicateBDD
-    from sqldim.core.query._dgm_preds import ScalarPred, AND, OR
-    from sqldim.core.query._dgm_refs import PropRef
+    from sqldim.core.query.dgm.bdd import BDDManager, DGMPredicateBDD
+    from sqldim.core.query.dgm.preds import ScalarPred, AND, OR
+    from sqldim.core.query.dgm.refs import PropRef
 
     tier_order   = ["xs", "s", "m"]
     _max = max_tier if max_tier in tier_order else tier_order[-1]
@@ -2001,7 +2001,7 @@ def group_q_recommender(
     **_,
 ) -> list[BenchmarkResult]:
     """Group Q — DGMRecommender annotation rule + trail rule throughput."""
-    from sqldim.core.query._dgm_annotations import (
+    from sqldim.core.query.dgm.annotations import (
         AnnotationSigma,
         Grain, GrainKind,
         SCDType, SCDKind,
@@ -2012,7 +2012,7 @@ def group_q_recommender(
         DerivedFact,
         WeightConstraint, WeightConstraintKind,
     )
-    from sqldim.core.query._dgm_recommender import DGMRecommender
+    from sqldim.core.query.dgm.recommender import DGMRecommender
 
     tier_map   = {"xs": 200, "s": 2_000, "m": 10_000}
     tier_order = ["xs", "s", "m"]
@@ -2108,9 +2108,9 @@ def group_r_planner(
     **_,
 ) -> list[BenchmarkResult]:
     """Group R — DGMPlanner rule cycles (1a, 9, build_plan)."""
-    from sqldim.core.query._dgm_annotations import AnnotationSigma
-    from sqldim.core.query._dgm_planner import DGMPlanner, QueryTarget, SinkTarget
-    from sqldim.core.query._dgm_graph import GraphStatistics
+    from sqldim.core.query.dgm.annotations import AnnotationSigma
+    from sqldim.core.query.dgm.planner import DGMPlanner, QueryTarget, SinkTarget
+    from sqldim.core.query.dgm.graph import GraphStatistics
 
     tier_map   = {"xs": 500, "s": 5_000, "m": 20_000}
     tier_order = ["xs", "s", "m"]
@@ -2238,8 +2238,8 @@ def group_s_exporter(
     **_,
 ) -> list[BenchmarkResult]:
     """Group S — DGM multi-target exporter throughput (JSON / YAML x simple / complex)."""
-    from sqldim.core.query._dgm_planner import QueryTarget, SinkTarget, ExportPlan
-    from sqldim.core.query._dgm_exporters import DGMJSONExporter, DGMYAMLExporter
+    from sqldim.core.query.dgm.planner import QueryTarget, SinkTarget, ExportPlan
+    from sqldim.core.query.dgm.exporters import DGMJSONExporter, DGMYAMLExporter
 
     tier_map   = {"xs": 500, "s": 5_000, "m": 20_000}
     tier_order = ["xs", "s", "m"]

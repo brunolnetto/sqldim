@@ -19,7 +19,7 @@ from sqldim.examples.real_world.ecommerce.models import (
     ProductCampaignBridge,
     OrderFact,
 )
-from sqldim.examples.datasets.domains.ecommerce_star import (
+from sqldim.examples.datasets.domains.ecommerce.star import (
     CustomersSource,
     ProductsSource,
     OrdersSource,

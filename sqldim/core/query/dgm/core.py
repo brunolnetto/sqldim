@@ -26,7 +26,7 @@ from typing import Iterator
 from sqldim.exceptions import SemanticError
 
 # -- Re-export from private submodules (public API unchanged) ----------------
-from sqldim.core.query._dgm_refs import (  # noqa: F401
+from sqldim.core.query.dgm.refs import (  # noqa: F401
     PropRef,
     AggRef,
     WinRef,
@@ -36,7 +36,7 @@ from sqldim.core.query._dgm_refs import (  # noqa: F401
     ArithExpr,
     SignatureRef,
 )
-from sqldim.core.query._dgm_preds import (  # noqa: F401
+from sqldim.core.query.dgm.preds import (  # noqa: F401
     ScalarPred,
     AND,
     OR,
@@ -289,7 +289,7 @@ def _build_from_joins(q: "DGMQuery") -> str:
 
 
 # -- Re-export: Graph algorithm hierarchy (DGM §16.4, §11) ------------------
-from sqldim.core.query._dgm_graph import (  # noqa: F401
+from sqldim.core.query.dgm.graph import (  # noqa: F401
     GraphAlgorithm,
     NodeAlg,
     PairAlg,
@@ -348,10 +348,10 @@ from sqldim.core.query._dgm_graph import (  # noqa: F401
 )
 
 # -- Re-export: Refs (DGM §4.1) --------------------------------------------
-from sqldim.core.query._dgm_refs import SignatureRef  # noqa: F401
+from sqldim.core.query.dgm.refs import SignatureRef  # noqa: F401
 
 # -- Re-export: Preds (DGM §4.1) -------------------------------------------
-from sqldim.core.query._dgm_preds import (  # noqa: F401
+from sqldim.core.query.dgm.preds import (  # noqa: F401
     VerbHopInverse,
     SAFETY,
     LIVENESS,
@@ -363,7 +363,7 @@ from sqldim.core.query._dgm_preds import (  # noqa: F401
 )
 
 # -- Re-export: Temporal types (DGM §3.2, §4.1, §4.2, §5.1) ---------------
-from sqldim.core.query._dgm_annotations import (  # noqa: F401
+from sqldim.core.query.dgm.annotations import (  # noqa: F401
     GrainKind,
     SCDKind,
     WeightConstraintKind,
@@ -384,7 +384,7 @@ from sqldim.core.query._dgm_annotations import (  # noqa: F401
     annotation_kind,
     AnnotationSigma,
 )
-from sqldim.core.query._dgm_temporal import (  # noqa: F401
+from sqldim.core.query.dgm.temporal import (  # noqa: F401
     TemporalMode,
     EVENTUALLY,
     GLOBALLY,
@@ -429,7 +429,7 @@ from sqldim.core.query._dgm_temporal import (  # noqa: F401
 )
 
 # -- Re-export: Recommender (DGM §7) ----------------------------------------
-from sqldim.core.query._dgm_recommender import (  # noqa: F401
+from sqldim.core.query.dgm.recommender import (  # noqa: F401
     SuggestionKind,
     Suggestion,
     Stage1Result,
@@ -439,7 +439,7 @@ from sqldim.core.query._dgm_recommender import (  # noqa: F401
 )
 
 # -- Re-export: Planner (DGM §6.2) ------------------------------------------
-from sqldim.core.query._dgm_planner import (  # noqa: F401
+from sqldim.core.query.dgm.planner import (  # noqa: F401
     QueryTarget,
     SinkTarget,
     PreComputation,
@@ -453,7 +453,7 @@ from sqldim.core.query._dgm_planner import (  # noqa: F401
 )
 
 # -- Re-export: Exporters (DGM §6.3) ----------------------------------------
-from sqldim.core.query._dgm_exporters import (  # noqa: F401
+from sqldim.core.query.dgm.exporters import (  # noqa: F401
     CypherExporter,
     SPARQLExporter,
     DGMJSONExporter,

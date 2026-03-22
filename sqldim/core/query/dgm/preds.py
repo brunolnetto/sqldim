@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import enum
 
-from sqldim.core.query._dgm_refs import (
+from sqldim.core.query.dgm.refs import (
     PropRef,
     AggRef,
     WinRef,
@@ -241,7 +241,7 @@ _TEMPORAL_MODE_WRAPPERS: dict[object, str] = {}
 
 def _build_temporal_dispatch() -> "dict[object, object]":
     """Build singleton-mode dispatch table (deferred to avoid circular import)."""
-    from sqldim.core.query._dgm_temporal import EVENTUALLY, GLOBALLY, NEXT, ONCE, PREVIOUSLY
+    from sqldim.core.query.dgm.temporal import EVENTUALLY, GLOBALLY, NEXT, ONCE, PREVIOUSLY
     return {
         EVENTUALLY: lambda s: s,
         GLOBALLY: lambda s: f"NOT EXISTS (SELECT 1 FROM (SELECT 1 WHERE NOT ({s})))",
@@ -253,7 +253,7 @@ def _build_temporal_dispatch() -> "dict[object, object]":
 
 def _temporal_mode_sql_wrapper(mode: object, base_exists: str) -> str:
     """Wrap *base_exists* in the appropriate CTL temporal SQL template."""
-    from sqldim.core.query._dgm_temporal import UntilMode, SinceMode
+    from sqldim.core.query.dgm.temporal import UntilMode, SinceMode
     dispatch = _build_temporal_dispatch()
     fn = dispatch.get(mode)
     if fn is not None:

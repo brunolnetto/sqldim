@@ -17,8 +17,8 @@ to declare field definitions, vocabulary, and DDL in one place.
 
 Domains
 -------
+dgm           — DGMShowcaseSource (static fixture; no Faker dependency)
 ecommerce     — ProductsSource, CustomersSource, StoresSource, OrdersSource
-ecommerce_star— ecommerce star-schema variant (real-world example)
 enterprise    — EmployeesSource, AccountsSource
 fintech       — AccountsSource, CounterpartiesSource, TransactionsSource
 hierarchy     — OrgChartSource (static fixture; no Faker dependency)
@@ -46,6 +46,7 @@ from sqldim.examples.datasets.schema import (
 
 # Faker-free sources — always importable
 from sqldim.examples.datasets.domains.hierarchy import OrgChartSource
+from sqldim.examples.datasets.domains.dgm import DGMShowcaseSource
 
 # Faker-dependent sources — imported only when faker is available
 try:
@@ -80,7 +81,7 @@ try:
         DevicesSource,
         EventsSource,
     )
-    from sqldim.examples.datasets.domains.ecommerce_star import (
+    from sqldim.examples.datasets.domains.ecommerce.star import (
         CustomersSource as EcommerceStarCustomersSource,
         ProductsSource as EcommerceStarProductsSource,
         OrdersSource as EcommerceStarOrdersSource,
@@ -100,6 +101,8 @@ __all__ = [
     "DatasetSpec",
     "ChangeRule",
     "EventSpec",
+    # dgm showcase (no Faker required)
+    "DGMShowcaseSource",
     # hierarchy (no Faker required)
     "OrgChartSource",
     # e-commerce (requires faker)

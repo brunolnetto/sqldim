@@ -22,7 +22,7 @@ from __future__ import annotations
 
 import pytest
 
-from sqldim.core.query._dgm_planner import (
+from sqldim.core.query.dgm.planner import (
     QueryTarget,
     SinkTarget,
     PreComputation,
@@ -34,13 +34,13 @@ from sqldim.core.query._dgm_planner import (
     SMALL_GRAPH_THRESHOLD,
     DENSE,
 )
-from sqldim.core.query._dgm_exporters import (
+from sqldim.core.query.dgm.exporters import (
     CypherExporter,
     SPARQLExporter,
     DGMJSONExporter,
     DGMYAMLExporter,
 )
-from sqldim.core.query._dgm_graph import (
+from sqldim.core.query.dgm.graph import (
     GraphStatistics,
     RelationshipSubgraph,
     Bound,
@@ -52,7 +52,7 @@ from sqldim.core.query._dgm_graph import (
     NodeExpr,
     SubgraphExpr,
 )
-from sqldim.core.query._dgm_annotations import (
+from sqldim.core.query.dgm.annotations import (
     AnnotationSigma,
     Grain,
     GrainKind,
@@ -70,9 +70,9 @@ from sqldim.core.query._dgm_annotations import (
     Hierarchy,
     RAGGED,
 )
-from sqldim.core.query._dgm_bdd import DGMPredicateBDD
-from sqldim.core.query._dgm_preds import ScalarPred, AND
-from sqldim.core.query._dgm_refs import PropRef
+from sqldim.core.query.dgm.bdd import DGMPredicateBDD
+from sqldim.core.query.dgm.preds import ScalarPred, AND
+from sqldim.core.query.dgm.refs import PropRef
 
 
 # ---------------------------------------------------------------------------
@@ -492,7 +492,7 @@ class TestRule3:
 
     def test_inline_node_expr_fallback(self):
         """NodeExpr with a non-TrailExpr alg (e.g. DEGREE) hits the inline fallback."""
-        from sqldim.core.query._dgm_graph import DEGREE
+        from sqldim.core.query.dgm.graph import DEGREE
         p = _make_planner()
         expr = NodeExpr(DEGREE(), alias="x")
         result = p.apply_rule_3(expr)
@@ -501,7 +501,7 @@ class TestRule3:
 
     def test_inline_subgraph_expr_fallback(self):
         """SubgraphExpr with a non-TrailExpr alg (e.g. DENSITY) hits the inline fallback."""
-        from sqldim.core.query._dgm_graph import DENSITY
+        from sqldim.core.query.dgm.graph import DENSITY
         p = _make_planner()
         expr = SubgraphExpr(DENSITY())
         result = p.apply_rule_3(expr)
@@ -515,7 +515,7 @@ class TestRule3:
 
 class TestRule4:
     def test_implies_removes_having(self):
-        from sqldim.core.query._dgm_bdd import BDDManager
+        from sqldim.core.query.dgm.bdd import BDDManager
         mgr = BDDManager()
         bdd = DGMPredicateBDD(mgr)
         p_true = ScalarPred(PropRef("r.revenue"), ">", 0)
@@ -528,7 +528,7 @@ class TestRule4:
         assert canremove is True
 
     def test_no_implies_keeps_having(self):
-        from sqldim.core.query._dgm_bdd import BDDManager
+        from sqldim.core.query.dgm.bdd import BDDManager
         mgr = BDDManager()
         bdd = DGMPredicateBDD(mgr)
         p1 = ScalarPred(PropRef("r.revenue"), ">", 100)
@@ -541,7 +541,7 @@ class TestRule4:
         assert can_remove is False
 
     def test_returns_bool(self):
-        from sqldim.core.query._dgm_bdd import BDDManager
+        from sqldim.core.query.dgm.bdd import BDDManager
         mgr = BDDManager()
         bdd = DGMPredicateBDD(mgr)
         p = ScalarPred(PropRef("x.y"), "=", 1)

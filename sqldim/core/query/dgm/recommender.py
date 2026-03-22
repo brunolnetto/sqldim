@@ -18,9 +18,9 @@ from enum import Enum
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
-    from sqldim.core.query._dgm_bdd import DGMPredicateBDD
-    from sqldim.core.query._dgm_graph import GraphStatistics
-    from sqldim.core.query._dgm_annotations import AnnotationSigma
+    from sqldim.core.query.dgm.bdd import DGMPredicateBDD
+    from sqldim.core.query.dgm.graph import GraphStatistics
+    from sqldim.core.query.dgm.annotations import AnnotationSigma
 
 __all__ = [
     "SuggestionKind",
@@ -241,7 +241,7 @@ class DGMRecommender:
         return suggestions
 
     def _apply_annotation_rule(self, ann: object, out: list[Suggestion]) -> None:
-        from sqldim.core.query._dgm_annotations import (
+        from sqldim.core.query.dgm.annotations import (
             Degenerate, Conformed, Grain, SCDType, FactlessFact,
             DerivedFact, WeightConstraint, BridgeSemantics,
             Hierarchy, RolePlaying,
@@ -286,7 +286,7 @@ class DGMRecommender:
         ))
 
     def _ann_grain(self, ann: object, out: list[Suggestion]) -> None:
-        from sqldim.core.query._dgm_annotations import GrainKind
+        from sqldim.core.query.dgm.annotations import GrainKind
 
         if ann.grain is GrainKind.PERIOD:  # type: ignore[attr-defined]
             out.append(Suggestion(
@@ -312,7 +312,7 @@ class DGMRecommender:
             ))
 
     def _ann_scd_type(self, ann: object, out: list[Suggestion]) -> None:
-        from sqldim.core.query._dgm_annotations import SCDKind
+        from sqldim.core.query.dgm.annotations import SCDKind
 
         if ann.scd is SCDKind.SCD3:  # type: ignore[attr-defined]
             out.append(Suggestion(
@@ -353,7 +353,7 @@ class DGMRecommender:
             ))
 
     def _ann_bridge_semantics(self, ann: object, out: list[Suggestion]) -> None:
-        from sqldim.core.query._dgm_annotations import BridgeSemanticsKind
+        from sqldim.core.query.dgm.annotations import BridgeSemanticsKind
 
         if ann.sem is BridgeSemanticsKind.CAUSAL:  # type: ignore[attr-defined]
             out.append(Suggestion(

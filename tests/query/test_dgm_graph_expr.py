@@ -15,7 +15,7 @@ Covers:
 
 import pytest
 
-from sqldim.core.query._dgm_graph import (
+from sqldim.core.query.dgm.graph import (
     # --- existing ---
     NodeAlg, PairAlg, SubgraphAlg,
     NodeExpr, PairExpr, SubgraphExpr, GraphExpr,
@@ -318,7 +318,7 @@ class TestRelationshipSubgraphCase4:
 
 class TestRelationshipSubgraphStrategy:
     def test_with_strategy(self):
-        from sqldim.core.query._dgm_preds import ALL
+        from sqldim.core.query.dgm.preds import ALL
         rs = RelationshipSubgraph(
             source=Bound(alias="a"),
             target=FREE,
@@ -334,12 +334,12 @@ class TestRelationshipSubgraphStrategy:
 
 class TestSubgraphExprScope:
     def test_scope_none_by_default(self):
-        from sqldim.core.query._dgm_graph import DENSITY
+        from sqldim.core.query.dgm.graph import DENSITY
         se = SubgraphExpr(algorithm=DENSITY())
         assert se.scope is None
 
     def test_scope_with_relationship_subgraph(self):
-        from sqldim.core.query._dgm_graph import SIGNATURE_ENTROPY
+        from sqldim.core.query.dgm.graph import SIGNATURE_ENTROPY
         scope = RelationshipSubgraph(source=FREE, target=FREE)
         se = SubgraphExpr(algorithm=SIGNATURE_ENTROPY(), scope=scope)
         assert se.scope is scope
@@ -415,7 +415,7 @@ class TestMaxDepthToSql:
         assert "7" in sql
 
     def test_dominant_incoming_signature_max_depth_to_sql(self):
-        from sqldim.core.query._dgm_graph import DOMINANT_INCOMING_SIGNATURE
+        from sqldim.core.query.dgm.graph import DOMINANT_INCOMING_SIGNATURE
         sql = DOMINANT_INCOMING_SIGNATURE(max_depth=3).to_sql()
         assert "DOMINANT_INCOMING_SIGNATURE" in sql
         assert "3" in sql

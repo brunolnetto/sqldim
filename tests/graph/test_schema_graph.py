@@ -590,7 +590,7 @@ class TestSchemaGraphEdgeDiff:
 
 def test_to_dict_annotation_frozenset_field_sorted():
     """GraphSchema.to_dict() converts frozenset annotation fields to sorted lists (line 235-236)."""
-    from sqldim.core.query._dgm_annotations import Conformed
+    from sqldim.core.query.dgm.annotations import Conformed
     from sqldim.core.graph.schema_graph import GraphSchema
 
     schema = GraphSchema(

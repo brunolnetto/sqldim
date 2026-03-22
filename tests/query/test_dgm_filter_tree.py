@@ -11,7 +11,7 @@ from __future__ import annotations
 import pytest
 
 from sqldim.core.query.dgm import DGMQuery
-from sqldim.core.query._dgm_preds import (
+from sqldim.core.query.dgm.preds import (
     ScalarPred,
     AND,
     NOT,
@@ -21,8 +21,8 @@ from sqldim.core.query._dgm_preds import (
     PathPred,
     VerbHop,
 )
-from sqldim.core.query._dgm_refs import PropRef, AggRef, WinRef, SignatureRef
-from sqldim.core.query._dgm_temporal import (
+from sqldim.core.query.dgm.refs import PropRef, AggRef, WinRef, SignatureRef
+from sqldim.core.query.dgm.temporal import (
     EVENTUALLY,
     GLOBALLY,
     NEXT,

@@ -13,7 +13,7 @@ from __future__ import annotations
 
 import pytest
 
-from sqldim.core.query._dgm_temporal import (
+from sqldim.core.query.dgm.temporal import (
     # TemporalMode
     TemporalMode,
     EVENTUALLY,
@@ -61,8 +61,8 @@ from sqldim.core.query._dgm_temporal import (
     ROLE_DRIFT,
     DeltaQuery,
 )
-from sqldim.core.query._dgm_refs import PropRef
-from sqldim.core.query._dgm_preds import ScalarPred
+from sqldim.core.query.dgm.refs import PropRef
+from sqldim.core.query.dgm.preds import ScalarPred
 
 
 # ---------------------------------------------------------------------------

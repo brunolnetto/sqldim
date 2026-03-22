@@ -236,7 +236,7 @@ class DGMPredicateBDD:
         return result
 
     def _compile_forall(self, pred: "PathPred") -> int:
-        from sqldim.core.query._dgm_preds import NOT, PathPred, Quantifier
+        from sqldim.core.query.dgm.preds import NOT, PathPred, Quantifier
         inner = NOT(pred.sub_filter)
         exists_pred = PathPred(
             pred.anchor,
@@ -250,7 +250,7 @@ class DGMPredicateBDD:
         return self.manager.negate(self._compile(exists_pred))
 
     def _compile(self, pred: object) -> int:
-        from sqldim.core.query._dgm_preds import AND, OR
+        from sqldim.core.query.dgm.preds import AND, OR
         _dispatch = {AND: self._compile_and, OR: self._compile_or}
         handler = _dispatch.get(type(pred))
         if handler is not None:
@@ -258,7 +258,7 @@ class DGMPredicateBDD:
         return self._compile_structural(pred)
 
     def _compile_structural(self, pred: object) -> int:
-        from sqldim.core.query._dgm_preds import NOT, PathPred, Quantifier
+        from sqldim.core.query.dgm.preds import NOT, PathPred, Quantifier
         if isinstance(pred, NOT):
             return self.manager.negate(self._compile(pred.pred))
         if isinstance(pred, PathPred) and pred.quantifier is Quantifier.FORALL:

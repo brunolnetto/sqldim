@@ -14,7 +14,7 @@ Covers:
 
 import pytest
 
-from sqldim.core.query._dgm_annotations import (
+from sqldim.core.query.dgm.annotations import (
     Conformed,
     Grain,
     SCDType,

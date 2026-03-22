@@ -38,118 +38,15 @@ from sqldim import (
     BridgeHop,
     Compose,
 )
-from sqldim import DimensionModel, FactModel, BridgeModel, Field
 from sqldim.core.graph.schema_graph import SchemaGraph
-
-
-# ---------------------------------------------------------------------------
-# Minimal star schema used for the showcase
-# ---------------------------------------------------------------------------
-
-
-class CustomerDim(DimensionModel, table=True):
-    __tablename__ = "dgm_showcase_customer"
-    __natural_key__ = ["email"]
-    id: int = Field(primary_key=True, surrogate_key=True)
-    email: str
-    segment: str
-    region: str
-    valid_from: str | None = None
-    valid_to: str | None = None
-
-
-class ProductDim(DimensionModel, table=True):
-    __tablename__ = "dgm_showcase_product"
-    __natural_key__ = ["sku"]
-    id: int = Field(primary_key=True, surrogate_key=True)
-    sku: str
-    category: str
-
-
-class SegmentDim(DimensionModel, table=True):
-    __tablename__ = "dgm_showcase_segment"
-    __natural_key__ = ["code"]
-    id: int = Field(primary_key=True, surrogate_key=True)
-    code: str
-    tier: str
-
-
-class SaleFact(FactModel, table=True):
-    __tablename__ = "dgm_showcase_sale"
-    __grain__ = "one row per transaction"
-    id: int = Field(primary_key=True)
-    customer_id: int = Field(
-        foreign_key="dgm_showcase_customer.id", dimension=CustomerDim
-    )
-    product_id: int = Field(foreign_key="dgm_showcase_product.id", dimension=ProductDim)
-    revenue: float
-    quantity: int
-    sale_year: int
-
-
-class ProductSegmentBridge(BridgeModel, table=True):
-    __tablename__ = "dgm_showcase_prod_seg"
-    __bridge_keys__ = ["product_id", "segment_id"]
-    id: int = Field(default=None, primary_key=True)
-    product_id: int
-    segment_id: int
-    weight: float = Field(default=1.0)
-
-
-# ---------------------------------------------------------------------------
-# Helpers
-# ---------------------------------------------------------------------------
-
-
-def _setup(con: duckdb.DuckDBPyConnection) -> None:
-    """Create and populate the in-memory star schema."""
-    con.execute("""
-        CREATE TABLE dgm_showcase_customer (
-            id INTEGER PRIMARY KEY, email VARCHAR, segment VARCHAR,
-            region VARCHAR, valid_from DATE, valid_to DATE
-        )
-    """)
-    con.execute("""
-        CREATE TABLE dgm_showcase_product (
-            id INTEGER PRIMARY KEY, sku VARCHAR, category VARCHAR
-        )
-    """)
-    con.execute("""
-        CREATE TABLE dgm_showcase_segment (
-            id INTEGER PRIMARY KEY, code VARCHAR, tier VARCHAR
-        )
-    """)
-    con.execute("""
-        CREATE TABLE dgm_showcase_sale (
-            id INTEGER PRIMARY KEY, customer_id INTEGER, product_id INTEGER,
-            revenue DOUBLE, quantity INTEGER, sale_year INTEGER
-        )
-    """)
-    con.execute("""
-        CREATE TABLE dgm_showcase_prod_seg (
-            id INTEGER PRIMARY KEY, product_id INTEGER,
-            segment_id INTEGER, weight DOUBLE
-        )
-    """)
-
-    con.execute("""INSERT INTO dgm_showcase_customer VALUES
-        (1,'alice@x','retail','US','2020-01-01',NULL),
-        (2,'bob@x','wholesale','EU','2020-01-01',NULL),
-        (3,'carol@x','retail','US','2020-01-01',NULL)
-    """)
-    con.execute("""INSERT INTO dgm_showcase_product VALUES
-        (1,'W-001','electronics'), (2,'G-002','clearance'), (3,'D-003','food')
-    """)
-    con.execute("""INSERT INTO dgm_showcase_segment VALUES
-        (1,'elec','premium'), (2,'food','standard')
-    """)
-    con.execute("""INSERT INTO dgm_showcase_sale VALUES
-        (1,1,1,1500.0,3,2024),(2,1,2,200.0,1,2024),(3,1,3,3500.0,5,2024),
-        (4,2,1,4000.0,8,2024),(5,3,1,2000.0,4,2024),(6,3,3,600.0,2,2024)
-    """)
-    con.execute("""INSERT INTO dgm_showcase_prod_seg VALUES
-        (1,1,1,1.0),(2,3,2,1.0)
-    """)
+from sqldim.examples.features.dgm.models import (
+    CustomerDim,
+    ProductDim,
+    SegmentDim,
+    SaleFact,
+    ProductSegmentBridge,
+)
+from sqldim.examples.datasets.domains.dgm import DGMShowcaseSource
 
 
 def _section(title: str) -> None:
@@ -347,7 +244,7 @@ def demo_bridge_path(con: duckdb.DuckDBPyConnection) -> None:
 
 def demo_bdd_predicate() -> None:
     """Demonstrate BDD compile, satisfiability, implication, and to_sql."""
-    from sqldim.core.query._dgm_bdd import BDDManager, DGMPredicateBDD
+    from sqldim.core.query.dgm.bdd import BDDManager, DGMPredicateBDD
 
     _section("BDD predicate compilation and canonical form")
 
@@ -376,7 +273,7 @@ def demo_bdd_predicate() -> None:
 
 def demo_annotation_sigma() -> None:
     """Build an AnnotationSigma and run the DGMRecommender over it."""
-    from sqldim.core.query._dgm_annotations import (
+    from sqldim.core.query.dgm.annotations import (
         AnnotationSigma,
         Grain,
         GrainKind,
@@ -386,7 +283,7 @@ def demo_annotation_sigma() -> None:
         BridgeSemantics,
         BridgeSemanticsKind,
     )
-    from sqldim.core.query._dgm_recommender import DGMRecommender
+    from sqldim.core.query.dgm.recommender import DGMRecommender
 
     _section("Schema annotation layer Σ and recommender")
 
@@ -424,10 +321,10 @@ def demo_annotation_sigma() -> None:
 
 def demo_planner() -> None:
     """DGMPlanner: build an ExportPlan with rules 1a–9."""
-    from sqldim.core.query._dgm_annotations import AnnotationSigma
-    from sqldim.core.query._dgm_planner import DGMPlanner, QueryTarget, SinkTarget
-    from sqldim.core.query._dgm_graph import GraphStatistics
-    from sqldim.core.query._dgm_exporters import (
+    from sqldim.core.query.dgm.annotations import AnnotationSigma
+    from sqldim.core.query.dgm.planner import DGMPlanner, QueryTarget, SinkTarget
+    from sqldim.core.query.dgm.graph import GraphStatistics
+    from sqldim.core.query.dgm.exporters import (
         DGMJSONExporter,
         DGMYAMLExporter,
     )
@@ -470,7 +367,7 @@ def demo_planner() -> None:
 
 def run_all() -> None:
     con = duckdb.connect()
-    _setup(con)
+    DGMShowcaseSource().setup(con)
 
     demo_edge_kind_classification()
     demo_b1_filter(con)

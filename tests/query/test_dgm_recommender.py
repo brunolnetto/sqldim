@@ -12,7 +12,7 @@ Covers:
 
 import pytest
 
-from sqldim.core.query._dgm_recommender import (
+from sqldim.core.query.dgm.recommender import (
     SuggestionKind,
     Suggestion,
     Stage1Result,
@@ -20,7 +20,7 @@ from sqldim.core.query._dgm_recommender import (
     DGMRecommender,
     ENTROPY_THRESHOLD,
 )
-from sqldim.core.query._dgm_annotations import (
+from sqldim.core.query.dgm.annotations import (
     AnnotationSigma,
     Conformed,
     Grain,
@@ -37,7 +37,7 @@ from sqldim.core.query._dgm_annotations import (
     WeightConstraintKind,
     BridgeSemanticsKind,
 )
-from sqldim.core.query._dgm_graph import GraphStatistics
+from sqldim.core.query.dgm.graph import GraphStatistics
 
 
 # ---------------------------------------------------------------------------
@@ -452,7 +452,7 @@ class TestStage2DeepDive:
 
 class TestBDDFeasibilityFilter:
     def test_tautology_passes(self):
-        from sqldim.core.query._dgm_bdd import BDDManager, DGMPredicateBDD
+        from sqldim.core.query.dgm.bdd import BDDManager, DGMPredicateBDD
         rec = DGMRecommender(sigma=AnnotationSigma([]))
         mgr = BDDManager()
         bdd = DGMPredicateBDD(mgr)
@@ -461,7 +461,7 @@ class TestBDDFeasibilityFilter:
         assert rec.bdd_feasible(bdd, uid) is True
 
     def test_contradition_filtered(self):
-        from sqldim.core.query._dgm_bdd import BDDManager, DGMPredicateBDD
+        from sqldim.core.query.dgm.bdd import BDDManager, DGMPredicateBDD
         rec = DGMRecommender(sigma=AnnotationSigma([]))
         mgr = BDDManager()
         bdd = DGMPredicateBDD(mgr)
@@ -470,9 +470,9 @@ class TestBDDFeasibilityFilter:
         assert rec.bdd_feasible(bdd, uid) is False
 
     def test_satisfiable_atom_passes(self):
-        from sqldim.core.query._dgm_bdd import BDDManager, DGMPredicateBDD
-        from sqldim.core.query._dgm_preds import ScalarPred
-        from sqldim.core.query._dgm_refs import PropRef
+        from sqldim.core.query.dgm.bdd import BDDManager, DGMPredicateBDD
+        from sqldim.core.query.dgm.preds import ScalarPred
+        from sqldim.core.query.dgm.refs import PropRef
         rec = DGMRecommender(sigma=AnnotationSigma([]))
         mgr = BDDManager()
         bdd = DGMPredicateBDD(mgr)

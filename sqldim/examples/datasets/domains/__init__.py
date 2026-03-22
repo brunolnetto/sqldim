@@ -10,7 +10,8 @@ SchematicSource.  Import directly from the sub-package or let the parent
 Domains
 -------
 ecommerce     — ProductsSource, CustomersSource, StoresSource, OrdersSource
-ecommerce_star— ecommerce star-schema variant (CustomersSource, ProductsSource, OrdersSource)
+                (ecommerce.orders — OrdersSource accumulating milestone pipeline)
+                (ecommerce.star   — Faker-backed SCD2 + bridge star schema sources)
 enterprise    — EmployeesSource, AccountsSource
 fintech       — AccountsSource, CounterpartiesSource, TransactionsSource
 hierarchy     — OrgChartSource (static fixture; no Faker dependency)
@@ -20,5 +21,4 @@ saas_growth   — SaaSUsersSource
 supply_chain  — SuppliersSource, WarehousesSource, SKUsSource, ReceiptsSource
 user_activity — DevicesSource, EventsSource
 devops        — GitHubIssuesSource
-orders        — OrdersSource (shared order-fulfilment pipeline)
 """

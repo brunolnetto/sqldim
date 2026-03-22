@@ -1261,7 +1261,7 @@ class TestArithExpr:
     def test_arith_expr_with_const(self):
         """ArithExpr can incorporate raw SQL strings (e.g. numeric literals)."""
         from sqldim.core.query.dgm import ArithExpr, PropRef
-        from sqldim.core.query._dgm_refs import _ConstExpr
+        from sqldim.core.query.dgm.refs import _ConstExpr
         expr = ArithExpr(PropRef("s", "revenue"), "*", _ConstExpr(1.5))
         sql = expr.to_sql()
         assert "s.revenue" in sql

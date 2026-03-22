@@ -329,7 +329,7 @@ class StoresSource(SchematicSource):
 
 
 # ---------------------------------------------------------------------------
-# OrdersSource — extracted to _ecommerce_orders.py
+# OrdersSource — contained in ecommerce/orders.py
 # ---------------------------------------------------------------------------
-from sqldim.examples.datasets.domains.orders import OrdersSource  # noqa: E402, F401
-from sqldim.examples.datasets.domains.orders import _ORDERS_SPEC  # noqa: E402, F401
+from sqldim.examples.datasets.domains.ecommerce.orders import OrdersSource  # noqa: E402, F401
+from sqldim.examples.datasets.domains.ecommerce.orders import _ORDERS_SPEC  # noqa: E402, F401

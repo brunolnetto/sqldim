@@ -226,7 +226,7 @@ class GraphSchema:
         self.annotations: list = annotations if annotations is not None else []
 
     def to_dict(self) -> dict[str, Any]:
-        from sqldim.core.query._dgm_annotations import annotation_kind
+        from sqldim.core.query.dgm.annotations import annotation_kind
 
         def _ann_to_dict(ann: object) -> dict[str, Any]:
             kind = annotation_kind(ann)  # type: ignore[arg-type]
