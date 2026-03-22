@@ -18,16 +18,38 @@ __all__ = [
     "CLOSENESS_CENTRALITY",
     "DEGREE",
     "COMMUNITY_LABEL",
+    # TrailExpr NodeAlg
+    "OUTGOING_SIGNATURES",
+    "INCOMING_SIGNATURES",
+    "DOMINANT_OUTGOING_SIGNATURE",
+    "DOMINANT_INCOMING_SIGNATURE",
+    "SIGNATURE_DIVERSITY",
     "SHORTEST_PATH_LENGTH",
     "MIN_WEIGHT_PATH_LENGTH",
     "REACHABLE",
+    # TrailExpr PairAlg
+    "DISTINCT_SIGNATURES",
+    "DOMINANT_SIGNATURE",
+    "SIGNATURE_SIMILARITY",
     "MAX_FLOW",
     "DENSITY",
     "DIAMETER",
+    # TrailExpr SubgraphAlg
+    "GLOBAL_SIGNATURE_COUNT",
+    "GLOBAL_DOMINANT_SIGNATURE",
+    "SIGNATURE_ENTROPY",
     "NodeExpr",
     "PairExpr",
     "SubgraphExpr",
     "GraphExpr",
+    # RelationshipSubgraph
+    "Endpoint",
+    "Bound",
+    "Free",
+    "FREE",
+    "RelationshipSubgraph",
+    # GraphStatistics
+    "GraphStatistics",
     # TrimJoin / TrimCriterion (DGM §10.1, §18.8)
     "TrimCriterion",
     "REACHABLE_BETWEEN",
@@ -159,6 +181,73 @@ class COMMUNITY_LABEL(NodeAlg):
         return f"community_label({self.algorithm.to_sql()})"
 
 
+# ── TrailExpr NodeAlg types ──────────────────────────────────────────────────
+
+
+class OUTGOING_SIGNATURES(NodeAlg):
+    """Count of distinct label sequences on all simple paths starting at A.
+
+    TrailExpr single-relaxation (Bound→Free).
+    """
+
+    def __init__(self, max_depth: int | None = None) -> None:
+        self.max_depth = max_depth
+
+    def to_sql(self) -> str:
+        if self.max_depth is not None:
+            return f"OUTGOING_SIGNATURES(max_depth={self.max_depth})"
+        return "OUTGOING_SIGNATURES()"
+
+
+class INCOMING_SIGNATURES(NodeAlg):
+    """Count of distinct label sequences on all simple paths ending at B.
+
+    Computed via BFS on G^T.  TrailExpr single-relaxation (Free→Bound).
+    """
+
+    def __init__(self, max_depth: int | None = None) -> None:
+        self.max_depth = max_depth
+
+    def to_sql(self) -> str:
+        if self.max_depth is not None:
+            return f"INCOMING_SIGNATURES(max_depth={self.max_depth})"
+        return "INCOMING_SIGNATURES()"
+
+
+class DOMINANT_OUTGOING_SIGNATURE(NodeAlg):
+    """Most frequent label sequence in the forward cone of A."""
+
+    def __init__(self, max_depth: int | None = None) -> None:
+        self.max_depth = max_depth
+
+    def to_sql(self) -> str:
+        if self.max_depth is not None:
+            return f"DOMINANT_OUTGOING_SIGNATURE(max_depth={self.max_depth})"
+        return "DOMINANT_OUTGOING_SIGNATURE()"
+
+
+class DOMINANT_INCOMING_SIGNATURE(NodeAlg):
+    """Most frequent label sequence in the backward cone of B."""
+
+    def __init__(self, max_depth: int | None = None) -> None:
+        self.max_depth = max_depth
+
+    def to_sql(self) -> str:
+        if self.max_depth is not None:
+            return f"DOMINANT_INCOMING_SIGNATURE(max_depth={self.max_depth})"
+        return "DOMINANT_INCOMING_SIGNATURE()"
+
+
+class SIGNATURE_DIVERSITY(NodeAlg):
+    """Normalised variety of path signatures in the applicable cone.
+
+    Scalar in [0, 1].  TrailExpr single-relaxation (Bound→Free or Free→Bound).
+    """
+
+    def to_sql(self) -> str:
+        return "SIGNATURE_DIVERSITY()"
+
+
 # ── Pair algorithms ──────────────────────────────────────────────────────────
 
 
@@ -183,18 +272,93 @@ class REACHABLE(PairAlg):
         return "reachable()"
 
 
+class DISTINCT_SIGNATURES(PairAlg):
+    """Count of distinct label sequences connecting A to B.
+
+    TrailExpr fixed-endpoint (Bound→Bound).
+    """
+
+    def __init__(self, max_depth: int | None = None) -> None:
+        self.max_depth = max_depth
+
+    def to_sql(self) -> str:
+        if self.max_depth is not None:
+            return f"DISTINCT_SIGNATURES(max_depth={self.max_depth})"
+        return "DISTINCT_SIGNATURES()"
+
+
+class DOMINANT_SIGNATURE(PairAlg):
+    """Most frequent label sequence connecting A to B.
+
+    TrailExpr fixed-endpoint (Bound→Bound).
+    """
+
+    def __init__(self, max_depth: int | None = None) -> None:
+        self.max_depth = max_depth
+
+    def to_sql(self) -> str:
+        if self.max_depth is not None:
+            return f"DOMINANT_SIGNATURE(max_depth={self.max_depth})"
+        return "DOMINANT_SIGNATURE()"
+
+
+class SIGNATURE_SIMILARITY(PairAlg):
+    """Fraction of A→B paths whose label sequence matches *reference*.
+
+    TrailExpr fixed-endpoint (Bound→Bound).
+    """
+
+    def __init__(self, reference: list[str]) -> None:
+        self.reference = reference
+
+    def to_sql(self) -> str:
+        return f"SIGNATURE_SIMILARITY(reference={self.reference!r})"
+
+
 # ── Subgraph algorithms ──────────────────────────────────────────────────────
 
 
 class MAX_FLOW(SubgraphAlg):
-    """Maximum flow between a designated source and sink node."""
+    """Maximum flow between a designated source and sink/target node.
 
-    def __init__(self, source: str, sink: str) -> None:
+    The ``target`` parameter is the canonical name (DGM v0.16 §4.2); ``sink``
+    is accepted as a backward-compatible alias.
+    """
+
+    def __init__(
+        self,
+        source: str,
+        target: str | None = None,
+        capacity: str | None = None,
+        *,
+        sink: str | None = None,
+    ) -> None:
         self.source = source
-        self.sink = sink
+        # Accept either 'target' or 'sink' (backward-compat alias)
+        if target is not None:
+            self._target = target
+        elif sink is not None:
+            self._target = sink
+        else:
+            raise TypeError("MAX_FLOW() requires 'target' (or 'sink') argument")
+        self.capacity = capacity
+
+    @property
+    def target(self) -> str:
+        return self._target
+
+    @property
+    def sink(self) -> str:
+        """Backward-compatible alias for :attr:`target`."""
+        return self._target
 
     def to_sql(self) -> str:
-        return f"max_flow(source={self.source!r}, sink={self.sink!r})"
+        if self.capacity is not None:
+            return (
+                f"max_flow(source={self.source!r}, target={self._target!r},"
+                f" capacity={self.capacity!r})"
+            )
+        return f"max_flow(source={self.source!r}, target={self._target!r})"
 
 
 class DENSITY(SubgraphAlg):
@@ -209,6 +373,55 @@ class DIAMETER(SubgraphAlg):
 
     def to_sql(self) -> str:
         return "diameter()"
+
+
+class GLOBAL_SIGNATURE_COUNT(SubgraphAlg):
+    """Count of distinct label sequences across the full scope.
+
+    TrailExpr fully-free (Free→Free).
+    """
+
+    def __init__(self, max_depth: int | None = None) -> None:
+        self.max_depth = max_depth
+
+    def to_sql(self) -> str:
+        if self.max_depth is not None:
+            return f"GLOBAL_SIGNATURE_COUNT(max_depth={self.max_depth})"
+        return "GLOBAL_SIGNATURE_COUNT()"
+
+
+class GLOBAL_DOMINANT_SIGNATURE(SubgraphAlg):
+    """Most frequent label sequence globally.
+
+    TrailExpr fully-free (Free→Free).
+    """
+
+    def __init__(self, max_depth: int | None = None) -> None:
+        self.max_depth = max_depth
+
+    def to_sql(self) -> str:
+        if self.max_depth is not None:
+            return f"GLOBAL_DOMINANT_SIGNATURE(max_depth={self.max_depth})"
+        return "GLOBAL_DOMINANT_SIGNATURE()"
+
+
+class SIGNATURE_ENTROPY(SubgraphAlg):
+    """Shannon entropy H = -Σ p(s) log₂ p(s) over path signature distribution.
+
+    H=0: all paths same type (maximally focused).
+    H=log₂(k): k equally frequent types (maximally diverse).
+    Range [0, log₂(|distinct signatures|)].
+
+    TrailExpr fully-free (Free→Free).
+    """
+
+    def __init__(self, max_depth: int | None = None) -> None:
+        self.max_depth = max_depth
+
+    def to_sql(self) -> str:
+        if self.max_depth is not None:
+            return f"SIGNATURE_ENTROPY(max_depth={self.max_depth})"
+        return "SIGNATURE_ENTROPY()"
 
 
 # ── Graph expression wrappers  (DGM §11) ────────────────────────────────────
@@ -248,15 +461,19 @@ class SubgraphExpr:
         Optional list of :class:`~sqldim.core.query._dgm_refs.PropRef` values.
         When non-empty the algorithm is evaluated once per partition group and
         the result is broadcast to each tuple in that group (DGM §18.9).
+    scope:
+        Optional :class:`RelationshipSubgraph` restricting the subgraph (§3.4).
     """
 
     def __init__(
         self,
         algorithm: SubgraphAlg,
         partition: "list[object | None]" = None,
+        scope: "RelationshipSubgraph | None" = None,
     ) -> None:
         self.algorithm = algorithm
         self.partition: list[object | None] = partition
+        self.scope = scope
 
     def to_sql(self) -> str:
         base = self.algorithm.to_sql()
@@ -279,6 +496,139 @@ class GraphExpr:
 
     def to_sql(self) -> str:
         return self.inner.to_sql()
+
+
+# ---------------------------------------------------------------------------
+# RelationshipSubgraph  (DGM §3.4)
+# ---------------------------------------------------------------------------
+
+
+class Endpoint:
+    """Abstract base for RelationshipSubgraph endpoint descriptors (§3.4.1)."""
+
+
+class Bound(Endpoint):
+    """Fixed endpoint — a specific aliased node resolved in the query context."""
+
+    def __init__(self, alias: str) -> None:
+        self.alias = alias
+
+    def __repr__(self) -> str:
+        return f"Bound(alias={self.alias!r})"
+
+
+class _Free(Endpoint):
+    """Singleton Free endpoint — all nodes satisfying the traversal criterion."""
+
+    _instance: "_Free | None" = None
+
+    def __new__(cls) -> "_Free":
+        if cls._instance is None:
+            cls._instance = super().__new__(cls)
+        return cls._instance
+
+    def __repr__(self) -> str:
+        return "Free"
+
+
+# Canonical singleton for free endpoint
+Free = _Free
+FREE: _Free = _Free()
+
+# Endpoint-case → granularity tier mapping
+_ENDPOINT_TIER: dict[str, str] = {
+    "BB": "PairExpr",
+    "BF": "NodeExpr",
+    "FB": "NodeExpr",
+    "FF": "SubgraphExpr",
+}
+
+
+class RelationshipSubgraph:
+    """Represents a scope-scoped subgraph with typed endpoints (DGM §3.4).
+
+    Parameters
+    ----------
+    source:
+        Source endpoint: :class:`Bound` (fixed alias) or :data:`FREE`.
+    target:
+        Target endpoint: :class:`Bound` (fixed alias) or :data:`FREE`.
+    strategy:
+        Optional path strategy governing traversal (e.g. ``ALL_PATHS()``).
+    """
+
+    def __init__(
+        self,
+        source: Endpoint,
+        target: Endpoint,
+        strategy: object = None,
+    ) -> None:
+        self.source = source
+        self.target = target
+        self.strategy = strategy
+
+    @property
+    def endpoint_case(self) -> str:
+        """Two-character code: ``"BB"``, ``"BF"``, ``"FB"``, or ``"FF"``."""
+        src = "B" if isinstance(self.source, Bound) else "F"
+        tgt = "B" if isinstance(self.target, Bound) else "F"
+        return src + tgt
+
+    @property
+    def granularity_tier(self) -> str:
+        """DGM §3.4.3 granularity tier name for this endpoint configuration."""
+        return _ENDPOINT_TIER[self.endpoint_case]
+
+
+# ---------------------------------------------------------------------------
+# GraphStatistics  (DGM §7.1)
+# ---------------------------------------------------------------------------
+
+
+class GraphStatistics:
+    """Runtime graph statistics consumed by the planner (DGM §7.1).
+
+    Parameters
+    ----------
+    node_count:
+        Total node count in the graph.
+    edge_count:
+        Total edge count in the graph.
+    degree_dist:
+        Optional degree distribution summary (e.g. ``{"mean": 5.0}``).
+    path_cardinality:
+        Optional mapping of :class:`~sqldim.core.query._dgm_preds.BoundPath`
+        identifiers to estimated row counts.
+    property_dist:
+        Optional mapping of PropRef → distribution summary.
+    temporal_density:
+        Optional mapping of (PropRef, Duration) → density scalar.
+    scc_sizes:
+        Optional mapping of SCC identifier → component size (from Tarjan).
+    transposed_adj:
+        G^T adjacency list: node_id → list of predecessor node_ids.
+        Built at graph load time.
+    """
+
+    def __init__(
+        self,
+        node_count: int,
+        edge_count: int,
+        degree_dist: dict | None = None,
+        path_cardinality: dict | None = None,
+        property_dist: dict | None = None,
+        temporal_density: dict | None = None,
+        scc_sizes: dict | None = None,
+        transposed_adj: dict | None = None,
+    ) -> None:
+        self.node_count = node_count
+        self.edge_count = edge_count
+        self.degree_dist = degree_dist
+        self.path_cardinality = path_cardinality
+        self.property_dist = property_dist
+        self.temporal_density = temporal_density
+        self.scc_sizes = scc_sizes
+        self.transposed_adj: dict = transposed_adj if transposed_adj is not None else {}
 
 
 # ---------------------------------------------------------------------------

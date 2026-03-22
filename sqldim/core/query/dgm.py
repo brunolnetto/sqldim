@@ -300,16 +300,38 @@ from sqldim.core.query._dgm_graph import (  # noqa: F401
     CLOSENESS_CENTRALITY,
     DEGREE,
     COMMUNITY_LABEL,
+    # TrailExpr NodeAlg
+    OUTGOING_SIGNATURES,
+    INCOMING_SIGNATURES,
+    DOMINANT_OUTGOING_SIGNATURE,
+    DOMINANT_INCOMING_SIGNATURE,
+    SIGNATURE_DIVERSITY,
     SHORTEST_PATH_LENGTH,
     MIN_WEIGHT_PATH_LENGTH,
     REACHABLE,
+    # TrailExpr PairAlg
+    DISTINCT_SIGNATURES,
+    DOMINANT_SIGNATURE,
+    SIGNATURE_SIMILARITY,
     MAX_FLOW,
     DENSITY,
     DIAMETER,
+    # TrailExpr SubgraphAlg
+    GLOBAL_SIGNATURE_COUNT,
+    GLOBAL_DOMINANT_SIGNATURE,
+    SIGNATURE_ENTROPY,
     NodeExpr,
     PairExpr,
     SubgraphExpr,
     GraphExpr,
+    # RelationshipSubgraph
+    Endpoint,
+    Bound,
+    Free,
+    FREE,
+    RelationshipSubgraph,
+    # GraphStatistics
+    GraphStatistics,
     # TrimJoin / TrimCriterion (DGM §10.1, §18.8)
     TrimCriterion,
     REACHABLE_BETWEEN,
