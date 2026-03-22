@@ -170,14 +170,15 @@ All heavy lifting stays inside DuckDB; Python is the orchestrator.
 
   Layer 3 — Loaders (sqldim.loaders)
   ────────────────────────────────────
-  AccumulatingLoader  accumulating snapshot — milestone timestamps
-  CumulativeLoader    dense history arrays (e.g. players_cumulated)
-  BitmaskerLoader     bitmask datelist — 32 bools → 1 integer
-  ArrayMetricLoader   month-partitioned array metrics
-  SnapshotLoader      periodic snapshot facts
+  AccumulatingLoader    accumulating snapshot — milestone timestamps
+  LazyCumulativeLoader  dense history arrays (e.g. players_cumulated)
+  LazyBitmaskLoader     bitmask datelist — 32 bools → 1 integer
+  LazyArrayMetricLoader month-partitioned array metrics
+  SnapshotLoader        periodic snapshot facts
 
-  All Loaders accept batch_size (default 100,000 rows) so writes
-  never materialise the full dataset in Python memory.
+  All Loaders push computation into DuckDB SQL and write in batches
+  (default 100,000 rows) so the full dataset is never materialised in
+  Python memory.
 
   Layer 4 — Sinks (sqldim.sinks)
   ────────────────────────────────

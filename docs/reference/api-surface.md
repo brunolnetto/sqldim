@@ -75,17 +75,6 @@ directly but the root module is the stable, versioned surface.
 
 ---
 
-## Eager Loaders (Batch Utilities)
-
-| Name | Kind | Description |
-|---|---|---|
-| `CumulativeLoader` | class | Eager cumulative load helper |
-| `BitmaskerLoader` | class | Eager bitmask load helper |
-| `ArrayMetricLoader` | class | Eager array-metric load helper |
-| `EdgeProjectionLoader` | class | Eager edge-projection load helper |
-
----
-
 ## SCD Engine
 
 | Name | Kind | Description |

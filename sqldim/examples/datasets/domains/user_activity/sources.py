@@ -171,7 +171,7 @@ class EventsSource(SchematicSource):
     """
     Synthetic page-view event source.
 
-    Matches the ``Event`` SQLModel schema.  Use with ``BitmaskerLoader``
+    Matches the ``Event`` SQLModel schema.  Use with ``LazyBitmaskLoader``
     to compute daily activity bitmasks for ``users_cumulated``.
 
     Example
@@ -179,19 +179,18 @@ class EventsSource(SchematicSource):
     ::
 
         import duckdb
-        from sqldim.examples.real_world.user_activity.dataset import EventsSource
-        from sqldim.core.loaders.bitmask import BitmaskerLoader
+        from sqldim.examples.datasets.domains.user_activity.sources import EventsSource
+        from sqldim.core.loaders.bitmask import LazyBitmaskLoader
         from sqldim.sinks import DuckDBSink
 
         con = duckdb.connect()
         src = EventsSource(n=10_000, seed=0)
         with DuckDBSink(con) as sink:
-            loader = BitmaskerLoader(
-                source_model=None,
-                target_model=None,
-                session=None,
-                reference_date=date.today(),
+            loader = LazyBitmaskLoader(
+                table="fact_activity_bitmask",
                 partition_key="user_id",
+                dates_column="dates_active",
+                reference_date=date.today(),
                 sink=sink,
             )
     """

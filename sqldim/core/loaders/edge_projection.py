@@ -1,16 +1,13 @@
 """
-EdgeProjectionLoader — projects graph edges from existing fact tables.
+LazyEdgeProjectionLoader — graph edge projection via DuckDB SQL.
 Reproduces player_game_edges.sql and player_player_edges.sql.
 """
 
 from __future__ import annotations
 
 import asyncio
-from typing import Any
-from sqlmodel import Session
-import narwhals as nw
-from sqldim.core.graph.models import EdgeModel
 from sqldim.core.loaders._utils import _resolve_table
+
 
 
 # ---------------------------------------------------------------------------
@@ -148,43 +145,3 @@ class LazyEdgeProjectionLoader:
               ON f1.{sjk} = f2.{sjk}
              AND f1.{sk} < f2.{sk}
         """)
-
-
-class EdgeProjectionLoader:
-    """
-    Handles simple projection and self-join aggregation for graph edges.
-    """
-
-    def __init__(
-        self,
-        session: Session,
-        source_model: type,
-        edge_model: type[EdgeModel] | list[type[EdgeModel]],
-        subject_key: str,
-        object_key: str,
-        property_map: dict[str, str] | None = None,
-        self_join: bool = False,
-        self_join_key: str | None = None,
-        discriminator: dict[str, Any] | None = None,
-    ):
-        self.session = session
-        self.source_model = source_model
-        self.edge_models = edge_model if isinstance(edge_model, list) else [edge_model]
-        self.subject_key = subject_key
-        self.object_key = object_key
-        self.property_map = property_map or {}
-        self.self_join = self_join
-        self.self_join_key = self_join_key
-        self.discriminator = discriminator
-
-    def process(self, frame: nw.DataFrame) -> nw.DataFrame:
-        """
-        Projects the source frame into edge records.
-        Handles self-joins for network relationship generation.
-        """
-        if self.self_join:
-            # Reproduce player_player_edges.sql:
-            # Join frame with itself on self_join_key where f1.id > f2.id
-            pass
-
-        return frame

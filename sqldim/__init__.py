@@ -45,12 +45,11 @@ from sqldim.core.kimball.dimensions.scd.processors.scd_engine import (
 )
 from sqldim.core.loaders.snapshot import LazyTransactionLoader, LazySnapshotLoader
 from sqldim.core.loaders.accumulating import LazyAccumulatingLoader
-from sqldim.core.loaders.cumulative import LazyCumulativeLoader, CumulativeLoader
-from sqldim.core.loaders.bitmask import LazyBitmaskLoader, BitmaskerLoader
-from sqldim.core.loaders.array_metric import LazyArrayMetricLoader, ArrayMetricLoader
+from sqldim.core.loaders.cumulative import LazyCumulativeLoader
+from sqldim.core.loaders.bitmask import LazyBitmaskLoader
+from sqldim.core.loaders.array_metric import LazyArrayMetricLoader
 from sqldim.core.loaders.edge_projection import (
     LazyEdgeProjectionLoader,
-    EdgeProjectionLoader,
 )
 from sqldim.exceptions import TransformTypeError
 from sqldim.core.kimball.dimensions.scd.handler import SCDHandler, SCDResult
@@ -145,10 +144,6 @@ __all__ = [
     "backfill_scd2_narwhals",
     "NarwhalsHashStrategy",
     "NarwhalsSCDProcessor",
-    "CumulativeLoader",
-    "BitmaskerLoader",
-    "ArrayMetricLoader",
-    "EdgeProjectionLoader",
     "TransformTypeError",
     # Lazy loaders
     "LazyTransactionLoader",

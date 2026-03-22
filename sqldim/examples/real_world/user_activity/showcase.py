@@ -1,7 +1,7 @@
 """
 sqldim Showcase: User Activity & Retention (Bitmask Pattern)
 -----------------------------------------------------------
-Demonstrates the power of the DatelistMixin and BitmaskerLoader.
+Demonstrates the power of the DatelistMixin and LazyBitmaskLoader.
 Replaces 32 boolean columns with a single integer for L7/L28 metrics.
 """
 
@@ -9,9 +9,26 @@ import asyncio
 from datetime import date, timedelta
 from sqlmodel import Session, SQLModel, create_engine
 from sqlalchemy.pool import StaticPool
+import duckdb
 from sqldim.examples.real_world.user_activity.models import Device, UserCumulated
-from sqldim.core.loaders.bitmask import BitmaskerLoader
-import narwhals as nw
+from sqldim.core.loaders.bitmask import LazyBitmaskLoader
+
+
+class _InProcessSink:
+    """Minimal DuckDB-backed sink for showcase use."""
+
+    def __init__(self, con: duckdb.DuckDBPyConnection) -> None:
+        self._con = con
+
+    def write(self, con, view_name: str, table_name: str, batch_size: int) -> int:
+        con.execute(f"CREATE OR REPLACE TABLE {table_name} AS SELECT * FROM {view_name}")
+        return con.execute(f"SELECT count(*) FROM {table_name}").fetchone()[0]
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *_):
+        pass
 
 
 async def run_activity_showcase():
@@ -49,20 +66,30 @@ async def run_activity_showcase():
     print(f"   Dates active: {len(active_dates)} unique days stored in a list.\n")
 
     # 3. BITMASK ENCODING: The Efficiency Pillar
-    # We transform the list of dates into a single 32-bit integer
-    loader = BitmaskerLoader(
-        source_model=UserCumulated,
-        target_model=None,  # In-process check
-        session=session,
-        reference_date=ref_date,
-    )
+    # Use LazyBitmaskLoader — all computation stays inside DuckDB SQL,
+    # no Python element-wise loop over the date list.
+    con = duckdb.connect()
+    con.execute("""
+        CREATE TABLE activity_input AS
+        SELECT 101 AS user_id, ?::VARCHAR[] AS dates_active
+    """, [loyal_user.dates_active])
 
-    # Simulate the vectorized transformation
-    import pandas as pd
+    with _InProcessSink(con) as sink:
+        loader = LazyBitmaskLoader(
+            table="fact_activity_bitmask",
+            partition_key="user_id",
+            dates_column="dates_active",
+            reference_date=ref_date,
+            window_days=32,
+            sink=sink,
+            con=con,
+        )
+        loader.process("activity_input")
 
-    df = nw.from_native(pd.DataFrame([{"dates_active": loyal_user.dates_active}]))
-    res = loader.process(df)
-    bitmask = nw.to_native(res)["datelist_int"][0]
+    bitmask = con.execute(
+        "SELECT datelist_int FROM fact_activity_bitmask WHERE user_id = 101"
+    ).fetchone()[0]
+    con.close()
 
     print("✅ Pillar 2: Activity encoded into 32-bit integer.")
     print(f"   Integer Value: {bitmask}")
