@@ -9,11 +9,11 @@ both BI star schemas and network traversal queries.
 | Section | Contents |
 |---|---|
 | **[Getting Started](./getting-started.md)** | New-user tutorial — install, define models, load data |
+| [Motivation](./motivation/dimensional_modelling.md) | Why dimensional modelling and DGM — conceptual foundations |
 | [Architecture](./architecture/overview.md) | Design choices — Medallion, Kimball, graph projection, quality design |
 | [Features](./features/data_contracts.md) | Per-feature reference: contracts, observability, DGM query algebra, graph, medallion, notifications |
 | **[Guides](./guides/lazy_loaders.md)** | How-to guides: lazy loaders, vectorised ETL, semantic layer |
-| **[Reference](./reference/fact_types.md)** | API reference: fact types, sinks, CLI, exceptions |
-| [Guides (big data)](./guides/big_data.md) | How-to: big-data scaling, vectorised ETL, semantic layer |
+| **[Reference](./reference/api-surface.md)** | Full public API surface, fact types, sinks, CLI, exceptions, datasets |
 | [Patterns](./patterns/dual_paradigm.md) | Good practices: hybrid SCD, dual-paradigm modelling |
 | [Development](./development/theoretical.md) | Theory, deep research, design rationale |
 
@@ -50,3 +50,31 @@ both BI star schemas and network traversal queries.
 
 - [Hybrid SCD (Columns + JSONB)](./patterns/hybrid_scd.md)
 - [The Dual-Paradigm Model (Dim + Vertex)](./patterns/dual_paradigm.md)
+
+---
+
+## Motivation
+
+- [Dimensional Modelling](./motivation/dimensional_modelling.md) — Kimball foundations and why star schemas matter
+- [Dimensional Graph Modelling](./motivation/dimensional_graph_modelling.md) — how DGM unifies analytics and graph traversal
+
+---
+
+## Reference Index
+
+| Reference | Description |
+|---|---|
+| [API Surface](./reference/api-surface.md) | Every public name exported from `sqldim` |
+| [Fact Types](./reference/fact_types.md) | Transaction, snapshot, accumulating, cumulative, activity |
+| [SCD Processors](./reference/scd_processors.md) | SCD engine internals and configuration |
+| [Sinks](./reference/sinks.md) | DuckDB, PostgreSQL, Parquet, Delta, MotherDuck, Iceberg |
+| [Sources](./reference/sources.md) | SourceAdapter and built-in adapters |
+| [Loader](./reference/loader.md) | DimensionalLoader and lazy loader variants |
+| [Dimensions](./reference/dimensions.md) | DateDimension, TimeDimension, prebuilt helpers |
+| [Schema Graph](./reference/schema_graph.md) | FK-graph introspection |
+| [Lineage](./reference/lineage.md) | Column-level lineage tracking |
+| [Session](./reference/session.md) | AsyncDimensionalSession |
+| [Config](./reference/config.md) | SqldimConfig and environment variables |
+| [Exceptions](./reference/exceptions.md) | Full exception hierarchy |
+| [CLI](./reference/cli.md) | Command-line interface |
+| [Example Datasets](./reference/datasets.md) | BaseSource, Dataset, domain catalogue |

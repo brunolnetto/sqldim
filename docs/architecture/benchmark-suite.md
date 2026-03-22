@@ -1,14 +1,14 @@
-# ADR: Benchmark Suite — Groups A–O
+# ADR: Benchmark Suite — Groups A–S
 
 - **Date**: 2026-03-19
-- **Status**: Accepted (all 72 cases passing)
+- **Status**: Accepted (all 2677 tests passing; A–S groups)
 - **Deciders**: sqldim maintainers
 
 ---
 
 ## TL;DR
 
-The sqldim benchmark suite covers 15 groups (A–O) and 72 total cases. Each case is a self-contained function that generates a dataset, runs the pipeline under memory and scan probes, and returns a `BenchmarkResult`. This ADR documents the design rationale, the scale-tier model, lessons learned from the Group N hang investigation, and the Group O throughput measurement semantics for aggregating/windowing queries.
+The sqldim benchmark suite spans 19 groups (A–S) organised in three domain modules. Each case is a self-contained function that generates a dataset, runs the pipeline under memory and scan probes, and returns a `BenchmarkResult`. This ADR documents the design rationale, the scale-tier model, lessons learned from the Group N hang investigation, and the Group O throughput measurement semantics for aggregating/windowing queries.
 
 ---
 
@@ -70,24 +70,30 @@ Every case returns one `BenchmarkResult` dataclass (defined in `suite.py`). Key 
 
 ## Group Inventory
 
-| Group | Cases | What is measured |
-|---|---|---|
-| A | 3 | VIEW vs TABLE regression — scan count assertions |
-| B | 18 | Memory safety across all processors |
-| C | 3 | Throughput scaling: rows/sec by tier |
-| D | 3 | Streaming vs batch ingest comparison |
-| E | 3 | Change-rate sensitivity |
-| F | 9 | Processor comparison: SCD2 vs Metadata vs Type6 |
-| G | 3 | Beyond-memory / spill-to-disk simulation |
-| H | 6 | Source adapter: Parquet vs CSV |
-| I | 6 | SCD Type3 and Type4 processor throughput |
-| J | 3 | Prebuilt dimension generation (DateDimension / TimeDimension) |
-| K | 3 | Graph traversal and dimensional query builder |
-| L | 3 | Narwhals SCD2 backfill throughput |
-| M | 2 | ORM loader throughput and Medallion registry compute |
-| N | 9 | Schema/quality drift observability (DriftObservatory star schema) |
-| O | 12 | DGM three-band query builder (B1, B1∘B2, B1∘B3, B1∘B2∘B3) |
-| **Total** | **72** | |
+Groups are split across three modules under `benchmarks/groups/`:  
+`scd.py` (A–I) · `model.py` (J–N) · `dgm.py` (O–S)
+
+| Group | Module | Cases | What is measured |
+|---|---|---|---|
+| A | scd | 3 | VIEW vs TABLE regression — scan count assertions |
+| B | scd | 18 | Memory safety across all processors |
+| C | scd | 3 | Throughput scaling: rows/sec by tier |
+| D | scd | 3 | Streaming vs batch ingest comparison |
+| E | scd | 3 | Change-rate sensitivity |
+| F | scd | 9 | Processor comparison: SCD2 vs Metadata vs Type6 |
+| G | scd | 3 | Beyond-memory / spill-to-disk simulation |
+| H | scd | 6 | Source adapter: Parquet vs CSV |
+| I | scd | 6 | SCD Type3 and Type4 processor throughput |
+| J | model | 3 | Prebuilt dimension generation (DateDimension / TimeDimension) |
+| K | model | 3 | Graph traversal and dimensional query builder |
+| L | model | 3 | Narwhals SCD2 backfill throughput |
+| M | model | 2 | ORM loader throughput and Medallion registry compute |
+| N | model | 9 | Schema/quality drift observability (DriftObservatory star schema) |
+| O | dgm | 12 | DGM three-band query builder (B1, B1∘B2, B1∘B3, B1∘B2∘B3) |
+| P | dgm | — | BDD predicate evaluation throughput |
+| Q | dgm | — | Recommender engine query throughput |
+| R | dgm | — | Planner traversal throughput |
+| S | dgm | — | Exporter serialisation throughput |
 
 ---
 
@@ -215,7 +221,11 @@ Best: 11.2M/s [O-b1b2b3-full-m]   Worst: 20K/s [O-b1b2-having-xs]
 
 - [DriftObservatory OLTP Performance ADR](drift-observatory-perf.md) — detailed write-up
   of the `DriftObservatory` refactor that unblocked Group N.
-- [`benchmarks/suite.py`](../../../benchmarks/suite.py) — all group implementations.
+- [`benchmarks/suite.py`](../../../benchmarks/suite.py) — thin hub that re-exports from `benchmarks/infra.py` and `benchmarks/groups/`.
+- [`benchmarks/infra.py`](../../../benchmarks/infra.py) — shared infrastructure (`BenchmarkResult`, probes, helpers).
+- [`benchmarks/groups/scd.py`](../../../benchmarks/groups/scd.py) — Groups A–I.
+- [`benchmarks/groups/model.py`](../../../benchmarks/groups/model.py) — Groups J–N.
+- [`benchmarks/groups/dgm.py`](../../../benchmarks/groups/dgm.py) — Groups O–S.
 - [`benchmarks/runner.py`](../../../benchmarks/runner.py) — CLI runner.
 - [`benchmarks/memory_probe.py`](../../../benchmarks/memory_probe.py) — RSS probe and
   `_HARD_ABORT_EVENT`.

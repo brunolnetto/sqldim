@@ -238,5 +238,5 @@ df  = con.execute(sql).fetchdf()   # Pandas DataFrame
 ## Related
 
 - [Graph Analytics Roadmap ADR](../development/adr/graph-analytics-roadmap.md) — metadata-driven property graph tiers
-- [Benchmark Suite ADR: Group O](../development/adr/benchmark-suite-a-o.md#group-o-dgm-query-builder--throughput-semantics) — verified throughput and three-band measurement semantics
+- [Benchmark Suite ADR: Group O](../architecture/benchmark-suite.md#group-o-dgm-query-builder--throughput-semantics) — verified throughput and three-band measurement semantics
 - [Semantic Layer Guide](../guides/semantic_layer.md) — higher-level query builder built on the same DuckDB backend

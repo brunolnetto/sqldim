@@ -3,17 +3,24 @@ sqldim.examples.datasets
 =========================
 OLTP-style Faker-backed dataset generators.
 
-Each *Source class:
-  - OLTP_DDL        — transactional source schema (what the app DB holds)
+**Dataset** groups multiple related sources (FK-ordered)::
+
+    from sqldim.examples.datasets import Dataset
+    from sqldim.examples.datasets.domains.ecommerce import CustomersSource, OrdersSource
+
+    pipeline = Dataset("ecommerce", [
+        (CustomersSource(n=100), "raw_customers"),
+        (OrdersSource(n=200),    "raw_orders"),
+    ])
+
+Each *Source class implements:
+  - OLTP_DDL        — transactional source schema
   - DIM_DDL/FACT_DDL— sqldim-managed analytical target schema
-  - provider        — SourceProvider descriptor for the live data source
+  - provider        — SourceProvider descriptor
   - setup()         — create the target table (empty)
   - teardown()      — drop the target table
   - snapshot()      — full initial OLTP extract
-  - event_batch(n)  — incremental change events (CDC-style)
-
-Schema-driven sources use ``EntitySchema`` / ``FieldSpec`` / ``EventSpec``
-to declare field definitions, vocabulary, and DDL in one place.
+  - event_batch(n)  — incremental CDC events
 
 Domains
 -------
@@ -36,6 +43,7 @@ from sqldim.examples.datasets.base import (
     SchematicSource,
     SourceProvider,
 )
+from sqldim.examples.datasets.dataset import Dataset
 from sqldim.examples.datasets.schema import (
     ChangeRule,
     DatasetSpec,
@@ -91,6 +99,7 @@ except ImportError:  # pragma: no cover
 
 __all__ = [
     # base abstractions
+    "Dataset",
     "BaseSource",
     "DatasetFactory",
     "SchematicSource",

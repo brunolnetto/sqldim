@@ -903,12 +903,12 @@ class TestDatasetSpec:
         assert "placed_at" in ddl
 
     def test_accounts_spec_snapshot_ddl(self):
-        from sqldim.examples.datasets.domains.enterprise import _ACCOUNTS_SPEC
+        from sqldim.examples.datasets.domains.enterprise.sources import _ACCOUNTS_SPEC
         ddl = _ACCOUNTS_SPEC.snapshot.oltp_ddl()
         assert "snapshot_date" in ddl
 
     def test_movies_spec_roles(self):
-        from sqldim.examples.datasets.domains.media import _MOVIES_SPEC
+        from sqldim.examples.datasets.domains.media.sources import _MOVIES_SPEC
         assert _MOVIES_SPEC.cast.name   == "cast"
         assert _MOVIES_SPEC.edge.name   == "edge"
         assert _MOVIES_SPEC.actors.name == "actors"
@@ -950,18 +950,18 @@ class TestDatasetSpec:
         assert "EventSpec" not in repr(spec)
 
     def test_products_spec_has_events(self):
-        from sqldim.examples.datasets.domains.ecommerce import _PRODUCTS_SPEC
+        from sqldim.examples.datasets.domains.ecommerce.sources import _PRODUCTS_SPEC
         from sqldim.examples.datasets.schema import EventSpec
         assert isinstance(_PRODUCTS_SPEC.events, EventSpec)
         assert _PRODUCTS_SPEC.source.name == "product"
 
     def test_employees_spec_has_events(self):
-        from sqldim.examples.datasets.domains.enterprise import _EMPLOYEES_SPEC
+        from sqldim.examples.datasets.domains.enterprise.sources import _EMPLOYEES_SPEC
         from sqldim.examples.datasets.schema import EventSpec
         assert isinstance(_EMPLOYEES_SPEC.events, EventSpec)
 
     def test_github_spec_has_events(self):
-        from sqldim.examples.datasets.domains.devops import _GITHUB_SPEC
+        from sqldim.examples.datasets.domains.devops.sources import _GITHUB_SPEC
         from sqldim.examples.datasets.schema import EventSpec
         assert isinstance(_GITHUB_SPEC.events, EventSpec)
 
@@ -970,7 +970,7 @@ class TestDatasetSpec:
         assert _ORDERS_SPEC.events is None
 
     def test_movies_spec_has_no_events(self):
-        from sqldim.examples.datasets.domains.media import _MOVIES_SPEC
+        from sqldim.examples.datasets.domains.media.sources import _MOVIES_SPEC
         assert _MOVIES_SPEC.events is None
 
 
