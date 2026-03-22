@@ -390,3 +390,157 @@ class TestMoviesSource:
         from sqldim.examples.datasets.domains.media import MoviesSource
         src = MoviesSource(n_movies=2, n_actors=3)
         assert isinstance(src.cast, list)
+
+
+# ---------------------------------------------------------------------------
+# Dataset dataclass
+# ---------------------------------------------------------------------------
+
+class TestDataset:
+    """Full branch coverage for sqldim/examples/datasets/dataset.py."""
+
+    def _make_src(self, *, has_snapshot=True, has_event_batch=True, has_provider=True):
+        from unittest.mock import MagicMock
+        from sqldim.examples.datasets.base import SourceProvider
+
+        src = MagicMock()
+        if not has_snapshot:
+            src.snapshot.side_effect = NotImplementedError
+        else:
+            src.snapshot.return_value = {"rows": [1, 2, 3]}
+        if not has_event_batch:
+            src.event_batch.side_effect = NotImplementedError
+        else:
+            src.event_batch.return_value = {"events": [4, 5]}
+        if has_provider:
+            src.provider = SourceProvider(name="TestSystem")
+        else:
+            src.provider = None
+        return src
+
+    def test_getitem_valid(self):
+        from sqldim.examples.datasets.dataset import Dataset
+        src = self._make_src()
+        ds = Dataset("test", [(src, "orders")])
+        assert ds["orders"] is src
+
+    def test_getitem_invalid_raises_key_error(self):
+        from sqldim.examples.datasets.dataset import Dataset
+        src = self._make_src()
+        ds = Dataset("test", [(src, "orders")])
+        with pytest.raises(KeyError, match="No source registered for table 'missing'"):
+            _ = ds["missing"]
+
+    def test_table_names(self):
+        from sqldim.examples.datasets.dataset import Dataset
+        src = self._make_src()
+        ds = Dataset("test", [(src, "tbl_a"), (src, "tbl_b")])
+        assert ds.table_names() == ["tbl_a", "tbl_b"]
+
+    def test_setup_calls_each_source(self):
+        from sqldim.examples.datasets.dataset import Dataset
+        s1, s2 = self._make_src(), self._make_src()
+        con = duckdb.connect()
+        ds = Dataset("test", [(s1, "t1"), (s2, "t2")])
+        ds.setup(con)
+        s1.setup.assert_called_once_with(con, "t1")
+        s2.setup.assert_called_once_with(con, "t2")
+
+    def test_teardown_calls_in_reverse(self):
+        from sqldim.examples.datasets.dataset import Dataset
+        s1, s2 = self._make_src(), self._make_src()
+        con = duckdb.connect()
+        ds = Dataset("test", [(s1, "t1"), (s2, "t2")])
+        calls = []
+        s1.teardown.side_effect = lambda c, t: calls.append(("s1", t))
+        s2.teardown.side_effect = lambda c, t: calls.append(("s2", t))
+        ds.teardown(con)
+        # reversed order
+        assert calls == [("s2", "t2"), ("s1", "t1")]
+
+    def test_snapshots_includes_implemented_sources(self):
+        from sqldim.examples.datasets.dataset import Dataset
+        src = self._make_src(has_snapshot=True)
+        ds = Dataset("test", [(src, "orders")])
+        result = ds.snapshots()
+        assert "orders" in result
+        assert result["orders"] == {"rows": [1, 2, 3]}
+
+    def test_snapshots_skips_not_implemented(self):
+        from sqldim.examples.datasets.dataset import Dataset
+        good = self._make_src(has_snapshot=True)
+        bad = self._make_src(has_snapshot=False)
+        ds = Dataset("test", [(good, "good_tbl"), (bad, "bad_tbl")])
+        result = ds.snapshots()
+        assert "good_tbl" in result
+        assert "bad_tbl" not in result
+
+    def test_event_batches_includes_implemented_sources(self):
+        from sqldim.examples.datasets.dataset import Dataset
+        src = self._make_src(has_event_batch=True)
+        ds = Dataset("test", [(src, "orders")])
+        result = ds.event_batches(n=1)
+        assert "orders" in result
+        assert result["orders"] == {"events": [4, 5]}
+
+    def test_event_batches_skips_not_implemented(self):
+        from sqldim.examples.datasets.dataset import Dataset
+        good = self._make_src(has_event_batch=True)
+        bad = self._make_src(has_event_batch=False)
+        ds = Dataset("test", [(good, "g"), (bad, "b")])
+        result = ds.event_batches()
+        assert "g" in result
+        assert "b" not in result
+
+    def test_describe_uses_provider_name(self):
+        from sqldim.examples.datasets.dataset import Dataset
+        src = self._make_src(has_provider=True)
+        ds = Dataset("test", [(src, "orders")])
+        text = ds.describe()
+        assert "orders" in text
+        assert "TestSystem" in text
+
+    def test_describe_fallback_to_class_name(self):
+        from sqldim.examples.datasets.dataset import Dataset
+        src = self._make_src(has_provider=False)
+        src.__class__.__name__ = "MockSource"
+        ds = Dataset("test", [(src, "orders")])
+        text = ds.describe()
+        assert "orders" in text
+
+    def test_repr(self):
+        from sqldim.examples.datasets.dataset import Dataset
+        src = self._make_src()
+        ds = Dataset("test_ds", [(src, "tbl1"), (src, "tbl2")])
+        r = repr(ds)
+        assert "test_ds" in r
+        assert "tbl1" in r
+        assert "tbl2" in r
+
+
+# ---------------------------------------------------------------------------
+# DGMShowcaseSource — teardown() and snapshot() branches
+# ---------------------------------------------------------------------------
+
+class TestDGMShowcaseSource:
+    """Cover the two uncovered branches in DGMShowcaseSource."""
+
+    def test_teardown_drops_all_tables(self):
+        from sqldim.examples.datasets.domains.dgm.sources import DGMShowcaseSource
+        src = DGMShowcaseSource()
+        con = duckdb.connect()
+        src.setup(con)
+        # Verify tables exist
+        tables = {r[0] for r in con.execute("SHOW TABLES").fetchall()}
+        assert "dgm_showcase_customer" in tables
+        # Teardown drops them all
+        src.teardown(con)
+        tables_after = {r[0] for r in con.execute("SHOW TABLES").fetchall()}
+        assert "dgm_showcase_customer" not in tables_after
+        assert "dgm_showcase_sale" not in tables_after
+
+    def test_snapshot_raises_not_implemented(self):
+        from sqldim.examples.datasets.domains.dgm.sources import DGMShowcaseSource
+        src = DGMShowcaseSource()
+        with pytest.raises(NotImplementedError, match="static fixture"):
+            src.snapshot()

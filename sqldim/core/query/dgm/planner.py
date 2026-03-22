@@ -1,26 +1,20 @@
-"""DGM Query Planner (DGM v0.16 §6.2).
+"""DGM Query Planner — DGMPlanner class (DGM v0.16 §6.2).
 
-Implements planning rules 1a–9, wrapping each rule as a method on DGMPlanner.
-Each rule returns either an ExportPlan, a list of strings (advisory messages),
-a bool, or a str depending on the rule contract defined in the spec.
-
-Constants
----------
-SMALL              Path-cardinality threshold for Bound→Bound recursive CTE.
-CLOSURE_THRESHOLD  Node-count above which a hierarchy uses a materialised
-                   closure table instead of an inline recursive CTE.
-SMALL_GRAPH_THRESHOLD
-                   Node-count below which SubgraphExpr algorithms are emitted
-                   inline; above → schedule PreComputation.
-DENSE              Temporal-density threshold above which a TemporalAgg is
-                   pre-aggregated to a daily summary (Rule 7).
+Implements planning rules 1a–9.  Support types, thresholds, and static rule
+helpers live in :mod:`sqldim.core.query.dgm.planner_targets`.
 """
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
-from enum import Enum
 from typing import TYPE_CHECKING, Any
+
+from sqldim.core.query.dgm.planner_targets import (
+    CLOSURE_THRESHOLD, DENSE, SMALL, SMALL_GRAPH_THRESHOLD,
+    CostEstimate, ExportPlan, PreComputation, QueryTarget, SinkTarget,
+    _r6_bridge_semantics, _r6_degenerate, _r6_derived_fact,
+    _r6_projects_from, _r6_role_playing, _r6_weight_constraint,
+    _r8_delta_append_flag, _r8_grain_append_flag, _r8_partition_flag,
+)
 
 if TYPE_CHECKING:
     from sqldim.core.query.dgm.bdd import DGMPredicateBDD
@@ -28,158 +22,10 @@ if TYPE_CHECKING:
     from sqldim.core.query.dgm.annotations import AnnotationSigma, GrainKind
 
 __all__ = [
-    "QueryTarget",
-    "SinkTarget",
-    "PreComputation",
-    "CostEstimate",
-    "ExportPlan",
-    "DGMPlanner",
-    "SMALL",
-    "CLOSURE_THRESHOLD",
-    "SMALL_GRAPH_THRESHOLD",
-    "DENSE",
+    "QueryTarget", "SinkTarget", "PreComputation", "CostEstimate",
+    "ExportPlan", "DGMPlanner", "SMALL", "CLOSURE_THRESHOLD",
+    "SMALL_GRAPH_THRESHOLD", "DENSE",
 ]
-
-# ---------------------------------------------------------------------------
-# Thresholds
-# ---------------------------------------------------------------------------
-
-#: Path-cardinality threshold.  Bound→Bound paths ≤ SMALL use recursive CTE.
-SMALL: int = 100
-
-#: Node-count above which hierarchy execution uses a pre-materialised closure.
-CLOSURE_THRESHOLD: int = 1_000
-
-#: Node-count below which SubgraphExpr algorithms are emitted inline.
-SMALL_GRAPH_THRESHOLD: int = 500
-
-#: Temporal-density above which TemporalAgg is pre-aggregated daily.
-DENSE: float = 0.8
-
-
-# ---------------------------------------------------------------------------
-# QueryTarget
-# ---------------------------------------------------------------------------
-
-
-class QueryTarget(Enum):
-    """Supported output query targets (§6.3)."""
-
-    SQL_DUCKDB = "SQL_DUCKDB"
-    SQL_POSTGRESQL = "SQL_POSTGRESQL"
-    SQL_MOTHERDUCK = "SQL_MOTHERDUCK"
-    CYPHER = "CYPHER"
-    SPARQL = "SPARQL"
-    DGM_JSON = "DGM_JSON"
-    DGM_YAML = "DGM_YAML"
-
-
-# ---------------------------------------------------------------------------
-# SinkTarget
-# ---------------------------------------------------------------------------
-
-
-class SinkTarget(Enum):
-    """Supported write sinks (§6.3)."""
-
-    DUCKDB = "DUCKDB"
-    POSTGRESQL = "POSTGRESQL"
-    MOTHERDUCK = "MOTHERDUCK"
-    PARQUET = "PARQUET"
-    DELTA = "DELTA"
-    ICEBERG = "ICEBERG"
-
-
-# ---------------------------------------------------------------------------
-# PreComputation
-# ---------------------------------------------------------------------------
-
-
-@dataclass(eq=True)
-class PreComputation:
-    """A named pre-computation step emitted before the main query.
-
-    Parameters
-    ----------
-    name:
-        Identifier for the pre-computation (e.g. ``"gt_bfs"``).
-    query:
-        SQL or Python snippet that materialises the result.
-    kind:
-        ``"sql"`` (default) or ``"py"`` (Python pre-computation).
-    """
-
-    name: str
-    query: str
-    kind: str = "sql"
-
-
-# ---------------------------------------------------------------------------
-# CostEstimate
-# ---------------------------------------------------------------------------
-
-
-@dataclass(eq=True)
-class CostEstimate:
-    """Mechanical cost estimate for an ExportPlan.
-
-    Parameters
-    ----------
-    cpu_ops:
-        Estimated CPU operations (dimensionless).
-    io_ops:
-        Estimated I/O operations (dimensionless).
-    note:
-        Optional auditable note (no natural language).
-    """
-
-    cpu_ops: int
-    io_ops: int
-    note: str = ""
-
-
-# ---------------------------------------------------------------------------
-# ExportPlan
-# ---------------------------------------------------------------------------
-
-
-@dataclass
-class ExportPlan:
-    """Structured, auditable query plan produced by DGMPlanner.
-
-    Parameters
-    ----------
-    query_target:
-        Target query language / engine.
-    query_text:
-        The compiled query string.
-    pre_compute:
-        Ordered list of pre-computation steps.
-    sink_target:
-        Optional write sink.
-    write_plan:
-        Optional write-plan string (CREATE TABLE AS, COPY TO, …).
-    cost_estimate:
-        Optional mechanical cost estimate.
-    alternatives:
-        Alternative ``(ExportPlan, CostEstimate)`` pairs for audit.
-    cone_containment_applied:
-        True when Rule 9 fired and collapsed REACHABLE_FROM ∩ REACHABLE_TO.
-    """
-
-    query_target: QueryTarget
-    query_text: str
-    pre_compute: list[PreComputation] = field(default_factory=list)
-    sink_target: SinkTarget | None = None
-    write_plan: str | None = None
-    cost_estimate: CostEstimate | None = None
-    alternatives: list[tuple[ExportPlan, CostEstimate]] = field(default_factory=list)
-    cone_containment_applied: bool = False
-
-
-# ---------------------------------------------------------------------------
-# DGMPlanner
-# ---------------------------------------------------------------------------
 
 
 class DGMPlanner:
@@ -432,55 +278,17 @@ class DGMPlanner:
 
         c = candidate_set or set()
         _dispatch = {
-            RolePlaying: self._r6_role_playing,
-            ProjectsFrom: self._r6_projects_from,
-            DerivedFact: self._r6_derived_fact,
-            WeightConstraint: self._r6_weight_constraint,
-            BridgeSemantics: self._r6_bridge_semantics,
-            Degenerate: self._r6_degenerate,
+            RolePlaying: _r6_role_playing,
+            ProjectsFrom: _r6_projects_from,
+            DerivedFact: _r6_derived_fact,
+            WeightConstraint: _r6_weight_constraint,
+            BridgeSemantics: _r6_bridge_semantics,
+            Degenerate: _r6_degenerate,
         }
         handler = _dispatch.get(type(ann))
         if handler is None:
             return []
         return handler(ann, c)
-
-    @staticmethod
-    def _r6_role_playing(ann: object, _c: "set[str]") -> list[str]:
-        return [f"RolePlaying({ann.dim}): single scan under multiple aliases {ann.roles}"]  # type: ignore[attr-defined]
-
-    @staticmethod
-    def _r6_projects_from(ann: object, c: "set[str]") -> list[str]:
-        if ann.dim_full in c:  # type: ignore[attr-defined]
-            return [
-                f"ProjectsFrom: eliminate mini join {ann.dim_mini!r} — full table {ann.dim_full!r} present"  # type: ignore[attr-defined]
-            ]
-        return []
-
-    @staticmethod
-    def _r6_derived_fact(ann: object, c: "set[str]") -> list[str]:
-        if c.intersection(ann.sources):  # type: ignore[attr-defined]
-            return [f"DerivedFact({ann.fact}): inline — srcs ∩ C ≠ ∅"]  # type: ignore[attr-defined]
-        return []
-
-    @staticmethod
-    def _r6_weight_constraint(ann: object, _c: "set[str]") -> list[str]:
-        if ann.is_allocative:  # type: ignore[attr-defined]
-            return [f"WeightConstraint(ALLOCATIVE) on {ann.bridge}: PathAgg without weight → use weighted form"]  # type: ignore[attr-defined]
-        return []
-
-    @staticmethod
-    def _r6_bridge_semantics(ann: object, _c: "set[str]") -> list[str]:
-        from sqldim.core.query.dgm.annotations import BridgeSemanticsKind
-
-        if ann.sem is BridgeSemanticsKind.CAUSAL:  # type: ignore[attr-defined]
-            return [f"BridgeSemantics(CAUSAL) on {ann.bridge}: drop cycle guard; dag_bfs on G and G^T"]  # type: ignore[attr-defined]
-        if ann.sem is BridgeSemanticsKind.SUPERSESSION:  # type: ignore[attr-defined]
-            return [f"BridgeSemantics(SUPERSESSION) on {ann.bridge}: CASE WHEN superseded THEN -1*measure ELSE measure"]  # type: ignore[attr-defined]
-        return []
-
-    @staticmethod
-    def _r6_degenerate(ann: object, _c: "set[str]") -> list[str]:
-        return [f"Degenerate({ann.dim}): exclusion from GroupBy candidates"]  # type: ignore[attr-defined]
 
     # ------------------------------------------------------------------
     # Rule 7 — TemporalAgg window scheduling
@@ -517,29 +325,10 @@ class DGMPlanner:
             SinkTarget.ICEBERG: "INSERT INTO iceberg_scan",
         }
         plan = _base.get(sink_target, "INSERT INTO")
-        plan = self._r8_partition_flag(plan, sink_target, has_temporal_agg)
-        plan = self._r8_delta_append_flag(plan, sink_target, has_q_delta)
+        plan = _r8_partition_flag(plan, sink_target, has_temporal_agg)
+        plan = _r8_delta_append_flag(plan, sink_target, has_q_delta)
         if grain_kind is not None:
-            plan = self._r8_grain_append_flag(plan, sink_target, grain_kind, GrainKind)
-        return plan
-
-    @staticmethod
-    def _r8_partition_flag(plan: str, sink_target: SinkTarget, has_temporal_agg: bool) -> str:
-        _file_sinks = (SinkTarget.PARQUET, SinkTarget.DELTA, SinkTarget.ICEBERG)
-        if has_temporal_agg and sink_target in _file_sinks:
-            plan += "; PARTITION_BY timestamp_unit"
-        return plan
-
-    @staticmethod
-    def _r8_delta_append_flag(plan: str, sink_target: SinkTarget, has_q_delta: bool) -> str:
-        if has_q_delta and sink_target is SinkTarget.DELTA:
-            plan += "; APPEND mode"
-        return plan
-
-    @staticmethod
-    def _r8_grain_append_flag(plan: str, sink_target: SinkTarget, grain_kind: object, GrainKind: type) -> str:
-        if grain_kind is GrainKind.ACCUMULATING and sink_target is SinkTarget.DELTA:
-            plan += "; APPEND mode"
+            plan = _r8_grain_append_flag(plan, sink_target, grain_kind, GrainKind)
         return plan
 
     # ------------------------------------------------------------------
