@@ -424,6 +424,38 @@ from sqldim.core.query._dgm_temporal import (  # noqa: F401
     DeltaQuery,
 )
 
+# -- Re-export: Recommender (DGM §7) ----------------------------------------
+from sqldim.core.query._dgm_recommender import (  # noqa: F401
+    SuggestionKind,
+    Suggestion,
+    Stage1Result,
+    Stage2Result,
+    DGMRecommender,
+    ENTROPY_THRESHOLD,
+)
+
+# -- Re-export: Planner (DGM §6.2) ------------------------------------------
+from sqldim.core.query._dgm_planner import (  # noqa: F401
+    QueryTarget,
+    SinkTarget,
+    PreComputation,
+    CostEstimate,
+    ExportPlan,
+    DGMPlanner,
+    SMALL,
+    CLOSURE_THRESHOLD,
+    SMALL_GRAPH_THRESHOLD,
+    DENSE,
+)
+
+# -- Re-export: Exporters (DGM §6.3) ----------------------------------------
+from sqldim.core.query._dgm_exporters import (  # noqa: F401
+    CypherExporter,
+    SPARQLExporter,
+    DGMJSONExporter,
+    DGMYAMLExporter,
+)
+
 
 # ---------------------------------------------------------------------------
 # TemporalContext  (DGM §5.1)
