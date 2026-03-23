@@ -577,7 +577,7 @@ class TestDGMQueryExecution:
 
 # Minimal SQLModel classes for FK-inference tests (shared SQLModel metadata registry).
 # We reuse the ecommerce example models to avoid duplicate table definitions.
-from sqldim.examples.real_world.ecommerce.models import (  # noqa: E402
+from sqldim.application.examples.real_world.ecommerce.models import (  # noqa: E402
     Customer as _Customer,
     OrderFact as _OrderFact,
 )

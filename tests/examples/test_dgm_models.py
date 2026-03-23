@@ -4,7 +4,7 @@ Importing the five model classes exercises every class-body line (class
 headers and field declarations are evaluated at import time in Python).
 """
 
-from sqldim.examples.features.dgm.models import (
+from sqldim.application.examples.features.dgm.models import (
     CustomerDim,
     ProductDim,
     SegmentDim,

@@ -3,8 +3,8 @@ from sqlalchemy.pool import StaticPool
 from datetime import date
 from unittest.mock import MagicMock
 from sqlmodel import Session, SQLModel, create_engine, select
-from sqldim.examples.real_world.nba_analytics.staging import PlayerSeasons
-from sqldim.examples.real_world.nba_analytics.models import Player, PlayerSCD, ScoringClass, SeasonStats, Game, PlaysInEdge
+from sqldim.application.examples.real_world.nba_analytics.staging import PlayerSeasons
+from sqldim.application.examples.real_world.nba_analytics.models import Player, PlayerSCD, ScoringClass, SeasonStats, Game, PlaysInEdge
 from sqldim.core.kimball.dimensions.scd.backfill import backfill_scd2, backfill_cumulative
 
 @pytest.fixture

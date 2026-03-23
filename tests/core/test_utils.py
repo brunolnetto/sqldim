@@ -2,7 +2,7 @@
 import os
 import duckdb
 
-from sqldim.examples.utils import (
+from sqldim.application.examples.utils import (
     tmp_db,
     make_tmp_db,
     setup_dim,
@@ -231,7 +231,7 @@ def test_tmp_db_cleanup_silences_oserror(monkeypatch):
     import duckdb
     import os
 
-    from sqldim.examples.utils import tmp_db
+    from sqldim.application.examples.utils import tmp_db
 
     orig_unlink = os.unlink
     call_count = [0]

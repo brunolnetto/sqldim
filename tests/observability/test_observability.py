@@ -188,7 +188,7 @@ class TestOTelCollectorMetrics:
 
 class TestPrintFallback:
     def test_fetchall_success_prints_rows(self, capsys):
-        from sqldim.examples.features.observability.showcase import _print_fallback
+        from sqldim.application.examples.features.observability.showcase import _print_fallback
         from unittest.mock import MagicMock
         rel = MagicMock()
         rel.fetchall.return_value = [("row1",), ("row2",)]
@@ -198,7 +198,7 @@ class TestPrintFallback:
         assert "row2" in out
 
     def test_fetchall_raises_prints_query_error(self, capsys):
-        from sqldim.examples.features.observability.showcase import _print_fallback
+        from sqldim.application.examples.features.observability.showcase import _print_fallback
         from unittest.mock import MagicMock
         rel = MagicMock()
         rel.fetchall.side_effect = RuntimeError("db gone")

@@ -14,18 +14,18 @@ from __future__ import annotations
 import duckdb
 import pytest
 
-from sqldim.examples.datasets import DatasetFactory
+from sqldim.application.datasets import DatasetFactory
 from sqldim.sources.batch.sql import SQLSource
 
-from sqldim.examples.datasets.domains.nba_analytics import PlayerSeasonsSource
-from sqldim.examples.datasets.domains.saas_growth import SaaSUsersSource
-from sqldim.examples.datasets.domains.user_activity import DevicesSource, EventsSource
-from sqldim.examples.datasets.domains.fintech import (
+from sqldim.application.datasets.domains.nba_analytics import PlayerSeasonsSource
+from sqldim.application.datasets.domains.saas_growth import SaaSUsersSource
+from sqldim.application.datasets.domains.user_activity import DevicesSource, EventsSource
+from sqldim.application.datasets.domains.fintech import (
     AccountsSource as FintechAccountsSource,
     CounterpartiesSource,
     TransactionsSource,
 )
-from sqldim.examples.datasets.domains.supply_chain import (
+from sqldim.application.datasets.domains.supply_chain import (
     SuppliersSource,
     WarehousesSource,
     SKUsSource,
@@ -86,7 +86,7 @@ class TestPlayerSeasonsSource:
         assert (events["season"] > initial["season"].min()).any()
 
     def test_provider_is_set(self, src):
-        from sqldim.examples.datasets.base import SourceProvider
+        from sqldim.application.datasets.base import SourceProvider
         assert src.provider is not None
         assert isinstance(src.provider, SourceProvider)
         assert "NBA" in src.provider.name
@@ -167,7 +167,7 @@ class TestSaaSUsersSource:
         assert len(upgraded) > 0
 
     def test_provider_is_set(self, src):
-        from sqldim.examples.datasets.base import SourceProvider
+        from sqldim.application.datasets.base import SourceProvider
         assert isinstance(src.provider, SourceProvider)
 
     def test_setup_and_teardown(self, src):
@@ -228,7 +228,7 @@ class TestDevicesSource:
         assert isinstance(src.event_batch(1), SQLSource)
 
     def test_provider_is_set(self, src):
-        from sqldim.examples.datasets.base import SourceProvider
+        from sqldim.application.datasets.base import SourceProvider
         assert isinstance(src.provider, SourceProvider)
 
     def test_setup_and_teardown(self, src):
@@ -291,7 +291,7 @@ class TestEventsSource:
         assert "url" in rows.columns
 
     def test_provider_is_set(self, src):
-        from sqldim.examples.datasets.base import SourceProvider
+        from sqldim.application.datasets.base import SourceProvider
         assert isinstance(src.provider, SourceProvider)
 
     def test_setup_and_teardown(self, src):
