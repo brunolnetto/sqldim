@@ -1,11 +1,11 @@
-"""DGM schema annotation layer Σ (DGM v0.16 §2.4).
+"""DGM schema annotation layer Σ (DGM v0.17 §2.4).
 
-Provides the 11 SchemaAnnotation dataclass types, their enum types, the RAGGED
+Provides the 12 SchemaAnnotation dataclass types, their enum types, the RAGGED
 sentinel, the AnnotationSigma collection, and the annotation_kind() dispatch
 helper.
 
 Every annotation is an operational decision object: its properties are directly
-consulted by the planner (Rules 1a-1d), recommender, and exporter without
+consulted by the planner (Rules 1a-1d, 10), recommender, and exporter without
 requiring string-matching on type names.
 """
 
@@ -21,11 +21,13 @@ __all__ = [
     "SCDKind",
     "WeightConstraintKind",
     "BridgeSemanticsKind",
+    "WriteModeKind",
+    "PipelineStateKind",
     # RAGGED sentinel
     "RAGGED",
     # Abstract base
     "SchemaAnnotation",
-    # 11 annotation types
+    # 12 annotation types
     "Conformed",
     "Grain",
     "SCDType",
@@ -37,6 +39,7 @@ __all__ = [
     "WeightConstraint",
     "BridgeSemantics",
     "Hierarchy",
+    "PipelineArtifact",
     # Helpers
     "annotation_kind",
     "AnnotationSigma",
@@ -74,6 +77,22 @@ class BridgeSemanticsKind(Enum):
     TEMPORAL = "TEMPORAL"
     SUPERSESSION = "SUPERSESSION"
     STRUCTURAL = "STRUCTURAL"
+
+
+class WriteModeKind(Enum):
+    """Write mode for pipeline-managed fact tables (spec §2.4 PipelineArtifact)."""
+    BACKFILL = "BACKFILL"
+    REFRESH = "REFRESH"
+    ADAPTIVE = "ADAPTIVE"
+
+
+class PipelineStateKind(Enum):
+    """Five-state lifecycle for a PipelineArtifact fact (spec §2.4)."""
+    MISSING = "MISSING"
+    IN_FLIGHT = "IN_FLIGHT"
+    COMPLETE = "COMPLETE"
+    STALE = "STALE"
+    FAILED = "FAILED"
 
 
 # ---------------------------------------------------------------------------
@@ -276,6 +295,67 @@ class Hierarchy(SchemaAnnotation):
     depth: int | _Ragged
 
 
+@dataclass(frozen=True, eq=True)
+class PipelineArtifact(SchemaAnnotation):
+    """Composite annotation for pipeline-managed accumulating fact tables (spec §2.4).
+
+    Implies ``Grain(fact, ACCUMULATING)``.  Declares the five-state lifecycle
+    (Missing → In-flight → Complete/Failed; Complete → Stale → In-flight) and
+    the BridgeSemantics on each transition edge.  ``write_mode`` drives Rule 10.
+
+    Parameters
+    ----------
+    fact:
+        Name of the accumulating fact table.
+    pipeline_id:
+        Unique pipeline identifier (key into the pipeline registry).
+    ttl:
+        Artifact TTL in seconds.  Complete → Stale transition fires when
+        ``now - completed_at > ttl``.
+    backfill_horizon:
+        Maximum look-back in days.  Missing/Failed windows older than this
+        are not backfilled.
+    write_mode:
+        BACKFILL → always APPEND; REFRESH → always MERGE;
+        ADAPTIVE → inferred from P(f).state at planning time (Rule 10).
+    """
+    fact: str
+    pipeline_id: str
+    ttl: int          # seconds
+    backfill_horizon: int  # days
+    write_mode: WriteModeKind
+
+    @property
+    def effective_grain(self) -> GrainKind:
+        """PipelineArtifact always implies ACCUMULATING grain."""
+        return GrainKind.ACCUMULATING
+
+    def transition_semantics(
+        self,
+        from_state: PipelineStateKind,
+        to_state: PipelineStateKind,
+        *,
+        is_refresh: bool = False,
+    ) -> BridgeSemanticsKind:
+        """Return the implied BridgeSemanticsKind for a state transition.
+
+        In-flight → Failed during a REFRESH run (or ADAPTIVE with prior
+        Complete) uses SUPERSESSION so the prior Complete artifact is
+        preserved and the state regresses to Stale rather than Failed.
+        All other successful/failed transitions from In-flight are CAUSAL.
+        Time-driven transitions (TTL expiry, scheduling) are TEMPORAL.
+        """
+        if (
+            from_state is PipelineStateKind.IN_FLIGHT
+            and to_state is PipelineStateKind.FAILED
+            and is_refresh
+        ):
+            return BridgeSemanticsKind.SUPERSESSION
+        if from_state is PipelineStateKind.IN_FLIGHT:
+            return BridgeSemanticsKind.CAUSAL
+        return BridgeSemanticsKind.TEMPORAL
+
+
 # ---------------------------------------------------------------------------
 # annotation_kind() dispatch helper
 # ---------------------------------------------------------------------------
@@ -292,6 +372,7 @@ _KIND_MAP: dict[type, str] = {
     WeightConstraint: "WeightConstraint",
     BridgeSemantics: "BridgeSemantics",
     Hierarchy: "Hierarchy",
+    PipelineArtifact: "PipelineArtifact",
 }
 
 _AT = TypeVar("_AT", bound=SchemaAnnotation)
@@ -378,4 +459,11 @@ class AnnotationSigma:
         for a in self._anns:
             if isinstance(a, Hierarchy) and a.root == root:
                 return a.depth
+        return None
+
+    def pipeline_artifact_of(self, fact: str) -> "PipelineArtifact | None":
+        """Return the PipelineArtifact annotation for *fact*, or None."""
+        for a in self._anns:
+            if isinstance(a, PipelineArtifact) and a.fact == fact:
+                return a
         return None

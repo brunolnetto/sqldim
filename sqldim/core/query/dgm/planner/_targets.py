@@ -229,3 +229,32 @@ def _r8_grain_append_flag(plan: str, sink_target: SinkTarget, grain_kind: object
     if grain_kind is GrainKind.ACCUMULATING and sink_target is SinkTarget.DELTA:
         plan += "; APPEND mode"
     return plan
+
+
+# ---------------------------------------------------------------------------
+# Rule 10 static helpers (PipelineArtifact state-aware write planning)
+# ---------------------------------------------------------------------------
+
+
+def _r10_ttl_check(completed_at_s: float, now_s: float, ttl_s: int) -> bool:
+    """Return True when the artifact has exceeded its TTL (Complete → Stale)."""
+    return (now_s - completed_at_s) > ttl_s
+
+
+def _r10_adaptive_write_plan(state: object) -> str:
+    """Return ``"APPEND"`` or ``"MERGE"`` based on P(f).state for ADAPTIVE mode."""
+    from sqldim.core.query.dgm.annotations import PipelineStateKind
+
+    if state in (PipelineStateKind.MISSING, PipelineStateKind.FAILED):
+        return "APPEND"
+    if state is PipelineStateKind.STALE:
+        return "MERGE"
+    return "APPEND"
+
+
+def _r10_backfill_predicate(fact_alias: str, backfill_horizon_days: int) -> str:
+    """Return a SQL-fragment predicate for the backfill gap filter (injected by Rule 10)."""
+    return (
+        f"{fact_alias}.state IN ('Missing', 'Failed')"
+        f" AND {fact_alias}.window_end < (NOW() - INTERVAL {backfill_horizon_days} DAY)"
+    )

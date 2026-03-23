@@ -14,6 +14,7 @@ from sqldim.core.query.dgm.planner._targets import (
     _r6_bridge_semantics, _r6_degenerate, _r6_derived_fact,
     _r6_projects_from, _r6_role_playing, _r6_weight_constraint,
     _r8_delta_append_flag, _r8_grain_append_flag, _r8_partition_flag,
+    _r10_ttl_check, _r10_adaptive_write_plan, _r10_backfill_predicate,
 )
 
 if TYPE_CHECKING:
@@ -330,6 +331,71 @@ class DGMPlanner:
         if grain_kind is not None:
             plan = _r8_grain_append_flag(plan, sink_target, grain_kind, GrainKind)
         return plan
+
+    # ------------------------------------------------------------------
+    # Rule 10 — PipelineArtifact state-aware write planning
+    # ------------------------------------------------------------------
+
+    def apply_rule_10(
+        self,
+        fact: str,
+        state: object,
+        ttl_elapsed_s: float,
+        write_mode: object,
+        *,
+        prior_complete_exists: bool = False,
+    ) -> str:
+        """Rule 10: Derive write plan from PipelineArtifact P(f).state.
+
+        Parameters
+        ----------
+        fact:
+            Name of the fact table (used for logging only).
+        state:
+            Current ``PipelineStateKind`` value for this artifact window.
+        ttl_elapsed_s:
+            Seconds elapsed since the artifact was last completed.
+        write_mode:
+            The annotation’s ``WriteModeKind`` (BACKFILL/REFRESH/ADAPTIVE).
+        prior_complete_exists:
+            True when a prior Complete artifact exists for the same window
+            (relevant for ADAPTIVE mode during a REFRESH run).
+        """
+        from sqldim.core.query.dgm.annotations import (
+            PipelineStateKind, WriteModeKind,
+        )
+
+        notes: list[str] = []
+
+        # 10a: TTL expiry — transition Complete → Stale
+        if (
+            state is PipelineStateKind.COMPLETE
+            and _r10_ttl_check(0.0, ttl_elapsed_s, 0)
+        ):
+            notes.append(f"Rule 10a: {fact} TTL expired — emit Complete → Stale; WritePlan(MERGE)")
+            return "; ".join(notes) or "WritePlan(MERGE, ttl_expired)"
+
+        # 10b: ADAPTIVE mode — infer write plan from state
+        if write_mode is WriteModeKind.ADAPTIVE:
+            mode = _r10_adaptive_write_plan(state)
+            notes.append(f"Rule 10b: ADAPTIVE on {fact} — state={state!r} → WritePlan({mode})")
+            return "; ".join(notes)
+
+        # 10c: fixed write modes
+        return self._r10_dispatch_fixed_mode(fact, state, write_mode, WriteModeKind, notes)
+
+    def _r10_dispatch_fixed_mode(
+        self, fact: str, state: object, write_mode: object, WriteModeKind, notes: list
+    ) -> str:
+        if write_mode is WriteModeKind.BACKFILL:
+            notes.append(f"Rule 10c: BACKFILL on {fact} → WritePlan(APPEND)")
+            pred = _r10_backfill_predicate(fact, 90)
+            notes.append(f"inject backfill gap predicate: {pred}")
+            return "; ".join(notes)
+        if write_mode is WriteModeKind.REFRESH:
+            notes.append(f"Rule 10c: REFRESH on {fact} → WritePlan(MERGE)")
+            return "; ".join(notes)
+        return f"Rule 10: no write plan inferred for {fact} state={state!r}"
 
     # ------------------------------------------------------------------
     # Rule 9 — Cone containment optimisation

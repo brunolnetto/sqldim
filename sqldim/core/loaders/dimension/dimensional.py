@@ -46,6 +46,33 @@ class SKResolver:
             self._cache[cache_key] = sk
         return sk
 
+    def bulk_resolve(
+        self,
+        model: type[DimensionModel],
+        natural_key_name: str,
+        values: list[object],
+    ) -> None:
+        """Pre-warm the SK cache for *values* using a single IN query.
+
+        Replaces N individual :meth:`resolve` round-trips with one
+        ``SELECT id, <nk> FROM <dim> WHERE <nk> IN (…) AND is_current``
+        call.  Call this once before iterating over a fact batch to avoid
+        per-record DB overhead.
+        """
+        uncached = [
+            v for v in set(filter(lambda x: x is not None, values))
+            if (model, natural_key_name, v) not in self._cache
+        ]
+        if not uncached:
+            return
+        nk_col = getattr(model, natural_key_name)
+        stmt = (
+            select(model.id, nk_col)
+            .where(nk_col.in_(uncached), getattr(model, "is_current"))
+        )
+        for sk, nk_val in self.session.exec(stmt).all():
+            self._cache[(model, natural_key_name, nk_val)] = sk
+
 
 class DimensionalLoader:
     """Orchestrates a dimension-first load across multiple models.
@@ -176,6 +203,14 @@ class DimensionalLoader:
             if issubclass(model, DimensionModel):
                 await self._load_dimension(model, data)
             else:
+                # Bulk pre-warm SK cache for every FK column before the
+                # per-record resolution loop — one IN query per FK column
+                # instead of one query per fact row.
+                if key_map:
+                    for fk_col, (dim_model, nk_name) in key_map.items():
+                        self.resolver.bulk_resolve(
+                            dim_model, nk_name, [r.get(fk_col) for r in data]
+                        )
                 processed_data = [self._resolve_fks(r, key_map) for r in data]
                 await self._execute_fact_strategy(
                     model, getattr(model, "__strategy__", None), processed_data, key_map

@@ -244,14 +244,65 @@ class SCDHandler(Generic[T]):
             result.unchanged += 1
 
     async def process(self, records: list[dict[str, object]]) -> SCDResult:
-        """Process *records* in sequence, applying SCD logic per row.
+        """Process *records* in a single bulk-aware pass, applying SCD logic per row.
 
-        Commits the session on success and returns an ``SCDResult``
-        with inserted / versioned / unchanged counts.
+        All existing current rows whose natural keys appear in *records* are
+        fetched in one ``SELECT … WHERE nk IN (…)`` query before the loop
+        starts.  This replaces N individual DB round-trips with a single query,
+        giving near-constant DB overhead regardless of batch size.
+
+        When every record in the batch is new (fresh dimension load), a Core-level
+        bulk INSERT is used instead of N individual ORM ``session.add()`` calls,
+        eliminating per-row ORM overhead.
+
+        Assumption: each natural-key value appears at most once per batch
+        (standard for dimension loads).  Commits on success and returns an
+        ``SCDResult`` with inserted / versioned / unchanged counts.
         """
         result = SCDResult()
+        if not records:
+            self.session.commit()
+            return result
+
+        nk_field = getattr(self.model, "__natural_key__", ["id"])[0]
+        nk_values = [r.get(nk_field) for r in records]
+
+        # Bulk-fetch all existing current rows matching the incoming NK values.
+        stmt = select(self.model).where(getattr(self.model, nk_field).in_(nk_values))
+        if hasattr(self.model, "is_current"):
+            stmt = stmt.where(getattr(self.model, "is_current"))
+        existing_map: dict[object, T] = {
+            getattr(row, nk_field): row
+            for row in self.session.exec(stmt).all()
+        }
+
+        # Fast path: all records are new — use a single Core bulk INSERT.
+        if not existing_map:
+            from sqlalchemy import insert as _sa_insert
+
+            now = datetime.now(timezone.utc)
+            rows = []
+            for record in records:
+                checksum = self.compute_checksum(record)
+                row = {**record, "checksum": checksum, "is_current": True}
+                row.setdefault("valid_from", now)
+                rows.append(row)
+                result.inserted += 1
+            self.session.execute(_sa_insert(self.model), rows)
+            self.session.commit()
+            return result
+
         for record in records:
-            await self._process_one(record, result)
+            nk_value = record.get(nk_field)
+            checksum = self.compute_checksum(record)
+            existing = existing_map.get(nk_value)
+            if not existing:
+                self._handle_new_record(record, checksum, result)
+            elif existing.checksum != checksum:
+                self._handle_changed_record(existing, record, checksum, result, nk_value)
+            else:
+                result.unchanged += 1
+
         self.session.commit()
         return result
 

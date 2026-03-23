@@ -204,6 +204,27 @@ def test_discover_examples_non_package_modules_skipped():
     assert len(result) > 0
 
 
+def test_discover_examples_none_metadata_skips_module():
+    """Line 101: showcase module that returns EXAMPLE_METADATA=None is silently skipped."""
+    import importlib
+    import types
+    import sqldim.cli as cli_mod
+
+    real_import = importlib.import_module
+
+    def _fake_import(name, *a, **kw):
+        if name == "sqldim.application.examples.real_world.nba_analytics.showcase":
+            # Module imports fine but has no EXAMPLE_METADATA → getattr returns None
+            return types.ModuleType(name)
+        return real_import(name, *a, **kw)
+
+    with mock.patch("importlib.import_module", side_effect=_fake_import):
+        result = cli_mod._discover_examples()
+    # nba_analytics showcase skipped; other showcases still discovered
+    assert "nba" not in result
+    assert len(result) > 0
+
+
 # ---------------------------------------------------------------------------
 # bigdata features
 # ---------------------------------------------------------------------------

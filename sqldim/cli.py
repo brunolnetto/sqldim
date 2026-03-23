@@ -67,6 +67,40 @@ def cmd_schema_graph(args: argparse.Namespace) -> None:
 # ── example commands ──────────────────────────────────────────────────────────
 
 
+def _load_one_showcase(pkg_name: str, modname: str, kind: str) -> tuple | None:
+    import importlib
+    showcase_path = f"{pkg_name}.{modname}.showcase"
+    try:
+        mod = importlib.import_module(showcase_path)
+    except ImportError:
+        return None
+    meta = getattr(mod, "EXAMPLE_METADATA", None)
+    if meta is None:
+        return None
+    return (
+        meta["name"],
+        (meta["title"], meta["description"], showcase_path, meta["entry_point"], kind),
+    )
+
+
+def _scan_pkg(pkg_name: str, kind: str) -> dict:
+    import importlib
+    import pkgutil
+    result: dict = {}
+    try:
+        pkg = importlib.import_module(pkg_name)
+    except ImportError:
+        return result
+    for _, modname, ispkg in pkgutil.iter_modules(pkg.__path__):
+        if not ispkg:
+            continue
+        loaded = _load_one_showcase(pkg_name, modname, kind)
+        if loaded is not None:
+            name, entry = loaded
+            result[name] = entry
+    return result
+
+
 def _discover_examples() -> dict:
     """
     Auto-discover examples by scanning showcase modules for ``EXAMPLE_METADATA``.
@@ -76,37 +110,28 @@ def _discover_examples() -> dict:
     exposing an ``EXAMPLE_METADATA`` dict.  Returns a mapping of CLI name →
     ``(title, description, module_path, entry_fn, kind)`` tuples.
     """
-    import importlib
-    import pkgutil
-
     result: dict = {}
     for pkg_name, kind in [
         ("sqldim.application.examples.real_world", "real_world"),
         ("sqldim.application.examples.features", "features"),
     ]:
-        try:
-            pkg = importlib.import_module(pkg_name)
-        except ImportError:
-            continue
-        for _, modname, ispkg in pkgutil.iter_modules(pkg.__path__):
-            if not ispkg:
-                continue
-            showcase_path = f"{pkg_name}.{modname}.showcase"
-            try:
-                mod = importlib.import_module(showcase_path)
-            except ImportError:
-                continue
-            meta = getattr(mod, "EXAMPLE_METADATA", None)
-            if meta is None:
-                continue
-            result[meta["name"]] = (
-                meta["title"],
-                meta["description"],
-                showcase_path,
-                meta["entry_point"],
-                kind,
-            )
+        result.update(_scan_pkg(pkg_name, kind))
     return result
+
+
+def _print_example_group(
+    kind_key: str, items: list, labels: dict, first: bool
+) -> bool:
+    if not items:
+        return first
+    if not first:
+        print()
+    print(f"[sqldim] {labels.get(kind_key, kind_key)} "
+          f"(run with: sqldim example run <name>)\n")
+    for name, title, desc in sorted(items, key=lambda x: x[0]):
+        print(f"  {name:<20} {title}")
+        print(f"  {'':20} {desc}\n")
+    return False
 
 
 def cmd_example_list(args: argparse.Namespace) -> None:
@@ -127,16 +152,7 @@ def cmd_example_list(args: argparse.Namespace) -> None:
     labels = {"real_world": "Real-world pipelines", "features": "Feature showcases"}
     first = True
     for kind_key, items in groups.items():
-        if not items:
-            continue
-        if not first:
-            print()
-        print(f"[sqldim] {labels.get(kind_key, kind_key)} "
-              f"(run with: sqldim example run <name>)\n")
-        for name, title, desc in sorted(items, key=lambda x: x[0]):
-            print(f"  {name:<20} {title}")
-            print(f"  {'':20} {desc}\n")
-        first = False
+        first = _print_example_group(kind_key, items, labels, first)
 
 
 def cmd_example_run(args: argparse.Namespace) -> int:

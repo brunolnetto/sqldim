@@ -28,10 +28,11 @@ from sqldim.core.query.dgm.graph import (  # noqa: F401
     MIN_DEGREE, SINK_FREE, SOURCE_FREE, TrimJoin,
 )
 from sqldim.core.query.dgm.annotations import (  # noqa: F401
-    GrainKind, SCDKind, WeightConstraintKind, BridgeSemanticsKind, RAGGED,
+    GrainKind, SCDKind, WeightConstraintKind, BridgeSemanticsKind,
+    WriteModeKind, PipelineStateKind, RAGGED,
     SchemaAnnotation, Conformed, Grain, SCDType, Degenerate, RolePlaying,
     ProjectsFrom, FactlessFact, DerivedFact, WeightConstraint, BridgeSemantics,
-    Hierarchy, annotation_kind, AnnotationSigma,
+    Hierarchy, PipelineArtifact, annotation_kind, AnnotationSigma,
 )
 from sqldim.core.query.dgm.temporal import (  # noqa: F401
     TemporalMode, EVENTUALLY, GLOBALLY, NEXT, ONCE, PREVIOUSLY, UntilMode, SinceMode,
@@ -52,4 +53,7 @@ from sqldim.core.query.dgm.planner import (  # noqa: F401
 )
 from sqldim.core.query.dgm.exporters import (  # noqa: F401
     CypherExporter, SPARQLExporter, DGMJSONExporter, DGMYAMLExporter,
+)
+from sqldim.core.query.dgm.algebra import (  # noqa: F401
+    ComposeOp, ComposedQuery, QuestionAlgebra,
 )

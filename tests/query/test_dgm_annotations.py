@@ -1,8 +1,9 @@
 """Phase 4 — Schema annotation layer (Σ) — RED tests.
 
 Covers:
-- All 11 SchemaAnnotation dataclass types and their fields
-- Enum types: GrainKind, SCDKind, WeightConstraintKind, BridgeSemanticsKind
+- All 12 SchemaAnnotation dataclass types and their fields
+- Enum types: GrainKind, SCDKind, WeightConstraintKind, BridgeSemanticsKind,
+  WriteModeKind, PipelineStateKind
 - RAGGED sentinel for Hierarchy depth
 - Union-type dispatch helper: annotation_kind()
 - GraphSchema.annotations attribute (Σ integration)
@@ -10,6 +11,7 @@ Covers:
   FactlessFact measure-agg rejection, SCD policy access
 - Annotation-driven planner helpers: scd_resolution(), grain_policy(),
   bridge_dag_mode(), weight_policy()
+- PipelineArtifact: five-state machine, transition semantics, effective_grain
 """
 
 import pytest
@@ -26,10 +28,13 @@ from sqldim.core.query.dgm.annotations import (
     WeightConstraint,
     BridgeSemantics,
     Hierarchy,
+    PipelineArtifact,
     GrainKind,
     SCDKind,
     WeightConstraintKind,
     BridgeSemanticsKind,
+    WriteModeKind,
+    PipelineStateKind,
     RAGGED,
     SchemaAnnotation,
     annotation_kind,
@@ -564,3 +569,154 @@ class TestAnnotationConsequences:
     def test_weight_constraint_unconstrained(self):
         w = WeightConstraint(bridge="b", constraint=WeightConstraintKind.UNCONSTRAINED)
         assert w.is_allocative is False
+
+
+# ---------------------------------------------------------------------------
+# WriteModeKind
+# ---------------------------------------------------------------------------
+
+
+class TestWriteModeKind:
+    def test_backfill(self):
+        assert WriteModeKind.BACKFILL.value == "BACKFILL"
+
+    def test_refresh(self):
+        assert WriteModeKind.REFRESH.value == "REFRESH"
+
+    def test_adaptive(self):
+        assert WriteModeKind.ADAPTIVE.value == "ADAPTIVE"
+
+    def test_all_members(self):
+        assert set(WriteModeKind) == {
+            WriteModeKind.BACKFILL,
+            WriteModeKind.REFRESH,
+            WriteModeKind.ADAPTIVE,
+        }
+
+
+# ---------------------------------------------------------------------------
+# PipelineStateKind
+# ---------------------------------------------------------------------------
+
+
+class TestPipelineStateKind:
+    def test_missing(self):
+        assert PipelineStateKind.MISSING.value == "MISSING"
+
+    def test_in_flight(self):
+        assert PipelineStateKind.IN_FLIGHT.value == "IN_FLIGHT"
+
+    def test_complete(self):
+        assert PipelineStateKind.COMPLETE.value == "COMPLETE"
+
+    def test_stale(self):
+        assert PipelineStateKind.STALE.value == "STALE"
+
+    def test_failed(self):
+        assert PipelineStateKind.FAILED.value == "FAILED"
+
+    def test_all_members(self):
+        assert set(PipelineStateKind) == {
+            PipelineStateKind.MISSING,
+            PipelineStateKind.IN_FLIGHT,
+            PipelineStateKind.COMPLETE,
+            PipelineStateKind.STALE,
+            PipelineStateKind.FAILED,
+        }
+
+
+# ---------------------------------------------------------------------------
+# PipelineArtifact
+# ---------------------------------------------------------------------------
+
+
+class TestPipelineArtifact:
+    def _make(self, **kw):
+        defaults = dict(
+            fact="daily_rev",
+            pipeline_id="daily_revenue",
+            ttl=604800,       # 7 days in seconds
+            backfill_horizon=90,
+            write_mode=WriteModeKind.ADAPTIVE,
+        )
+        defaults.update(kw)
+        return PipelineArtifact(**defaults)
+
+    def test_basic_fields(self):
+        a = self._make()
+        assert a.fact == "daily_rev"
+        assert a.pipeline_id == "daily_revenue"
+        assert a.ttl == 604800
+        assert a.backfill_horizon == 90
+        assert a.write_mode is WriteModeKind.ADAPTIVE
+
+    def test_isinstance_schema_annotation(self):
+        assert isinstance(self._make(), SchemaAnnotation)
+
+    def test_effective_grain_is_accumulating(self):
+        """PipelineArtifact always implies ACCUMULATING grain."""
+        assert self._make().effective_grain is GrainKind.ACCUMULATING
+
+    def test_transition_in_flight_to_complete_is_causal(self):
+        a = self._make()
+        sem = a.transition_semantics(
+            PipelineStateKind.IN_FLIGHT, PipelineStateKind.COMPLETE
+        )
+        assert sem is BridgeSemanticsKind.CAUSAL
+
+    def test_transition_in_flight_to_failed_backfill_is_causal(self):
+        """Backfill failure (no prior Complete) → CAUSAL."""
+        a = self._make(write_mode=WriteModeKind.BACKFILL)
+        sem = a.transition_semantics(
+            PipelineStateKind.IN_FLIGHT, PipelineStateKind.FAILED, is_refresh=False
+        )
+        assert sem is BridgeSemanticsKind.CAUSAL
+
+    def test_transition_in_flight_to_failed_refresh_is_supersession(self):
+        """Refresh failure (prior Complete preserved) → SUPERSESSION."""
+        a = self._make(write_mode=WriteModeKind.REFRESH)
+        sem = a.transition_semantics(
+            PipelineStateKind.IN_FLIGHT, PipelineStateKind.FAILED, is_refresh=True
+        )
+        assert sem is BridgeSemanticsKind.SUPERSESSION
+
+    def test_transition_complete_to_stale_is_temporal(self):
+        """TTL expiry → TEMPORAL."""
+        a = self._make()
+        sem = a.transition_semantics(
+            PipelineStateKind.COMPLETE, PipelineStateKind.STALE
+        )
+        assert sem is BridgeSemanticsKind.TEMPORAL
+
+    def test_transition_missing_to_in_flight_is_temporal(self):
+        a = self._make()
+        sem = a.transition_semantics(
+            PipelineStateKind.MISSING, PipelineStateKind.IN_FLIGHT
+        )
+        assert sem is BridgeSemanticsKind.TEMPORAL
+
+    def test_equality(self):
+        a = self._make()
+        b = self._make()
+        assert a == b
+
+    def test_annotation_kind_dispatch(self):
+        a = self._make()
+        assert annotation_kind(a) == "PipelineArtifact"
+
+    def test_annotation_sigma_pipeline_artifact_of(self):
+        a = self._make()
+        sigma = AnnotationSigma([a])
+        assert sigma.pipeline_artifact_of("daily_rev") is a
+
+    def test_annotation_sigma_pipeline_artifact_of_missing(self):
+        sigma = AnnotationSigma([])
+        assert sigma.pipeline_artifact_of("daily_rev") is None
+
+    def test_backfill_mode(self):
+        a = self._make(write_mode=WriteModeKind.BACKFILL)
+        assert a.write_mode is WriteModeKind.BACKFILL
+
+    def test_refresh_mode(self):
+        a = self._make(write_mode=WriteModeKind.REFRESH)
+        assert a.write_mode is WriteModeKind.REFRESH

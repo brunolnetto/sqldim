@@ -1122,3 +1122,88 @@ class TestBuildPlan:
         plan = p.build_plan("SELECT 1")
         # Cost estimate may be None or a CostEstimate — both valid
         assert plan.cost_estimate is None or isinstance(plan.cost_estimate, CostEstimate)
+
+
+# ---------------------------------------------------------------------------
+# Rule 10 — PipelineArtifact state-aware write planning
+# ---------------------------------------------------------------------------
+
+class TestRule10:
+    from sqldim.core.query.dgm.annotations import PipelineStateKind, WriteModeKind
+
+    def test_adaptive_missing_infers_append(self):
+        from sqldim.core.query.dgm.annotations import PipelineStateKind, WriteModeKind
+        p = _make_planner()
+        result = p.apply_rule_10(
+            fact="daily_rev",
+            state=PipelineStateKind.MISSING,
+            ttl_elapsed_s=0.0,
+            write_mode=WriteModeKind.ADAPTIVE,
+        )
+        assert "APPEND" in result
+
+    def test_adaptive_failed_infers_append(self):
+        from sqldim.core.query.dgm.annotations import PipelineStateKind, WriteModeKind
+        p = _make_planner()
+        result = p.apply_rule_10(
+            fact="daily_rev",
+            state=PipelineStateKind.FAILED,
+            ttl_elapsed_s=0.0,
+            write_mode=WriteModeKind.ADAPTIVE,
+        )
+        assert "APPEND" in result
+
+    def test_adaptive_stale_infers_merge(self):
+        from sqldim.core.query.dgm.annotations import PipelineStateKind, WriteModeKind
+        p = _make_planner()
+        result = p.apply_rule_10(
+            fact="daily_rev",
+            state=PipelineStateKind.STALE,
+            ttl_elapsed_s=0.0,
+            write_mode=WriteModeKind.ADAPTIVE,
+        )
+        assert "MERGE" in result
+
+    def test_backfill_mode_infers_append(self):
+        from sqldim.core.query.dgm.annotations import PipelineStateKind, WriteModeKind
+        p = _make_planner()
+        result = p.apply_rule_10(
+            fact="daily_rev",
+            state=PipelineStateKind.MISSING,
+            ttl_elapsed_s=0.0,
+            write_mode=WriteModeKind.BACKFILL,
+        )
+        assert "APPEND" in result
+
+    def test_backfill_mode_injects_predicate(self):
+        from sqldim.core.query.dgm.annotations import PipelineStateKind, WriteModeKind
+        p = _make_planner()
+        result = p.apply_rule_10(
+            fact="daily_rev",
+            state=PipelineStateKind.MISSING,
+            ttl_elapsed_s=0.0,
+            write_mode=WriteModeKind.BACKFILL,
+        )
+        assert "backfill" in result.lower() or "predicate" in result.lower() or "window_end" in result.lower()
+
+    def test_refresh_mode_infers_merge(self):
+        from sqldim.core.query.dgm.annotations import PipelineStateKind, WriteModeKind
+        p = _make_planner()
+        result = p.apply_rule_10(
+            fact="daily_rev",
+            state=PipelineStateKind.STALE,
+            ttl_elapsed_s=0.0,
+            write_mode=WriteModeKind.REFRESH,
+        )
+        assert "MERGE" in result
+
+    def test_returns_string(self):
+        from sqldim.core.query.dgm.annotations import PipelineStateKind, WriteModeKind
+        p = _make_planner()
+        result = p.apply_rule_10(
+            fact="f",
+            state=PipelineStateKind.COMPLETE,
+            ttl_elapsed_s=0.0,
+            write_mode=WriteModeKind.ADAPTIVE,
+        )
+        assert isinstance(result, str)
