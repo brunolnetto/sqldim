@@ -54,6 +54,8 @@ class SuggestionKind(Enum):
     SIGNATURE_RESTRICT = "SIGNATURE_RESTRICT"
     # Suppression marker (Band)
     SUPPRESS = "SUPPRESS"
+    # Cross-question correlation (§7.2, fourth suggestion type)
+    CORRELATE = "CORRELATE"
 
 
 # ---------------------------------------------------------------------------

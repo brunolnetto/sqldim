@@ -253,6 +253,69 @@ class DGMRecommender:
 
     # -- TrailExpr-driven rules (§7.5) ---------------------------------------
 
+    # -- Compositional correlation suggestions (§7.2) --------------------
+
+    def suggest_correlations(
+        self,
+        algebra: "object",
+    ) -> list[Suggestion]:
+        """Suggest cross-question JOIN compositions for an algebra (§7.2).
+
+        For every unordered pair of leaf CTEs (backed by a DGMQuery with a
+        non-None ``_anchor_table``) that share the same anchor table, a
+        ``SuggestionKind.CORRELATE`` suggestion is returned proposing a
+        ``ComposeOp.JOIN`` composition.
+
+        Parameters
+        ----------
+        algebra:
+            A :class:`~sqldim.core.query.dgm.algebra.QuestionAlgebra`.
+
+        Returns
+        -------
+        list[Suggestion]
+            One ``CORRELATE`` suggestion per shareable pair, in insertion order.
+            Empty when no sharing opportunities exist.
+
+        Complexity
+        ----------
+        O(|leaf_CTEs|) grouping pass + O(pairs_per_group) pair generation.
+        Worst case O(n²) when all n CTEs share one anchor; typical O(n).
+        """
+        from sqldim.core.query.dgm.algebra import ComposedQuery
+
+        # Group leaf CTE names by anchor table.
+        anchor_to_names: dict[str, list[str]] = {}
+        for name, cq in algebra._ctes.items():
+            if cq.query is None:
+                continue  # composed CTE — no DGMQuery
+            anchor = getattr(cq.query, "_anchor_table", None)
+            if anchor is None:
+                continue  # DGMQuery never anchored
+            if anchor not in anchor_to_names:
+                anchor_to_names[anchor] = []
+            anchor_to_names[anchor].append(name)
+
+        suggestions: list[Suggestion] = []
+        for anchor, names in anchor_to_names.items():
+            if len(names) < 2:
+                continue
+            # Emit one suggestion per unordered pair.
+            for i in range(len(names)):
+                for j in range(i + 1, len(names)):
+                    left, right = names[i], names[j]
+                    suggestions.append(Suggestion(
+                        kind=SuggestionKind.CORRELATE,
+                        band="algebra",
+                        text=(
+                            f"CORRELATE({left!r}, {right!r}) via shared anchor"
+                            f" {anchor!r}: consider ComposeOp.JOIN on the"
+                            f" natural key of {anchor!r}"
+                        ),
+                        priority=60,
+                    ))
+        return suggestions
+
     def run_trail_rules(
         self,
         anchor: str,
