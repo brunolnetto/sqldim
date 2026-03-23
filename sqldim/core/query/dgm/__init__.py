@@ -57,3 +57,6 @@ from sqldim.core.query.dgm.exporters import (  # noqa: F401
 from sqldim.core.query.dgm.algebra import (  # noqa: F401
     ComposeOp, ComposedQuery, QuestionAlgebra,
 )
+from sqldim.core.query.dgm._cse import (  # noqa: F401
+    find_shared_predicates, apply_cse,
+)
