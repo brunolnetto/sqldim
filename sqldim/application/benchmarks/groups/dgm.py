@@ -19,6 +19,9 @@ from sqldim.application.benchmarks.groups.dgm_model import (
     group_r_planner,
     group_s_exporter,
 )
+from sqldim.application.benchmarks.groups.dgm_algebra import (
+    group_t_question_algebra,
+)
 
 __all__ = [
     "group_o_dgm_query",
@@ -26,4 +29,5 @@ __all__ = [
     "group_q_recommender",
     "group_r_planner",
     "group_s_exporter",
+    "group_t_question_algebra",
 ]

@@ -14,8 +14,9 @@ Benchmark group modules, split into three top-level domains:
   * :mod:`benchmarks.groups.model_drift`   — subgroup ``drift``   (N)
 
 **dgm** — DGM query algebra
-  * :mod:`benchmarks.groups.dgm_query` — subgroup ``query`` (O–P)
-  * :mod:`benchmarks.groups.dgm_model` — subgroup ``model`` (Q–S)
+  * :mod:`benchmarks.groups.dgm_query`   — subgroup ``query``   (O–P)
+  * :mod:`benchmarks.groups.dgm_model`   — subgroup ``model``   (Q–S)
+  * :mod:`benchmarks.groups.dgm_algebra` — subgroup ``algebra`` (T)
 
 CLI cascade selection: ``group.subgroup.profile`` (e.g. ``scd.regression.products``)
 """
@@ -43,6 +44,7 @@ from sqldim.application.benchmarks.groups.dgm import (
     group_q_recommender,
     group_r_planner,
     group_s_exporter,
+    group_t_question_algebra,
 )
 
 __all__ = [
@@ -65,4 +67,5 @@ __all__ = [
     "group_q_recommender",
     "group_r_planner",
     "group_s_exporter",
+    "group_t_question_algebra",
 ]

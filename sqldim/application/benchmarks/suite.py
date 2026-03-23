@@ -68,4 +68,5 @@ from sqldim.application.benchmarks.groups import (  # noqa: F401
     group_q_recommender,
     group_r_planner,
     group_s_exporter,
+    group_t_question_algebra,
 )

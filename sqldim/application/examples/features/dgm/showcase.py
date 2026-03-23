@@ -38,6 +38,9 @@ from sqldim import (
     BridgeHop,
     Compose,
 )
+from sqldim.core.query.dgm.algebra import ComposeOp, QuestionAlgebra
+from sqldim.core.query.dgm.bdd import BDDManager, DGMPredicateBDD
+from sqldim.core.query.dgm._cse import find_shared_predicates, apply_cse
 from sqldim.core.graph.schema_graph import SchemaGraph
 from sqldim.application.examples.features.dgm.models import (
     CustomerDim,
@@ -492,6 +495,196 @@ def demo_pipeline_artifact() -> None:
 
 
 # ---------------------------------------------------------------------------
+# §8.13  QuestionAlgebra — CTE composition + WITH…SELECT emission
+# ---------------------------------------------------------------------------
+
+
+def demo_question_algebra() -> None:
+    """Example 7 — §8.13 QuestionAlgebra: compose multiple DGMQueries into a
+    single WITH … SELECT statement.
+
+    Demonstrates:
+    • UNION ALL of two segment filters → disjunctive answering
+    • INTERSECT of two region filters  → conjunctive narrowing
+    • JOIN of two queries on a shared key → cross-question correlation
+    • to_sql(final) producing a single DuckDB-compatible CTE chain
+    """
+    _section("Example 7 — §8.13 QuestionAlgebra: CTE composition")
+
+    # Leaf CTE 1 — retail customers
+    q_retail = (
+        DGMQuery()
+        .anchor("o_fact", "f")
+        .where(ScalarPred(PropRef("f", "segment"), "=", "retail"))
+    )
+    # Leaf CTE 2 — wholesale customers
+    q_wholesale = (
+        DGMQuery()
+        .anchor("o_fact", "f")
+        .where(ScalarPred(PropRef("f", "segment"), "=", "wholesale"))
+    )
+    # Leaf CTE 3 — high-value orders (revenue > 500)
+    q_highval = (
+        DGMQuery()
+        .anchor("o_fact", "f")
+        .where(ScalarPred(PropRef("f", "revenue"), ">", 500))
+    )
+
+    qa = (
+        QuestionAlgebra()
+        .add("q_retail", q_retail)
+        .add("q_wholesale", q_wholesale)
+        .add("q_highval", q_highval)
+    )
+
+    # UNION ALL — all customers in either segment
+    qa.compose("q_retail", ComposeOp.UNION, "q_wholesale", name="q_all_segments")
+    print(f"  Registered CTEs: {qa.names}")
+
+    # INTERSECT wholesale ∩ high-value
+    qa.compose("q_wholesale", ComposeOp.INTERSECT, "q_highval", name="q_wholesale_highval")
+
+    # JOIN retail with high-value on f.id
+    qa.compose("q_retail", ComposeOp.JOIN, "q_highval", name="q_cross", on="l.id = r.id")
+
+    sql_union = qa.to_sql("q_all_segments")
+    print(f"\n  UNION query ({sql_union.count(chr(10))+1} lines):\n")
+    for line in sql_union.splitlines():
+        print(f"    {line}")
+
+    sql_cross = qa.to_sql("q_cross")
+    print(f"\n  JOIN query ({sql_cross.count(chr(10))+1} lines):\n")
+    for line in sql_cross.splitlines():
+        print(f"    {line}")
+
+    print(f"\n  Total named CTEs in algebra: {len(qa)}")
+    print("  Example 7 complete.")
+
+
+# ---------------------------------------------------------------------------
+# §6.2 Rule 11  Cross-CTE Common Sub-expression Elimination
+# ---------------------------------------------------------------------------
+
+
+def demo_cse() -> None:
+    """Example 8 — §6.2 Rule 11: Cross-CTE Common Sub-expression Elimination.
+
+    When multiple CTEs share an identical WHERE predicate (same BDD canonical
+    ID), apply_cse() extracts the common filter into a single __cse_<id> CTE
+    that is evaluated once rather than once-per-CTE.
+
+    Demonstrates:
+    • find_shared_predicates() — O(n) detection pass
+    • apply_cse()              — non-mutating CSE injection
+    • The resulting algebra has __cse_* CTEs preceding sharing CTEs
+    """
+    _section("Example 8 — §6.2 Rule 11: Cross-CTE CSE")
+
+    shared_pred = ScalarPred(PropRef("f", "region"), "=", "US")
+    q1 = DGMQuery().anchor("o_fact", "f").where(shared_pred)
+    q2 = DGMQuery().anchor("o_fact", "f").where(shared_pred)
+    q3 = DGMQuery().anchor("o_fact", "f").where(
+        ScalarPred(PropRef("f", "revenue"), ">", 200)
+    )
+
+    qa = QuestionAlgebra()
+    qa.add("us_sales",       q1)
+    qa.add("us_sales_copy",  q2)
+    qa.add("highval_sales",  q3)
+
+    bdd = DGMPredicateBDD(BDDManager())
+
+    # Detection pass
+    shared = find_shared_predicates(qa, bdd)
+    print(f"  Shared predicate groups detected: {len(shared)}")
+    for bdd_id, names in shared.items():
+        print(f"    BDD node {bdd_id}: {names}")
+
+    # CSE injection
+    optimised_qa = apply_cse(qa, bdd)
+    print(f"\n  Original CTE order : {qa.names}")
+    print(f"  Optimised CTE order: {optimised_qa.names}")
+
+    cse_ctes = [n for n in optimised_qa.names if n.startswith("__cse_")]
+    print(f"  Injected CSE CTEs  : {cse_ctes}")
+    for cse_name in cse_ctes:
+        print(f"\n  {cse_name} SQL:")
+        for line in optimised_qa[cse_name].to_cte_sql().splitlines():
+            print(f"    {line}")
+
+    # Original algebra unchanged
+    assert qa.names == ["us_sales", "us_sales_copy", "highval_sales"]
+    print("\n  Original algebra not mutated. Example 8 complete.")
+
+
+# ---------------------------------------------------------------------------
+# §7.2  CORRELATE suggestion — cross-question JOIN recommendations
+# ---------------------------------------------------------------------------
+
+
+def demo_correlate() -> None:
+    """Example 9 — §7.2 CORRELATE: cross-question JOIN recommendations.
+
+    DGMRecommender.suggest_correlations() detects leaf CTEs in a
+    QuestionAlgebra that share the same anchor table and surfaces a
+    SuggestionKind.CORRELATE suggestion for each pair, proposing a
+    ComposeOp.JOIN composition.
+
+    Demonstrates:
+    • suggest_correlations() on a QuestionAlgebra with shared anchors
+    • Band = 'algebra' (cross-CTE scope)
+    • Pair-wise suggestions (C(n,2) pairs for n sharing CTEs)
+    """
+    from sqldim.core.query.dgm.annotations import AnnotationSigma
+    from sqldim.core.query.dgm.recommender import DGMRecommender
+
+    _section("Example 9 — §7.2 CORRELATE recommendations")
+
+    q_us = (
+        DGMQuery()
+        .anchor("o_fact", "f")
+        .where(ScalarPred(PropRef("f", "region"), "=", "US"))
+    )
+    q_eu = (
+        DGMQuery()
+        .anchor("o_fact", "f")
+        .where(ScalarPred(PropRef("f", "region"), "=", "EU"))
+    )
+    q_apac = (
+        DGMQuery()
+        .anchor("o_fact", "f")
+        .where(ScalarPred(PropRef("f", "region"), "=", "APAC"))
+    )
+    q_events = (
+        DGMQuery()
+        .anchor("o_events", "e")
+        .where(ScalarPred(PropRef("e", "type"), "=", "click"))
+    )
+
+    qa = (
+        QuestionAlgebra()
+        .add("us_sales",   q_us)
+        .add("eu_sales",   q_eu)
+        .add("apac_sales", q_apac)
+        .add("clickevts",  q_events)
+    )
+
+    rec = DGMRecommender(AnnotationSigma([]))
+    suggestions = rec.suggest_correlations(qa)
+
+    print(f"  CTEs in algebra: {qa.names}")
+    print(f"  CORRELATE suggestions ({len(suggestions)} total):\n")
+    for s in suggestions:
+        print(f"    [{s.band}] priority={s.priority}  {s.text}")
+
+    # Verify: 3 pairs from o_fact anchors; o_events is different → not suggested
+    fact_suggestions = [s for s in suggestions if "o_events" not in s.text]
+    assert len(suggestions) == 3, f"Expected 3 suggestions, got {len(suggestions)}"
+    print("\n  All 3 o_fact pairs surfaced; o_events not correlated with o_fact.")
+    print("  Example 9 complete.")
+
+
+# ---------------------------------------------------------------------------
 # Entry point
 # ---------------------------------------------------------------------------
 
@@ -501,7 +694,10 @@ EXAMPLE_METADATA = {
     "title": "Dimensional Graph Model",
     "description": (
         "Example 17: DGM three-band queries, BDD predicates, planner, and exporters. "
-        "Example 6: PipelineArtifact backfill-incremental state machine (D20/D21)."
+        "Example 6: PipelineArtifact backfill-incremental state machine (D20/D21). "
+        "Example 7: §8.13 QuestionAlgebra CTE composition. "
+        "Example 8: §6.2 Rule 11 Cross-CTE CSE. "
+        "Example 9: §7.2 CORRELATE cross-question recommendations."
     ),
     "entry_point": "run_all",
 }
@@ -523,6 +719,9 @@ def run_all() -> None:
     demo_annotation_sigma()
     demo_planner()
     demo_pipeline_artifact()
+    demo_question_algebra()
+    demo_cse()
+    demo_correlate()
 
     con.close()
     print("\nDGM showcase complete.")

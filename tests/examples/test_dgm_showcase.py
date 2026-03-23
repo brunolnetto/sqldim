@@ -23,9 +23,12 @@ from sqldim.application.examples.features.dgm.showcase import (
     demo_b1_path_pred,
     demo_bdd_predicate,
     demo_bridge_path,
+    demo_correlate,
+    demo_cse,
     demo_edge_kind_classification,
     demo_full_pipeline,
     demo_planner,
+    demo_question_algebra,
     run_all,
 )
 
@@ -453,6 +456,155 @@ class TestPlanner:
         plan = planner.build_plan(DGMQuery().anchor("dgm_showcase_sale", "s").to_sql())
         out = DGMYAMLExporter().export(plan)
         assert len(out) > 0
+
+
+# ---------------------------------------------------------------------------
+# §8.13 QuestionAlgebra — Example 7
+# ---------------------------------------------------------------------------
+
+class TestDemoQuestionAlgebra:
+    def test_runs_without_error(self, capsys):
+        demo_question_algebra()
+
+    def test_registers_composed_ctes(self, capsys):
+        demo_question_algebra()
+        out = capsys.readouterr().out
+        assert "q_all_segments" in out
+        assert "q_cross" in out
+
+    def test_union_sql_emitted(self, capsys):
+        demo_question_algebra()
+        out = capsys.readouterr().out
+        assert "UNION ALL" in out
+
+    def test_join_sql_emitted(self, capsys):
+        demo_question_algebra()
+        out = capsys.readouterr().out
+        assert "JOIN" in out
+
+    def test_with_clause_emitted(self, capsys):
+        demo_question_algebra()
+        out = capsys.readouterr().out
+        assert "WITH" in out
+
+    def test_total_cte_count_printed(self, capsys):
+        demo_question_algebra()
+        out = capsys.readouterr().out
+        assert "6" in out  # 3 leaf + 3 composed
+
+    def test_to_sql_programmatic(self):
+        """Verify to_sql() output directly, independent of print output."""
+        from sqldim.core.query.dgm.algebra import ComposeOp, QuestionAlgebra
+        from sqldim import DGMQuery, ScalarPred, PropRef
+        qa = QuestionAlgebra()
+        qa.add("q1", DGMQuery().anchor("t", "x").where(
+            ScalarPred(PropRef("x", "a"), "=", 1)))
+        qa.add("q2", DGMQuery().anchor("t", "x").where(
+            ScalarPred(PropRef("x", "a"), "=", 2)))
+        qa.compose("q1", ComposeOp.UNION, "q2", name="q_union")
+        sql = qa.to_sql("q_union")
+        assert sql.startswith("WITH")
+        assert "UNION ALL" in sql
+        assert "SELECT * FROM q_union" in sql
+
+
+# ---------------------------------------------------------------------------
+# §6.2 Rule 11 CSE — Example 8
+# ---------------------------------------------------------------------------
+
+class TestDemoCSE:
+    def test_runs_without_error(self, capsys):
+        demo_cse()
+
+    def test_detects_shared_predicate(self, capsys):
+        demo_cse()
+        out = capsys.readouterr().out
+        assert "Shared predicate groups detected: 1" in out
+
+    def test_cse_cte_name_in_output(self, capsys):
+        demo_cse()
+        out = capsys.readouterr().out
+        assert "__cse_" in out
+
+    def test_original_not_mutated(self, capsys):
+        demo_cse()
+        out = capsys.readouterr().out
+        assert "Original algebra not mutated" in out
+
+    def test_cse_precedes_sharing_ctes(self, capsys):
+        demo_cse()
+        out = capsys.readouterr().out
+        # Optimised order line: __cse_... appears before us_sales
+        opt_line = next(l for l in out.splitlines() if "Optimised CTE order" in l)
+        assert opt_line.index("__cse_") < opt_line.index("us_sales")
+
+    def test_programmatic_cse_detection(self):
+        """Verify find_shared_predicates + apply_cse programmatically."""
+        from sqldim.core.query.dgm.algebra import QuestionAlgebra
+        from sqldim.core.query.dgm.bdd import BDDManager, DGMPredicateBDD
+        from sqldim.core.query.dgm._cse import find_shared_predicates, apply_cse
+        from sqldim import DGMQuery, ScalarPred, PropRef
+
+        pred = ScalarPred(PropRef("f", "region"), "=", "US")
+        qa = QuestionAlgebra()
+        qa.add("a", DGMQuery().anchor("t", "f").where(pred))
+        qa.add("b", DGMQuery().anchor("t", "f").where(pred))
+        bdd = DGMPredicateBDD(BDDManager())
+        shared = find_shared_predicates(qa, bdd)
+        assert len(shared) == 1
+        new_qa = apply_cse(qa, bdd)
+        cse_names = [n for n in new_qa.names if n.startswith("__cse_")]
+        assert len(cse_names) == 1
+        assert new_qa.names.index(cse_names[0]) < new_qa.names.index("a")
+
+
+# ---------------------------------------------------------------------------
+# §7.2 CORRELATE — Example 9
+# ---------------------------------------------------------------------------
+
+class TestDemoCorrelate:
+    def test_runs_without_error(self, capsys):
+        demo_correlate()
+
+    def test_three_suggestions_for_three_shared_anchor_ctes(self, capsys):
+        demo_correlate()
+        out = capsys.readouterr().out
+        assert "CORRELATE suggestions (3 total)" in out
+
+    def test_suggestions_band_algebra(self, capsys):
+        demo_correlate()
+        out = capsys.readouterr().out
+        assert "[algebra]" in out
+
+    def test_o_events_not_suggested(self, capsys):
+        demo_correlate()
+        out = capsys.readouterr().out
+        # Suggestion lines start with [algebra]; clickevts / o_events anchor
+        # should not appear on any suggestion line.
+        suggestion_lines = [l for l in out.splitlines() if "[algebra]" in l]
+        assert all("o_events" not in line for line in suggestion_lines)
+
+    def test_all_three_pairs_present(self, capsys):
+        demo_correlate()
+        out = capsys.readouterr().out
+        assert "us_sales" in out and "eu_sales" in out and "apac_sales" in out
+
+    def test_programmatic_suggest_correlations(self):
+        """Verify suggest_correlations() returns a list of Suggestion objects."""
+        from sqldim.core.query.dgm.algebra import QuestionAlgebra
+        from sqldim.core.query.dgm.annotations import AnnotationSigma
+        from sqldim.core.query.dgm.recommender import DGMRecommender, SuggestionKind
+        from sqldim import DGMQuery
+
+        qa = QuestionAlgebra()
+        qa.add("p", DGMQuery().anchor("fact_t", "f"))
+        qa.add("q", DGMQuery().anchor("fact_t", "f"))
+        rec = DGMRecommender(AnnotationSigma([]))
+        suggestions = rec.suggest_correlations(qa)
+        assert len(suggestions) == 1
+        assert suggestions[0].kind is SuggestionKind.CORRELATE
+        assert suggestions[0].band == "algebra"
+        assert "fact_t" in suggestions[0].text
 
 
 # ---------------------------------------------------------------------------

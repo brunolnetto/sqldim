@@ -86,6 +86,7 @@ from sqldim.application.benchmarks.suite import (
     group_q_recommender,
     group_r_planner,
     group_s_exporter,
+    group_t_question_algebra,
 )
 
 
@@ -603,8 +604,9 @@ BENCH_HIERARCHY: dict[str, dict[str, list[str]]] = {
         "drift":   ["N"],
     },
     "dgm": {
-        "query": ["O", "P"],
-        "model": ["Q", "R", "S"],
+        "query":   ["O", "P"],
+        "model":   ["Q", "R", "S"],
+        "algebra": ["T"],
     },
 }
 
@@ -637,6 +639,7 @@ _LETTER_FN_MAP: dict[str, Callable] = {
     "Q": group_q_recommender,
     "R": group_r_planner,
     "S": group_s_exporter,
+    "T": group_t_question_algebra,
 }
 
 # Subgroup descriptions keyed by "group.subgroup"
@@ -647,8 +650,9 @@ SUBGROUP_DESCRIPTIONS: dict[str, str] = {
     "model.dims":     "Dimensional model: prebuilt dims (Date/Time) and graph query",
     "model.loaders":  "Model loaders: Narwhals SCD2 backfill and ORM/Medallion loaders",
     "model.drift":    "Model drift: schema/quality drift observability (DriftObservatory star schema)",
-    "dgm.query":      "DGM query algebra: three-band query builder and BDD predicate compiler",
-    "dgm.model":      "DGM model: recommender annotation, planner rule cycles, multi-target exporter",
+    "dgm.query":   "DGM query algebra: three-band query builder and BDD predicate compiler",
+    "dgm.model":   "DGM model: recommender annotation, planner rule cycles, multi-target exporter",
+    "dgm.algebra": "DGM algebra: QuestionAlgebra build/emit, Cross-CTE CSE, CORRELATE suggestions",
 }
 
 # Per-letter descriptions (used in results tables and detail display)
@@ -672,6 +676,7 @@ _LETTER_DESCRIPTIONS: dict[str, str] = {
     "Q": "DGMRecommender annotation + trail rule throughput",
     "R": "DGMPlanner rule cycle throughput (1a, 9, build_plan)",
     "S": "DGM multi-target exporter throughput (JSON/YAML \u00d7 simple/complex)",
+    "T": "DGM algebra: QuestionAlgebra build+to_sql, CSE detection+apply, CORRELATE suggest throughput",
 }
 
 
