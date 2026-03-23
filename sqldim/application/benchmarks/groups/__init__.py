@@ -1,11 +1,23 @@
 """
 benchmarks.groups
 ==================
-Benchmark group modules, split by domain:
+Benchmark group modules, split into three top-level domains:
 
-* :mod:`benchmarks.groups.scd`   — SCD processing benchmarks (A–I)
-* :mod:`benchmarks.groups.model` — Dimensional model infrastructure (J–N)
-* :mod:`benchmarks.groups.dgm`   — DGM query algebra (O–S)
+**scd** — SCD processing
+  * :mod:`benchmarks.groups.scd_regression` — subgroup ``regression`` (A–C)
+  * :mod:`benchmarks.groups.scd_stream`     — subgroup ``stream``     (D–H)
+  * :mod:`benchmarks.groups.scd_types`      — subgroup ``types``      (I)
+
+**model** — Dimensional model infrastructure
+  * :mod:`benchmarks.groups.model_dims`    — subgroup ``dims``    (J–K)
+  * :mod:`benchmarks.groups.model_loaders` — subgroup ``loaders`` (L–M)
+  * :mod:`benchmarks.groups.model_drift`   — subgroup ``drift``   (N)
+
+**dgm** — DGM query algebra
+  * :mod:`benchmarks.groups.dgm_query` — subgroup ``query`` (O–P)
+  * :mod:`benchmarks.groups.dgm_model` — subgroup ``model`` (Q–S)
+
+CLI cascade selection: ``group.subgroup.profile`` (e.g. ``scd.regression.products``)
 """
 from sqldim.application.benchmarks.groups.scd import (
     group_a_scan_regression,

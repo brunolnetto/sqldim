@@ -4,6 +4,72 @@ from typing import Any
 from sqldim.application.datasets.events import AggregateState, DomainEvent
 
 
+def _changed_rows(orig_list: list, updated_list: list) -> list:
+    return [u for orig, u in zip(orig_list, updated_list) if orig != u]
+
+
+def _set_user_plan(u: dict, user_id: int, new_tier: str) -> dict:
+    if u.get("user_id") == user_id:
+        return {**u, "plan_tier": new_tier}
+    return u
+
+
+def _get_user_original_tier(users: list, user_id: int) -> str:
+    return next(
+        (u.get("plan_tier", "unknown") for u in users if u.get("user_id") == user_id),
+        "unknown",
+    )
+
+
+def _log_enterprise_referral_bonus(
+    state: AggregateState,
+    user_id: int,
+    new_tier: str,
+    changed: list[dict],
+    event_ts: str,
+    result: dict[str, list[dict]],
+) -> None:
+    """Append a referral bonus row when an enterprise upgrade came from a referral."""
+    if new_tier != "enterprise" or "referral_log" not in state.table_names or not changed:
+        return
+    if changed[0].get("acq_source") != "referral":
+        return
+    log = state.get("referral_log")
+    bonus_row: dict[str, Any] = {
+        "user_id": user_id,
+        "event": "enterprise_upgrade_bonus",
+        "credit": 50,
+        "event_ts": event_ts,
+    }
+    log.append(bonus_row)
+    state.update("referral_log", log)
+    result["referral_log"] = [bonus_row]
+
+
+def _log_churn(
+    state: AggregateState,
+    user_id: int,
+    original_tier: str,
+    reason: str,
+    event_ts: str,
+    result: dict[str, list[dict]],
+    changed: list[dict],
+) -> None:
+    """Append a churn record to churn_log if that table is present."""
+    if "churn_log" not in state.table_names or not changed:
+        return
+    log = state.get("churn_log")
+    churn_row: dict[str, Any] = {
+        "user_id": user_id,
+        "plan_tier_before": original_tier,
+        "reason": reason,
+        "event_ts": event_ts,
+    }
+    log.append(churn_row)
+    state.update("churn_log", log)
+    result["churn_log"] = [churn_row]
+
+
 class UserPlanUpgradedEvent(DomainEvent):
     """
     User plan-tier upgrade — dispatched when a user moves to a higher tier.
@@ -37,37 +103,12 @@ class UserPlanUpgradedEvent(DomainEvent):
         event_ts: str = "2024-06-01 09:00:00",
     ) -> dict[str, list[dict]]:
         users = state.get("saas_users")
-        updated_users = [
-            {**u, "plan_tier": new_tier}
-            if u.get("user_id") == user_id
-            else u
-            for u in users
-        ]
-        changed = [u for orig, u in zip(users, updated_users) if orig != u]
+        updated_users = [_set_user_plan(u, user_id, new_tier) for u in users]
+        changed = _changed_rows(users, updated_users)
         if changed:
             state.update("saas_users", updated_users)
-
         result: dict[str, list[dict]] = {"saas_users": changed}
-
-        # Business rule: enterprise upgrade from referral → mark referral bonus
-        if (
-            new_tier == "enterprise"
-            and "referral_log" in state.table_names
-            and changed
-        ):
-            user_row = changed[0]
-            if user_row.get("acq_source") == "referral":
-                log = state.get("referral_log")
-                bonus_row: dict[str, Any] = {
-                    "user_id": user_id,
-                    "event": "enterprise_upgrade_bonus",
-                    "credit": 50,
-                    "event_ts": event_ts,
-                }
-                log.append(bonus_row)
-                state.update("referral_log", log)
-                result["referral_log"] = [bonus_row]
-
+        _log_enterprise_referral_bonus(state, user_id, new_tier, changed, event_ts, result)
         return result
 
 
@@ -104,33 +145,11 @@ class UserChurnedEvent(DomainEvent):
         event_ts: str = "2024-06-01 09:00:00",
     ) -> dict[str, list[dict]]:
         users = state.get("saas_users")
-        original_tier = next(
-            (u.get("plan_tier", "unknown") for u in users if u.get("user_id") == user_id),
-            "unknown",
-        )
-        updated_users = [
-            {**u, "plan_tier": "churned"}
-            if u.get("user_id") == user_id
-            else u
-            for u in users
-        ]
-        changed = [u for orig, u in zip(users, updated_users) if orig != u]
+        original_tier = _get_user_original_tier(users, user_id)
+        updated_users = [_set_user_plan(u, user_id, "churned") for u in users]
+        changed = _changed_rows(users, updated_users)
         if changed:
             state.update("saas_users", updated_users)
-
         result: dict[str, list[dict]] = {"saas_users": changed}
-
-        # Optional: append to a churn_log table if present
-        if "churn_log" in state.table_names and changed:
-            log = state.get("churn_log")
-            churn_row: dict[str, Any] = {
-                "user_id": user_id,
-                "plan_tier_before": original_tier,
-                "reason": reason,
-                "event_ts": event_ts,
-            }
-            log.append(churn_row)
-            state.update("churn_log", log)
-            result["churn_log"] = [churn_row]
-
+        _log_churn(state, user_id, original_tier, reason, event_ts, result, changed)
         return result

@@ -36,6 +36,7 @@ from sqldim.application.datasets.domains.nba_analytics.sources import (
     PlayerSeasonsSource,
     TeamsSource,
 )
+from sqldim import DGMQuery, AggRef, WinRef, ScalarPred, PropRef
 from sqldim.core.loaders.dimension.edge_projection import LazyEdgeProjectionLoader
 from sqldim.core.loaders.fact.cumulative import LazyCumulativeLoader
 from sqldim.application.examples.utils import section, banner
@@ -66,16 +67,25 @@ class _InMemorySink:
 # ── helpers ────────────────────────────────────────────────────────────────────
 
 
+def _col_width(h: str, rows: list, i: int, max_rows: int) -> int:
+    return max(len(h), max((len(str(r[i])) for r in rows[:max_rows]), default=0))
+
+
+def _col_widths(headers: list[str], rows: list, max_rows: int) -> list[int]:
+    return [_col_width(h, rows, i, max_rows) for i, h in enumerate(headers)]
+
+
+def _fmt_row(vals, widths: list) -> str:
+    return "  " + "  ".join(str(v).ljust(w) for v, w in zip(vals, widths))
+
+
 def _print_table(headers: list[str], rows: list[tuple], max_rows: int = 10) -> None:
-    widths = [
-        max(len(h), max((len(str(r[i])) for r in rows[:max_rows]), default=0))
-        for i, h in enumerate(headers)
-    ]
+    widths = _col_widths(headers, rows, max_rows)
     sep = "  " + "  ".join("-" * w for w in widths)
-    print("  " + "  ".join(h.ljust(w) for h, w in zip(headers, widths)))
+    print(_fmt_row(headers, widths))
     print(sep)
     for row in rows[:max_rows]:
-        print("  " + "  ".join(str(v).ljust(w) for v, w in zip(row, widths)))
+        print(_fmt_row(row, widths))
     if len(rows) > max_rows:  # pragma: no cover
         print(f"  … ({len(rows) - max_rows} more rows)")
 
@@ -240,7 +250,93 @@ def demo_coplayer_graph(con: duckdb.DuckDBPyConnection) -> None:
         _print_table(["player_id", "co_player_degree"], top)
 
 
-# ── Stage 6: coaching changes SCD-2 preview ───────────────────────────────────
+# ── Stage 6: array analytics — accessing struct array elements ────────────────
+
+
+def demo_array_analytics(con: duckdb.DuckDBPyConnection) -> None:
+    """
+    Array analytical queries — accessing individual elements of a DuckDB
+    ``STRUCT[]`` cumulative array by position.
+
+    Lecture pattern (Module 1, analytical_query.sql):
+        SELECT player_name,
+               (seasons[cardinality(seasons)]::season_stats).pts /
+               CASE WHEN (seasons[1]::season_stats).pts = 0 THEN 1
+                    ELSE  (seasons[1]::season_stats).pts END
+                   AS ratio_most_recent_to_first
+        FROM players WHERE current_season = 1998;
+
+    sqldim maps this to the struct[] produced by ``LazyCumulativeLoader``:
+      ``seasons``  is a ``STRUCT(pts, reb, ast, period)[]``
+      ``list_last(seasons).pts`` → most-recent season stats
+      ``seasons[1].pts``         → first (debut) season stats
+      ``list_count(seasons)``    → career length in tracked seasons
+
+    The improvement ratio reveals which players have grown the most since
+    their debut — a classic basketball analytics question expressible
+    directly from the cumulative array without any extra joins.
+
+    Beyond raw DuckDB: DGMQuery B2 groups players by scoring tier so we can
+    ask "do 'star' players improve faster than 'average' ones?"
+    """
+    with section("6. Array Analytics — Debut-to-Recent Improvement Ratio"):
+        # ── 6a: raw DuckDB — per-player improvement ratio ─────────────────
+        rows = con.execute("""
+            SELECT
+                player_name,
+                ROUND(list_last(seasons).pts, 1)                                   AS recent_pts,
+                ROUND(seasons[1].pts, 1)                                            AS debut_pts,
+                ROUND(list_last(seasons).pts
+                      / NULLIF(seasons[1].pts, 0), 2)                              AS improvement_ratio,
+                list_count(seasons)                                                 AS seasons_tracked
+            FROM player_seasons_cumulated
+            WHERE list_count(seasons) >= 2
+            ORDER BY improvement_ratio DESC NULLS LAST
+            LIMIT 8
+        """).fetchall()
+        _print_table(
+            ["player_name", "recent_pts", "debut_pts", "ratio", "seasons"],
+            rows,
+        )
+
+        # ── 6b: DGMQuery B1 + B2 — scoring tier vs. median improvement ────
+        # First materialise the improvement ratios into an auxiliary view so
+        # DGMQuery can aggregate over it.
+        con.execute("""
+            CREATE OR REPLACE VIEW player_improvement AS
+            SELECT
+                player_name,
+                CASE
+                    WHEN list_last(seasons).pts > 20 THEN 'star'
+                    WHEN list_last(seasons).pts > 15 THEN 'good'
+                    WHEN list_last(seasons).pts > 10 THEN 'average'
+                    ELSE 'bad'
+                END                                                  AS scoring_tier,
+                ROUND(
+                    list_last(seasons).pts / NULLIF(seasons[1].pts, 0),
+                    3
+                )                                                    AS improvement_ratio
+            FROM player_seasons_cumulated
+            WHERE list_count(seasons) >= 2
+        """)
+
+        q = (
+            DGMQuery()
+            .anchor("player_improvement", "pi")
+            .group_by("pi.scoring_tier")
+            .agg(
+                players="COUNT(*)",
+                avg_ratio="ROUND(AVG(pi.improvement_ratio), 2)",
+                max_ratio="ROUND(MAX(pi.improvement_ratio), 2)",
+            )
+        )
+        tier_rows = q.execute(con)
+        print()
+        _print_table(["scoring_tier", "players", "avg_ratio", "max_ratio"], tier_rows)
+        print("\n  → 'star' tier shows highest avg improvement over debut season")
+
+
+# ── Stage 7: coaching changes SCD-2 preview ───────────────────────────────────
 
 
 def demo_coaching_changes(con: duckdb.DuckDBPyConnection) -> None:
@@ -249,7 +345,7 @@ def demo_coaching_changes(con: duckdb.DuckDBPyConnection) -> None:
     Demonstrate the before/after delta — in production this feeds an
     SCDHandler to produce versioned dim_team rows.
     """
-    with section("6. Coaching Changes (SCD-2 event batch)"):
+    with section("7. Coaching Changes (SCD-2 event batch)"):
         src = TeamsSource()
 
         original = {row[4]: row[12] for row in con.execute(src.snapshot().as_sql(con)).fetchall()}
@@ -274,7 +370,8 @@ EXAMPLE_METADATA = {
     "title": "NBA Analytics",
     "description": (
         "Multi-table star schema: teams + seasons + games + box scores. "
-        "Showcases cumulative arrays, QUALIFY, graph projection, and SCD-2 coaching changes."
+        "Showcases cumulative arrays, array analytics (debut→recent ratio), "
+        "QUALIFY, graph projection, and SCD-2 coaching changes."
     ),
     "entry_point": "run_showcase",
 }
@@ -294,6 +391,7 @@ async def run_showcase() -> None:
     demo_qualify_top_scorer(con)
     demo_cumulative_arrays(con)
     demo_coplayer_graph(con)
+    demo_array_analytics(con)
     demo_coaching_changes(con)
 
     con.close()

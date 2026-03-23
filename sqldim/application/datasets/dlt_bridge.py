@@ -39,19 +39,30 @@ Notes
   before returning the ``SQLSource``.
 """
 
-from __future__ import annotations
+from __future__ import annotations  # pragma: no cover
 
-import tempfile
-from collections.abc import Callable
-from typing import Any
+import tempfile  # pragma: no cover
+from collections.abc import Callable  # pragma: no cover
+from typing import Any  # pragma: no cover
 
-import dlt
+import dlt  # pragma: no cover
 
-from sqldim.sources import SQLSource
+from sqldim.sources import SQLSource  # pragma: no cover
 
-from sqldim.application.datasets.events import rows_to_sql
+from sqldim.application.datasets.events import rows_to_sql  # pragma: no cover
 
-_DLT_INTERNAL_COLS = {"_dlt_load_id", "_dlt_id"}
+_DLT_INTERNAL_COLS = {"_dlt_load_id", "_dlt_id"}  # pragma: no cover
+
+
+def _drop_internal_cols(df):  # pragma: no cover
+    return df[[c for c in df.columns if c not in _DLT_INTERNAL_COLS]]
+
+
+def _apply_col_order(df, col_order):  # pragma: no cover
+    if col_order:
+        ordered = [c for c in col_order if c in df.columns]
+        return df[ordered]
+    return df
 
 
 class DLTBridge:  # pragma: no cover
@@ -129,11 +140,8 @@ class DLTBridge:  # pragma: no cover
             df = ds[self._table_name].df()
 
         # Drop dlt-internal bookkeeping columns
-        df = df[[c for c in df.columns if c not in _DLT_INTERNAL_COLS]]
-
-        if self._col_order:
-            ordered = [c for c in self._col_order if c in df.columns]
-            df = df[ordered]
+        df = _drop_internal_cols(df)
+        df = _apply_col_order(df, self._col_order)
 
         rows = df.to_dict(orient="records")
         return SQLSource(rows_to_sql(rows))

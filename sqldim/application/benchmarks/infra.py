@@ -13,6 +13,7 @@ import os
 import shutil
 import time
 import traceback as _traceback
+from collections.abc import Callable
 from dataclasses import dataclass
 
 import duckdb
@@ -96,10 +97,10 @@ def _make_source(source_name: str, artifact: DatasetArtifact, temp_dir: str, cas
     the benchmark run.
     """
     if source_name == "parquet":
-        from sqldim.sources.parquet import ParquetSource
+        from sqldim.sources.batch.parquet import ParquetSource
         return ParquetSource(artifact.snapshot_path)
     elif source_name == "csv":
-        from sqldim.sources.csv import CSVSource
+        from sqldim.sources.batch.csv import CSVSource
         csv_path = os.path.join(temp_dir, f"{case_id}_snap.csv")
         if not os.path.exists(csv_path):
             tmp = duckdb.connect()
@@ -138,6 +139,39 @@ def _configure(con: duckdb.DuckDBPyConnection, temp_dir: str,
     con.execute(f"SET temp_directory = '{temp_dir}'"  )
 
 
+def _select_tiers(
+    tier_order: list[str],
+    tier_map: dict,
+    max_tier: str,
+) -> list[str]:
+    """Return tiers from tier_order up to and including max_tier, intersected with tier_map keys."""
+    _max = max_tier if max_tier in tier_order else tier_order[-1]
+    return [t for t in tier_order
+            if t in tier_map and tier_order.index(t) <= tier_order.index(_max)]
+
+
+def run_benchmark_case(
+    result: "BenchmarkResult",
+    temp_dir: str,
+    action: "Callable[[BenchmarkResult, str], None]",
+) -> "BenchmarkResult":
+    """Execute action(result, temp_dir) with MemoryProbe safety check and standardized error handling."""
+    try:
+        MemoryProbe.check_safe_to_run(label=result.case_id)
+        action(result, temp_dir)
+    except RuntimeError as exc:
+        result.ok = False; result.error = f"SKIPPED: {exc}"
+    except Exception as exc:
+        result.ok = False
+        result.error = f"{type(exc).__name__}: {exc}\n" + _traceback.format_exc()[-600:]
+    return result
+
+
+def _extract_scan_count(obj: dict) -> int:
+    """Count current-state views created (expected: exactly 1)."""
+    return len([v for v in obj["views_created"] if "current" in v])
+
+
 # ── Core runner: LazySCDProcessor ────────────────────────────────────────
 
 def _run_scd2_batch(
@@ -149,8 +183,8 @@ def _run_scd2_batch(
     table_name: str | None = None,
     source_name: str = "parquet",
 ) -> BenchmarkResult:
-    from sqldim.sinks.duckdb import DuckDBSink
-    from sqldim.core.kimball.dimensions.scd.processors._lazy_type2 import LazySCDProcessor
+    from sqldim.sinks.sql.duckdb import DuckDBSink
+    from sqldim.core.kimball.dimensions.scd.processors.lazy.type2._lazy_type2 import LazySCDProcessor
 
     tname   = table_name or f"dim_{artifact.profile}"
     db_path = os.path.join(temp_dir, f"{case_id}.duckdb")
@@ -193,7 +227,7 @@ def _run_scd2_batch(
         result.breach_detail        = m.breach_detail
         result.scan_regression      = obj["regression_detected"]
         result.current_state_as_table = obj["current_state_as_table"]
-        result.scan_count   = len([v for v in obj["views_created"] if "current" in v])
+        result.scan_count   = _extract_scan_count(obj)
         result.inserted     = scd.inserted
         result.versioned    = scd.versioned
         result.unchanged    = scd.unchanged
@@ -221,8 +255,8 @@ def _run_metadata_batch(
     spill_dir: str | None = None,
     source_name: str = "parquet",
 ) -> BenchmarkResult:
-    from sqldim.sinks.duckdb import DuckDBSink
-    from sqldim.core.kimball.dimensions.scd.processors._lazy_metadata import LazySCDMetadataProcessor
+    from sqldim.sinks.sql.duckdb import DuckDBSink
+    from sqldim.core.kimball.dimensions.scd.processors.lazy.metadata._lazy_metadata import LazySCDMetadataProcessor
 
     tname     = table_name or f"dim_{artifact.profile}"
     db_path   = os.path.join(temp_dir, f"{case_id}.duckdb")

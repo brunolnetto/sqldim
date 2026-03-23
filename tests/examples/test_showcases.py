@@ -44,6 +44,13 @@ def test_observability_showcase():
     run_showcase()
 
 
+def test_growth_accounting_showcase():
+    # Thin shim — delegates to user_activity + saas_growth showcases;
+    # covered by the two async tests below, but kept for backward compat.
+    from sqldim.application.examples.features.growth_accounting.showcase import run_showcase
+    run_showcase()
+
+
 def test_dgm_showcase():
     from sqldim.application.examples.features.dgm.showcase import run_all
     run_all()
@@ -57,9 +64,15 @@ async def test_nba_analytics_showcase():
 
 
 @pytest.mark.asyncio
+async def test_user_activity_showcase():
+    from sqldim.application.examples.real_world.user_activity.showcase import run_showcase
+    await run_showcase()
+
+
+@pytest.mark.asyncio
 async def test_saas_growth_showcase():
-    from sqldim.application.examples.real_world.saas_growth.showcase import run_saas_showcase
-    await run_saas_showcase()
+    from sqldim.application.examples.real_world.saas_growth.showcase import run_showcase
+    await run_showcase()
 
 
 @pytest.mark.asyncio
@@ -78,12 +91,6 @@ async def test_fintech_showcase():
 async def test_supply_chain_showcase():
     from sqldim.application.examples.real_world.supply_chain.showcase import run_supply_chain_showcase
     await run_supply_chain_showcase()
-
-
-@pytest.mark.asyncio
-async def test_user_activity_showcase():
-    from sqldim.application.examples.real_world.user_activity.showcase import run_activity_showcase
-    await run_activity_showcase()
 
 
 # ── Helper coverage — branches not exercised by full run_showcase paths ──────

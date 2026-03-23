@@ -4,13 +4,39 @@ benchmarks/suite.py
 Backward-compatible re-export hub for the sqldim benchmark suite.
 
 All shared infrastructure lives in :mod:`benchmarks.infra`;
-group functions are organised in :mod:`benchmarks.groups`:
+group functions are organised in :mod:`benchmarks.groups` under three
+top-level **groups**, each split into **subgroups**:
 
-* :mod:`benchmarks.groups.scd`   — Groups A–I  (SCD processing)
-* :mod:`benchmarks.groups.model` — Groups J–N  (dimensional model / graph)
-* :mod:`benchmarks.groups.dgm`   — Groups O–S  (DGM query algebra)
+* :mod:`benchmarks.groups.scd`   — **SCD** processing
 
-:mod:`benchmarks.runner` continues to import directly from this module.
+  * ``regression`` (A–C) — scan regression, memory safety, throughput scaling
+  * ``stream``     (D–H) — stream vs batch, change rate, processor, spill, source/sink
+  * ``types``      (I)   — SCD type variety
+
+* :mod:`benchmarks.groups.model` — **Model** (dimensional model)
+
+  * ``dims``    (J–K) — prebuilt dimensions and graph query
+  * ``loaders`` (L–M) — Narwhals backfill, ORM/Medallion loaders
+  * ``drift``   (N)   — schema/quality drift observatory
+
+* :mod:`benchmarks.groups.dgm`   — **DGM** query algebra
+
+  * ``query`` (O–P) — DGM query builder, BDD predicate
+  * ``model`` (Q–S) — recommender, planner, exporter
+
+Every profile within a subgroup follows the canonical pattern::
+
+    result = BenchmarkResult(...)
+    try:
+        MemoryProbe.check_safe_to_run(result.case_id)
+        <execute benchmark logic>
+    except RuntimeError as exc:
+        result.ok = False; result.error = f"SKIPPED: {exc}"
+    except Exception as exc:
+        result.ok = False; result.error = ...
+    return result
+
+:mod:`benchmarks.runner` imports directly from this module.
 """
 from sqldim.application.benchmarks.infra import (  # noqa: F401
     BenchmarkResult,

@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import os
+import shutil
 import time
 import traceback as _traceback
 
@@ -25,23 +26,14 @@ from sqldim.application.benchmarks.infra import (
 from sqldim.application.benchmarks.memory_probe import MemoryProbe
 from sqldim.application.benchmarks.scan_probe import DuckDBObjectTracker
 
-# ── Group D — Streaming vs batch ─────────────────────────────────────────
-
-def group_d_stream_vs_batch(gen: BenchmarkDatasetGenerator, temp_dir: str, **_) -> list[BenchmarkResult]:
-    from sqldim.sinks.duckdb import DuckDBSink
-    from sqldim.core.kimball.dimensions.scd.processors._lazy_type2 import LazySCDProcessor
-    from sqldim.sources.sql import SQLSource
-    from sqldim.sources.csv_stream import CSVStreamSource
-
-    results = []
-    tier = "m"
-    ds   = gen.generate("products", tier=tier)
-
-    r_batch = _run_scd2_batch(ds, "D_products_m_batch", "D_stream_vs_batch", tier, temp_dir)
-    r_batch.phase = "batch"; results.append(r_batch)
+def _d_stream_case(ds, temp_dir: str) -> BenchmarkResult:
+    from sqldim.sinks.sql.duckdb import DuckDBSink
+    from sqldim.core.kimball.dimensions.scd.processors.lazy.type2._lazy_type2 import LazySCDProcessor
+    from sqldim.sources.batch.sql import SQLSource
 
     db_path  = os.path.join(temp_dir, "D_stream.duckdb")
-    r_stream = BenchmarkResult(
+    tier     = "m"
+    result   = BenchmarkResult(
         case_id="D_products_m_stream_100k", group="D_stream_vs_batch",
         profile="products", tier=tier, processor="LazySCDProcessor",
         sink="DuckDBSink", phase="stream_100k",
@@ -69,30 +61,36 @@ def group_d_stream_vs_batch(gen: BenchmarkDatasetGenerator, temp_dir: str, **_) 
                     r = proc.process(SQLSource(frag), "dim_products_stream")
                     agg_ins += r.inserted; agg_ver += r.versioned; agg_unc += r.unchanged
                     offset  += batch_size
-                r_stream.wall_s = time.perf_counter() - t0
+                result.wall_s = time.perf_counter() - t0
 
         m = probe.report
-        r_stream.peak_rss_gb      = m.peak_rss_gb
-        r_stream.peak_duckdb_gb   = m.peak_duckdb_gb
-        r_stream.min_sys_avail_gb = m.min_sys_avail_gb
-        r_stream.total_spill_gb   = m.total_spill_gb
-        r_stream.safety_breach    = m.safety_breach
-        r_stream.inserted  = agg_ins; r_stream.versioned = agg_ver; r_stream.unchanged = agg_unc
-        r_stream.rows_per_sec = ds.n_rows / max(r_stream.wall_s, 0.001)
+        result.peak_rss_gb      = m.peak_rss_gb
+        result.peak_duckdb_gb   = m.peak_duckdb_gb
+        result.min_sys_avail_gb = m.min_sys_avail_gb
+        result.total_spill_gb   = m.total_spill_gb
+        result.safety_breach    = m.safety_breach
+        result.inserted  = agg_ins; result.versioned = agg_ver; result.unchanged = agg_unc
+        result.rows_per_sec = ds.n_rows / max(result.wall_s, 0.001)
     except RuntimeError as exc:
-        r_stream.ok = False; r_stream.error = f"SKIPPED: {exc}"
+        result.ok = False; result.error = f"SKIPPED: {exc}"
     except Exception as exc:
-        r_stream.ok = False
-        r_stream.error = f"{type(exc).__name__}: {exc}\n" + _traceback.format_exc()[-400:]
+        result.ok = False
+        result.error = f"{type(exc).__name__}: {exc}\n" + _traceback.format_exc()[-400:]
     finally:
         _remove_db(db_path)
+    return result
 
-    results.append(r_stream)
 
-    # ── D3: CSVStreamSource (row_number pagination, no OFFSET penalty) ──────
+def _d_csv_case(ds, temp_dir: str) -> BenchmarkResult:
+    from sqldim.sinks.sql.duckdb import DuckDBSink
+    from sqldim.core.kimball.dimensions.scd.processors.lazy.type2._lazy_type2 import LazySCDProcessor
+    from sqldim.sources.batch.sql import SQLSource
+    from sqldim.sources.streaming.csv_stream import CSVStreamSource
+
     csv_path    = os.path.join(temp_dir, "D_stream_products.csv")
     db_path_csv = os.path.join(temp_dir, "D_stream_csv.duckdb")
-    r_csv = BenchmarkResult(
+    tier        = "m"
+    result      = BenchmarkResult(
         case_id="D_products_m_stream_csv", group="D_stream_vs_batch",
         profile="products", tier=tier, processor="LazySCDProcessor",
         sink="DuckDBSink", phase="stream_csv_100k",
@@ -100,7 +98,6 @@ def group_d_stream_vs_batch(gen: BenchmarkDatasetGenerator, temp_dir: str, **_) 
     )
     try:
         MemoryProbe.check_safe_to_run("D_stream_csv")
-        # Export Parquet → CSV once so we can benchmark CSV pagination
         _tmp = duckdb.connect()
         _tmp.execute(
             f"COPY (SELECT * FROM read_parquet('{ds.snapshot_path}')) "
@@ -124,28 +121,40 @@ def group_d_stream_vs_batch(gen: BenchmarkDatasetGenerator, temp_dir: str, **_) 
                 for frag in source.stream(sink._con, batch_size=100_000):
                     r = proc.process(SQLSource(frag), "dim_products_csv")
                     agg_ins += r.inserted; agg_ver += r.versioned; agg_unc += r.unchanged
-                r_csv.wall_s = time.perf_counter() - t0
+                result.wall_s = time.perf_counter() - t0
 
         m = probe.report
-        r_csv.peak_rss_gb      = m.peak_rss_gb
-        r_csv.peak_duckdb_gb   = m.peak_duckdb_gb
-        r_csv.min_sys_avail_gb = m.min_sys_avail_gb
-        r_csv.total_spill_gb   = m.total_spill_gb
-        r_csv.safety_breach    = m.safety_breach
-        r_csv.inserted  = agg_ins; r_csv.versioned = agg_ver; r_csv.unchanged = agg_unc
-        r_csv.rows_per_sec = ds.n_rows / max(r_csv.wall_s, 0.001)
+        result.peak_rss_gb      = m.peak_rss_gb
+        result.peak_duckdb_gb   = m.peak_duckdb_gb
+        result.min_sys_avail_gb = m.min_sys_avail_gb
+        result.total_spill_gb   = m.total_spill_gb
+        result.safety_breach    = m.safety_breach
+        result.inserted  = agg_ins; result.versioned = agg_ver; result.unchanged = agg_unc
+        result.rows_per_sec = ds.n_rows / max(result.wall_s, 0.001)
     except RuntimeError as exc:
-        r_csv.ok = False; r_csv.error = f"SKIPPED: {exc}"
+        result.ok = False; result.error = f"SKIPPED: {exc}"
     except Exception as exc:
-        r_csv.ok = False
-        r_csv.error = f"{type(exc).__name__}: {exc}\n" + _traceback.format_exc()[-400:]
+        result.ok = False
+        result.error = f"{type(exc).__name__}: {exc}\n" + _traceback.format_exc()[-400:]
     finally:
         _remove_db(db_path_csv)
         if os.path.exists(csv_path):
             os.remove(csv_path)
+    return result
 
-    results.append(r_csv)
-    ds.cleanup(); return results
+
+def group_d_stream_vs_batch(gen: BenchmarkDatasetGenerator, temp_dir: str, **_) -> list[BenchmarkResult]:
+    tier = "m"
+    ds   = gen.generate("products", tier=tier)
+
+    r_batch = _run_scd2_batch(ds, "D_products_m_batch", "D_stream_vs_batch", tier, temp_dir)
+    r_batch.phase = "batch"
+
+    r_stream = _d_stream_case(ds, temp_dir)
+    r_csv    = _d_csv_case(ds, temp_dir)
+
+    ds.cleanup()
+    return [r_batch, r_stream, r_csv]
 
 
 # ── Group E — Change rate sensitivity ────────────────────────────────────
@@ -162,9 +171,9 @@ def group_e_change_rate_sensitivity(gen: BenchmarkDatasetGenerator, temp_dir: st
 # ── Group F — Processor comparison ───────────────────────────────────────
 
 def group_f_processor_comparison(gen: BenchmarkDatasetGenerator, temp_dir: str, **_) -> list[BenchmarkResult]:
-    from sqldim.sinks.duckdb import DuckDBSink
-    from sqldim.core.kimball.dimensions.scd.processors._lazy_type3_6 import LazyType6Processor
-    from sqldim.sources.parquet import ParquetSource
+    from sqldim.sinks.sql.duckdb import DuckDBSink
+    from sqldim.core.kimball.dimensions.scd.processors.lazy.type6._lazy_type6 import LazyType6Processor
+    from sqldim.sources.batch.parquet import ParquetSource
 
     results = []
     tier = "s"

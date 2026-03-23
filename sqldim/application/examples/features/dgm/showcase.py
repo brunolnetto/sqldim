@@ -361,6 +361,137 @@ def demo_planner() -> None:
 
 
 # ---------------------------------------------------------------------------
+# Example 6 — PipelineArtifact: backfill-incremental state machine
+# ---------------------------------------------------------------------------
+
+
+def demo_pipeline_artifact() -> None:
+    """Example 6 from spec §10.1: PipelineArtifact annotation + Rule 10.
+
+    D20 — PipelineArtifact is syntactic sugar, not a new fact type.  The
+    backfill-incremental state machine is modelled entirely within existing
+    constructs: Grain(ACCUMULATING), BridgeSemantics, WritePlan,
+    Q_delta(CHANGED_PROPERTY), and CTL temporal properties.
+    PipelineArtifact assembles these into one declaration and infers
+    semantics from P(f).state at planning time (planner Rule 10).
+
+    D21 — Backfill and refresh require different WritePlan modes by
+    construction.  Backfill (APPEND) has no prior artifact — failure leaves
+    the window durably in Failed.  Refresh (MERGE) preserves the prior
+    Complete via atomic swap — failure regresses to Stale, not Failed.
+    ADAPTIVE mode makes this automatic from P(f).state at planning time.
+    """
+    from sqldim.core.query.dgm.annotations import (
+        AnnotationSigma,
+        PipelineArtifact,
+        PipelineStateKind,
+        WriteModeKind,
+        GrainKind,
+        BridgeSemanticsKind,
+    )
+    from sqldim.core.query.dgm.planner import DGMPlanner, QueryTarget, SinkTarget
+    from sqldim.core.query.dgm.graph import GraphStatistics
+
+    _section("Example 6 — PipelineArtifact: backfill-incremental state machine (D20/D21)")
+
+    # Build the annotation
+    artifact = PipelineArtifact(
+        fact="daily_rev",
+        pipeline_id="daily_revenue",
+        ttl=7 * 24 * 3600,    # 7 days in seconds
+        backfill_horizon=90,   # days
+        write_mode=WriteModeKind.ADAPTIVE,
+    )
+    sigma = AnnotationSigma([artifact])
+    print(f"  PipelineArtifact: fact={artifact.fact!r}, pipeline_id={artifact.pipeline_id!r}")
+    print(f"  Effective grain : {artifact.effective_grain.value}")
+    print(f"  Write mode      : {artifact.write_mode.value}")
+    print(f"  TTL (s)         : {artifact.ttl}")
+    print(f"  Backfill horizon: {artifact.backfill_horizon} days")
+
+    # Transition semantics (D20 — wired to existing BridgeSemantics)
+    transitions = [
+        (PipelineStateKind.MISSING,    PipelineStateKind.IN_FLIGHT, False),
+        (PipelineStateKind.IN_FLIGHT,  PipelineStateKind.COMPLETE,  False),
+        (PipelineStateKind.IN_FLIGHT,  PipelineStateKind.FAILED,    False),  # backfill
+        (PipelineStateKind.IN_FLIGHT,  PipelineStateKind.FAILED,    True),   # refresh
+        (PipelineStateKind.COMPLETE,   PipelineStateKind.STALE,     False),
+        (PipelineStateKind.STALE,      PipelineStateKind.IN_FLIGHT, False),
+        (PipelineStateKind.FAILED,     PipelineStateKind.IN_FLIGHT, False),
+    ]
+    print("\n  Transition semantics:")
+    for from_s, to_s, is_refresh in transitions:
+        sem = artifact.transition_semantics(from_s, to_s, is_refresh=is_refresh)
+        label = "(refresh)" if is_refresh else ""
+        print(f"    {from_s.value:12s} → {to_s.value:12s} {label:10s}: {sem.value}")
+
+    # Rule 10: ADAPTIVE inference for each pipeline state
+    stats = GraphStatistics(node_count=1, edge_count=0)
+    planner = DGMPlanner(
+        cost_model=None,
+        statistics=stats,
+        annotations=sigma,
+        rules=None,
+        query_target=QueryTarget.SQL_DUCKDB,
+        sink_target=SinkTarget.DELTA,
+    )
+    print("\n  Rule 10 (ADAPTIVE write plan inference):")
+    for state in [
+        PipelineStateKind.MISSING,
+        PipelineStateKind.FAILED,
+        PipelineStateKind.STALE,
+        PipelineStateKind.COMPLETE,
+    ]:
+        result = planner.apply_rule_10(
+            fact=artifact.fact,
+            state=state,
+            ttl_elapsed_s=0.0,
+            write_mode=artifact.write_mode,
+        )
+        print(f"    state={state.value:12s}: {result}")
+
+    # Q_backfill — find Missing/Failed windows within horizon
+    _section("  Q_backfill (Missing/Failed within horizon)")
+    q_backfill = (
+        DGMQuery()
+        .anchor("daily_rev", "a")
+        .where(
+            AND(
+                ScalarPred(PropRef("a", "state"), "IN", ("Missing", "Failed")),
+                ScalarPred(PropRef("a", "window_end"), "<",
+                           "DATE_SUB(NOW(), INTERVAL 90 DAY)"),
+            )
+        )
+        .group_by("a.pipeline_id", "a.window_start")
+        .agg(age_days="MAX(a.window_end)")
+        .window(priority="RANK() OVER (ORDER BY MAX(a.window_end) DESC)")
+        .qualify(ScalarPred(WinRef("priority"), "<=", 5))
+    )
+    sql_backfill = q_backfill.to_sql()
+    print(f"  SQL ({len(sql_backfill.splitlines())} lines): {sql_backfill[:80]}...")
+
+    # Q_refresh — find Stale windows
+    _section("  Q_refresh (Stale windows)")
+    q_refresh = (
+        DGMQuery()
+        .anchor("daily_rev", "a")
+        .where(ScalarPred(PropRef("a", "state"), "=", "Stale"))
+        .group_by("a.pipeline_id", "a.window_start")
+        .agg(staleness="MAX(a.window_end)")
+        .window(priority="RANK() OVER (ORDER BY MAX(a.window_end) DESC)")
+        .qualify(ScalarPred(WinRef("priority"), "<=", 5))
+    )
+    sql_refresh = q_refresh.to_sql()
+    print(f"  SQL ({len(sql_refresh.splitlines())} lines): {sql_refresh[:80]}...")
+
+    # Sigma lookup helper
+    found = sigma.pipeline_artifact_of("daily_rev")
+    assert found is artifact
+    print(f"\n  sigma.pipeline_artifact_of('daily_rev') found: {found.pipeline_id!r}")
+    print("  Example 6 complete.")
+
+
+# ---------------------------------------------------------------------------
 # Entry point
 # ---------------------------------------------------------------------------
 
@@ -368,7 +499,10 @@ def demo_planner() -> None:
 EXAMPLE_METADATA = {
     "name": "dgm",
     "title": "Dimensional Graph Model",
-    "description": "Example 17: DGM three-band queries, BDD predicates, planner, and exporters",
+    "description": (
+        "Example 17: DGM three-band queries, BDD predicates, planner, and exporters. "
+        "Example 6: PipelineArtifact backfill-incremental state machine (D20/D21)."
+    ),
     "entry_point": "run_all",
 }
 
@@ -388,6 +522,7 @@ def run_all() -> None:
     demo_bdd_predicate()
     demo_annotation_sigma()
     demo_planner()
+    demo_pipeline_artifact()
 
     con.close()
     print("\nDGM showcase complete.")

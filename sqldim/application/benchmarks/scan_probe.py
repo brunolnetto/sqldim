@@ -66,6 +66,10 @@ _CURRENT_STATE_NAMES = frozenset({
 def _is_state_object(name: str) -> bool:
     return any(n in name.lower() for n in _CURRENT_STATE_NAMES)
 
+def _append_new(existing: list, new_set: set) -> None:
+    for n in new_set:
+        if n not in existing:
+            existing.append(n)
 
 class DuckDBObjectTracker:
     """
@@ -142,12 +146,8 @@ class DuckDBObjectTracker:
         current_t = self._current_tables()
         new_views  = current_v  - self._baseline_views
         new_tables = current_t - self._baseline_tables
-        for n in new_views:
-            if n not in self.views_created:
-                self.views_created.append(n)
-        for n in new_tables:
-            if n not in self.tables_created:
-                self.tables_created.append(n)
+        _append_new(self.views_created, new_views)
+        _append_new(self.tables_created, new_tables)
 
     def unwrap(self) -> None:
         """Final snapshot and stop tracking."""

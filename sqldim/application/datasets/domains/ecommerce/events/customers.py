@@ -4,6 +4,79 @@ from typing import Any
 from sqldim.application.datasets.events import AggregateState, DomainEvent
 
 
+def _changed_rows(orig_list: list, updated_list: list) -> list:
+    return [u for orig, u in zip(orig_list, updated_list) if orig != u]
+
+
+def _is_cancellable(o: dict) -> bool:
+    if "status" in o:
+        return o["status"] == "placed"
+    return o.get("placed_at") is not None and o.get("paid_at") is None
+
+
+def _build_cancelled_order(o: dict) -> dict:
+    if "status" in o:
+        return {**o, "status": "cancelled"}
+    return {**o, "paid_at": None, "shipped_at": None, "delivered_at": None, "_cancelled": True}
+
+
+def _cancel_placed_orders_for_customer(
+    orders: list[dict],
+    customer_id: int,
+) -> tuple[list[dict], list[dict]]:
+    """Return (updated_orders, changed_orders) after cancelling placed orders."""
+    updated: list[dict] = []
+    changed: list[dict] = []
+    for o in orders:
+        if o.get("customer_id") != customer_id:
+            updated.append(o)
+            continue
+        if _is_cancellable(o):
+            new_o = _build_cancelled_order(o)
+            updated.append(new_o)
+            changed.append(new_o)
+        else:
+            updated.append(o)
+    return updated, changed
+
+
+def _stamp_ts_row(c: dict, customer_id: int, event_ts: str) -> dict:
+    if c.get("customer_id") == customer_id and "updated_at" in c:
+        return {**c, "updated_at": event_ts}
+    return c
+
+
+def _stamp_customer_ts(
+    state: AggregateState,
+    customer_id: int,
+    event_ts: str,
+    result: dict[str, list[dict]],
+) -> None:
+    """Stamp updated_at on the matching customer row if the field is present."""
+    if "customers" not in state.table_names:
+        return
+    customers = state.get("customers")
+    updated = [_stamp_ts_row(c, customer_id, event_ts) for c in customers]
+    changed = _changed_rows(customers, updated)
+    if changed:
+        state.update("customers", updated)
+        result["customers"] = changed
+
+
+def _apply_address_to_row(
+    c: dict, customer_id: int, new_address: str, new_city: str, event_ts: str
+) -> dict:
+    if c.get("customer_id") != customer_id:
+        return c
+    return {
+        **c,
+        "address": new_address,
+        "city": new_city,
+        **({"updated_at": event_ts} if "updated_at" in c else {}),
+    }
+
+
+
 class CustomerBulkCancelEvent(DomainEvent):
     """
     Customer requests bulk cancellation of all their pending orders.
@@ -34,60 +107,13 @@ class CustomerBulkCancelEvent(DomainEvent):
         event_ts: str = "2024-06-01 09:00:00",
     ) -> dict[str, list[dict]]:
         result: dict[str, list[dict]] = {}
-
-        # ── Cancel placed orders ──────────────────────────────────────────
-        # An order is "cancellable" if:
-        #   - it carries an explicit status=="placed" field, OR
-        #   - in the accumulating-snapshot model (OrdersSource) it has
-        #     placed_at set but paid_at = None (not yet paid)
-        orders = state.get("orders")
-        updated_orders = []
-        changed_orders = []
-        for o in orders:
-            if o.get("customer_id") != customer_id:
-                updated_orders.append(o)
-                continue
-            # Determine if the order is cancellable
-            if "status" in o:
-                cancellable = o["status"] == "placed"
-            else:
-                # Accumulating-snapshot model: placed but not yet paid
-                cancellable = o.get("placed_at") is not None and o.get("paid_at") is None
-            if cancellable:
-                new_o = {**o, "status": "cancelled"} if "status" in o else {
-                    **o,
-                    "paid_at": None,
-                    "shipped_at": None,
-                    "delivered_at": None,
-                    "_cancelled": True,
-                }
-                updated_orders.append(new_o)
-                changed_orders.append(new_o)
-            else:
-                updated_orders.append(o)
-
+        updated_orders, changed_orders = _cancel_placed_orders_for_customer(
+            state.get("orders"), customer_id,
+        )
         if changed_orders:
             state.update("orders", updated_orders)
             result["orders"] = changed_orders
-
-        # ── Stamp customer updated_at ─────────────────────────────────────
-        if "customers" in state.table_names:
-            customers = state.get("customers")
-            updated_customers = [
-                {**c, "updated_at": event_ts}
-                if c.get("customer_id") == customer_id and "updated_at" in c
-                else c
-                for c in customers
-            ]
-            changed_customers = [
-                c
-                for orig, c in zip(customers, updated_customers)
-                if orig != c
-            ]
-            if changed_customers:
-                state.update("customers", updated_customers)
-                result["customers"] = changed_customers
-
+        _stamp_customer_ts(state, customer_id, event_ts, result)
         return result
 
 
@@ -124,18 +150,8 @@ class CustomerAddressChangedEvent(DomainEvent):
         event_ts: str = "2024-06-01 09:00:00",
     ) -> dict[str, list[dict]]:
         customers = state.get("customers")
-        updated = [
-            {
-                **c,
-                "address": new_address,
-                "city": new_city,
-                **({"updated_at": event_ts} if "updated_at" in c else {}),
-            }
-            if c.get("customer_id") == customer_id
-            else c
-            for c in customers
-        ]
-        changed = [c for orig, c in zip(customers, updated) if orig != c]
+        updated = [_apply_address_to_row(c, customer_id, new_address, new_city, event_ts) for c in customers]
+        changed = _changed_rows(customers, updated)
         if changed:
             state.update("customers", updated)
         return {"customers": changed}

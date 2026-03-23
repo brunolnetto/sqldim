@@ -120,6 +120,51 @@ def _load_rows_into_warehouse(
 # ── Main example ──────────────────────────────────────────────────────────────
 
 
+def _export_customers(raw, keys: list[str]) -> list[dict[str, Any]]:
+    return [{k: row[k] for k in keys} for row in raw.initial]
+
+
+def _wait_for_flask(base_url: str, max_retries: int = 20) -> None:
+    for _ in range(max_retries):
+        try:
+            requests.get(f"{base_url}/customers", timeout=0.5)
+            return
+        except requests.exceptions.ConnectionError:
+            time.sleep(0.1)
+    raise RuntimeError(f"Flask did not start on {base_url}")
+
+
+def _apply_tier_upgrades(base_url: str, cids: list[int]) -> None:
+    for cid in cids:
+        resp = requests.post(
+            f"{base_url}/customers/{cid}/upgrade",
+            json={"loyalty_tier": "gold"},
+            timeout=5,
+        )
+        resp.raise_for_status()
+        d = resp.json()
+        print(
+            f"    customer_id={cid:<3}  "
+            f"{d['full_name']:<28}  "
+            f"loyalty_tier={d['loyalty_tier']}"
+        )
+
+
+def _print_upgrade_history(wh) -> None:
+    print("    SCD2 history for upgraded customers (IDs 1-3):")
+    history_rows = wh.execute(
+        "SELECT customer_id, full_name, loyalty_tier, valid_from, is_current "
+        "FROM dim_customer WHERE customer_id <= 3 "
+        "ORDER BY customer_id, valid_from"
+    ).fetchall()
+    for r in history_rows:
+        flag = "✓" if r[4] else "H"
+        print(
+            f"      [{flag}] id={r[0]}  {r[1]:<28}  "
+            f"tier={r[2]:<10}  valid_from={r[3]}"
+        )
+
+
 def run_flask_dlt_example() -> None:
     global _BASE_URL
 
@@ -134,10 +179,7 @@ def run_flask_dlt_example() -> None:
     # Seed the Flask store from LoyaltyCustomersSource — loyalty_tier already present.
     raw = LoyaltyCustomersSource(n_entities=20, seed=42)
     _export_keys = ["customer_id", "email", "full_name", "loyalty_tier", "country_code", "acquisition_channel"]
-    customers: list[dict[str, Any]] = [
-        {k: row[k] for k in _export_keys}
-        for row in raw.initial
-    ]
+    customers = _export_customers(raw, _export_keys)
     build_flask_app(customers)
 
     # Start Flask in a daemon thread
@@ -152,15 +194,7 @@ def run_flask_dlt_example() -> None:
         daemon=True,
     ).start()
 
-    # Wait for Flask to be ready (up to 2 s)
-    for _ in range(20):
-        try:
-            requests.get(f"{_BASE_URL}/customers", timeout=0.5)
-            break
-        except requests.exceptions.ConnectionError:
-            time.sleep(0.1)
-    else:
-        raise RuntimeError(f"Flask did not start on {_BASE_URL}")
+    _wait_for_flask(_BASE_URL)
 
     _store = get_store()
     print(f"  Flask API running on {_BASE_URL}")
@@ -204,19 +238,7 @@ def run_flask_dlt_example() -> None:
 
         # ── Apply three tier-upgrade events via the Flask API ─────────────
         print("\n  Applying upgrade events via POST /customers/<id>/upgrade …")
-        for cid in [1, 2, 3]:
-            resp = requests.post(
-                f"{_BASE_URL}/customers/{cid}/upgrade",
-                json={"loyalty_tier": "gold"},
-                timeout=5,
-            )
-            resp.raise_for_status()
-            d = resp.json()
-            print(
-                f"    customer_id={cid:<3}  "
-                f"{d['full_name']:<28}  "
-                f"loyalty_tier={d['loyalty_tier']}"
-            )
+        _apply_tier_upgrades(_BASE_URL, [1, 2, 3])
 
         # ── T1: incremental extract -> stage -> warehouse ─────────────────
         print("\n  T1 — incremental dlt extract + sqldim load …")
@@ -235,18 +257,7 @@ def run_flask_dlt_example() -> None:
         ).fetchone()
         print(f"    total={total}  current={current}  historical={hist}")
 
-        print("    SCD2 history for upgraded customers (IDs 1-3):")
-        history_rows = wh.execute(
-            "SELECT customer_id, full_name, loyalty_tier, valid_from, is_current "
-            "FROM dim_customer WHERE customer_id <= 3 "
-            "ORDER BY customer_id, valid_from"
-        ).fetchall()
-        for r in history_rows:
-            flag = "✓" if r[4] else "H"
-            print(
-                f"      [{flag}] id={r[0]}  {r[1]:<28}  "
-                f"tier={r[2]:<10}  valid_from={r[3]}"
-            )
+        _print_upgrade_history(wh)
 
         wh.execute("DROP TABLE IF EXISTS dim_customer")
         wh.close()

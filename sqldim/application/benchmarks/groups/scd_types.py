@@ -21,6 +21,8 @@ from sqldim.application.benchmarks.infra import (
     _configure,
     _run_scd2_batch,
     _run_metadata_batch,
+    _select_tiers,
+    run_benchmark_case,
 )
 from sqldim.application.benchmarks.memory_probe import MemoryProbe
 from sqldim.application.benchmarks.scan_probe import DuckDBObjectTracker
@@ -82,14 +84,16 @@ class _BenchSink:
         cols_str   = ", ".join(conflict_cols)
         inner_join = " AND ".join(f"src.{c} = t.{c}" for c in conflict_cols)
         view_join  = " AND ".join(f"t.{c} = v.{c}" for c in conflict_cols)
+        src_cols   = ", ".join(f"src.{c}" for c in conflict_cols)
+        t_cols     = ", ".join(f"t.{c}" for c in conflict_cols)
         con.execute(f"""
             INSERT INTO {table_name} ({returning_col}, {cols_str})
             SELECT
                 (SELECT COALESCE(MAX({returning_col}), 0) FROM {table_name})
                     + row_number() OVER () AS {returning_col},
-                {', '.join(f'src.{c}' for c in conflict_cols)}
+                {src_cols}
             FROM (
-                SELECT DISTINCT {', '.join(f'src.{c}' for c in conflict_cols)}
+                SELECT DISTINCT {src_cols}
                 FROM {view_name} src
                 WHERE NOT EXISTS (
                     SELECT 1 FROM {table_name} t WHERE {inner_join}
@@ -99,7 +103,7 @@ class _BenchSink:
         con.execute(f"""
             CREATE OR REPLACE VIEW {output_view} AS
             SELECT t.{returning_col},
-                   {', '.join(f't.{c}' for c in conflict_cols)}
+                   {t_cols}
             FROM {table_name} t
             INNER JOIN (SELECT DISTINCT {cols_str} FROM {view_name}) v
                 ON {view_join}
@@ -128,6 +132,139 @@ class _BenchSink:
         ).fetchone()[0]
 
 
+def _i_type3_case(tier: str, n: int, sink: "_BenchSink", temp_dir: str) -> BenchmarkResult:
+    from sqldim.core.kimball.dimensions.scd.processors.lazy.type3._lazy_type3 import LazyType3Processor
+    cid    = f"I-type3-{tier}"
+    result = BenchmarkResult(
+        case_id=cid, group="I", profile="scd3-employees", tier=tier,
+        processor="LazyType3Processor", sink="InMemory",
+        source="synthetic", phase="batch", n_rows=n, n_changed=0,
+    )
+    try:
+        MemoryProbe.check_safe_to_run(label=cid)
+        con = duckdb.connect()
+        con.execute("""
+            CREATE TABLE dim_scd3 (
+                emp_id      VARCHAR,
+                region      VARCHAR,
+                prev_region VARCHAR,
+                checksum    VARCHAR,
+                is_current  BOOLEAN,
+                valid_from  VARCHAR,
+                valid_to    VARCHAR
+            )
+        """)
+        con.execute(f"""
+            CREATE OR REPLACE VIEW src AS
+            SELECT 'emp_' || i::VARCHAR AS emp_id,
+                   CASE WHEN i % 3 = 0 THEN 'East'
+                        WHEN i % 3 = 1 THEN 'West'
+                        ELSE 'North' END AS region
+            FROM range(1, {n + 1}) t(i)
+        """)
+        proc  = LazyType3Processor(
+            natural_key="emp_id",
+            column_pairs=[("region", "prev_region")],
+            sink=sink, con=con,
+        )
+        probe = MemoryProbe(temp_dir=temp_dir, label=cid)
+        with probe:
+            t0  = time.perf_counter()
+            scd = proc.process("src", "dim_scd3")
+            result.wall_s = time.perf_counter() - t0
+        m = probe.report
+        result.peak_rss_gb      = m.peak_rss_gb
+        result.min_sys_avail_gb = m.min_sys_avail_gb
+        result.total_spill_gb   = m.total_spill_gb
+        result.safety_breach    = m.safety_breach
+        result.breach_detail    = m.breach_detail
+        result.inserted         = scd.inserted
+        result.versioned        = scd.versioned
+        result.unchanged        = scd.unchanged
+        result.rows_per_sec     = n / max(result.wall_s, 0.001)
+        con.close()
+    except RuntimeError as exc:
+        result.ok = False; result.error = f"SKIPPED: {exc}"
+    except Exception as exc:
+        result.ok    = False
+        result.error = (f"{type(exc).__name__}: {exc}\n" + _traceback.format_exc()[-600:])
+    return result
+
+
+def _i_type4_case(tier: str, n: int, sink: "_BenchSink", temp_dir: str) -> BenchmarkResult:
+    from sqldim.core.kimball.dimensions.scd.processors.scd_engine import LazyType4Processor
+    cid    = f"I-type4-{tier}"
+    result = BenchmarkResult(
+        case_id=cid, group="I", profile="scd4-customers", tier=tier,
+        processor="LazyType4Processor", sink="InMemory",
+        source="synthetic", phase="batch", n_rows=n, n_changed=0,
+    )
+    try:
+        MemoryProbe.check_safe_to_run(label=cid)
+        con = duckdb.connect()
+        con.execute("""
+            CREATE TABLE dim_mini (
+                id          INTEGER,
+                age_band    VARCHAR,
+                income_band VARCHAR
+            )
+        """)
+        con.execute("""
+            CREATE TABLE dim_base (
+                customer_id VARCHAR,
+                name        VARCHAR,
+                profile_sk  INTEGER,
+                checksum    VARCHAR,
+                valid_from  VARCHAR,
+                valid_to    VARCHAR,
+                is_current  BOOLEAN
+            )
+        """)
+        con.execute(f"""
+            CREATE OR REPLACE TABLE src AS
+            SELECT 'cust_' || i::VARCHAR AS customer_id,
+                   'Customer_' || i::VARCHAR AS name,
+                   CASE WHEN i % 3 = 0 THEN 'Young'
+                        WHEN i % 3 = 1 THEN 'Middle'
+                        ELSE 'Senior' END AS age_band,
+                   CASE WHEN i % 2 = 0 THEN 'Low'
+                        ELSE 'High' END AS income_band
+            FROM range(1, {n + 1}) t(i)
+        """)
+        proc  = LazyType4Processor(
+            natural_key="customer_id",
+            base_columns=["name"],
+            mini_dim_columns=["age_band", "income_band"],
+            base_dim_table="dim_base",
+            mini_dim_table="dim_mini",
+            mini_dim_fk_col="profile_sk",
+            mini_dim_id_col="id",
+            sink=sink, con=con,
+        )
+        probe = MemoryProbe(temp_dir=temp_dir, label=cid)
+        with probe:
+            t0  = time.perf_counter()
+            res = proc.process("src")
+            result.wall_s = time.perf_counter() - t0
+        m = probe.report
+        result.peak_rss_gb      = m.peak_rss_gb
+        result.min_sys_avail_gb = m.min_sys_avail_gb
+        result.total_spill_gb   = m.total_spill_gb
+        result.safety_breach    = m.safety_breach
+        result.breach_detail    = m.breach_detail
+        result.inserted         = res.get("inserted", 0)
+        result.versioned        = res.get("versioned", 0)
+        result.unchanged        = res.get("unchanged", 0)
+        result.rows_per_sec     = n / max(result.wall_s, 0.001)
+        con.close()
+    except RuntimeError as exc:
+        result.ok = False; result.error = f"SKIPPED: {exc}"
+    except Exception as exc:
+        result.ok    = False
+        result.error = (f"{type(exc).__name__}: {exc}\n" + _traceback.format_exc()[-600:])
+    return result
+
+
 def group_i_scd_type_variety(
     gen: BenchmarkDatasetGenerator,
     temp_dir: str,
@@ -135,155 +272,14 @@ def group_i_scd_type_variety(
     **_,
 ) -> list[BenchmarkResult]:
     """Group I — SCD Type3 and Type4 processor throughput at scale."""
-    from sqldim.core.kimball.dimensions.scd.processors._lazy_type3_6 import (
-        LazyType3Processor,
-    )
-    from sqldim.core.kimball.dimensions.scd.processors.scd_engine import (
-        LazyType4Processor,
-    )
-
-    tier_order  = ["xs", "s", "m"]
-    _max = max_tier if max_tier in tier_order else tier_order[-1]
-    active_tiers = [t for t in tier_order
-                    if t in _VARIETY_TIERS
-                    and tier_order.index(t) <= tier_order.index(_max)]
+    tier_order   = ["xs", "s", "m"]
+    active_tiers = _select_tiers(tier_order, _VARIETY_TIERS, max_tier)
     sink    = _BenchSink()
     results: list[BenchmarkResult] = []
-
     for tier in active_tiers:
         n = _VARIETY_TIERS[tier]
-
-        # ── Type3: emp_id + region (current / previous) ────────────────────
-        cid = f"I-type3-{tier}"
-        result = BenchmarkResult(
-            case_id=cid, group="I", profile="scd3-employees", tier=tier,
-            processor="LazyType3Processor", sink="InMemory",
-            source="synthetic", phase="batch", n_rows=n, n_changed=0,
-        )
-        try:
-            MemoryProbe.check_safe_to_run(label=cid)
-            con = duckdb.connect()
-            con.execute("""
-                CREATE TABLE dim_scd3 (
-                    emp_id      VARCHAR,
-                    region      VARCHAR,
-                    prev_region VARCHAR,
-                    checksum    VARCHAR,
-                    is_current  BOOLEAN,
-                    valid_from  VARCHAR,
-                    valid_to    VARCHAR
-                )
-            """)
-            con.execute(f"""
-                CREATE OR REPLACE VIEW src AS
-                SELECT 'emp_' || i::VARCHAR AS emp_id,
-                       CASE WHEN i % 3 = 0 THEN 'East'
-                            WHEN i % 3 = 1 THEN 'West'
-                            ELSE 'North' END AS region
-                FROM range(1, {n + 1}) t(i)
-            """)
-            proc  = LazyType3Processor(
-                natural_key="emp_id",
-                column_pairs=[("region", "prev_region")],
-                sink=sink, con=con,
-            )
-            probe = MemoryProbe(temp_dir=temp_dir, label=cid)
-            with probe:
-                t0  = time.perf_counter()
-                scd = proc.process("src", "dim_scd3")
-                result.wall_s = time.perf_counter() - t0
-            m = probe.report
-            result.peak_rss_gb      = m.peak_rss_gb
-            result.min_sys_avail_gb = m.min_sys_avail_gb
-            result.total_spill_gb   = m.total_spill_gb
-            result.safety_breach    = m.safety_breach
-            result.breach_detail    = m.breach_detail
-            result.inserted         = scd.inserted
-            result.versioned        = scd.versioned
-            result.unchanged        = scd.unchanged
-            result.rows_per_sec     = n / max(result.wall_s, 0.001)
-            con.close()
-        except RuntimeError as exc:
-            result.ok = False; result.error = f"SKIPPED: {exc}"
-        except Exception as exc:
-            result.ok    = False
-            result.error = (f"{type(exc).__name__}: {exc}\n"
-                            + _traceback.format_exc()[-600:])
-        results.append(result)
-
-        # ── Type4: customer + mini-dimension (age/income) ──────────────────
-        cid = f"I-type4-{tier}"
-        result = BenchmarkResult(
-            case_id=cid, group="I", profile="scd4-customers", tier=tier,
-            processor="LazyType4Processor", sink="InMemory",
-            source="synthetic", phase="batch", n_rows=n, n_changed=0,
-        )
-        try:
-            MemoryProbe.check_safe_to_run(label=cid)
-            con = duckdb.connect()
-            con.execute("""
-                CREATE TABLE dim_mini (
-                    id          INTEGER,
-                    age_band    VARCHAR,
-                    income_band VARCHAR
-                )
-            """)
-            con.execute("""
-                CREATE TABLE dim_base (
-                    customer_id VARCHAR,
-                    name        VARCHAR,
-                    profile_sk  INTEGER,
-                    checksum    VARCHAR,
-                    valid_from  VARCHAR,
-                    valid_to    VARCHAR,
-                    is_current  BOOLEAN
-                )
-            """)
-            con.execute(f"""
-                CREATE OR REPLACE TABLE src AS
-                SELECT 'cust_' || i::VARCHAR AS customer_id,
-                       'Customer_' || i::VARCHAR AS name,
-                       CASE WHEN i % 3 = 0 THEN 'Young'
-                            WHEN i % 3 = 1 THEN 'Middle'
-                            ELSE 'Senior' END AS age_band,
-                       CASE WHEN i % 2 = 0 THEN 'Low'
-                            ELSE 'High' END AS income_band
-                FROM range(1, {n + 1}) t(i)
-            """)
-            proc  = LazyType4Processor(
-                natural_key="customer_id",
-                base_columns=["name"],
-                mini_dim_columns=["age_band", "income_band"],
-                base_dim_table="dim_base",
-                mini_dim_table="dim_mini",
-                mini_dim_fk_col="profile_sk",
-                mini_dim_id_col="id",
-                sink=sink, con=con,
-            )
-            probe = MemoryProbe(temp_dir=temp_dir, label=cid)
-            with probe:
-                t0  = time.perf_counter()
-                res = proc.process("src")
-                result.wall_s = time.perf_counter() - t0
-            m = probe.report
-            result.peak_rss_gb      = m.peak_rss_gb
-            result.min_sys_avail_gb = m.min_sys_avail_gb
-            result.total_spill_gb   = m.total_spill_gb
-            result.safety_breach    = m.safety_breach
-            result.breach_detail    = m.breach_detail
-            result.inserted         = res.get("inserted", 0)
-            result.versioned        = res.get("versioned", 0)
-            result.unchanged        = res.get("unchanged", 0)
-            result.rows_per_sec     = n / max(result.wall_s, 0.001)
-            con.close()
-        except RuntimeError as exc:
-            result.ok = False; result.error = f"SKIPPED: {exc}"
-        except Exception as exc:
-            result.ok    = False
-            result.error = (f"{type(exc).__name__}: {exc}\n"
-                            + _traceback.format_exc()[-600:])
-        results.append(result)
-
+        results.append(_i_type3_case(tier, n, sink, temp_dir))
+        results.append(_i_type4_case(tier, n, sink, temp_dir))
     return results
 
 

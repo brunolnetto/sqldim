@@ -111,6 +111,12 @@ class MemoryReport:
 
 # ── Spill tracker (filesystem only — thread-safe) ─────────────────────────
 
+def _iter_spill_files(p: "Path"):
+    for f in p.rglob("*.tmp"):
+        if f.is_file():
+            yield f
+
+
 def _spill_bytes(temp_dir: str | None) -> int:
     """Return total bytes of DuckDB spill files. Safe to call from any thread."""
     if not temp_dir:
@@ -119,12 +125,34 @@ def _spill_bytes(temp_dir: str | None) -> int:
     if not p.exists():
         return 0
     try:
-        return sum(f.stat().st_size for f in p.rglob("*.tmp") if f.is_file())
+        return sum(f.stat().st_size for f in _iter_spill_files(p))
     except (OSError, PermissionError):
         return 0
 
 
 # ── DuckDB memory reader — MAIN THREAD ONLY ──────────────────────────────
+
+_MEMORY_UNIT_BASES: list[tuple[str, float]] = [
+    ("gib", 1.0), ("gb", 1.0),
+    ("mib", 1 / 1024), ("mb", 1 / 1024),
+    ("kib", 1 / 1024 ** 2), ("kb", 1 / 1024 ** 2),
+]
+
+
+def _parse_memory_str(raw: str) -> float | None:
+    """Parse a DuckDB memory string like '1.23 GiB' → GB float, or None if unparseable."""
+    if raw in ("0 bytes", ""):
+        return 0.0
+    parts = raw.split()
+    if len(parts) != 2:
+        return None
+    val  = float(parts[0])
+    unit = parts[1].lower()
+    for pfx, scale in _MEMORY_UNIT_BASES:
+        if pfx in unit:
+            return val * scale
+    return val / (1024 ** 3)
+
 
 def read_duckdb_memory_once(con) -> float:
     """
@@ -140,21 +168,9 @@ def read_duckdb_memory_once(con) -> float:
     try:
         rows = con.execute("SELECT memory_usage FROM pragma_database_size()").fetchall()
         for row in rows:
-            raw = str(row[0]).strip()
-            if raw in ("0 bytes", ""):
-                return 0.0
-            parts = raw.split()
-            if len(parts) != 2:
-                continue
-            val  = float(parts[0])
-            unit = parts[1].lower()
-            if "gib" in unit or "gb" in unit:
-                return val
-            if "mib" in unit or "mb" in unit:
-                return val / 1024
-            if "kib" in unit or "kb" in unit:
-                return val / (1024 ** 2)
-            return val / (1024 ** 3)
+            result = _parse_memory_str(str(row[0]).strip())
+            if result is not None:
+                return result
     except Exception:
         return 0.0
     return 0.0
@@ -229,6 +245,24 @@ class MemoryProbe:
             self._take_sample()
             time.sleep(SAMPLE_INTERVAL_S)
 
+    def _check_breach(self, rss_gb: float) -> None:
+        if rss_gb > self._hard_ceiling and not _HARD_ABORT_EVENT.is_set():
+            _HARD_ABORT_EVENT.set()
+            self.report.safety_breach = True
+            self.report.breach_detail = (
+                f"HARD ABORT: RSS {rss_gb:.2f}GB exceeded hard ceiling "
+                f"{self._hard_ceiling:.2f}GB "
+                f"({HARD_CEILING_PCT*100:.0f}% of {self._total_ram_gb:.1f}GB). "
+                f"Remaining cases in this group will be skipped."
+            )
+        elif rss_gb > self._safe_ceiling and not self.report.safety_breach:
+            self.report.safety_breach = True
+            self.report.breach_detail = (
+                f"RSS {rss_gb:.2f}GB exceeded safe ceiling "
+                f"{self._safe_ceiling:.2f}GB "
+                f"({self._safe_pct*100:.0f}% of {self._total_ram_gb:.1f}GB total)"
+            )
+
     def _take_sample(self) -> None:
         """
         Called from background thread — ONLY psutil and filesystem.
@@ -246,23 +280,7 @@ class MemoryProbe:
                 spill_bytes=spill,
             )
             self.report.samples.append(sample)
-
-            if rss_gb > self._hard_ceiling and not _HARD_ABORT_EVENT.is_set():
-                _HARD_ABORT_EVENT.set()
-                self.report.safety_breach = True
-                self.report.breach_detail = (
-                    f"HARD ABORT: RSS {rss_gb:.2f}GB exceeded hard ceiling "
-                    f"{self._hard_ceiling:.2f}GB "
-                    f"({HARD_CEILING_PCT*100:.0f}% of {self._total_ram_gb:.1f}GB). "
-                    f"Remaining cases in this group will be skipped."
-                )
-            elif rss_gb > self._safe_ceiling and not self.report.safety_breach:
-                self.report.safety_breach = True
-                self.report.breach_detail = (
-                    f"RSS {rss_gb:.2f}GB exceeded safe ceiling "
-                    f"{self._safe_ceiling:.2f}GB "
-                    f"({self._safe_pct*100:.0f}% of {self._total_ram_gb:.1f}GB total)"
-                )
+            self._check_breach(rss_gb)
         except Exception:
             pass
 

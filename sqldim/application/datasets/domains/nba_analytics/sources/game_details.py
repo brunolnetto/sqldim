@@ -177,6 +177,27 @@ def _player_row(
     )
 
 
+def _generate_player_rows(
+    game_id: int,
+    team_id: int,
+    players: list,
+    n_players_per_team: int,
+    pm_base: float,
+) -> list[str]:
+    n_dnp = 2
+    rows: list[str] = []
+    for j, (pid, pname) in enumerate(players):
+        if j < 5:
+            pos, comment = _STARTERS[j]
+        elif j < n_players_per_team - n_dnp:
+            pos, comment = "", ""
+        else:
+            pos     = ""
+            comment = random.choice(_DNP_MSGS)
+        rows.append(_player_row(game_id, team_id, pid, pname, pos, comment, pm_base))
+    return rows
+
+
 # ── Source class ───────────────────────────────────────────────────────────────
 
 
@@ -269,20 +290,9 @@ class GameDetailsSource(BaseSource):
 
             for team_id, pm_base in [(home_id, pm_sign * 4.0), (away_id, -pm_sign * 4.0)]:
                 players = team_player_pool[team_id]
-                n_dnp   = 2  # 2 bench players are DNP
-
-                for j, (pid, pname) in enumerate(players):
-                    if j < 5:
-                        pos, comment = _STARTERS[j]
-                    elif j < n_players_per_team - n_dnp:
-                        pos, comment = "", ""
-                    else:
-                        pos     = ""
-                        comment = random.choice(_DNP_MSGS)
-
-                    self._rows.append(
-                        _player_row(game_id, team_id, pid, pname, pos, comment, pm_base)
-                    )
+                self._rows.extend(
+                    _generate_player_rows(game_id, team_id, players, n_players_per_team, pm_base)
+                )
 
     def snapshot(self):
         from sqldim.sources import SQLSource

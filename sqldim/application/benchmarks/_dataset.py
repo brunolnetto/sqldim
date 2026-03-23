@@ -236,7 +236,13 @@ _SQL_GENERATORS: dict[str, dict] = {
                     WHEN 2 THEN 'referral'
                     WHEN 3 THEN 'content'
                     ELSE        'social'
-                END                                                AS acq_source
+                END                                                AS acq_source,
+                CASE (i % 3)
+                    WHEN 0 THEN 'desktop'
+                    WHEN 1 THEN 'mobile'
+                    ELSE        'tablet'
+                END                                                AS device,
+                (DATE '2020-01-01' + (i % 1825)::INTEGER)::VARCHAR         AS signup_date
             FROM generate_series(1, {n}) t(i)
         """,
         "event_view": """
@@ -255,7 +261,13 @@ _SQL_GENERATORS: dict[str, dict] = {
                     WHEN 2 THEN 'referral'
                     WHEN 3 THEN 'content'
                     ELSE        'social'
-                END                                                AS acq_source
+                END                                                AS acq_source,
+                CASE (i % 3)
+                    WHEN 0 THEN 'desktop'
+                    WHEN 1 THEN 'mobile'
+                    ELSE        'tablet'
+                END                                                AS device,
+                (DATE '2020-01-01' + (i % 1825)::INTEGER)::VARCHAR         AS signup_date
             FROM generate_series(1, {changed}) t(i)
         """,
     },
@@ -375,6 +387,21 @@ def _get_ddl(profile: str) -> str:
     return _DDL_CACHE[profile]
 
 
+# ── DatasetArtifact helpers ────────────────────────────────────────────────
+
+def _remove_path(p: str) -> None:
+    if p and os.path.exists(p):
+        os.unlink(p)
+
+
+def _remove_dir(d: str) -> None:
+    if d and os.path.exists(d):
+        try:
+            os.rmdir(d)
+        except OSError:
+            pass
+
+
 # ── DatasetArtifact ────────────────────────────────────────────────────────
 
 @dataclass
@@ -399,13 +426,8 @@ class DatasetArtifact:
 
     def cleanup(self) -> None:
         for p in [self.snapshot_path, self.events_path]:
-            if p and os.path.exists(p):
-                os.unlink(p)
-        if self._temp_dir and os.path.exists(self._temp_dir):
-            try:
-                os.rmdir(self._temp_dir)
-            except OSError:
-                pass
+            _remove_path(p)
+        _remove_dir(self._temp_dir)
 
     def __enter__(self) -> "DatasetArtifact":
         return self
