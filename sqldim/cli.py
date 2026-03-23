@@ -7,6 +7,9 @@ Usage:
     sqldim example list
     sqldim example run <name>
     sqldim bigdata features
+
+Examples are auto-discovered from sqldim.application.examples.real_world.*
+and sqldim.application.examples.features.* via EXAMPLE_METADATA dicts.
 """
 
 import argparse
@@ -63,60 +66,81 @@ def cmd_schema_graph(args: argparse.Namespace) -> None:
 
 # ── example commands ──────────────────────────────────────────────────────────
 
-_EXAMPLES = {
-    "nba": (
-        "NBA Analytics",
-        "Cumulative arrays + SCD Type 2 + dual-paradigm graph projection",
-        "sqldim.examples.real_world.nba_analytics.showcase",
-        "run_showcase",
-    ),
-    "saas": (
-        "SaaS Growth",
-        "Vectorised SCD (Narwhals) + referral graph + bitmask retention",
-        "sqldim.examples.real_world.saas_growth.showcase",
-        "run_saas_showcase",
-    ),
-    "user-activity": (
-        "User Activity",
-        "Bitmask datelist encoding + L7/L28 retention metrics",
-        "sqldim.examples.real_world.user_activity.showcase",
-        "run_activity_showcase",
-    ),
-    "ecommerce": (
-        "E-Commerce Order Intelligence",
-        "SCD Type 2 customer tiers + bridge attribution + accumulating order milestones",
-        "sqldim.examples.real_world.ecommerce.showcase",
-        "run_ecommerce_showcase",
-    ),
-    "fintech": (
-        "Fintech Payment Intelligence",
-        "SCD Type 2 risk tiers + payment graph + array-metric balances + drift observability",
-        "sqldim.examples.real_world.fintech.showcase",
-        "run_fintech_showcase",
-    ),
-    "supply-chain": (
-        "Supply Chain Inventory",
-        "SCD Type 2 warehouse capacity + shipment graph + cumulative stock arrays + schema graph",
-        "sqldim.examples.real_world.supply_chain.showcase",
-        "run_supply_chain_showcase",
-    ),
-}
+
+def _discover_examples() -> dict:
+    """
+    Auto-discover examples by scanning showcase modules for ``EXAMPLE_METADATA``.
+
+    Scans all sub-packages of ``sqldim.application.examples.real_world`` and
+    ``sqldim.application.examples.features`` that contain a ``showcase.py`` module
+    exposing an ``EXAMPLE_METADATA`` dict.  Returns a mapping of CLI name →
+    ``(title, description, module_path, entry_fn, kind)`` tuples.
+    """
+    import importlib
+    import pkgutil
+
+    result: dict = {}
+    for pkg_name, kind in [
+        ("sqldim.application.examples.real_world", "real_world"),
+        ("sqldim.application.examples.features", "features"),
+    ]:
+        try:
+            pkg = importlib.import_module(pkg_name)
+        except ImportError:
+            continue
+        for _, modname, ispkg in pkgutil.iter_modules(pkg.__path__):
+            if not ispkg:
+                continue
+            showcase_path = f"{pkg_name}.{modname}.showcase"
+            try:
+                mod = importlib.import_module(showcase_path)
+            except ImportError:
+                continue
+            meta = getattr(mod, "EXAMPLE_METADATA", None)
+            if meta is None:
+                continue
+            result[meta["name"]] = (
+                meta["title"],
+                meta["description"],
+                showcase_path,
+                meta["entry_point"],
+                kind,
+            )
+    return result
 
 
 def cmd_example_list(args: argparse.Namespace) -> None:
-    """List all available real-world examples.
+    """List all available examples, grouped by kind.
 
     Prints each example name, title, and a one-line description so users
     can choose which showcase to run with ``sqldim example run <name>``.
     """
-    print("[sqldim] Available examples (run with: sqldim example run <name>):\n")
-    for name, (title, desc, _mod, _fn) in _EXAMPLES.items():
-        print(f"  {name:<16} {title}")
-        print(f"  {'':16} {desc}\n")
+    examples = _discover_examples()
+    if not examples:
+        print("[sqldim] No examples found (is application/ on the Python path?)")
+        return
+
+    groups: dict[str, list] = {"real_world": [], "features": []}
+    for name, (title, desc, _mod, _fn, kind) in examples.items():
+        groups.setdefault(kind, []).append((name, title, desc))
+
+    labels = {"real_world": "Real-world pipelines", "features": "Feature showcases"}
+    first = True
+    for kind_key, items in groups.items():
+        if not items:
+            continue
+        if not first:
+            print()
+        print(f"[sqldim] {labels.get(kind_key, kind_key)} "
+              f"(run with: sqldim example run <name>)\n")
+        for name, title, desc in sorted(items, key=lambda x: x[0]):
+            print(f"  {name:<20} {title}")
+            print(f"  {'':20} {desc}\n")
+        first = False
 
 
 def cmd_example_run(args: argparse.Namespace) -> int:
-    """Run a named real-world example showcase.
+    """Run a named example showcase.
 
     Dynamically imports and invokes the showcase function for the given
     example name, supporting both async and synchronous entry-points.
@@ -126,18 +150,23 @@ def cmd_example_run(args: argparse.Namespace) -> int:
     import importlib
 
     name = args.name.lower()
-    if name not in _EXAMPLES:
+    examples = _discover_examples()
+    if name not in examples:
+        known = ", ".join(sorted(examples))
         print(
-            f"[sqldim] Unknown example '{name}'. Run 'sqldim example list' to see options."
+            f"[sqldim] Unknown example '{name}'. "
+            f"Run 'sqldim example list' to see options.\n"
+            f"  Known: {known}"
         )
         return 1
-    _title, _desc, mod_path, fn_name = _EXAMPLES[name]
+    _title, _desc, mod_path, fn_name, _kind = examples[name]
     mod = importlib.import_module(mod_path)
     fn = getattr(mod, fn_name)
     if asyncio.iscoroutinefunction(fn):
         asyncio.run(fn())
     else:
         fn()
+    return 0
 
 
 # ── big data commands ─────────────────────────────────────────────────────────
@@ -241,17 +270,17 @@ def build_parser() -> argparse.ArgumentParser:
 
     # example subcommand
     example = subparsers.add_parser(
-        "example", help="Real-world example pipeline runner"
+        "example", help="Example pipeline runner (real-world + features)"
     )
     example_sub = example.add_subparsers(dest="subcommand")
 
-    ex_list = example_sub.add_parser("list", help="List available examples")
+    ex_list = example_sub.add_parser("list", help="List all available examples")
     ex_list.set_defaults(func=cmd_example_list)
 
     ex_run = example_sub.add_parser("run", help="Run a named example")
     ex_run.add_argument(
         "name",
-        help="Example name (nba | saas | user-activity | ecommerce | fintech | supply-chain)",
+        help="Example name — run 'sqldim example list' for the full list",
     )
     ex_run.set_defaults(func=cmd_example_run)
 
