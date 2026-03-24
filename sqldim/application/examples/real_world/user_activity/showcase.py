@@ -88,7 +88,7 @@ def demo_staging_layer(con: duckdb.DuckDBPyConnection) -> None:
     with section("1. Staging Layer — DevicesSource + EventsSource"):
         DevicesSource(n=50, seed=42).setup(con, "devices")
 
-        src = EventsSource(n=10_000, seed=42)
+        src = EventsSource(n=500, seed=42)
         con.execute(
             f"CREATE TABLE page_events AS SELECT * FROM ({src.snapshot().as_sql(con)})"
         )

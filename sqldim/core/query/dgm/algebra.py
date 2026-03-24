@@ -262,18 +262,14 @@ class QuestionAlgebra:
         The body uses the CTE names as references — the outer ``to_sql()``
         ensures those names are defined earlier in the WITH block.
         """
-        if op is ComposeOp.UNION:
-            return (
-                f"SELECT * FROM {left.name}\nUNION ALL\nSELECT * FROM {right.name}"
-            )
-        if op is ComposeOp.INTERSECT:
-            return (
-                f"SELECT * FROM {left.name}\nINTERSECT\nSELECT * FROM {right.name}"
-            )
-        if op is ComposeOp.EXCEPT:
-            return (
-                f"SELECT * FROM {left.name}\nEXCEPT\nSELECT * FROM {right.name}"
-            )
+        _set_ops = {
+            ComposeOp.UNION:     f"SELECT * FROM {left.name}\nUNION ALL\nSELECT * FROM {right.name}",
+            ComposeOp.INTERSECT: f"SELECT * FROM {left.name}\nINTERSECT\nSELECT * FROM {right.name}",
+            ComposeOp.EXCEPT:    f"SELECT * FROM {left.name}\nEXCEPT\nSELECT * FROM {right.name}",
+            ComposeOp.WITH:      f"SELECT * FROM {right.name}",
+        }
+        if op in _set_ops:
+            return _set_ops[op]
         if op is ComposeOp.JOIN:
             if on is None:
                 raise ValueError(
@@ -285,8 +281,4 @@ class QuestionAlgebra:
                 f"FROM {left.name} l\n"
                 f"JOIN {right.name} r ON {on}"
             )
-        if op is ComposeOp.WITH:
-            # Dependent chain: right uses left as its scope.
-            # Render as: SELECT * FROM right (left is already defined in WITH).
-            return f"SELECT * FROM {right.name}"
         raise ValueError(f"Unknown ComposeOp: {op!r}")  # pragma: no cover

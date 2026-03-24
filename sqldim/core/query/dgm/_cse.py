@@ -103,11 +103,53 @@ def find_shared_predicates(
         bdd_id = _pred_bdd_id(cq, bdd)
         if bdd_id is None:
             continue
-        if bdd_id not in groups:
-            groups[bdd_id] = []
-        groups[bdd_id].append(name)
+        groups.setdefault(bdd_id, []).append(name)
     # Only report genuine sharing (2+ CTEs per group).
     return {k: v for k, v in groups.items() if len(v) >= 2}
+
+
+# ---------------------------------------------------------------------------
+# Private helpers for apply_cse
+# ---------------------------------------------------------------------------
+
+
+def _build_cse_lookup(
+    algebra: QuestionAlgebra,
+    shared: "dict[int, list[str]]",
+) -> "tuple[dict[str, str], dict[str, str]]":
+    """Build (name_to_cse, cse_sql) mappings from the shared-predicate groups."""
+    name_to_cse: dict[str, str] = {}
+    cse_sql: dict[str, str] = {}
+    for bdd_id, names in shared.items():
+        cse_name = f"__cse_{bdd_id}"
+        first_cq = algebra._ctes[names[0]]
+        dq = first_cq.query  # DGMQuery — guaranteed non-None by find_shared
+        anchor = dq._anchor_table or "unknown"
+        pred_sql = dq._where_pred.to_sql()  # type: ignore[union-attr]
+        cse_sql[cse_name] = f"SELECT * FROM {anchor} WHERE {pred_sql}"
+        for n in names:
+            name_to_cse[n] = cse_name
+    return name_to_cse, cse_sql
+
+
+def _rebuild_algebra_with_cse(
+    algebra: QuestionAlgebra,
+    name_to_cse: "dict[str, str]",
+    cse_sql: "dict[str, str]",
+) -> QuestionAlgebra:
+    """Rebuild algebra inserting each __cse_<k> CTE before its first sharing CTE."""
+    new_alg = QuestionAlgebra()
+    inserted_cse: set[str] = set()
+    for name, cq in algebra._ctes.items():
+        if name in name_to_cse:
+            cse_name = name_to_cse[name]
+            if cse_name not in inserted_cse:
+                new_alg._ctes[cse_name] = ComposedQuery(
+                    name=cse_name, sql=cse_sql[cse_name]
+                )
+                inserted_cse.add(cse_name)
+        new_alg._ctes[name] = cq
+    return new_alg
 
 
 def apply_cse(
@@ -157,36 +199,5 @@ def apply_cse(
             new_alg._ctes[name] = cq
         return new_alg
 
-    # Build a reverse-lookup: cte_name → (bdd_id, cse_name).
-    # Processed in deterministic order so shared CTE names are stable.
-    name_to_cse: dict[str, str] = {}
-    cse_sql: dict[str, str] = {}  # cse_name → SQL body
-
-    for bdd_id, names in shared.items():
-        cse_name = f"__cse_{bdd_id}"
-        first_cq = algebra._ctes[names[0]]
-        dq = first_cq.query  # DGMQuery — guaranteed non-None by find_shared
-        anchor = dq._anchor_table or "unknown"
-        pred_sql = dq._where_pred.to_sql()  # type: ignore[union-attr]
-        cse_sql[cse_name] = f"SELECT * FROM {anchor} WHERE {pred_sql}"
-        for n in names:
-            name_to_cse[n] = cse_name
-
-    # Rebuild the algebra in a single pass, inserting each __cse_<k> CTE just
-    # before the first original CTE that belongs to its sharing group.
-    new_alg = QuestionAlgebra()
-    inserted_cse: set[str] = set()
-
-    for name, cq in algebra._ctes.items():
-        if name in name_to_cse:
-            cse_name = name_to_cse[name]
-            if cse_name not in inserted_cse:
-                # Insert the shared-filter CTE first.
-                new_alg._ctes[cse_name] = ComposedQuery(
-                    name=cse_name, sql=cse_sql[cse_name]
-                )
-                inserted_cse.add(cse_name)
-        # Always preserve the original CTE unchanged.
-        new_alg._ctes[name] = cq
-
-    return new_alg
+    name_to_cse, cse_sql = _build_cse_lookup(algebra, shared)
+    return _rebuild_algebra_with_cse(algebra, name_to_cse, cse_sql)

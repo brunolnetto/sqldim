@@ -566,6 +566,30 @@ def demo_question_algebra() -> None:
 # ---------------------------------------------------------------------------
 
 
+def _print_cse_ctesql(optimised_qa: QuestionAlgebra) -> None:
+    """Print SQL for each injected __cse_* CTE."""
+    cse_ctes = [n for n in optimised_qa.names if n.startswith("__cse_")]
+    print(f"  Injected CSE CTEs  : {cse_ctes}")
+    for cse_name in cse_ctes:
+        print(f"\n  {cse_name} SQL:")
+        for line in optimised_qa[cse_name].to_cte_sql().splitlines():
+            print(f"    {line}")
+
+
+def _print_cse_results(
+    qa: QuestionAlgebra,
+    optimised_qa: QuestionAlgebra,
+    shared: dict,
+) -> None:
+    """Print CSE detection and injection results."""
+    print(f"  Shared predicate groups detected: {len(shared)}")
+    for bdd_id, names in shared.items():
+        print(f"    BDD node {bdd_id}: {names}")
+    print(f"\n  Original CTE order : {qa.names}")
+    print(f"  Optimised CTE order: {optimised_qa.names}")
+    _print_cse_ctesql(optimised_qa)
+
+
 def demo_cse() -> None:
     """Example 8 — §6.2 Rule 11: Cross-CTE Common Sub-expression Elimination.
 
@@ -593,26 +617,11 @@ def demo_cse() -> None:
     qa.add("highval_sales",  q3)
 
     bdd = DGMPredicateBDD(BDDManager())
-
-    # Detection pass
     shared = find_shared_predicates(qa, bdd)
-    print(f"  Shared predicate groups detected: {len(shared)}")
-    for bdd_id, names in shared.items():
-        print(f"    BDD node {bdd_id}: {names}")
-
-    # CSE injection
     optimised_qa = apply_cse(qa, bdd)
-    print(f"\n  Original CTE order : {qa.names}")
-    print(f"  Optimised CTE order: {optimised_qa.names}")
 
-    cse_ctes = [n for n in optimised_qa.names if n.startswith("__cse_")]
-    print(f"  Injected CSE CTEs  : {cse_ctes}")
-    for cse_name in cse_ctes:
-        print(f"\n  {cse_name} SQL:")
-        for line in optimised_qa[cse_name].to_cte_sql().splitlines():
-            print(f"    {line}")
+    _print_cse_results(qa, optimised_qa, shared)
 
-    # Original algebra unchanged
     assert qa.names == ["us_sales", "us_sales_copy", "highval_sales"]
     print("\n  Original algebra not mutated. Example 8 complete.")
 

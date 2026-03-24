@@ -179,6 +179,11 @@ class DimensionalLoader:
 
         return [DatasetRef(namespace="sqldim.silver", name=m) for m in loaded_models]
 
+    def _emit_lineage(self, run_id: "str | None", job_name: str, state: Any, **kwargs: Any) -> None:
+        """Emit a single lineage event; no-op when no emitter is configured."""
+        from sqldim.lineage.events import LineageEvent
+        self._emit(LineageEvent(run_id=run_id, job_name=job_name, state=state, **kwargs))
+
     async def _load_single_model(
         self,
         model: Type,
@@ -187,52 +192,43 @@ class DimensionalLoader:
         run_id: "str | None",
     ) -> str:
         """Load one model and emit per-model lineage START / COMPLETE / FAIL events."""
-        from sqldim.lineage.events import DatasetRef, LineageEvent, RunState
+        from sqldim.lineage.events import DatasetRef, RunState
 
         model_label = model.__name__
         model_type = "dimension" if issubclass(model, DimensionModel) else "fact"
-        self._emit(
-            LineageEvent(
-                run_id=run_id,
-                job_name=f"load.{model_label}",
-                state=RunState.START,
-                facets={"model_type": model_type, "rows": len(data)},
-            )
+        self._emit_lineage(
+            run_id, f"load.{model_label}", RunState.START,
+            facets={"model_type": model_type, "rows": len(data)},
         )
         try:
-            if issubclass(model, DimensionModel):
-                await self._load_dimension(model, data)
-            else:
-                # Bulk pre-warm SK cache for every FK column before the
-                # per-record resolution loop — one IN query per FK column
-                # instead of one query per fact row.
-                if key_map:
-                    for fk_col, (dim_model, nk_name) in key_map.items():
-                        self.resolver.bulk_resolve(
-                            dim_model, nk_name, [r.get(fk_col) for r in data]
-                        )
-                processed_data = [self._resolve_fks(r, key_map) for r in data]
-                await self._execute_fact_strategy(
-                    model, getattr(model, "__strategy__", None), processed_data, key_map
-                )
-            self._emit(
-                LineageEvent(
-                    run_id=run_id,
-                    job_name=f"load.{model_label}",
-                    state=RunState.COMPLETE,
-                    outputs=[DatasetRef(namespace="sqldim.silver", name=model_label)],
-                )
+            await self._load_model_data(model, data, key_map)
+            self._emit_lineage(
+                run_id, f"load.{model_label}", RunState.COMPLETE,
+                outputs=[DatasetRef(namespace="sqldim.silver", name=model_label)],
             )
         except Exception:  # noqa: BLE001
-            self._emit(
-                LineageEvent(
-                    run_id=run_id,
-                    job_name=f"load.{model_label}",
-                    state=RunState.FAIL,
-                )
-            )
+            self._emit_lineage(run_id, f"load.{model_label}", RunState.FAIL)
             raise
         return model_label
+
+    async def _load_model_data(self, model: Type, data: list, key_map: dict) -> None:
+        """Dispatch dimension or fact load for *model*."""
+        if issubclass(model, DimensionModel):
+            await self._load_dimension(model, data)
+        else:
+            await self._load_fact(model, data, key_map)
+
+    async def _load_fact(self, model: Type, data: list, key_map: dict) -> None:
+        """Pre-warm SK cache and load a fact model."""
+        if key_map:
+            for fk_col, (dim_model, nk_name) in key_map.items():
+                self.resolver.bulk_resolve(
+                    dim_model, nk_name, [r.get(fk_col) for r in data]
+                )
+        processed_data = [self._resolve_fks(r, key_map) for r in data]
+        await self._execute_fact_strategy(
+            model, getattr(model, "__strategy__", None), processed_data, key_map
+        )
 
     async def _execute_fact_strategy(
         self,

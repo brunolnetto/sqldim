@@ -291,7 +291,7 @@ class TestNbaAnalyticsDataset:
 class TestSaasGrowthDataset:
     def test_import_and_tables(self):
         from sqldim.application.datasets.domains.saas_growth.dataset import saas_growth_dataset
-        assert saas_growth_dataset.table_names() == ["saas_users"]
+        assert set(saas_growth_dataset.table_names()) == {"saas_users", "saas_sessions"}
 
     def test_setup_teardown(self):
         from sqldim.application.datasets.domains.saas_growth.dataset import saas_growth_dataset

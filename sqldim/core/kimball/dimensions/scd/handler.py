@@ -228,6 +228,48 @@ class SCDHandler(Generic[T]):
         else:
             self._handle_type2(existing, record, checksum, result)
 
+    def _bulk_fetch_existing(self, nk_field: str, nk_values: list) -> "dict[object, T]":
+        """Return a {nk_value: row} map for all current rows matching nk_values."""
+        stmt = select(self.model).where(getattr(self.model, nk_field).in_(nk_values))
+        if hasattr(self.model, "is_current"):
+            stmt = stmt.where(getattr(self.model, "is_current"))
+        return {
+            getattr(row, nk_field): row
+            for row in self.session.exec(stmt).all()
+        }
+
+    def _bulk_insert_new(self, records: list[dict], result: SCDResult) -> None:
+        """Fast-path bulk INSERT for an all-new batch (no existing rows)."""
+        from sqlalchemy import insert as _sa_insert
+
+        now = datetime.now(timezone.utc)
+        rows = []
+        for record in records:
+            checksum = self.compute_checksum(record)
+            row = {**record, "checksum": checksum, "is_current": True}
+            row.setdefault("valid_from", now)
+            rows.append(row)
+            result.inserted += 1
+        self.session.execute(_sa_insert(self.model), rows)
+
+    def _dispatch_record(
+        self,
+        record: dict,
+        nk_field: str,
+        existing_map: "dict[object, T]",
+        result: SCDResult,
+    ) -> None:
+        """Route one record to the correct SCD handler based on change detection."""
+        nk_value = record.get(nk_field)
+        checksum = self.compute_checksum(record)
+        existing = existing_map.get(nk_value)
+        if not existing:
+            self._handle_new_record(record, checksum, result)
+        elif existing.checksum != checksum:
+            self._handle_changed_record(existing, record, checksum, result, nk_value)
+        else:
+            result.unchanged += 1
+
     async def process(self, records: list[dict[str, object]]) -> SCDResult:
         """Process *records* in a single bulk-aware pass, applying SCD logic per row.
 
@@ -251,42 +293,15 @@ class SCDHandler(Generic[T]):
 
         nk_field = getattr(self.model, "__natural_key__", ["id"])[0]
         nk_values = [r.get(nk_field) for r in records]
+        existing_map = self._bulk_fetch_existing(nk_field, nk_values)
 
-        # Bulk-fetch all existing current rows matching the incoming NK values.
-        stmt = select(self.model).where(getattr(self.model, nk_field).in_(nk_values))
-        if hasattr(self.model, "is_current"):
-            stmt = stmt.where(getattr(self.model, "is_current"))
-        existing_map: dict[object, T] = {
-            getattr(row, nk_field): row
-            for row in self.session.exec(stmt).all()
-        }
-
-        # Fast path: all records are new — use a single Core bulk INSERT.
         if not existing_map:
-            from sqlalchemy import insert as _sa_insert
-
-            now = datetime.now(timezone.utc)
-            rows = []
-            for record in records:
-                checksum = self.compute_checksum(record)
-                row = {**record, "checksum": checksum, "is_current": True}
-                row.setdefault("valid_from", now)
-                rows.append(row)
-                result.inserted += 1
-            self.session.execute(_sa_insert(self.model), rows)
+            self._bulk_insert_new(records, result)
             self.session.commit()
             return result
 
         for record in records:
-            nk_value = record.get(nk_field)
-            checksum = self.compute_checksum(record)
-            existing = existing_map.get(nk_value)
-            if not existing:
-                self._handle_new_record(record, checksum, result)
-            elif existing.checksum != checksum:
-                self._handle_changed_record(existing, record, checksum, result, nk_value)
-            else:
-                result.unchanged += 1
+            self._dispatch_record(record, nk_field, existing_map, result)
 
         self.session.commit()
         return result

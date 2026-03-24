@@ -255,6 +255,19 @@ class DGMRecommender:
 
     # -- Compositional correlation suggestions (§7.2) --------------------
 
+    @staticmethod
+    def _group_leaf_ctes_by_anchor(algebra: "object") -> "dict[str, list[str]]":
+        """Return {anchor_table: [cte_name, …]} for all DGMQuery-backed leaf CTEs."""
+        anchor_to_names: dict[str, list[str]] = {}
+        for name, cq in algebra._ctes.items():
+            if cq.query is None:
+                continue
+            anchor = getattr(cq.query, "_anchor_table", None)
+            if anchor is None:
+                continue
+            anchor_to_names.setdefault(anchor, []).append(name)
+        return anchor_to_names
+
     def suggest_correlations(
         self,
         algebra: "object",
@@ -282,25 +295,11 @@ class DGMRecommender:
         O(|leaf_CTEs|) grouping pass + O(pairs_per_group) pair generation.
         Worst case O(n²) when all n CTEs share one anchor; typical O(n).
         """
-        from sqldim.core.query.dgm.algebra import ComposedQuery
-
-        # Group leaf CTE names by anchor table.
-        anchor_to_names: dict[str, list[str]] = {}
-        for name, cq in algebra._ctes.items():
-            if cq.query is None:
-                continue  # composed CTE — no DGMQuery
-            anchor = getattr(cq.query, "_anchor_table", None)
-            if anchor is None:
-                continue  # DGMQuery never anchored
-            if anchor not in anchor_to_names:
-                anchor_to_names[anchor] = []
-            anchor_to_names[anchor].append(name)
-
+        anchor_to_names = self._group_leaf_ctes_by_anchor(algebra)
         suggestions: list[Suggestion] = []
         for anchor, names in anchor_to_names.items():
             if len(names) < 2:
                 continue
-            # Emit one suggestion per unordered pair.
             for i in range(len(names)):
                 for j in range(i + 1, len(names)):
                     left, right = names[i], names[j]
