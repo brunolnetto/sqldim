@@ -1,4 +1,5 @@
 # Dimensional Graph Model — Formal Specification
+**Version 0.20 — Draft**
 
 ---
 
@@ -839,6 +840,56 @@ if PipelineArtifact(f, _, ttl, horizon, write_mode) ∈ Σ:
             BridgeSemantics(CAUSAL)         -- backfill; no prior artifact; window stays Failed
 ```
 
+**Rule 11 — Cross-CTE Common Subexpression Elimination (CSE):**
+
+When a composed query contains multiple CTEs (question chains, correlation queries), the planner identifies shared sub-computations and materialises each once:
+
+```
+for each pair of CTEs (q_i, q_j) in a composed query:
+    shared = identify_shared_subexpressions(q_i, q_j)
+    for each s in shared:
+        -- BDD node id equality: same id = semantically equivalent
+        if bdd_id(s in q_i) = bdd_id(s in q_j):
+            materialise s as a new CTE q_s, hoisted before q_i and q_j
+            replace s references in q_i, q_j with q_s
+
+-- Shared subexpression types eligible for hoisting:
+--   PathPred with identical BoundPath + TemporalMode
+--   TemporalAgg with identical window + timestamp ref
+--   GraphExpr with identical algorithm + alias
+--   Join subgraph over identical node set + filters
+```
+
+Cross-query BDD ids are comparable because the BDD is constructed once per query session over the same atom set (§6.1). Two sub-predicates with the same BDD node id in different CTEs are semantically equivalent and share a single materialised CTE. This extends the existing within-query CSE (optimisation pipeline step 2) to cross-query scope.
+
+**Rule 11 extended — query DAG minimisation (new in v0.20).** Beyond shared subexpression hoisting, Rule 11 now applies the full semiring elimination laws before emitting CTEs:
+
+```
+Semiring elimination rules applied during query DAG make():
+
+UNION laws:
+  Q ∪ Q            = Q           (idempotence; same DAG node id)
+  Q ∪ ∅            = Q           (identity; remove empty branch)
+  Q ∪ Q_top        = Q_top       (absorption; top dominates)
+  Q₁ ∪ Q₂ where Q₁⊆Q₂ = Q₂    (containment absorption; Band 1 only)
+
+INTERSECT laws:
+  Q ∩ Q            = Q           (idempotence)
+  Q ∩ ∅            = ∅           (annihilation)
+  Q ∩ Q_top        = Q           (identity)
+  Q₁ ∩ Q₂ where Q₁⊆Q₂ = Q₁    (containment selection; Band 1 only)
+
+Distributivity (applied when it reduces node count):
+  Q₁ ∩ (Q₂ ∪ Q₃)  = (Q₁ ∩ Q₂) ∪ (Q₁ ∩ Q₃)
+
+Containment check:
+  Q₁ ⊆ Q₂  iff  bdd.implies(Q₁.where_bdd, Q₂.where_bdd)  [Band 1]
+            NP-complete (homomorphism test) but tractable for small queries
+            Not applied for Band 2/3 (undecidable in general)
+```
+
+After elimination, the canonical query DAG is topologically sorted. Each node becomes exactly one CTE in the SQL output. The minimum CTE count equals the number of nodes in the canonical DAG — a tight lower bound: no correct query with fewer CTEs exists.
+
 ### 6.3  Query exporter
 
 ```
@@ -916,9 +967,9 @@ Layer 3 — Data scoring                (small surviving set)
 Ranked suggestions
 ```
 
-### 7.2  Two-stage trail exploration flow
+### 7.2  Two-stage trail exploration and compositional suggestions
 
-The endpoint relaxation extension gives the recommender a natural two-stage exploration protocol:
+**Two-stage trail exploration.** The endpoint relaxation extension gives the recommender a natural two-stage exploration protocol:
 
 **Stage 1 — Free-endpoint characterisation.** Before fixing a target, surface OUTGOING_SIGNATURES(A) or INCOMING_SIGNATURES(B): "Your anchor node has N distinct outgoing path types. Dominant type: X (Y% of paths). SIGNATURE_DIVERSITY = Z."
 
@@ -926,6 +977,53 @@ High entropy / high diversity → recommend Stage 1 characterisation before dril
 Low entropy / low diversity → recommend direct Bound→Bound query.
 
 **Stage 2 — Fixed-endpoint deep-dive.** Once a path type is identified via SignaturePred, narrow to a specific Bound→Bound pair using DISTINCT_SIGNATURES and DOMINANT_SIGNATURE. "REACHABLE_BETWEEN subgraph: DENSITY=D, MAX_FLOW=F."
+
+**Compositional suggestions (new in v0.19).** CTE composition introduces a fourth suggestion type alongside Refinement, Generalisation, and Pivot:
+
+```
+Suggestion types:
+  Refinement:    Q → Q'  (more specific predicate / finer grain)
+  Generalisation: Q → Q'  (less specific predicate / coarser grain)
+  Pivot:         Q → Q'  (different dimension / path, same specificity)
+  Correlation:   (Q₁, Q₂) → Q₁ JOIN Q₂ ON shared_key
+                 "here are two questions whose intersection is analytically valuable"
+```
+
+**Correlation suggestion generation.** Given a current query `Q_current` and the question algebra `Q_algebra(A, B)`, candidate correlation partners `Q_j` are identified by:
+
+```
+1. BDD atom intersection: find Q_j where atoms(Q_current) ∩ atoms(Q_j) ≠ ∅
+   -- shared PropRef atoms = natural join keys between result sets
+2. BDD feasibility: ensure Q_current ∩ Q_j is satisfiable (non-empty intersection)
+   -- checked via bdd.apply(AND, current_bdd, q_j_bdd) != FALSE_NODE
+3. Value scoring: estimate analytical value of Q_current JOIN Q_j ON shared_atoms
+   -- high value when the join reduces both result sets substantially (high selectivity)
+4. Rank and surface top-k correlation partners
+```
+
+**Question chain suggestions.** A question chain `Q₁ → Q₂ → Q₃` is a descent path in `L(G_AB)` — each step narrows the scope. The recommender can suggest entire chains rather than single steps:
+
+```
+"Start with Q₁ (all retail customers).
+ Narrow to Q₂ (customers with >5 orders in last 30 days).
+ Then ask Q₃ (top-2 sales per customer in Q₂ by revenue)."
+```
+
+This is a three-step CTE chain whose final result is not expressible as any single `Q_valid` query. The BDD validates each step's feasibility; trail metrics score the chain's analytical value.
+
+**Canonical space navigation.** The query DAG canonical form (§8.14) changes what "neighbourhood" means for the recommender. Two syntactically different suggestions with the same query DAG node id are the same question — the recommender surfaces only one. The neighbourhood is defined over canonical DAG nodes:
+
+```
+neighbourhood(q_current) = {
+  q' | q' differs from q_current by exactly one DAG operation:
+       add one leaf node (Q_valid query)          -- refinement / generalisation
+       remove one leaf node                        -- generalisation
+       change one leaf node's operation (∪/∩/JOIN) -- pivot
+       add one correlation JOIN node               -- new correlation
+}
+```
+
+Correlation candidates identified by DAG node sharing are essentially free — the shared subgraph is already materialised. Cross-session result caching uses the query DAG node id as the cache key: same id, same result set (given same `G` snapshot). Cache invalidation is structural: a cached result for DAG node `q_id` is stale when any node or edge referenced by `q_id`'s leaf queries has changed in `G`.
 
 ### 7.3  Suggestion types per band
 
@@ -1113,6 +1211,181 @@ argmax_{q ∈ neighbourhood(q_current)} score(q)
 ```
 
 where `neighbourhood(q_current)` is the set of queries reachable from the current query by one step in `L(G_AB)` (add/remove one predicate, one aggregation, one window expression). The BDD ensures `neighbourhood` contains only valid, non-redundant steps. Trail metrics supply `score`. The three-layer recommender architecture (§7.1) is the computational realisation of this optimisation.
+
+### 8.13  Question algebra and CTE composition
+
+**Definition (Question algebra).** The **question algebra** `Q_algebra(A, B)` is the closure of `Q_valid(A, B)` under CTE composition operations:
+
+```
+Q_algebra(A, B) = closure of Q_valid(A, B) under {JOIN, UNION, INTERSECT, EXCEPT, WITH}
+```
+
+`Q_algebra(A, B)` is still finite (the graph is finite; all result sets are bounded subsets of `N_AB × propvals`). Its cardinality is combinatorially larger than `Q_valid(A, B)` — it includes all results obtainable by composing individual questions.
+
+**Semiring structure.** The set operations form a semiring:
+
+```
+(Q_algebra(A, B), UNION, INTERSECT, ∅, Q_top)
+```
+
+where `∅` (empty result) is the additive identity and `Q_top` (all tuples in `G_AB`) is the multiplicative identity. This is the relational algebra semiring — `Q_algebra(A, B)` inherits all of relational algebra's compositional power.
+
+**Three composition patterns in DGM:**
+
+`Q₁ INTERSECT Q₂` — returns tuples satisfying both questions. For Band 1 queries, equivalent to `AND(Q₁.where, Q₂.where)` already handled by the BDD. For Band 2/3 compositions, intersection is not reducible to a single DGM query.
+
+`Q₁ UNION Q₂` — returns tuples satisfying either. For Band 1 queries, equivalent to `OR(Q₁.where, Q₂.where)`, handled by the BDD's `UNION ALL` SQL strategy (§6.1). For Band 2/3 compositions, union has no single-query equivalent.
+
+`Q₁ JOIN Q₂ ON key` — correlates the answers to two questions on a shared key. This is the most powerful composition: it asks "where do the answers to Q₁ and Q₂ agree on key?" Always a new point in `Q_algebra` not in `Q_valid`.
+
+**Theorem (Datalog equivalence).** Under CTE composition, `Q_algebra(A, B)` is equivalent to **Datalog** over `G_AB` — the query language whose semantics are exactly least-fixpoint computations over relations.
+
+*Proof sketch.* (→) Every Datalog rule is a conjunctive query with recursion, expressible as a CTE with a `WITH RECURSIVE` clause over `G_AB`. (←) Every `Q_algebra` composition is a finite chain of relational operations, expressible as a Datalog program without negation. ∎
+
+**Corollary (PTIME bound).** By the Immerman-Vardi theorem, Datalog over ordered structures captures exactly PTIME. Under recursive CTE composition, `Q_algebra(A, B)` captures all PTIME-computable properties of `G_AB`. Questions not answerable within DGM under CTE composition require super-polynomial computation.
+
+This bound justifies the D17 restriction: `Free→Free` scope in a `Where PathPred` position would push the filter into an unrestricted fixpoint, threatening decidability. The restriction to `Agg`/`Window` maintains the PTIME bound.
+
+**Fixpoint semantics of recursive CTEs.** DGM already uses recursive CTEs for `BoundPath` traversal — path expansion is a least-fixpoint computation over the reachability relation. The question algebra generalises this: any CTE chain `Q_n` conditioned on `Q_{n-1}` is a fixpoint sequence. Question chains are **descent paths in `L(G_AB)`** — they trace routes from broad questions to specific answers, converging either at the empty result (bottom of `L`) or at a stable fixpoint (most specific achievable answer).
+
+**Two-level predicate system.** The BDD covers single-query predicates. Cross-query predicate reasoning — "Q₂'s Where is implied by Q₁'s Agg result" — requires a second level:
+
+```
+Level 1: BDD over single-query predicates (current; §6.1)
+Level 2: Inter-query containment over CTE result schemas
+          -- decidable for conjunctive Band 1 queries (BDD implication check extended to result schema)
+          -- harder for Band 2/3 compositions
+```
+
+For Band 1 queries, cross-query containment is decidable via the BDD's implication check extended to result schema `PropRef` sets. For Band 2/3 compositions, the problem reduces to query containment under aggregation — tractable for common cases (same GroupBy keys, monotone aggregates) but not in general.
+
+**Extended theorem (Question completeness, v0.19).** `Q_valid(A, B)` is a finite generating set for `Q_algebra(A, B)`. Under CTE composition, `Q_algebra(A, B)` is equivalent to Datalog over `G_AB` and captures all PTIME-computable analytical questions about the `A→B` relationship. The question lattice `L(G_AB)` extends to the question algebra `A(G_AB)` with semiring structure. Question chains are descent paths in `A(G_AB)`.
+
+### 8.14  Query DAG canonical form
+
+**Motivation.** The BDD is the canonical form for predicate trees — two predicates reduce to the same BDD node id if and only if they are semantically equivalent. `Q_algebra(A, B)` has an analogous canonical form: the **query DAG**, a directed acyclic graph of relational operations whose leaf nodes are BDD-canonical `Q_valid` queries and whose internal nodes are semiring operations (`UNION`, `INTERSECT`, `JOIN`).
+
+**The BDD / query DAG parallel:**
+
+```
+BDD                               Query DAG
+─────────────────────────────────────────────────────────────────
+Atom set (ScalarPred leaves)      Q_valid(A,B) leaf queries
+Variable ordering                 Dependency partial order (data flow)
+Sharing rule (unique table)       CSE: shared sub-queries = single DAG node
+Elimination rule (low==high→low)  Semiring laws (idempotence, absorption,
+                                   annihilation, containment)
+BDD node id = canonical identity  Query DAG node id = canonical identity
+O(1) equivalence: same id         O(1) equivalence: same id
+```
+
+**Definition (query DAG).** A query DAG `D` over `Q_valid(A, B)` is a DAG where:
+- **Leaf nodes** are elements of `Q_valid(A, B)`, each in BDD-canonical form.
+- **Internal nodes** have one of three types: `UNION(left, right)`, `INTERSECT(left, right)`, `JOIN(left, right, key: PropRef)`.
+- The DAG is **reduced** when no semiring elimination rule applies and no two nodes have identical `(type, left_id, right_id)` triples.
+- A reduced query DAG is **canonical** — unique up to the variable ordering on leaf BDD atoms.
+
+**Construction algorithm** (mirrors BDD `make`):
+
+```python
+class QueryDAG:
+    nodes:  dict[int, QueryNode]     # id → (type, left, right) or leaf Q_valid
+    unique: dict[tuple, int]         # (type, left_id, right_id) → id
+    bdd:    DGMPredicateBDD          # Level 1; shared across all leaves
+
+    def make(self, op, left_id, right_id) -> int:
+        # ── Elimination rules ─────────────────────────────────────────────
+        if op == UNION:
+            if left_id == right_id:           return left_id       # Q ∪ Q
+            if left_id == EMPTY_ID:           return right_id      # ∅ ∪ Q
+            if right_id == EMPTY_ID:          return left_id
+            if left_id == TOP_ID:             return left_id       # Q_top ∪ Q
+            if right_id == TOP_ID:            return right_id
+            if self.contains(left_id, right_id):  return right_id  # Q₁⊆Q₂
+            if self.contains(right_id, left_id):  return left_id
+        if op == INTERSECT:
+            if left_id == right_id:           return left_id       # Q ∩ Q
+            if left_id == EMPTY_ID:           return EMPTY_ID      # ∅ ∩ Q
+            if right_id == EMPTY_ID:          return EMPTY_ID
+            if left_id == TOP_ID:             return right_id      # Q_top ∩ Q
+            if right_id == TOP_ID:            return left_id
+            if self.contains(left_id, right_id):  return left_id   # Q₁⊆Q₂
+            if self.contains(right_id, left_id):  return right_id
+        # ── Sharing rule ──────────────────────────────────────────────────
+        key = (op, left_id, right_id)
+        if key in self.unique: return self.unique[key]
+        nid = self._new_id()
+        self.nodes[nid] = QueryNode(op, left_id, right_id)
+        self.unique[key] = nid
+        return nid
+
+    def contains(self, q1_id, q2_id) -> bool:
+        # Q₁ ⊆ Q₂: applies BDD implication for Band 1 leaf queries
+        # Returns False (conservative) for Band 2/3 compositions
+        n1, n2 = self.nodes[q1_id], self.nodes[q2_id]
+        if n1.is_leaf and n2.is_leaf and n1.band == B1 and n2.band == B1:
+            return self.bdd.implies(n1.where_bdd_id, n2.where_bdd_id)
+        return False
+```
+
+**Canonical form theorem.** Two composed queries are semantically equivalent over `G_AB` if and only if they reduce to the same query DAG node id. Proof: the elimination rules preserve semantics (each rule is a tautological semiring identity); the sharing rule enforces structural uniqueness; the BDD canonical form at the leaves ensures leaf equivalence is decided by id comparison. ∎
+
+**Two-level canonical form.** The full DGM canonical form is the query DAG whose leaves are BDD-canonical `Q_valid` queries:
+
+```
+Full canonical form:
+  Level 1 (predicate): BDD over ScalarPred/PathPred/SignaturePred atoms
+                        — canonical form for single-query predicates
+                        — equivalence: same BDD node id  (O(1))
+
+  Level 2 (composition): query DAG over Q_valid leaf nodes
+                          — canonical form for composed queries
+                          — equivalence: same query DAG node id  (O(1))
+
+  Composed query Q is fully normalised when:
+    (a) every leaf is BDD-canonical, AND
+    (b) no elimination rule applies to any internal DAG node
+```
+
+**Minimum CTE count.** The number of nodes in the canonical query DAG equals the minimum number of CTEs needed to express the composed query. This is a tight lower bound — no semantically equivalent composed query exists with fewer CTEs. The topological sort of the DAG gives the canonical CTE ordering.
+
+**Complexity stratification of containment.**
+
+The `contains(q1, q2)` check is the hard step. Its tractability depends on band:
+
+```
+Band 1 conjunctive:        NP-complete (Chandra-Merlin homomorphism test)
+                            tractable for small queries in practice
+Band 1 + Band 2 monotone:  Polynomial (monotone aggregate containment)
+Band 1 + Band 2 arbitrary: Undecidable in general
+Band 1-3 with recursion:   Σ₁-hard (Datalog containment)
+```
+
+The planner applies containment-based elimination only for Band 1 leaf nodes (tractable case). For Band 2/3 nodes it applies only the syntactic laws (idempotence, identity, annihilation) which do not require containment checking.
+
+**Cross-session caching.** The query DAG node id is the cache key for composed query results:
+
+```
+cache[q_dag_id] = (result_set, G_snapshot_version)
+
+Validity: cache hit valid iff G_snapshot_version = current
+Invalidation: stale when any n ∈ N_AB or e ∈ E_AB referenced by
+              q_dag_id's leaf queries has changed in G
+              -- derivable from the DAG's dependency structure
+```
+
+This enables semantic-level caching: two users asking the same question in syntactically different forms get the same cached result because they reduce to the same DAG node id. SQL text caching cannot achieve this.
+
+**Query explanation via DAG decomposition.** The canonical query DAG is the minimum mechanical explanation of what a composed query does:
+
+```
+For each leaf node q_i:  "question i: [what q_i asks, from DGM_JSON serialisation]"
+For each UNION node:     "either question i or question j"
+For each INTERSECT node: "both question i and question j simultaneously"
+For each JOIN node:      "question i correlated with question j on [shared PropRef key]"
+```
+
+Reading the DAG bottom-up gives a complete, minimal, language-free explanation of the composed question. `ExportPlan.alternatives` (§6.2) are different canonical DAGs for the same semantic question, ranked by cost estimate.
 
 ---
 
@@ -1444,6 +1717,8 @@ Qualify:
 
 **Model checking.** Clarke et al. (1986) [8] — PathPred×TemporalMode realises full CTL; G^T enables past-temporal checking. **Interval algebra.** Allen (1983) [9] — 13 relations in TemporalOrdering.
 
+**Datalog and fixpoint query languages.** Datalog [13] is the query language whose semantics are least-fixpoint computations over relations, equivalent to first-order logic with least fixpoint (FO+LFP). The Immerman-Vardi theorem establishes that FO+LFP captures PTIME on ordered structures. DGM's question algebra `Q_algebra(A, B)` under CTE composition is equivalent to Datalog over `G_AB` (§8.13) — establishing that DGM's full compositional question space is exactly PTIME-bounded. This positions DGM precisely in the database query language complexity hierarchy and grounds the D17 restriction (no `Free→Free` in `Where PathPred` scope) as a decidability preservation measure.
+
 **Ontologies and knowledge representation.** RDF [10], RDFS, and OWL [11] constitute the standard ontological stack. An RDF triple `(subject, predicate, object)` is structurally identical to DGM's verb edge `(dim, label, fact)` — both are typed directed labeled edges between entities. The `τ_N : N → {dim, fact}` type function is a two-class hierarchy equivalent to `rdf:type` with `rdfs:subClassOf`. SPARQL 1.1 property paths (`+`, `*`, `|`, `^`) correspond to DGM's `BoundPath` traversal, and SPARQL's `FILTER EXISTS` / `FILTER NOT EXISTS` correspond to `PathPred(EXISTS)` / `PathPred(FORALL)`. DGM independently arrived at the same graph primitive as RDF — evidence that the triple / typed directed labeled edge is the correct foundational structure.
 
 However, DGM and ontologies diverge sharply above that shared primitive, along five axes:
@@ -1464,7 +1739,11 @@ Novel contributions added in v0.16: Endpoint type with Bound/Free variants; four
 
 Novel contributions added in v0.17: `PipelineArtifact` composite annotation for backfill-incremental state machines; five-state artifact lifecycle modelled as `Grain(ACCUMULATING)` with implied `BridgeSemantics`; backfill/refresh asymmetry via `BridgeSemantics(SUPERSESSION)` vs `CAUSAL` on `In-flight → Failed` transition; `ADAPTIVE` write mode inferring `WritePlan` from `P(f).state` at planning time; planner Rule 10 for state-aware write planning and TTL expiry; scheduler loop expressed as composable DGM query pipeline (Q_backfill, Q_refresh, Q_delta monitoring); CTL LIVENESS/SAFETY/RESPONSE as formal scheduler correctness properties over the artifact graph; `UNTIL` operator distinguishing refresh failure (prior Complete preserved) from backfill failure (no prior artifact).
 
-Novel contributions added in v0.18: Question completeness theorem (§8.11) — `Q_valid(A, B)` finite and enumerable from `G_AB` and `Σ|_AB`; question lattice `L(G_AB)` with tautological top, contradictory bottom, and three specificity dimensions; formal characterisation of recommender as guided navigator of `L(G_AB)`; semantic scoring theorem — trail metrics induce non-uniform distribution over `L(G_AB)` without enumeration; `BETWEENNESS_CENTRALITY` as GroupBy pivot signal; `DOMINANT_SIGNATURE` as predicate seed; ontology relationship paragraph positioning DGM against RDF/OWL/SPARQL/OWL-Time along five axes; references [10] RDF, [11] OWL, [12] OWL-Time; D22 design decision on DGM/ontology distinction.
+Novel contributions added in v0.18:
+
+Novel contributions added in v0.19: Question algebra `Q_algebra(A, B)` as closure of `Q_valid` under CTE composition; semiring structure `(Q_algebra, UNION, INTERSECT, ∅, Q_top)`; Datalog equivalence theorem for `Q_algebra` under CTE composition; PTIME complexity bound via Immerman-Vardi; fixpoint semantics of recursive CTEs as descent paths in `L(G_AB)`; two-level predicate system (BDD for single-query, containment for cross-query); extended question completeness theorem (v0.19); planner Rule 11 cross-CTE CSE using BDD node id equality; compositional suggestion type (Correlation) in recommender; question chain suggestions as multi-step descent paths; Datalog reference [13] added; D23 design decision on CTE composition complexity.
+
+Novel contributions added in v0.20: Query DAG as canonical form for `Q_algebra(A, B)`; BDD/query DAG parallel (variable ordering ↔ dependency partial order, sharing rule ↔ CSE, elimination rule ↔ semiring laws); canonical form theorem (two composed queries equivalent iff same DAG node id); two-level canonical form (BDD at leaves, query DAG at composition); construction algorithm with elimination + sharing rules; minimum CTE count as tight lower bound (= number of canonical DAG nodes); complexity stratification of containment checking (Band 1: NP-complete; monotone Band 2: polynomial; arbitrary Band 2: undecidable; recursive: Σ₁-hard); cross-session caching via DAG node id as cache key; query explanation via DAG decomposition; canonical-space recommender navigation (neighbourhood over DAG nodes); Rule 11 extended with full semiring elimination laws; D24 design decision on canonical form. Question completeness theorem (§8.11) — `Q_valid(A, B)` finite and enumerable from `G_AB` and `Σ|_AB`; question lattice `L(G_AB)` with tautological top, contradictory bottom, and three specificity dimensions; formal characterisation of recommender as guided navigator of `L(G_AB)`; semantic scoring theorem — trail metrics induce non-uniform distribution over `L(G_AB)` without enumeration; `BETWEENNESS_CENTRALITY` as GroupBy pivot signal; `DOMINANT_SIGNATURE` as predicate seed; ontology relationship paragraph positioning DGM against RDF/OWL/SPARQL/OWL-Time along five axes; references [10] RDF, [11] OWL, [12] OWL-Time; D22 design decision on DGM/ontology distinction.
 
 ### 10.4  Design decisions
 
@@ -1489,7 +1768,9 @@ Novel contributions added in v0.18: Question completeness theorem (§8.11) — `
 **D19** — Cone containment (Rule 9) as structural theorem, not heuristic. Grounded in G_A* ∩ G_*B = G_AB. Always correct; fires whenever both constraints present on same Join branch.
 **D20** — PipelineArtifact is syntactic sugar, not a new fact type. The backfill-incremental state machine is modelled entirely within existing constructs: Grain(ACCUMULATING), BridgeSemantics, WritePlan, Q_delta(CHANGED_PROPERTY), and CTL temporal properties. PipelineArtifact assembles these into one declaration and infers semantics from P(f).state at planning time (planner Rule 10). Follows the same pattern as TemporalProperty classes (D9).
 **D21** — Backfill and refresh require different WritePlan modes by construction. Backfill (APPEND) has no prior artifact — failure leaves the window durably in Failed. Refresh (MERGE) preserves the prior Complete via atomic swap — failure regresses to Stale, not Failed. ADAPTIVE mode makes this automatic from P(f).state at planning time.
-**D22** — DGM shares the graph primitive with RDF but diverges above it. The triple / typed directed labeled edge is the correct foundational structure — DGM and RDF arrived at it independently. The divergence is complete above that primitive: DGM adds the dim/fact typed split, the three-band analytical query structure, the annotation-driven planner, CTL/LTL temporal logic, trail space analysis, and the question completeness theorem — none of which exist in ontological tooling. DGM is an analytical graph model; ontologies are knowledge representation languages. The relationship is complementary, not competitive: DGM can export to SPARQL as one execution target.
+**D22** — DGM shares the graph primitive with RDF but diverges above it. The triple / typed directed labeled edge is the correct foundational structure — DGM and RDF arrived at it independently. The divergence is complete above that primitive: DGM adds the dim/fact typed split, the three-band analytical query structure, the annotation-driven planner, CTL/LTL temporal logic, trail space analysis, and the question completeness theorem — none of which exist in ontological tooling.
+**D23** — CTE composition extends `Q_valid` to `Q_algebra` (Datalog-equivalent, PTIME-bounded). The BDD covers single-query predicate optimisation; cross-CTE CSE (Rule 11) extends it to multi-query scope. The D17 restriction (no `Free→Free` in `Where PathPred`) is not arbitrary — it is the boundary that keeps `Q_algebra` within PTIME. Allowing unrestricted fixpoints in the filter position would push DGM toward the complexity class of stratified Datalog with negation, where decidability is more fragile.
+**D24** — The query DAG canonical form is the composition-level analogue of the BDD. The analogy is exact: variable ordering ↔ dependency partial order; sharing rule ↔ CSE; elimination rule ↔ semiring laws. Containment-based elimination is applied only for Band 1 leaf nodes (NP-complete but tractable in practice). For Band 2/3 nodes, only syntactic laws are applied — this is the conservative choice that preserves correctness at the cost of some missed simplifications. Cross-session caching via DAG node id is the semantic-level generalisation of SQL text caching; it correctly identifies equivalent questions expressed in different syntactic forms. The triple / typed directed labeled edge is the correct foundational structure — DGM and RDF arrived at it independently. The divergence is complete above that primitive: DGM adds the dim/fact typed split, the three-band analytical query structure, the annotation-driven planner, CTL/LTL temporal logic, trail space analysis, and the question completeness theorem — none of which exist in ontological tooling. DGM is an analytical graph model; ontologies are knowledge representation languages. The relationship is complementary, not competitive: DGM can export to SPARQL as one execution target.
 
 ### 10.5  References
 
@@ -1516,6 +1797,8 @@ Novel contributions added in v0.18: Question completeness theorem (§8.11) — `
 [11] McGuinness, D. L., van Harmelen, F. (2004). OWL Web Ontology Language Overview. W3C Recommendation. https://www.w3.org/TR/owl-features/
 
 [12] Cox, S., Little, C. (2022). Time Ontology in OWL (OWL-Time). W3C Recommendation. https://www.w3.org/TR/owl-time/
+
+[13] Ceri, S., Gottlob, G., Tanca, L. (1989). What You Always Wanted to Know About Datalog (And Never Dared to Ask). *IEEE Transactions on Knowledge and Data Engineering*, 1(1), 146–166. https://doi.org/10.1109/69.43410
 
 ---
 
