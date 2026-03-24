@@ -60,7 +60,16 @@ dev = [
     "pytest-asyncio>=1.3.0",
     "pytest-cov>=7.0.0",
     "pytest-json-report>=1.5.0",
+    "pytest-xdist>=3.8.0",
     "radon>=6.0.1",
+    # Linting & formatting
+    "ruff>=0.4.0",
+    # Type checking
+    "mypy>=1.10.0",
+    "types-PyYAML>=6.0.0",
+    # Security
+    "bandit[toml]>=1.7.5",
+    "pip-audit>=2.6.1",
 ]
 lineage = [
     "sqlglot>=30.0.1",

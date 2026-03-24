@@ -1,0 +1,92 @@
+name: Code Quality Analysis
+
+on:
+  push:
+    branches: [main, develop]
+  pull_request:
+    branches: [main, develop]
+  schedule:
+    # Run weekly on Sundays at midnight
+    - cron: '0 0 * * 0'
+
+jobs:
+  codeql:
+    name: CodeQL Analysis
+    runs-on: ubuntu-latest
+
+    permissions:
+      security-events: write
+      contents: read
+      actions: read
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Initialize CodeQL
+        uses: github/codeql-action/init@v3
+        with:
+          languages: python
+          queries: security-and-quality
+          config: |
+            paths:
+              - sqldim
+            paths-ignore:
+              - tests
+              - examples
+              - docs
+
+      - name: Perform CodeQL Analysis
+        uses: github/codeql-action/analyze@v3
+        with:
+          category: "/language:python"
+
+  complexity:
+    name: Code Complexity
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python 3.13
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+          cache-dependency-glob: "uv.lock"
+
+      - name: Install dependencies
+        run: uv sync --group dev
+
+      - name: Check cyclomatic complexity (fail on C or higher)
+        run: |
+          echo "### Cyclomatic Complexity Report ###"
+          echo ""
+          echo "Functions with B complexity or higher (ideally none):"
+          uv run radon cc --min B sqldim/ || true
+          echo ""
+          echo "Full complexity breakdown:"
+          uv run radon cc --show-complexity --average sqldim/
+          # Fail if any function has C or higher complexity
+          result=$(uv run radon cc --min C sqldim/ 2>&1)
+          if [ -n "$result" ]; then
+            echo "::error::Found functions with C-level or higher complexity:"
+            echo "$result"
+            exit 1
+          fi
+
+      - name: Check maintainability index
+        run: |
+          echo "### Maintainability Index Report ###"
+          uv run radon mi sqldim/ --show
+          # Warn (but don't fail) on files with low maintainability
+          result=$(uv run radon mi sqldim/ --min C 2>&1)
+          if echo "$result" | grep -qE "^sqldim"; then
+            echo "::warning::Some files have low maintainability index"
+            echo "$result"
+          fi
