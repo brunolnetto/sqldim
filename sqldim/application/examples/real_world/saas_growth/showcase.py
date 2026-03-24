@@ -60,7 +60,7 @@ def demo_staging_layer(con: duckdb.DuckDBPyConnection) -> None:
     """Load SaaSUsersSource and SaaSSessionsSource into DuckDB staging tables."""
     with section("1. Staging Layer — SaaSUsersSource + SaaSSessionsSource"):
         src_users    = SaaSUsersSource(n=200, seed=42)
-        src_sessions = SaaSSessionsSource(n=3_000, seed=42)
+        src_sessions = SaaSSessionsSource(n=200, seed=42)
 
         con.execute(
             f"CREATE TABLE saas_users AS SELECT * FROM ({src_users.snapshot().as_sql(con)})"

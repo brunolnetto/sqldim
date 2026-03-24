@@ -20,7 +20,7 @@ def session():
         connect_args={"check_same_thread": False},
         poolclass=StaticPool,
     )
-    SQLModel.metadata.create_all(engine)
+    SQLModel.metadata.create_all(engine, tables=[UserDim.__table__])
     with Session(engine) as session:
         yield session
     engine.dispose()
@@ -83,7 +83,7 @@ def handler_session():
         connect_args={"check_same_thread": False},
         poolclass=StaticPool,
     )
-    SQLModel.metadata.create_all(engine)
+    SQLModel.metadata.create_all(engine, tables=[Cov100SCD1Dim.__table__, Cov100SCD6Dim.__table__])
     with Session(engine) as s:
         yield s
     engine.dispose()
