@@ -235,8 +235,177 @@ df  = con.execute(sql).fetchdf()   # Pandas DataFrame
 
 ---
 
+## Question Algebra (Multi-CTE Composition)
+
+A single `DGMQuery` produces one SQL CTE.  The **question algebra** is the formal
+closure of that CTE space under five CTE composition operators:
+
+```
+Q_algebra(A, B) = closure of Q_valid(A, B)
+                  under { JOIN, UNION, INTERSECT, EXCEPT, WITH }
+```
+
+`QuestionAlgebra` is an ordered registry that accumulates CTEs, tracks
+compositions, and emits a single `WITH … SELECT` statement in topological order.
+
+### Building an algebra
+
+```python
+from sqldim.core.query.dgm import (
+    DGMQuery, QuestionAlgebra, ComposeOp,
+    PropRef, ScalarPred, AND,
+)
+
+alg = QuestionAlgebra()
+
+# Leaf CTEs — plain DGMQuery instances
+alg.add("retail", DGMQuery().anchor("sale_fact", "s")
+        .where(ScalarPred(PropRef("s", "channel"), "=", "retail")))
+alg.add("premium", DGMQuery().anchor("sale_fact", "s")
+        .where(ScalarPred(PropRef("s", "tier"), "=", "premium")))
+
+# Compose with UNION — generates a new CTE that is UNION ALL of both
+alg.compose("retail", ComposeOp.UNION, "premium", name="combined")
+
+print(alg.to_sql(final="combined"))
+# WITH retail AS (...),
+#      premium AS (...),
+#      combined AS (SELECT * FROM retail  UNION ALL  SELECT * FROM premium)
+# SELECT * FROM combined
+```
+
+### ComposeOp reference
+
+| Operator | SQL emitted | Use when |
+|---|---|---|
+| `UNION` | `UNION ALL` | Disjunctive queries — merge independent answer sets |
+| `INTERSECT` | `INTERSECT` | Conjunctive queries — rows in both answer sets |
+| `EXCEPT` | `EXCEPT` | Set difference — rows in left but not right |
+| `WITH` | _right_ CTE uses left as its scope | Dependent chain — `right` references `left` |
+| `JOIN` | `JOIN … ON …` | Cross-question correlation — requires `on=` clause |
+
+### Semiring structure
+
+`(Q_algebra, UNION, INTERSECT, ∅, Q_top)` is a semiring where:
+
+- **`∅`** (`QuestionAlgebra.EMPTY_Q`) is the additive identity — a CTE that
+  returns no rows.
+- **`Q_top`** (`QuestionAlgebra.TOP_Q`) is the multiplicative identity — a CTE
+  that returns all rows with no filter.
+
+This algebraic structure underpins the Query DAG Minimisation optimiser.
+
+---
+
+## Common Sub-expression Elimination (CSE)
+
+When multiple CTEs share an **identical `WHERE` predicate** — detected via
+canonical BDD node ID equality — `apply_cse` extracts the shared predicate into a
+dedicated `__cse_<id>` CTE inserted before the group.  Each sharing CTE then
+queries the pre-filtered result, avoiding repeated table scans.
+
+```python
+from sqldim.core.query.dgm import (
+    apply_cse, find_shared_predicates,
+    BDDManager, DGMPredicateBDD,
+)
+
+bdd = DGMPredicateBDD(BDDManager())
+
+# Detect sharing (O(|CTEs|))
+groups = find_shared_predicates(alg, bdd)
+# → {bdd_id: ["retail", "premium"]} for identical predicates
+
+# Apply CSE — returns new algebra, original untouched
+optimised = apply_cse(alg, bdd)
+```
+
+The `__cse_*` CTE contains `SELECT * FROM <anchor_table> WHERE <pred_sql>`.
+Downstream CTEs reference it without re-evaluating the predicate.  Both
+`find_shared_predicates` and `apply_cse` are `O(|CTEs|)`.
+
+---
+
+## Query DAG Minimisation (Rule 11 Extended)
+
+After composing an algebra, `apply_semiring_minimisation` (or
+`QuestionAlgebra.minimize(bdd)`) eliminates redundant CTEs using the semiring
+laws of the question algebra:
+
+| Law | Condition | Result |
+|---|---|---|
+| Union idempotence | `Q ∪ Q` | `Q` |
+| Union identity | `Q ∪ ∅` | `Q` |
+| Containment absorption | `Q₁ ⊆ Q₂` → `Q₁ ∪ Q₂` | `Q₂` |
+| Intersection idempotence | `Q ∩ Q` | `Q` |
+| Intersection identity | `Q ∩ Q_top` | `Q` |
+| Containment selection | `Q₁ ⊆ Q₂` → `Q₁ ∩ Q₂` | `Q₁` |
+
+Containment (`Q₁ ⊆ Q₂`) is checked via `bdd.implies(id₁, id₂)` — the BDD
+canonicalises predicates so that structurally equivalent filters share integer IDs.
+
+```python
+from sqldim.core.query.dgm import (
+    apply_semiring_minimisation, BDDManager, DGMPredicateBDD,
+)
+
+bdd = DGMPredicateBDD(BDDManager())
+
+# Idempotent union — Q ∪ Q = Q
+alg = QuestionAlgebra()
+alg.add("q", DGMQuery().anchor("orders"))
+alg.compose("q", ComposeOp.UNION, "q", name="q_dup")
+assert len(alg) == 2
+
+minimal = alg.minimize(bdd)
+assert len(minimal) == 1  # q_dup eliminated
+```
+
+The minimum CTE count equals the number of nodes in the canonical DAG — this is a
+**tight lower bound**: no semantically equivalent expression with fewer CTEs exists.
+
+### QueryDAGManager — intern-table for the DAG
+
+`QueryDAGManager` maps each unique `(op, left_id, right_id)` triple to a
+single node ID — the same structural-sharing principle as BDD `make()`.
+Idempotence and identity laws are applied inline at `make()` time without
+requiring a BDD for the structural cases.
+
+```python
+from sqldim.core.query.dgm import QueryDAGManager, ComposeOp
+
+mgr = QueryDAGManager()
+q1 = mgr.leaf("q1")
+q2 = mgr.leaf("q2")
+union_id = mgr.make(ComposeOp.UNION, q1, q2)
+same_id  = mgr.make(ComposeOp.UNION, q1, q2)   # shared — same node
+assert union_id == same_id
+```
+
+---
+
+## Optimisation Pipeline (Recommended Order)
+
+For maximum SQL efficiency, apply the three optimisers in order:
+
+```python
+bdd = DGMPredicateBDD(BDDManager())
+
+# Step 1 — eliminate duplicate CTEs (semiring laws, BDD containment)
+step1 = alg.minimize(bdd)
+
+# Step 2 — extract shared predicates into __cse_* CTEs
+step2 = apply_cse(step1, bdd)
+
+# Step 3 — emit final SQL
+sql = step2.to_sql(final="my_final_cte")
+```
+
+---
+
 ## Related
 
 - [Graph Analytics Roadmap ADR](../development/adr/graph-analytics-roadmap.md) — metadata-driven property graph tiers
 - [Benchmark Suite ADR: Group O](../architecture/benchmark-suite.md#group-o-dgm-query-builder--throughput-semantics) — verified throughput and three-band measurement semantics
 - [Semantic Layer Guide](../guides/semantic_layer.md) — higher-level query builder built on the same DuckDB backend
+- [Full API Surface](../reference/api-surface.md#question-algebra-multi-cte-composition) — complete symbol reference

@@ -148,20 +148,92 @@ directly but the root module is the stable, versioned surface.
 
 ## DGM Query Algebra
 
+### Single-Query Layer
+
 | Name | Kind | Description |
 |---|---|---|
-| `DGMQuery` | class | Three-band query builder (B1 ∘ B2? ∘ B3?) |
-| `PropRef` | class | Property reference for B1 filter predicates |
-| `AggRef` | class | Aggregation reference for B2 HAVING predicates |
-| `WinRef` | class | Window-function reference for B3 QUALIFY predicates |
+| `DGMQuery` | class | Three-band query builder (`B1 ∘ B2? ∘ B3?`) |
+| `PropRef` | class | Property reference — valid in B1 `where` |
+| `AggRef` | class | Aggregation reference — valid in B2 `having` |
+| `WinRef` | class | Window-function reference — valid in B3 `qualify` |
 | `ScalarPred` | class | Scalar equality / comparison predicate |
-| `PathPred` | class | Graph-path membership predicate |
-| `AND` | class | Logical conjunction of predicates |
-| `OR` | class | Logical disjunction of predicates |
-| `NOT` | class | Logical negation of a predicate |
-| `VerbHop` | class | Hop via a named verb edge in the DGM |
-| `BridgeHop` | class | Hop via a bridge table in the DGM |
-| `Compose` | class | Composes two `DGMQuery` instances |
+| `PathPred` | class | Graph-path membership predicate (`EXISTS` subquery) |
+| `AND` | class | Logical conjunction of predicates (variadic) |
+| `OR` | class | Logical disjunction of predicates (variadic) |
+| `NOT` | class | Logical negation; `NOT(NOT(T)) ≡ T` at construction time |
+| `VerbHop` | class | Hop via a named verb (`dim → fact`) edge |
+| `VerbHopInverse` | class | Reverse hop against the natural verb direction |
+| `BridgeHop` | class | Hop via a bridge (`dim → dim`) structural edge |
+| `Compose` | class | Sequential composition of two path segments |
+
+### Question Algebra (Multi-CTE Composition)
+
+The **question algebra** is the formal closure of valid DGM queries under the five
+CTE composition operators (§8.13 of the DGM spec). It lets you build complex query
+families as ordered CTE chains and emit a single `WITH … SELECT` statement.
+
+| Name | Kind | Description |
+|---|---|---|
+| `ComposeOp` | enum | Five CTE operators: `UNION`, `INTERSECT`, `EXCEPT`, `WITH`, `JOIN` |
+| `ComposedQuery` | class | Named CTE wrapper around a `DGMQuery` leaf or composed SQL fragment |
+| `QuestionAlgebra` | class | Ordered registry of CTEs; emits `WITH … SELECT`; supports chained `.compose()` calls |
+
+```python
+from sqldim.core.query.dgm import QuestionAlgebra, ComposeOp, DGMQuery
+
+alg = QuestionAlgebra()
+alg.add("retail_sales", DGMQuery().anchor("sale_fact", "s").where(...))
+alg.add("premium_sales", DGMQuery().anchor("sale_fact", "s").where(...))
+alg.compose("retail_sales", ComposeOp.UNION, "premium_sales", name="all_sales")
+
+minimized = alg.minimize(bdd)   # apply semiring laws (see below)
+sql = minimized.to_sql(final="all_sales")
+```
+
+### BDD — Canonical Predicate Representation
+
+sqldim uses a Binary Decision Diagram (BDD) internally to canonicalise `WHERE`
+predicates and drive containment-based query optimisation.  These symbols are part
+of the public DGM API for users who build custom optimisation passes.
+
+| Name | Kind | Description |
+|---|---|---|
+| `BDDManager` | class | Raw BDD: `make()`, `apply()`, `negate()`, `restrict()` |
+| `DGMPredicateBDD` | class | Higher-level BDD manager: `compile(pred)`, `implies(u, v)`, `equivalent(u, v)` |
+| `TRUE_NODE_ID` | `int` | BDD ID for the tautology node (`1`) |
+
+### CSE — Common Sub-expression Elimination
+
+When multiple CTEs share an identical `WHERE` predicate (same canonical BDD node),
+`apply_cse` extracts it once into a shared `__cse_<id>` CTE before the group.
+
+| Name | Kind | Description |
+|---|---|---|
+| `find_shared_predicates` | function | `O(|CTEs|)` scan → `{bdd_id: [cte_names]}`; detects sharing groups |
+| `apply_cse` | function | Returns a *new* `QuestionAlgebra` with injected `__cse_*` CTEs |
+
+### Query DAG Minimisation (Rule 11 Extended)
+
+Applies the full semiring elimination laws to a `QuestionAlgebra` before SQL
+emission, producing the minimum-CTE equivalent query family:
+
+| Law | Rule |
+|---|---|
+| `Q ∪ Q = Q` | Union idempotence |
+| `Q ∪ ∅ = Q` | Union identity |
+| `Q₁ ⊆ Q₂ → Q₁ ∪ Q₂ = Q₂` | Containment absorption |
+| `Q ∩ Q = Q` | Intersection idempotence |
+| `Q ∩ Q_top = Q` | Intersection identity |
+| `Q₁ ⊆ Q₂ → Q₁ ∩ Q₂ = Q₁` | Containment selection |
+
+| Name | Kind | Description |
+|---|---|---|
+| `QueryDAGNode` | dataclass | Immutable DAG node: `(node_id, op, left_id, right_id)` |
+| `QueryDAGManager` | class | Unique-table DAG: `leaf(name)`, `make(op, l, r)`; structural elimination inline |
+| `apply_semiring_minimisation` | function | Main entry point: `(algebra, bdd) → QuestionAlgebra`; `len(result) ≤ len(algebra)` |
+
+`QuestionAlgebra.minimize(bdd)` is a convenience wrapper for
+`apply_semiring_minimisation(algebra, bdd)`.
 
 ---
 
