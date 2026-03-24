@@ -60,3 +60,6 @@ from sqldim.core.query.dgm.algebra import (  # noqa: F401
 from sqldim.core.query.dgm._cse import (  # noqa: F401
     find_shared_predicates, apply_cse,
 )
+from sqldim.core.query.dgm._dag import (  # noqa: F401
+    QueryDAGNode, QueryDAGManager, apply_semiring_minimisation,
+)

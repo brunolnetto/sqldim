@@ -144,6 +144,9 @@ class QuestionAlgebra:
     def __init__(self) -> None:
         # Ordered dict preserves insertion order (Python 3.7+).
         self._ctes: dict[str, ComposedQuery] = {}
+        # Maps composed CTE name → (left_name, op, right_name).
+        # Leaf CTEs added via add() are NOT recorded here.
+        self._composition: dict[str, tuple[str, "ComposeOp", str]] = {}
 
     # -- Container interface -------------------------------------------------
 
@@ -215,7 +218,19 @@ class QuestionAlgebra:
         sql = self._compose_sql(_left, _right, op, on=on)
         composed = ComposedQuery(name=name, sql=sql)
         self._ctes[name] = composed
+        self._composition[name] = (left, op, right)
         return composed
+
+    # -- Minimisation --------------------------------------------------------
+
+    def minimize(self, bdd: object) -> "QuestionAlgebra":
+        """Return a minimized copy using Rule 11 Extended semiring elimination.
+
+        Delegates to :func:`~sqldim.core.query.dgm._dag.apply_semiring_minimisation`.
+        The original algebra is never mutated.
+        """
+        from sqldim.core.query.dgm._dag import apply_semiring_minimisation
+        return apply_semiring_minimisation(self, bdd)  # type: ignore[arg-type]
 
     # -- SQL emission --------------------------------------------------------
 
