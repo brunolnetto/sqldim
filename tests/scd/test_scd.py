@@ -236,3 +236,70 @@ def test_backfill_cumulative_mock():
     assert result == 3
     mock_session.execute.assert_called_once()
     mock_session.commit.assert_called_once()
+
+
+# ---------------------------------------------------------------------------
+# SCDHandler: empty-batch and mixed-batch coverage
+# ---------------------------------------------------------------------------
+
+
+class ScdHandlerCoverageHelper(DimensionModel, SCD2Mixin, table=True):
+    """Minimal SCD-2 model used only by the handler coverage tests."""
+    __tablename__ = "scd_handler_coverage"
+    __natural_key__ = ["code"]
+    id: int = Field(primary_key=True, surrogate_key=True)
+    code: str
+    city: str = "unknown"
+
+
+@pytest.fixture
+def scd_session():
+    engine = create_engine(
+        "sqlite:///:memory:",
+        connect_args={"check_same_thread": False},
+        poolclass=StaticPool,
+    )
+    SQLModel.metadata.create_all(
+        engine, tables=[ScdHandlerCoverageHelper.__table__]
+    )
+    with Session(engine) as s:
+        yield s
+    engine.dispose()
+
+
+@pytest.mark.asyncio
+async def test_process_empty_records_returns_zero(scd_session):
+    """process([]) commits immediately and returns zeros (lines 264-265)."""
+    handler = SCDHandler(
+        model=ScdHandlerCoverageHelper,
+        session=scd_session,
+        track_columns=["city"],
+    )
+    result = await handler.process([])
+    assert result.inserted == 0
+    assert result.unchanged == 0
+    assert result.versioned == 0
+
+
+@pytest.mark.asyncio
+async def test_process_mixed_batch_calls_handle_new_record(scd_session):
+    """Second batch with a mix of existing + new triggers _handle_new_record (lines 105-107, 300)."""
+    handler = SCDHandler(
+        model=ScdHandlerCoverageHelper,
+        session=scd_session,
+        track_columns=["city"],
+    )
+    # First batch: insert one row via bulk-fast-path
+    r1 = await handler.process([{"code": "CX1", "city": "Paris"}])
+    assert r1.inserted == 1
+
+    # Second batch: existing key (CX1) + brand-new key (CX2)
+    # existing_map will contain CX1 so the fast path is skipped;
+    # CX2 is not in existing_map → _handle_new_record is called
+    r2 = await handler.process([
+        {"code": "CX1", "city": "Paris"},   # unchanged
+        {"code": "CX2", "city": "Berlin"},  # new — triggers lines 105-107 and 300
+    ])
+    assert r2.inserted == 1
+    assert r2.unchanged == 1
+

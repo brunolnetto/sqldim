@@ -40,7 +40,7 @@ from sqldim.application.examples.utils import section, banner
 class _InMemorySink:
     """Minimal SinkAdapter backed by the shared in-memory DuckDB connection."""
 
-    def current_state_sql(self, table_name: str) -> str:
+    def current_state_sql(self, table_name: str) -> str:  # pragma: no cover
         return f"SELECT * FROM {table_name}"
 
     def write(

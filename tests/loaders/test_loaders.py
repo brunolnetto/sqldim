@@ -22,7 +22,7 @@ def session():
         connect_args={"check_same_thread": False},
         poolclass=StaticPool,
     )
-    SQLModel.metadata.create_all(engine)
+    SQLModel.metadata.create_all(engine, tables=[ProductDim.__table__, SaleFact.__table__])
     with Session(engine) as session:
         yield session
     engine.dispose()
@@ -130,6 +130,26 @@ async def test_loader_strategies(session):
     loader3.register(MergeFact, [{"id": 1, "val": 1000}])
     await loader3.run()
     assert session.exec(select(MergeFact)).one().val == 1000
+
+
+@pytest.mark.asyncio
+async def test_bulk_resolve_all_cached_returns_early(session):
+    """bulk_resolve returns early (line 67) when all values are already in cache."""
+    from sqldim.core.loaders.dimension.dimensional import SKResolver
+
+    p = ProductDim(sku="CACHED", price=5.0, is_current=True)
+    session.add(p)
+    session.commit()
+
+    resolver = SKResolver(session)
+    # First call populates the cache via resolve()
+    sk = resolver.resolve(ProductDim, "sku", "CACHED")
+    assert sk == p.id
+
+    # bulk_resolve with the same value hits the "not uncached → return" branch (line 67)
+    resolver.bulk_resolve(ProductDim, "sku", ["CACHED"])
+    # Cache still intact and no DB round-trip needed
+    assert resolver._cache[(ProductDim, "sku", "CACHED")] == p.id
 
 
 # ---------------------------------------------------------------------------

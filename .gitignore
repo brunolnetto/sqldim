@@ -1,4 +1,7 @@
 *.json
+quality_report.*
+report.json
+coverage.json
 
 # Byte-compiled / optimized / DLL files
 __pycache__/

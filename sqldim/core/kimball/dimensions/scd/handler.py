@@ -228,21 +228,6 @@ class SCDHandler(Generic[T]):
         else:
             self._handle_type2(existing, record, checksum, result)
 
-    async def _process_one(self, record: dict[str, object], result: "SCDResult") -> None:
-        nk_field = getattr(self.model, "__natural_key__", ["id"])[0]
-        nk_value = record.get(nk_field)
-        checksum = self.compute_checksum(record)
-        stmt = select(self.model).where(getattr(self.model, nk_field) == nk_value)
-        if hasattr(self.model, "is_current"):
-            stmt = stmt.where(getattr(self.model, "is_current"))
-        existing = self.session.exec(stmt).first()
-        if not existing:
-            self._handle_new_record(record, checksum, result)
-        elif existing.checksum != checksum:
-            self._handle_changed_record(existing, record, checksum, result, nk_value)
-        else:
-            result.unchanged += 1
-
     async def process(self, records: list[dict[str, object]]) -> SCDResult:
         """Process *records* in a single bulk-aware pass, applying SCD logic per row.
 

@@ -152,6 +152,12 @@ SchemaAnnotation ::=
   | WeightConstraint(b: B, constraint: ALLOCATIVE | UNCONSTRAINED)
   | BridgeSemantics(b: B, sem: CAUSAL|TEMPORAL|SUPERSESSION|STRUCTURAL)
   | Hierarchy(root: D, depth: ℕ | RAGGED)
+  -- Pipeline annotations
+  | PipelineArtifact(f: F,
+                     pipeline_id: K,
+                     ttl: Duration,
+                     backfill_horizon: Duration,
+                     write_mode: BACKFILL | REFRESH | ADAPTIVE)
 ```
 
 Key annotation semantics:
@@ -163,6 +169,17 @@ Key annotation semantics:
 **SCDType** — SCD1: strip temporal resolution. SCD2: effective_from/to. SCD3: current/previous props. SCD6: per-attribute policy.
 
 **BridgeSemantics(CAUSAL)** — DAG; drop cycle guard; use DAG BFS on both G and G^T.
+
+**PipelineArtifact(f, pipeline_id, ttl, backfill_horizon, write_mode)** — composite annotation. Implies `Grain(f, ACCUMULATING)`. Models five-state machine over `P(f).state ∈ {Missing, In-flight, Complete, Stale, Failed}`. Transition bridge edges carry implied BridgeSemantics:
+```
+Missing    →[scheduled]→   In-flight   TEMPORAL
+In-flight  →[succeeded]→   Complete    CAUSAL
+In-flight  →[failed]→      Failed      CAUSAL  (SUPERSESSION if REFRESH run with prior Complete)
+Complete   →[expired]→     Stale       TEMPORAL  (ttl-triggered)
+Stale      →[rescheduled]→ In-flight   TEMPORAL
+Failed     →[retried]→     In-flight   SUPERSESSION
+```
+`write_mode`: BACKFILL → always APPEND; REFRESH → always MERGE (atomic swap); ADAPTIVE → inferred from state (planner Rule 10).
 
 **Σ is an operational decision table**: every annotation drives specified planner, recommender, and exporter behaviour.
 
@@ -793,6 +810,35 @@ both present on the same Join branch:
 
 Grounded in the lattice identity G_A* ∩ G_*B = G_AB (§8.7). Always correct; not a heuristic. Fires naturally when both constraints are added incrementally — the planner collapses them to the strictly smaller fixed-endpoint subgraph.
 
+**Rule 10 — PipelineArtifact state-aware write planning:**
+
+```
+if PipelineArtifact(f, _, ttl, horizon, write_mode) ∈ Σ:
+
+    -- TTL expiry: transition Complete → Stale
+    if P(f).state = Complete AND P(f).completed_at < now - ttl:
+        emit state transition: Complete → Stale
+        WritePlan(mode=MERGE, sink=current_sink)
+
+    -- ADAPTIVE write mode inference from P(f).state:
+    if write_mode = ADAPTIVE:
+        if P(f).state ∈ {Missing, Failed}: WritePlan(mode=APPEND)
+        elif P(f).state = Stale:           WritePlan(mode=MERGE)
+
+    -- Backfill gap predicate (injected into Where by planner):
+        AND(
+          ScalarPred(PropRef(f.state), IN {Missing, Failed}),
+          ScalarPred(PropRef(f.window_end), (< ArithExpr(now, -, horizon)))
+        )
+
+    -- Transition bridge semantics inference:
+    if transition = In-flight → Failed:
+        if write_mode IN {REFRESH, ADAPTIVE with prior Complete}:
+            BridgeSemantics(SUPERSESSION)   -- prior Complete preserved; regress to Stale
+        else:
+            BridgeSemantics(CAUSAL)         -- backfill; no prior artifact; window stays Failed
+```
+
 ### 6.3  Query exporter
 
 ```
@@ -998,6 +1044,76 @@ H = -Σ p(s) log₂ p(s). H=0: maximally focused. H=log₂(k): k equally frequen
 
 Relationship to recommender routing: high H → Stage 1 characterisation (Free endpoint) before fixing target. Low H → proceed directly to Bound→Bound deep-dive. SIGNATURE_ENTROPY is the formal routing signal for the two-stage exploration flow.
 
+### 8.11  Question completeness theorem
+
+**Theorem (Question completeness).** For any two nodes `A, B ∈ N` with `RelationshipSubgraph G_AB = (N_AB, E_AB, τ_N, τ_E, P, Σ|_AB)`, the set of valid analytical questions `Q_valid(A, B)` is finite and constructively enumerable from `G_AB` and `Σ|_AB` alone.
+
+**Proof sketch.** Three results combine:
+
+(1) From §8.2 (functional completeness): the predicate language over `ScalarPred` atoms derived from `{P(n) | n ∈ N_AB}` and `{P(e) | e ∈ E_AB}` is functionally complete. The atom set is finite given finite `N_AB` and `E_AB`.
+
+(2) From §8.6 (finite traversal space): the number of distinct `BoundPath` structures over `N_AB, E_AB` is bounded by `|N_AB|!`. The `PathPred` and `PathAgg` spaces are therefore finite.
+
+(3) From §8.3 (minterm enumeration): the satisfiable minterms over the join context `C` derived from `G_AB` are bounded by `|C| ≤ |N_AB|^k` for join depth `k`. Finite.
+
+The Band 2 aggregation space is finite given finite measure properties in `F ∩ N_AB` and finite `TemporalWindow` variants. The Band 3 ranking space is finite given the finite Band 2 output schema. The cross-product of all three bands over `G_AB` is therefore finite. ∎
+
+**Definition (Question space).** The full question space is:
+
+```
+Q_space(A, B) = all valid Q = TemporalContext? ∘ B₁ ∘ B₂? ∘ B₃?
+                where the Join scope ⊆ G_AB
+```
+
+The valid question space pruned by annotations is:
+
+```
+Q_valid(A, B) = Q_space(A, B) \ { q | q violates any annotation in Σ|_AB }
+```
+
+Each annotation in `Σ|_AB` removes a structurally invalid subset:
+`FactlessFact(f)` removes SUM/AVG/MIN/MAX; `Grain(f, PERIOD)` removes cross-period SUM; `Degenerate(d)` removes `d` from GroupBy candidates; `SCDType(d, SCD1)` removes temporal join questions on `d`.
+
+**Definition (Question lattice).** `Q_valid(A, B)` forms a lattice `L(G_AB)` ordered by semantic specificity:
+
+```
+top    = tautological query: Anchor(N_AB), no Where, no GroupBy, no Window
+           — returns all tuples in G_AB
+bottom = contradictory query: Where(FALSE_NODE)
+           — returns no tuples
+every other q ∈ Q_valid(A, B) lies strictly between top and bottom
+```
+
+The lattice has three specificity dimensions:
+
+```
+Traversal depth:    shallow paths → deep paths → full G_AB traversal
+Predicate strength: tautology → targeted minterms → contradiction
+Aggregation grain:  no grouping → fine grouping → per-entity grain
+```
+
+The recommender (§7) is a **guided navigator of `L(G_AB)`** — using BDD feasibility filtering to rule out invalid or redundant points, and trail metrics to score remaining points by analytical value, without enumerating the full lattice.
+
+### 8.12  Semantic scoring of the question lattice
+
+The trail space metrics induce a **non-uniform distribution over `L(G_AB)`**, making certain questions analytically more valuable than others without requiring full enumeration.
+
+**`SIGNATURE_ENTROPY(G_AB)` as lattice routing signal.** High entropy: many equally frequent path types — the most informative questions stratify by path type (`SignaturePred`, `GroupBy` dominant signature). Low entropy: one path type dominates — the most informative questions go deep on measures along that path (`TemporalAgg`, `PathAgg` with specific strategy). Single path type (`DISTINCT_SIGNATURES = 1`): the entire question space collapses to variations on one pattern.
+
+**`BETWEENNESS_CENTRALITY` on `G_AB` as GroupBy pivot signal.** Nodes with high betweenness within `G_AB` are the most discriminating `GroupBy` keys — they partition the tuple space most finely. Questions that group by high-betweenness nodes are near the fine-grain end of the aggregation specificity dimension.
+
+**`SIGNATURE_DIVERSITY(A)` as strategy signal.** Low diversity at `A`: relationship is focused — `Bound→Bound` queries with `SHORTEST` strategy cover most of the analytical value. High diversity at `A`: relationship is varied — `ALL` strategy or `K_SHORTEST` with a signature filter is needed to capture the full structure.
+
+**`DOMINANT_SIGNATURE(A, B)` as predicate seed.** The dominant label sequence directly yields the most analytically productive `PathPred` pattern — it is the path type that appears in the highest-value minterms of `L(G_AB)`.
+
+**Formal statement.** Let `score: L(G_AB) → ℝ` be a scoring function derived from trail metrics. The recommender problem is:
+
+```
+argmax_{q ∈ neighbourhood(q_current)} score(q)
+```
+
+where `neighbourhood(q_current)` is the set of queries reachable from the current query by one step in `L(G_AB)` (add/remove one predicate, one aggregation, one window expression). The BDD ensures `neighbourhood` contains only valid, non-redundant steps. Trail metrics supply `score`. The three-layer recommender architecture (§7.1) is the computational realisation of this optimisation.
+
 ---
 
 ## 9  Implementation Guide
@@ -1032,6 +1148,8 @@ Relationship to recommender routing: high H → Stage 1 characterisation (Free e
 | Query exporter (multi-target) | Implicit SQL only | ⚠️ Partial |
 | Sink export (Parquet/Delta/Iceberg) | Sinks exist; not planner-integrated | ⚠️ Partial |
 | Recommender | Not implemented | ❌ Missing |
+| `PipelineArtifact` annotation | Not present | ❌ Missing |
+| `PipelineArtifact` annotation | Not present | ❌ Missing |
 
 ### 9.2  Implementation roadmap
 
@@ -1144,21 +1262,93 @@ Agg:
 -- Low entropy  → focused region; Bound→Bound queries are efficient
 ```
 
-**Example 6 — CTL safety + UNTIL**
+**Example 6 — Backfill-incremental state machine with PipelineArtifact**
+
+A `daily_revenue` pipeline produces one accumulating artifact per day-window. Artifacts expire after 7 days (TTL) and must be backfilled within 90 days.
 
 ```
-Join: Anchor(dim,c) PathJoin(c,VerbHop(c,'placed',s),s)
-Where:
-  AND(
-    PathPred(c, VerbHop(c,'placed',s2,node_alias=sale),
-             FORALL, ALL, GLOBALLY,
-             ScalarPred(PropRef(sale.revenue),(>= 0))),       -- AG safety
-    PathPred(c, Compose(VerbHop(c,'placed',s3,node_alias=sc),
-               temporal=UNTIL(hold_pred=ScalarPred(PropRef(sc.revenue),(> 0)),
-                              trigger_pred=ScalarPred(PropRef(sc.churn_flag),(= true)))),
-             EXISTS, ALL,
-             ScalarPred(PropRef(sc.churn_flag),(= true)))     -- UNTIL
-  )
+-- Schema:
+--   PipelineArtifact(daily_rev, 'daily_revenue',
+--                   ttl=7 days, backfill_horizon=90 days,
+--                   write_mode=ADAPTIVE) ∈ Σ
+-- Implies: Grain(daily_rev, ACCUMULATING)
+-- P(daily_rev).state ∈ {Missing, In-flight, Complete, Stale, Failed}
+
+-- Step 1: Backfill — find Missing/Failed within horizon
+Q_backfill:
+  Anchor(fact, a)
+  Where:
+    AND(
+      ScalarPred(PropRef(a.state), IN {Missing, Failed}),
+      ScalarPred(PropRef(a.window_end),
+                 (< ArithExpr(now, -, 90 days)))
+    )
+  GroupBy: [ a.pipeline_id, a.window_start ]
+  Agg:     age_days := TemporalAgg(MAX, a.window_end, a.window_end, TRAILING(1,DAY))
+  Window:  priority := RANK() OVER (ORDER BY age_days DESC)
+  Qualify: ScalarPred(WinRef(priority), (<= MAX_CONCURRENT_RUNS))
+-- Planner infers WritePlan(mode=APPEND) from state ∈ {Missing, Failed}
+
+-- Step 2: Refresh — find Stale windows
+Q_refresh:
+  Anchor(fact, a)
+  Where:   ScalarPred(PropRef(a.state), (= Stale))
+  GroupBy: [ a.pipeline_id, a.window_start ]
+  Agg:     staleness := TemporalAgg(MAX, a.window_end, a.completed_at, ROLLING(7 days))
+  Window:  priority  := RANK() OVER (ORDER BY staleness DESC)
+  Qualify: ScalarPred(WinRef(priority), (<= MAX_CONCURRENT_RUNS))
+-- Planner infers WritePlan(mode=MERGE) from state = Stale
+
+-- Step 3: Monitor completions and failures since last run
+Q_delta(
+  t₁ = last_scheduler_run, t₂ = now,
+  spec = CHANGED_PROPERTY(a, state,
+           comparator = (old ∈ {In-flight}, new ∈ {Complete, Failed}))
+)
+-- ACCUMULATING grain: CHANGED_PROPERTY captures stage progression
+-- WritePlan(mode=APPEND, sink=DELTA): appends each transition record
+
+-- Step 4: CTL correctness assertions
+
+-- SAFETY: no window older than horizon stays Missing
+PathPred(a, NodeRef(a), FORALL, ALL, GLOBALLY,
+  NOT(AND(
+    ScalarPred(PropRef(a.state), (= Missing)),
+    ScalarPred(PropRef(a.window_end), (< ArithExpr(now, -, 90 days)))
+  ))
+)
+-- AG(¬(Missing ∧ window_end < now-90d))
+
+-- LIVENESS: every Missing/Failed window eventually reaches Complete
+PathPred(a,
+  BridgeHop(a, 'succeeded', done, node_alias=completed_art),
+  FORALL, ALL, EVENTUALLY,
+  ScalarPred(PropRef(completed_art.state), (= Complete))
+)
+-- AF(Complete)
+
+-- RESPONSE: every Stale window eventually refreshes
+RESPONSE(
+  trigger  = ScalarPred(PropRef(a.state), (= Stale)),
+  response = ScalarPred(PropRef(a.state), (= Complete))
+)
+-- AG(Stale → AF(Complete))
+
+-- Step 5: Asymmetric failure — UNTIL distinguishes refresh vs backfill failure
+PathPred(
+  a,
+  Compose(
+    BridgeHop(a, 'failed', failed_art, node_alias=fa),
+    temporal=UNTIL(
+      hold_pred    = ScalarPred(PropRef(fa.prior_state), (= Complete)),
+      trigger_pred = ScalarPred(PropRef(fa.state), (= Failed))
+    )
+  ),
+  EXISTS, ALL,
+  ScalarPred(PropRef(fa.prior_state), (= Complete))
+)
+-- EXISTS path where Complete held until failure → refresh failure
+-- No such path for backfill failures (no prior Complete)
 ```
 
 **Example 7 — Full pipeline**
@@ -1254,7 +1444,27 @@ Qualify:
 
 **Model checking.** Clarke et al. (1986) [8] — PathPred×TemporalMode realises full CTL; G^T enables past-temporal checking. **Interval algebra.** Allen (1983) [9] — 13 relations in TemporalOrdering.
 
+**Ontologies and knowledge representation.** RDF [10], RDFS, and OWL [11] constitute the standard ontological stack. An RDF triple `(subject, predicate, object)` is structurally identical to DGM's verb edge `(dim, label, fact)` — both are typed directed labeled edges between entities. The `τ_N : N → {dim, fact}` type function is a two-class hierarchy equivalent to `rdf:type` with `rdfs:subClassOf`. SPARQL 1.1 property paths (`+`, `*`, `|`, `^`) correspond to DGM's `BoundPath` traversal, and SPARQL's `FILTER EXISTS` / `FILTER NOT EXISTS` correspond to `PathPred(EXISTS)` / `PathPred(FORALL)`. DGM independently arrived at the same graph primitive as RDF — evidence that the triple / typed directed labeled edge is the correct foundational structure.
+
+However, DGM and ontologies diverge sharply above that shared primitive, along five axes:
+
+**(i) The dim/fact typed split.** OWL has no concept of a measurable event node distinct from a domain entity node. Everything is either a class or an individual. The structural invariant `V ⊆ D×F×L` — which enforces that verb edges connect dimensions to facts and not arbitrary node pairs — has no OWL equivalent. KG-OLAP [6] works around this by layering context dimensions on top of OWL but does not enforce the type discipline at the schema level.
+
+**(ii) Aggregation and analytics.** OWL is a representation and reasoning language, not a query and analytics language. It has no `GroupBy`, `Agg`, `Having`, `Window`, or `Qualify`. SPARQL has limited aggregation (`SUM`, `COUNT`, `GROUP BY`) but no window functions, no temporal aggregation, no path aggregation (`PathAgg`, `TemporalAgg`), and no graph algorithm expressions (`GraphExpr`). The three-band query structure `B₁ ∘ B₂? ∘ B₃?` has no counterpart in ontological tooling.
+
+**(iii) The schema annotation layer.** OWL axioms are logical assertions that drive inference. DGM's `Σ` carries operational metadata — `Grain`, `SCDType`, `BridgeSemantics`, `PipelineArtifact` — that drives execution planning, not logical inference. An OWL reasoner has no concept of "this node is SCD2 — apply a different temporal join strategy". The annotation layer is a planner concern without ontological precedent.
+
+**(iv) Temporal logic over paths.** OWL-Time [12] describes temporal relationships between intervals as ontological assertions. DGM's `TemporalMode` (AG, AF, UNTIL, SINCE, Allen's 13 interval relations) is CTL/LTL model checking over the Kripke structure of the graph — a different computational apparatus from OWL inference entirely. The Kripke equivalence (§8.1) grounds DGM in model checking theory, not description logic.
+
+**(v) Trail space analysis and question completeness.** The `RelationshipSubgraph` constructs, `TrailExpr` algorithms, `SIGNATURE_ENTROPY`, and the question completeness theorem (§8.11) have no counterpart in ontological frameworks. Ontologies represent what is true; DGM enumerates what can be measured and asked — a fundamentally different epistemic orientation.
+
+The precise positioning: DGM is an **analytical graph model**, not a knowledge representation language. It borrows the graph primitive from RDF and the dimensional structure from Kimball-style data warehousing, then adds a formal query language grounded in CTL/LTL and an annotation-driven execution stack. It is closest to KG-OLAP [6] at the intersection of graphs and OLAP, but extends that framework with the typed schema discipline, the full CTL operator set, the planner/exporter stack, trail space analysis, and the question completeness result. A DGM graph can be exported to SPARQL as one of its query targets (§6.3), confirming the relationship while clarifying the distinction: DGM is the source formalism; SPARQL is one possible execution dialect.
+
 Novel contributions added in v0.16: Endpoint type with Bound/Free variants; four-case RelationshipSubgraph endpoint lattice; forward cone via forward BFS; backward cone via BFS on G^T; full traversal space as SubgraphExpr; containment lattice theorem and cone intersection identity; REACHABLE_FROM/REACHABLE_TO as TrimCriterion; TrailExpr single-relaxation algorithms as NodeAlg; SIGNATURE_DIVERSITY; SIGNATURE_ENTROPY as Shannon entropy; global SubgraphAlg variants; granularity tier shift by endpoint case; Rule 9 cone containment optimisation; G^T at GraphStatistics load time; two-stage trail exploration flow; SIGNATURE_ENTROPY as recommender routing signal.
+
+Novel contributions added in v0.17: `PipelineArtifact` composite annotation for backfill-incremental state machines; five-state artifact lifecycle modelled as `Grain(ACCUMULATING)` with implied `BridgeSemantics`; backfill/refresh asymmetry via `BridgeSemantics(SUPERSESSION)` vs `CAUSAL` on `In-flight → Failed` transition; `ADAPTIVE` write mode inferring `WritePlan` from `P(f).state` at planning time; planner Rule 10 for state-aware write planning and TTL expiry; scheduler loop expressed as composable DGM query pipeline (Q_backfill, Q_refresh, Q_delta monitoring); CTL LIVENESS/SAFETY/RESPONSE as formal scheduler correctness properties over the artifact graph; `UNTIL` operator distinguishing refresh failure (prior Complete preserved) from backfill failure (no prior artifact).
+
+Novel contributions added in v0.18: Question completeness theorem (§8.11) — `Q_valid(A, B)` finite and enumerable from `G_AB` and `Σ|_AB`; question lattice `L(G_AB)` with tautological top, contradictory bottom, and three specificity dimensions; formal characterisation of recommender as guided navigator of `L(G_AB)`; semantic scoring theorem — trail metrics induce non-uniform distribution over `L(G_AB)` without enumeration; `BETWEENNESS_CENTRALITY` as GroupBy pivot signal; `DOMINANT_SIGNATURE` as predicate seed; ontology relationship paragraph positioning DGM against RDF/OWL/SPARQL/OWL-Time along five axes; references [10] RDF, [11] OWL, [12] OWL-Time; D22 design decision on DGM/ontology distinction.
 
 ### 10.4  Design decisions
 
@@ -1277,6 +1487,9 @@ Novel contributions added in v0.16: Endpoint type with Bound/Free variants; four
 **D17** — Free→Free scope restricted to Agg/Window. Graph-scope computation in Where PathPred scope is semantically undefined and computationally unscalable.
 **D18** — G^T built at load time O(|E|), amortised across all queries needing backward traversal (SINCE, ONCE, PREVIOUSLY, REACHABLE_TO, INCOMING_SIGNATURES).
 **D19** — Cone containment (Rule 9) as structural theorem, not heuristic. Grounded in G_A* ∩ G_*B = G_AB. Always correct; fires whenever both constraints present on same Join branch.
+**D20** — PipelineArtifact is syntactic sugar, not a new fact type. The backfill-incremental state machine is modelled entirely within existing constructs: Grain(ACCUMULATING), BridgeSemantics, WritePlan, Q_delta(CHANGED_PROPERTY), and CTL temporal properties. PipelineArtifact assembles these into one declaration and infers semantics from P(f).state at planning time (planner Rule 10). Follows the same pattern as TemporalProperty classes (D9).
+**D21** — Backfill and refresh require different WritePlan modes by construction. Backfill (APPEND) has no prior artifact — failure leaves the window durably in Failed. Refresh (MERGE) preserves the prior Complete via atomic swap — failure regresses to Stale, not Failed. ADAPTIVE mode makes this automatic from P(f).state at planning time.
+**D22** — DGM shares the graph primitive with RDF but diverges above it. The triple / typed directed labeled edge is the correct foundational structure — DGM and RDF arrived at it independently. The divergence is complete above that primitive: DGM adds the dim/fact typed split, the three-band analytical query structure, the annotation-driven planner, CTL/LTL temporal logic, trail space analysis, and the question completeness theorem — none of which exist in ontological tooling. DGM is an analytical graph model; ontologies are knowledge representation languages. The relationship is complementary, not competitive: DGM can export to SPARQL as one execution target.
 
 ### 10.5  References
 
@@ -1297,6 +1510,12 @@ Novel contributions added in v0.16: Endpoint type with Bound/Free variants; four
 [8] Clarke, E. M., Emerson, E. A., Sistla, A. P. (1986). Automatic Verification of Finite-State Concurrent Systems. *ACM TOPLAS*, 8(2). https://doi.org/10.1145/5397.5399
 
 [9] Allen, J. F. (1983). Maintaining Knowledge About Temporal Intervals. *CACM*, 26(11). https://doi.org/10.1145/182.358434
+
+[10] Lassila, O., Swick, R. R. (1999). Resource Description Framework (RDF) Model and Syntax Specification. W3C Recommendation. https://www.w3.org/TR/1999/REC-rdf-syntax-19990222/
+
+[11] McGuinness, D. L., van Harmelen, F. (2004). OWL Web Ontology Language Overview. W3C Recommendation. https://www.w3.org/TR/owl-features/
+
+[12] Cox, S., Little, C. (2022). Time Ontology in OWL (OWL-Time). W3C Recommendation. https://www.w3.org/TR/owl-time/
 
 ---
 

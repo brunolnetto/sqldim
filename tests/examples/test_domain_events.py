@@ -234,6 +234,15 @@ class TestCustomerBulkCancelEvent:
         assert "customers" in changes
         assert changes["customers"][0]["updated_at"] == "2024-06-01 09:00:00"
 
+    def test_stamp_ts_row_returns_row_unchanged_for_other_customer(self):
+        """_stamp_ts_row returns the row unchanged when customer_id doesn't match (line 46)."""
+        from sqldim.application.datasets.domains.ecommerce.events.customers import (
+            _stamp_ts_row,
+        )
+        row = {"customer_id": 99, "updated_at": "2024-01-01"}
+        result = _stamp_ts_row(row, customer_id=1, event_ts="2024-06-01")
+        assert result is row  # unchanged — different customer
+
 
 # ── CustomerAddressChangedEvent ───────────────────────────────────────────────
 
@@ -318,6 +327,15 @@ class TestProductStockOutEvent:
         })
         changes = self._event().apply(state, product_id=1)
         assert "orders" not in changes
+
+    def test_apply_stock_out_leaves_other_products_unchanged(self):
+        """_apply_stock_out_to_product returns row unchanged for non-matching product_id (line 23)."""
+        from sqldim.application.datasets.domains.ecommerce.events.products import (
+            _apply_stock_out_to_product,
+        )
+        other = {"product_id": 99, "stock_qty": 50, "is_active": True}
+        result = _apply_stock_out_to_product(other, product_id=1, event_ts="2024-01-01")
+        assert result is other  # exact same object returned unchanged
 
 
 # ── UserPlanUpgradedEvent ─────────────────────────────────────────────────────

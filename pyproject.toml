@@ -1,6 +1,6 @@
 [project]
 name = "sqldim"
-version = "1.0.0"
+version = "2.0.0"
 description = "A Python toolkit for Dimensional Modeling (Kimball methodology) using SQLModel."
 readme = "README.md"
 requires-python = ">=3.11"
@@ -33,9 +33,11 @@ lineage      = ["openlineage-python>=1.15"]
 
 [tool.coverage.run]
 omit = [
-    "sqldim/examples/real_world/utils.py",
-    "sqldim/examples/*/showcase.py",
-    "sqldim/examples/features/*/showcase.py",
+    # benchmark harness — performance tooling, not subject to unit-test CI
+    "sqldim/application/benchmarks/*",
+    # integration fixtures requiring live DLT/Flask dependencies
+    "sqldim/application/examples/features/integrations/flask_dlt.py",
+    "sqldim/application/examples/features/integrations/ecommerce_api.py",
 ]
 
 [tool.pytest.ini_options]

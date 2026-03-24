@@ -24,7 +24,7 @@ def session():
         connect_args={"check_same_thread": False},
         poolclass=StaticPool,
     )
-    SQLModel.metadata.create_all(engine)
+    SQLModel.metadata.create_all(engine, tables=[AccountDim.__table__, BalanceFact.__table__])
     with Session(engine) as s:
         yield s
     engine.dispose()

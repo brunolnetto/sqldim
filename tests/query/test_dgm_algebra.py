@@ -90,6 +90,11 @@ class TestComposedQuery:
         cq = ComposedQuery(name="qx", query=_simple_q())
         assert "qx" in repr(cq)
 
+    def test_requires_query_or_sql(self):
+        """ComposedQuery(name=...) with neither query nor sql raises ValueError (line 100)."""
+        with pytest.raises(ValueError, match="query.*sql"):
+            ComposedQuery(name="bad")
+
 
 # ---------------------------------------------------------------------------
 # QuestionAlgebra — construction

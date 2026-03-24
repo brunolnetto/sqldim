@@ -1207,3 +1207,25 @@ class TestRule10:
             write_mode=WriteModeKind.ADAPTIVE,
         )
         assert isinstance(result, str)
+
+    def test_ttl_expiry_complete_to_stale(self):
+        """Rule 10a: COMPLETE state + elapsed TTL triggers → emits MERGE plan (lines 375-376)."""
+        from sqldim.core.query.dgm.annotations import PipelineStateKind, WriteModeKind
+        p = _make_planner()
+        result = p.apply_rule_10(
+            fact="daily_rev",
+            state=PipelineStateKind.COMPLETE,
+            ttl_elapsed_s=9999.0,  # large elapsed triggers _r10_ttl_check
+            write_mode=WriteModeKind.REFRESH,
+        )
+        assert "10a" in result or "TTL" in result or "MERGE" in result
+
+    def test_dispatch_fixed_mode_fallthrough(self):
+        """_r10_dispatch_fixed_mode returns fallthrough string for unknown mode (line 398)."""
+        from sqldim.core.query.dgm.annotations import PipelineStateKind, WriteModeKind
+        p = _make_planner()
+        result = p._r10_dispatch_fixed_mode(
+            "fact_x", PipelineStateKind.MISSING, "UNKNOWN_MODE", WriteModeKind, []
+        )
+        assert "no write plan inferred" in result
+

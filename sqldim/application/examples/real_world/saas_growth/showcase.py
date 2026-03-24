@@ -31,30 +31,6 @@ from sqldim import DGMQuery
 from sqldim.application.examples.utils import section, banner
 
 
-# ── in-memory sink ────────────────────────────────────────────────────────────
-
-
-class _InMemorySink:
-    """Minimal SinkAdapter backed by the shared in-memory DuckDB connection."""
-
-    def current_state_sql(self, table_name: str) -> str:
-        return f"SELECT * FROM {table_name}"
-
-    def write(
-        self,
-        con: "duckdb.DuckDBPyConnection",
-        view_name: str,
-        table_name: str,
-        batch_size: int = 100_000,
-    ) -> int:
-        n = con.execute(f"SELECT count(*) FROM {view_name}").fetchone()[0]
-        try:
-            con.execute(f"INSERT INTO {table_name} BY NAME SELECT * FROM {view_name}")
-        except Exception:
-            con.execute(f"CREATE TABLE {table_name} AS SELECT * FROM {view_name}")
-        return n
-
-
 # ── helpers ───────────────────────────────────────────────────────────────────
 
 
