@@ -9,7 +9,6 @@ import asyncio
 from sqldim.core.loaders._utils import _resolve_table
 
 
-
 # ---------------------------------------------------------------------------
 # Lazy (DuckDB-first) loader — no Python data, no OOM risk
 # ---------------------------------------------------------------------------
@@ -61,9 +60,9 @@ class LazyEdgeProjectionLoader:
         subject_key: str,
         object_key: str,
         sink,
-        property_map: Optional[Dict[str, str]] = None,
+        property_map: dict[str, str] | None = None,
         self_join: bool = False,
-        self_join_key: Optional[str] = None,
+        self_join_key: str | None = None,
         batch_size: int = 100_000,
         con=None,
     ):
@@ -78,6 +77,9 @@ class LazyEdgeProjectionLoader:
         self.self_join_key = self_join_key
         self.batch_size = batch_size
         self._con = con or _duckdb.connect()
+        self._model_cls: type | None = (
+            None  # set by factory when created via as_loader()
+        )
 
     def process(self, source) -> int:
         """

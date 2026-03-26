@@ -19,6 +19,7 @@ Analytical demonstrations
 4. Retention by tier — DGMQuery B2: activity rate segmented by plan_tier
 5. Funnel analysis   — new-user → D7 active → paid conversion
 """
+
 from __future__ import annotations
 
 import duckdb
@@ -59,7 +60,7 @@ def _print_table(headers: list[str], rows: list[tuple], max_rows: int = 10) -> N
 def demo_staging_layer(con: duckdb.DuckDBPyConnection) -> None:
     """Load SaaSUsersSource and SaaSSessionsSource into DuckDB staging tables."""
     with section("1. Staging Layer — SaaSUsersSource + SaaSSessionsSource"):
-        src_users    = SaaSUsersSource(n=200, seed=42)
+        src_users = SaaSUsersSource(n=200, seed=42)
         src_sessions = SaaSSessionsSource(n=200, seed=42)
 
         con.execute(
@@ -70,7 +71,7 @@ def demo_staging_layer(con: duckdb.DuckDBPyConnection) -> None:
         )
 
         for tbl in ("saas_users", "saas_sessions"):
-            n = con.execute(f"SELECT COUNT(*) FROM {tbl}").fetchone()[0]
+            n = (con.execute(f"SELECT COUNT(*) FROM {tbl}").fetchone() or (0,))[0]
             print(f"  {tbl:<16}  {n:>6} rows")
 
         tiers = con.execute("""
@@ -355,4 +356,5 @@ run_saas_showcase = run_showcase
 
 if __name__ == "__main__":  # pragma: no cover
     import asyncio
+
     asyncio.run(run_showcase())

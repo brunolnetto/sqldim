@@ -1,11 +1,20 @@
 import pytest
 from sqldim.exceptions import (
-    SqldimError, SchemaError, GrainViolationError, NaturalKeyError,
-    SCDError, DestructiveOperationError,
-    LoadError, SKResolutionError, IdempotencyError,
-    MigrationError, DestructiveMigrationError,
-    SemanticError, InvalidJoinError,
+    SqldimError,
+    SchemaError,
+    GrainViolationError,
+    NaturalKeyError,
+    SCDError,
+    DestructiveOperationError,
+    LoadError,
+    SKResolutionError,
+    IdempotencyError,
+    MigrationError,
+    DestructiveMigrationError,
+    SemanticError,
+    InvalidJoinError,
 )
+
 
 def test_hierarchy():
     assert issubclass(SchemaError, SqldimError)
@@ -20,6 +29,7 @@ def test_hierarchy():
     assert issubclass(DestructiveMigrationError, MigrationError)
     assert issubclass(SemanticError, SqldimError)
     assert issubclass(InvalidJoinError, SemanticError)
+
 
 def test_raise_and_catch():
     with pytest.raises(SqldimError):

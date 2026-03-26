@@ -20,6 +20,7 @@ Benchmark group modules, split into three top-level domains:
 
 CLI cascade selection: ``group.subgroup.profile`` (e.g. ``scd.regression.products``)
 """
+
 from sqldim.application.benchmarks.groups.scd import (
     group_a_scan_regression,
     group_b_memory_safety,

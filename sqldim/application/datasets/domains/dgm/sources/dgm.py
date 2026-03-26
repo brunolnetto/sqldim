@@ -66,9 +66,9 @@ CREATE TABLE IF NOT EXISTS {prefix}_prod_seg (
 
 # (id, email, segment, region, valid_from, valid_to)
 _CUSTOMER_ROWS = [
-    (1, "alice@x", "retail",    "US", "2020-01-01", None),
-    (2, "bob@x",   "wholesale", "EU", "2020-01-01", None),
-    (3, "carol@x", "retail",    "US", "2020-01-01", None),
+    (1, "alice@x", "retail", "US", "2020-01-01", None),
+    (2, "bob@x", "wholesale", "EU", "2020-01-01", None),
+    (3, "carol@x", "retail", "US", "2020-01-01", None),
 ]
 
 # (id, sku, category)
@@ -87,11 +87,11 @@ _SEGMENT_ROWS = [
 # (id, customer_id, product_id, revenue, quantity, sale_year)
 _SALE_ROWS = [
     (1, 1, 1, 1500.0, 3, 2024),
-    (2, 1, 2,  200.0, 1, 2024),
+    (2, 1, 2, 200.0, 1, 2024),
     (3, 1, 3, 3500.0, 5, 2024),
     (4, 2, 1, 4000.0, 8, 2024),
     (5, 3, 1, 2000.0, 4, 2024),
-    (6, 3, 3,  600.0, 2, 2024),
+    (6, 3, 3, 600.0, 2, 2024),
 ]
 
 # (id, product_id, segment_id, weight)

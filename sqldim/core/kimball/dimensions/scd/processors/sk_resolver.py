@@ -155,7 +155,7 @@ class NarwhalsSKResolver:
                     pl.DataFrame({natural_key_col: [], "id": []}), eager_only=True
                 )
             except ImportError:
-                import pandas as pd
+                import pandas as pd  # type: ignore[import-untyped]
 
                 return nw.from_native(
                     pd.DataFrame({natural_key_col: [], "id": []}), eager_only=True
@@ -165,7 +165,7 @@ class NarwhalsSKResolver:
 
             return nw.from_native(pl.from_dicts(records), eager_only=True)
         except ImportError:
-            import pandas as pd
+            import pandas as pd  # type: ignore[import-untyped]
 
             return nw.from_native(pd.DataFrame(records), eager_only=True)
 

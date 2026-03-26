@@ -85,14 +85,14 @@ class DimensionalQuery:
         self, fact_model: type[FactModel], dim_model: type[DimensionModel], fk_col: Any
     ):
         """Build SCD2-aware join conditions."""
-        join_cond = [fk_col == dim_model.id]
+        join_cond = [fk_col == dim_model.id]  # type: ignore[attr-defined]
         if self._as_of:
-            join_cond.append(dim_model.valid_from <= self._as_of)
+            join_cond.append(dim_model.valid_from <= self._as_of)  # type: ignore[attr-defined]
             join_cond.append(
-                dim_model.valid_to.is_(None) | (dim_model.valid_to > self._as_of)
+                dim_model.valid_to.is_(None) | (dim_model.valid_to > self._as_of)  # type: ignore[attr-defined]
             )
         else:
-            join_cond.append(dim_model.is_current)
+            join_cond.append(dim_model.is_current)  # type: ignore[attr-defined]
         return join_cond
 
     def _build(self) -> Any:
@@ -115,7 +115,7 @@ class DimensionalQuery:
         return stmt
 
     def _find_fk_col(self, dim_model: type) -> Any:
-        for col in self._fact.__table__.columns:
+        for col in self._fact.__table__.columns:  # type: ignore[attr-defined]
             col_dim = col.info.get("dimension") if col.info else None
             if col_dim == dim_model:
                 return getattr(self._fact, col.name)

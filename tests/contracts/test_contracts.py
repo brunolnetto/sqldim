@@ -1,4 +1,5 @@
 """Tests for sqldim.contracts — DataContract, versions, schema, SLA, registry."""
+
 import pytest
 from sqldim.medallion import Layer
 from sqldim.contracts import (
@@ -12,6 +13,7 @@ from sqldim.contracts import (
 
 
 # ── ContractVersion ───────────────────────────────────────────────────────────
+
 
 class TestContractVersion:
     def test_parse_three_parts(self):
@@ -67,6 +69,7 @@ class TestContractVersion:
 
 # ── ColumnSpec ────────────────────────────────────────────────────────────────
 
+
 class TestColumnSpec:
     def test_required_fields(self):
         c = ColumnSpec(name="order_id", dtype="uuid")
@@ -105,17 +108,20 @@ class TestColumnSpec:
 
 # ── SLASpec ───────────────────────────────────────────────────────────────────
 
+
 class TestSLASpec:
     def test_all_none_by_default(self):
         sla = SLASpec()
-        assert sla.freshness_minutes  is None
-        assert sla.completeness_pct   is None
+        assert sla.freshness_minutes is None
+        assert sla.completeness_pct is None
         assert sla.latency_p99_minutes is None
 
     def test_set_values(self):
-        sla = SLASpec(freshness_minutes=30, completeness_pct=99.5, latency_p99_minutes=5)
-        assert sla.freshness_minutes  == 30
-        assert sla.completeness_pct   == 99.5
+        sla = SLASpec(
+            freshness_minutes=30, completeness_pct=99.5, latency_p99_minutes=5
+        )
+        assert sla.freshness_minutes == 30
+        assert sla.completeness_pct == 99.5
         assert sla.latency_p99_minutes == 5
 
     def test_is_met_freshness_ok(self):
@@ -136,11 +142,12 @@ class TestSLASpec:
 
     def test_no_sla_always_met(self):
         sla = SLASpec()
-        assert sla.is_freshness_met(999)    is True
+        assert sla.is_freshness_met(999) is True
         assert sla.is_completeness_met(0.0) is True
 
 
 # ── DataContract ──────────────────────────────────────────────────────────────
+
 
 class TestDataContract:
     def _make(self, name="orders_v2", version="2.1.0", layer=Layer.SILVER):
@@ -150,20 +157,21 @@ class TestDataContract:
             owner="data-platform",
             layer=layer,
             columns=[
-                ColumnSpec("order_id",    "uuid",       nullable=False, primary_key=True),
-                ColumnSpec("customer_id", "uuid",       nullable=False,
-                           foreign_key="customers.id"),
-                ColumnSpec("amount",      "decimal"),
-                ColumnSpec("created_at",  "timestamp"),
+                ColumnSpec("order_id", "uuid", nullable=False, primary_key=True),
+                ColumnSpec(
+                    "customer_id", "uuid", nullable=False, foreign_key="customers.id"
+                ),
+                ColumnSpec("amount", "decimal"),
+                ColumnSpec("created_at", "timestamp"),
             ],
             sla=SLASpec(freshness_minutes=30, completeness_pct=99.5),
         )
 
     def test_basic_attributes(self):
         c = self._make()
-        assert c.name    == "orders_v2"
-        assert c.owner   == "data-platform"
-        assert c.layer   is Layer.SILVER
+        assert c.name == "orders_v2"
+        assert c.owner == "data-platform"
+        assert c.layer is Layer.SILVER
 
     def test_column_lookup_found(self):
         c = self._make()
@@ -182,8 +190,10 @@ class TestDataContract:
     def test_breaking_change_column_removed(self):
         old = self._make()
         new = DataContract(
-            name="orders_v2", version=ContractVersion.parse("2.1.0"),
-            owner="data-platform", layer=Layer.SILVER,
+            name="orders_v2",
+            version=ContractVersion.parse("2.1.0"),
+            owner="data-platform",
+            layer=Layer.SILVER,
             columns=[ColumnSpec("order_id", "uuid")],  # customer_id removed
         )
         assert new.is_breaking_change_from(old) is True
@@ -191,13 +201,15 @@ class TestDataContract:
     def test_breaking_change_type_changed(self):
         old = self._make()
         new = DataContract(
-            name="orders_v2", version=ContractVersion.parse("2.1.0"),
-            owner="data-platform", layer=Layer.SILVER,
+            name="orders_v2",
+            version=ContractVersion.parse("2.1.0"),
+            owner="data-platform",
+            layer=Layer.SILVER,
             columns=[
-                ColumnSpec("order_id",    "uuid",    nullable=False, primary_key=True),
-                ColumnSpec("customer_id", "uuid",    nullable=False),
-                ColumnSpec("amount",      "bigint"),  # was decimal → breaking
-                ColumnSpec("created_at",  "timestamp"),
+                ColumnSpec("order_id", "uuid", nullable=False, primary_key=True),
+                ColumnSpec("customer_id", "uuid", nullable=False),
+                ColumnSpec("amount", "bigint"),  # was decimal → breaking
+                ColumnSpec("created_at", "timestamp"),
             ],
         )
         assert new.is_breaking_change_from(old) is True
@@ -205,20 +217,23 @@ class TestDataContract:
     def test_non_breaking_new_nullable_column(self):
         old = self._make()
         new = DataContract(
-            name="orders_v2", version=ContractVersion.parse("2.1.0"),
-            owner="data-platform", layer=Layer.SILVER,
+            name="orders_v2",
+            version=ContractVersion.parse("2.1.0"),
+            owner="data-platform",
+            layer=Layer.SILVER,
             columns=[
-                ColumnSpec("order_id",    "uuid",      nullable=False, primary_key=True),
-                ColumnSpec("customer_id", "uuid",      nullable=False),
-                ColumnSpec("amount",      "decimal"),
-                ColumnSpec("created_at",  "timestamp"),
-                ColumnSpec("notes",       "text"),     # new nullable column
+                ColumnSpec("order_id", "uuid", nullable=False, primary_key=True),
+                ColumnSpec("customer_id", "uuid", nullable=False),
+                ColumnSpec("amount", "decimal"),
+                ColumnSpec("created_at", "timestamp"),
+                ColumnSpec("notes", "text"),  # new nullable column
             ],
         )
         assert new.is_breaking_change_from(old) is False
 
 
 # ── ContractRegistry ──────────────────────────────────────────────────────────
+
 
 class TestContractRegistry:
     def _contract(self, version="1.0.0"):
@@ -271,8 +286,11 @@ class TestContractRegistry:
     def test_all_names(self):
         self.reg.register(self._contract())
         c2 = DataContract(
-            name="customers", version=ContractVersion.parse("1.0.0"),
-            owner="t", layer=Layer.GOLD, columns=[],
+            name="customers",
+            version=ContractVersion.parse("1.0.0"),
+            owner="t",
+            layer=Layer.GOLD,
+            columns=[],
         )
         self.reg.register(c2)
         assert sorted(self.reg.all_names()) == ["customers", "orders"]

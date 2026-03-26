@@ -100,12 +100,13 @@ class KafkaSource:
                 f"max_messages={batch_size}, "
                 f"format='{self._format}')"
             )
-            count = con.execute(f"SELECT count(*) FROM ({sql})").fetchone()[0]
+            count = (con.execute(f"SELECT count(*) FROM ({sql})").fetchone() or (0,))[0]
             if count == 0:
                 break
-            self._offset = con.execute(
-                f"SELECT max(_kafka_offset) FROM ({sql})"
-            ).fetchone()[0]
+            self._offset = (
+                con.execute(f"SELECT max(_kafka_offset) FROM ({sql})").fetchone()
+                or (0,)
+            )[0]
             yield sql
 
     @staticmethod

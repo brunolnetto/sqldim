@@ -1,4 +1,5 @@
 """Tests for NarwhalsHashStrategy and NarwhalsSCDProcessor — Task 7.2."""
+
 import hashlib
 import pytest
 from datetime import date, datetime, timezone
@@ -6,12 +7,15 @@ from typing import Optional
 
 import narwhals as nw
 import polars as pl
-import pandas as pd
+import pandas as pd  # type: ignore[import-untyped]
 from sqlalchemy.pool import StaticPool
 from sqlmodel import Field, Session, SQLModel, create_engine
 
 from sqldim import DimensionModel, SCD2Mixin
-from sqldim.core.kimball.dimensions.scd.processors.scd_engine import NarwhalsHashStrategy, NarwhalsSCDProcessor
+from sqldim.core.kimball.dimensions.scd.processors.scd_engine import (
+    NarwhalsHashStrategy,
+    NarwhalsSCDProcessor,
+)
 from sqldim.core.kimball.dimensions.scd.processors.sk_resolver import NarwhalsSKResolver
 from sqldim.core.kimball.dimensions.scd.handler import SCDResult
 
@@ -25,21 +29,31 @@ TRACK_COLS = ["name", "city"]
 
 
 def _make_incoming_pl():
-    return nw.from_native(pl.DataFrame({
-        "customer_code": ["C1", "C2", "C3"],
-        "name":          ["Alice", "Bob", "Carol"],
-        "city":          ["NY",    "LA",  "SF"],
-    }), eager_only=True)
+    return nw.from_native(
+        pl.DataFrame(
+            {
+                "customer_code": ["C1", "C2", "C3"],
+                "name": ["Alice", "Bob", "Carol"],
+                "city": ["NY", "LA", "SF"],
+            }
+        ),
+        eager_only=True,
+    )
 
 
 def _make_current_pl():
     """C1 same as incoming. C2 different city → changed. C3 absent → new."""
-    return nw.from_native(pl.DataFrame({
-        "customer_code": ["C1", "C2"],
-        "name":          ["Alice", "Bob"],
-        "city":          ["NY",    "Boston"],
-        "is_current":    [True,    True],
-    }), eager_only=True)
+    return nw.from_native(
+        pl.DataFrame(
+            {
+                "customer_code": ["C1", "C2"],
+                "name": ["Alice", "Bob"],
+                "city": ["NY", "Boston"],
+                "is_current": [True, True],
+            }
+        ),
+        eager_only=True,
+    )
 
 
 def _python_checksum(record: dict, track_cols: list[str]) -> str:
@@ -52,8 +66,8 @@ def _python_checksum(record: dict, track_cols: list[str]) -> str:
 # NarwhalsHashStrategy.compute_checksums
 # ---------------------------------------------------------------------------
 
-class TestNarwhalsHashStrategy:
 
+class TestNarwhalsHashStrategy:
     def test_compute_checksums_adds_column(self):
         strategy = NarwhalsHashStrategy(NATURAL_KEY, TRACK_COLS)
         frame = _make_incoming_pl()
@@ -78,11 +92,13 @@ class TestNarwhalsHashStrategy:
 
     def test_checksum_works_with_pandas(self):
         strategy = NarwhalsHashStrategy(NATURAL_KEY, TRACK_COLS)
-        df = pd.DataFrame({
-            "customer_code": ["C1"],
-            "name": ["Alice"],
-            "city": ["NY"],
-        })
+        df = pd.DataFrame(
+            {
+                "customer_code": ["C1"],
+                "name": ["Alice"],
+                "city": ["NY"],
+            }
+        )
         frame = nw.from_native(df, eager_only=True)
         result = strategy.compute_checksums(frame)
         assert "checksum" in result.columns
@@ -103,8 +119,8 @@ class TestNarwhalsHashStrategy:
         changed_codes = set(changed["customer_code"].to_list())
         unchanged_codes = set(unchanged["customer_code"].to_list())
 
-        assert "C3" in new_codes        # brand new
-        assert "C2" in changed_codes    # city changed
+        assert "C3" in new_codes  # brand new
+        assert "C2" in changed_codes  # city changed
         assert "C1" in unchanged_codes  # same
 
     def test_find_changes_counts(self):
@@ -129,12 +145,14 @@ class TestNarwhalsHashStrategy:
         incoming = strategy.compute_checksums(_make_incoming_pl())
         # Use explicit dtypes so join keys match (polars infers Null for empty lists)
         empty_current = nw.from_native(
-            pl.DataFrame({
-                "customer_code": pl.Series([], dtype=pl.Utf8),
-                "name": pl.Series([], dtype=pl.Utf8),
-                "city": pl.Series([], dtype=pl.Utf8),
-                "checksum": pl.Series([], dtype=pl.Utf8),
-            }),
+            pl.DataFrame(
+                {
+                    "customer_code": pl.Series([], dtype=pl.Utf8),
+                    "name": pl.Series([], dtype=pl.Utf8),
+                    "city": pl.Series([], dtype=pl.Utf8),
+                    "checksum": pl.Series([], dtype=pl.Utf8),
+                }
+            ),
             eager_only=True,
         )
         new, changed, unchanged = strategy.find_changes(incoming, empty_current)
@@ -146,12 +164,17 @@ class TestNarwhalsHashStrategy:
         strategy = NarwhalsHashStrategy(NATURAL_KEY, TRACK_COLS)
         incoming = strategy.compute_checksums(_make_incoming_pl())
         # current = same data
-        current = nw.from_native(pl.DataFrame({
-            "customer_code": ["C1", "C2", "C3"],
-            "name":          ["Alice", "Bob", "Carol"],
-            "city":          ["NY",    "LA",  "SF"],
-            "is_current":    [True, True, True],
-        }), eager_only=True)
+        current = nw.from_native(
+            pl.DataFrame(
+                {
+                    "customer_code": ["C1", "C2", "C3"],
+                    "name": ["Alice", "Bob", "Carol"],
+                    "city": ["NY", "LA", "SF"],
+                    "is_current": [True, True, True],
+                }
+            ),
+            eager_only=True,
+        )
         current = strategy.compute_checksums(current)
         new, changed, unchanged = strategy.find_changes(incoming, current)
         assert len(new) == 0
@@ -163,8 +186,8 @@ class TestNarwhalsHashStrategy:
 # NarwhalsSCDProcessor
 # ---------------------------------------------------------------------------
 
-class TestNarwhalsSCDProcessor:
 
+class TestNarwhalsSCDProcessor:
     def test_process_returns_scd_result(self):
         proc = NarwhalsSCDProcessor(NATURAL_KEY, TRACK_COLS)
         incoming = _make_incoming_pl()
@@ -175,7 +198,7 @@ class TestNarwhalsSCDProcessor:
     def test_process_counts_correct(self):
         proc = NarwhalsSCDProcessor(NATURAL_KEY, TRACK_COLS)
         result = proc.process(_make_incoming_pl(), _make_current_pl())
-        assert result.inserted == 1   # C3 new
+        assert result.inserted == 1  # C3 new
         assert result.versioned == 1  # C2 changed
         assert result.unchanged == 1  # C1 same
 
@@ -190,12 +213,17 @@ class TestNarwhalsSCDProcessor:
         # Process once
         proc.process(_make_incoming_pl(), _make_current_pl())
         # Process again with same data as both incoming and current
-        current_after = nw.from_native(pl.DataFrame({
-            "customer_code": ["C1", "C2", "C3"],
-            "name":          ["Alice", "Bob", "Carol"],
-            "city":          ["NY",    "LA",  "SF"],
-            "is_current":    [True, True, True],
-        }), eager_only=True)
+        current_after = nw.from_native(
+            pl.DataFrame(
+                {
+                    "customer_code": ["C1", "C2", "C3"],
+                    "name": ["Alice", "Bob", "Carol"],
+                    "city": ["NY", "LA", "SF"],
+                    "is_current": [True, True, True],
+                }
+            ),
+            eager_only=True,
+        )
         result2 = proc.process(_make_incoming_pl(), current_after)
         assert result2.unchanged == 3
         assert result2.inserted == 0
@@ -203,17 +231,21 @@ class TestNarwhalsSCDProcessor:
 
     def test_process_with_pandas_source(self):
         proc = NarwhalsSCDProcessor(NATURAL_KEY, TRACK_COLS)
-        incoming_pd = pd.DataFrame({
-            "customer_code": ["C1"],
-            "name": ["Alice"],
-            "city": ["NY"],
-        })
-        current_pd = pd.DataFrame({
-            "customer_code": ["C1"],
-            "name": ["Alice"],
-            "city": ["Boston"],
-            "is_current": [True],
-        })
+        incoming_pd = pd.DataFrame(
+            {
+                "customer_code": ["C1"],
+                "name": ["Alice"],
+                "city": ["NY"],
+            }
+        )
+        current_pd = pd.DataFrame(
+            {
+                "customer_code": ["C1"],
+                "name": ["Alice"],
+                "city": ["Boston"],
+                "is_current": [True],
+            }
+        )
         incoming = nw.from_native(incoming_pd, eager_only=True)
         current = nw.from_native(current_pd, eager_only=True)
         result = proc.process(incoming, current)
@@ -229,6 +261,7 @@ class TestNarwhalsSCDProcessor:
 # ---------------------------------------------------------------------------
 # Migrated from test_coverage_100.py, test_coverage_final.py, test_coverage_gap.py
 # ---------------------------------------------------------------------------
+
 
 class TestNarwhalsHashStrategyMissingLine:
     def test_pandas_object_dtype_handling(self):
@@ -277,6 +310,7 @@ def scd2_engine_session():
 
 def test_narwhals_sk_resolver_as_of_logic(scd2_engine_session):
     """NarwhalsSKResolver._load_lookup with as_of filters by valid_from/valid_to."""
+
     class SCD2DimLocal(DimensionModel, table=True):
         __tablename__ = "scd2_lookup_engine"
         id: Optional[int] = Field(default=None, primary_key=True)
@@ -288,12 +322,16 @@ def test_narwhals_sk_resolver_as_of_logic(scd2_engine_session):
     SQLModel.metadata.create_all(scd2_engine_session.get_bind())
 
     d1 = SCD2DimLocal(
-        code="X", is_current=False,
-        valid_from=date(2020, 1, 1), valid_to=date(2021, 1, 1)
+        code="X",
+        is_current=False,
+        valid_from=date(2020, 1, 1),
+        valid_to=date(2021, 1, 1),
     )
     scd2_engine_session.add(d1)
     scd2_engine_session.commit()
 
     resolver = NarwhalsSKResolver(scd2_engine_session)
-    lookup = resolver._load_lookup(SCD2DimLocal, as_of=date(2020, 6, 1), natural_key_col="code")
+    lookup = resolver._load_lookup(
+        SCD2DimLocal, as_of=date(2020, 6, 1), natural_key_col="code"
+    )
     assert len(lookup) == 1

@@ -8,7 +8,6 @@ import random
 from sqldim.application.datasets.base import (
     DatasetFactory,
     SchematicSource,
-    SourceProvider,
 )
 from sqldim.application.datasets.schema import (
     ChangeRule,

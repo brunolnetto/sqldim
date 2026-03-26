@@ -124,6 +124,7 @@ def _build_cse_lookup(
         cse_name = f"__cse_{bdd_id}"
         first_cq = algebra._ctes[names[0]]
         dq = first_cq.query  # DGMQuery — guaranteed non-None by find_shared
+        assert dq is not None
         anchor = dq._anchor_table or "unknown"
         pred_sql = dq._where_pred.to_sql()  # type: ignore[union-attr]
         cse_sql[cse_name] = f"SELECT * FROM {anchor} WHERE {pred_sql}"

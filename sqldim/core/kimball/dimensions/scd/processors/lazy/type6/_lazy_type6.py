@@ -204,9 +204,12 @@ class LazyType6Processor:
 
     def _count_unchanged(self) -> int:
         """Return the count of rows with no type-1 or type-2 attribute changes."""
-        return self._con.execute(
-            "SELECT count(*) FROM classified WHERE _scd_class = 'unchanged'"
-        ).fetchone()[0]
+        return (
+            self._con.execute(
+                "SELECT count(*) FROM classified WHERE _scd_class = 'unchanged'"
+            ).fetchone()
+            or (0,)
+        )[0]
 
     def _update_local_state_after_batch(self) -> None:
         """Sync the local ``current_state`` TABLE with rows written in this batch."""

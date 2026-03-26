@@ -53,8 +53,8 @@ __all__ = [
 # Sentinel IDs
 # ---------------------------------------------------------------------------
 
-_EMPTY_ID: int = 0   # Additive identity for UNION  (Q ∪ ∅ = Q)
-_TOP_ID: int = 1     # Multiplicative identity for INTERSECT (Q ∩ Q_top = Q)
+_EMPTY_ID: int = 0  # Additive identity for UNION  (Q ∪ ∅ = Q)
+_TOP_ID: int = 1  # Multiplicative identity for INTERSECT (Q ∩ Q_top = Q)
 
 
 # ---------------------------------------------------------------------------
@@ -99,7 +99,7 @@ class QueryDAGManager:
         # Pre-allocate sentinel slots at positions 0 and 1.
         self._nodes: list[QueryDAGNode] = [
             QueryDAGNode(node_id=_EMPTY_ID, op=None, left_id=None, right_id=None),
-            QueryDAGNode(node_id=_TOP_ID,   op=None, left_id=None, right_id=None),
+            QueryDAGNode(node_id=_TOP_ID, op=None, left_id=None, right_id=None),
         ]
         # Unique table: (op.value, left_id, right_id) → node_id
         self._unique: dict[tuple[str, int, int], int] = {}
@@ -138,20 +138,20 @@ class QueryDAGManager:
     # -- Semiring elimination (structural only) ------------------------------
 
     def _elim_union(self, left: int, right: int) -> int | None:
-        if left == right:          # idempotence: Q ∪ Q = Q
+        if left == right:  # idempotence: Q ∪ Q = Q
             return left
-        if left == _EMPTY_ID:      # identity: ∅ ∪ Q = Q
+        if left == _EMPTY_ID:  # identity: ∅ ∪ Q = Q
             return right
-        if right == _EMPTY_ID:     # identity: Q ∪ ∅ = Q
+        if right == _EMPTY_ID:  # identity: Q ∪ ∅ = Q
             return left
         return None
 
     def _elim_intersect(self, left: int, right: int) -> int | None:
-        if left == right:          # idempotence: Q ∩ Q = Q
+        if left == right:  # idempotence: Q ∩ Q = Q
             return left
-        if left == _TOP_ID:        # identity: Q_top ∩ Q = Q
+        if left == _TOP_ID:  # identity: Q_top ∩ Q = Q
             return right
-        if right == _TOP_ID:       # identity: Q ∩ Q_top = Q
+        if right == _TOP_ID:  # identity: Q ∩ Q_top = Q
             return left
         return None
 
@@ -241,11 +241,11 @@ def _union_survivor(
     bdd: "DGMPredicateBDD",
 ) -> str | None:
     """Return the surviving CTE name for UNION containment, or None."""
-    l = bdd_ids.get(left, TRUE_NODE_ID)
+    left_id = bdd_ids.get(left, TRUE_NODE_ID)
     r = bdd_ids.get(right, TRUE_NODE_ID)
-    if bdd.implies(l, r):       # left ⊆ right → right dominates union
+    if bdd.implies(left_id, r):  # left ⊆ right → right dominates union
         return right
-    if bdd.implies(r, l):       # right ⊆ left → left dominates union
+    if bdd.implies(r, left_id):  # right ⊆ left → left dominates union
         return left
     return None
 
@@ -257,11 +257,11 @@ def _intersect_survivor(
     bdd: "DGMPredicateBDD",
 ) -> str | None:
     """Return the surviving CTE name for INTERSECT containment, or None."""
-    l = bdd_ids.get(left, TRUE_NODE_ID)
+    left_id = bdd_ids.get(left, TRUE_NODE_ID)
     r = bdd_ids.get(right, TRUE_NODE_ID)
-    if bdd.implies(l, r):       # left ⊆ right → intersection equals left
+    if bdd.implies(left_id, r):  # left ⊆ right → intersection equals left
         return left
-    if bdd.implies(r, l):       # right ⊆ left → intersection equals right
+    if bdd.implies(r, left_id):  # right ⊆ left → intersection equals right
         return right
     return None
 
@@ -274,7 +274,7 @@ def _try_eliminate(
     bdd: "DGMPredicateBDD",
 ) -> str | None:
     """Return the surviving CTE if any elimination rule fires, else None."""
-    if left_eff == right_eff:           # structural idempotence
+    if left_eff == right_eff:  # structural idempotence
         return left_eff
     if op is ComposeOp.UNION:
         return _union_survivor(left_eff, right_eff, bdd_ids, bdd)
@@ -293,7 +293,7 @@ def _resolve(name: str, subs: dict[str, str]) -> str:
     seen: set[str] = set()
     while name in subs:
         if name in seen:
-            break           # cycle guard — should not occur in valid DAG
+            break  # cycle guard — should not occur in valid DAG
         seen.add(name)
         name = subs[name]
     return name
@@ -362,7 +362,7 @@ def apply_semiring_minimisation(
         algebra, "_composition", {}
     )
     if not composition:
-        return _copy_algebra(algebra)       # fast path: no compositions
+        return _copy_algebra(algebra)  # fast path: no compositions
 
     bdd_ids = _build_bdd_ids(algebra, composition, bdd)
 

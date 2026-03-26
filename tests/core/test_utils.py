@@ -1,4 +1,5 @@
 """Tests for sqldim/examples/utils.py."""
+
 import os
 import duckdb
 
@@ -15,6 +16,7 @@ from sqldim.application.examples.utils import (
 
 
 # ── tmp_db ──────────────────────────────────────────────────────────────────
+
 
 def test_tmp_db_yields_valid_path():
     with tmp_db() as path:
@@ -41,6 +43,7 @@ def test_tmp_db_cleans_up_wal(tmp_path, monkeypatch):
 
 # ── make_tmp_db ──────────────────────────────────────────────────────────────
 
+
 def test_make_tmp_db_returns_string():
     path = make_tmp_db()
     assert isinstance(path, str)
@@ -66,6 +69,7 @@ def test_make_tmp_db_is_connectable():
 
 
 # ── setup_dim / teardown_dim ─────────────────────────────────────────────────
+
 
 class _FakeSrc:
     def __init__(self):
@@ -121,6 +125,7 @@ def test_teardown_dim_noop_when_table_does_not_exist():
 
 # ── section context manager ──────────────────────────────────────────────────
 
+
 def test_section_prints_header(capsys):
     with section("My Section"):
         pass
@@ -135,6 +140,7 @@ def test_section_returns_self():
 
 
 # ── banner ───────────────────────────────────────────────────────────────────
+
 
 def test_banner_prints_title(capsys):
     banner("Test Banner")
@@ -156,6 +162,7 @@ def test_banner_without_subtitle(capsys):
 
 
 # ── print_rows ───────────────────────────────────────────────────────────────
+
 
 def test_print_rows_no_headers(capsys):
     print_rows([(1, "Alice"), (2, "Bob")])
@@ -180,6 +187,7 @@ def test_print_rows_empty(capsys):
 
 # ── show_provider ────────────────────────────────────────────────────────────
 
+
 class _WithDescribeProvider:
     def describe_provider(self):
         return "described!"
@@ -189,6 +197,7 @@ class _WithProvider:
     class _P:
         def describe(self):
             return "from provider"
+
     provider = _P()
 
 
@@ -225,6 +234,7 @@ def test_show_provider_noop_when_no_method(capsys):
 
 
 # ── OSError silenced in tmp_db cleanup ───────────────────────────────────────
+
 
 def test_tmp_db_cleanup_silences_oserror(monkeypatch):
     """Verify that OSError during tmp file removal is silenced."""

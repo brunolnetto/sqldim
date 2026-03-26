@@ -8,6 +8,7 @@ sqldim/sources/kafka.py      → ~80%  (constructor + public API; no real Kafka)
 sqldim/sources/kinesis.py    → ~80%  (constructor + public API; no real AWS)
 sqldim/sources/cdc.py        → ~80%  (constructor + public API; no real CDC)
 """
+
 from __future__ import annotations
 
 import duckdb
@@ -22,6 +23,7 @@ from sqldim.core.kimball.dimensions.scd.handler import SCDResult
 # ---------------------------------------------------------------------------
 # Minimal stub that satisfies the protocol
 # ---------------------------------------------------------------------------
+
 
 class StubStreamSource:
     """Finite stream over a list of pre-registered DuckDB view names."""
@@ -56,6 +58,7 @@ class IncompleteSource:
 # StreamSourceAdapter protocol checks
 # ---------------------------------------------------------------------------
 
+
 class TestStreamSourceAdapterProtocol:
     def test_stub_satisfies_protocol(self):
         assert isinstance(StubStreamSource([]), StreamSourceAdapter)
@@ -86,6 +89,7 @@ class TestStreamSourceAdapterProtocol:
 # ---------------------------------------------------------------------------
 # StreamResult accumulation
 # ---------------------------------------------------------------------------
+
 
 class TestStreamResult:
     def test_initial_state(self):
@@ -154,6 +158,7 @@ class TestStreamResult:
 # KafkaSource — constructor and public API (no real Kafka)
 # ---------------------------------------------------------------------------
 
+
 class TestKafkaSource:
     def test_basic_construction(self):
         src = KafkaSource(
@@ -174,9 +179,7 @@ class TestKafkaSource:
         assert src._start_from == "latest"
 
     def test_custom_format(self):
-        src = KafkaSource(
-            brokers="b:9092", topic="t", group_id="g", format="avro"
-        )
+        src = KafkaSource(brokers="b:9092", topic="t", group_id="g", format="avro")
         assert src._format == "avro"
 
     def test_custom_start_from(self):
@@ -205,6 +208,7 @@ class TestKafkaSource:
 # ---------------------------------------------------------------------------
 # KinesisSource — constructor and public API (no real AWS)
 # ---------------------------------------------------------------------------
+
 
 class TestKinesisSource:
     def test_basic_construction(self):
@@ -245,6 +249,7 @@ class TestKinesisSource:
 # ---------------------------------------------------------------------------
 # DebeziumSource — constructor and delegation (no real CDC)
 # ---------------------------------------------------------------------------
+
 
 class TestDebeziumSource:
     def _make_kafka(self):
@@ -418,8 +423,12 @@ class TestDebeziumSource:
         class FakeKafka:
             def stream(self, _con, batch_size=10_000):
                 yield "SELECT * FROM _del_only"
-            def commit(self, offset): pass
-            def checkpoint(self): return 1
+
+            def commit(self, offset):
+                pass
+
+            def checkpoint(self):
+                return 1
 
         src = DebeziumSource(kafka_source=FakeKafka(), natural_key="id")
         fragments = list(src.stream(con))
@@ -452,15 +461,17 @@ class TestDebeziumSource:
         class FakeKafka:
             def stream(self, _con, batch_size=10_000):
                 yield "SELECT * FROM _snap"
-            def commit(self, offset): pass
-            def checkpoint(self): return 1
+
+            def commit(self, offset):
+                pass
+
+            def checkpoint(self):
+                return 1
 
         src = DebeziumSource(kafka_source=FakeKafka(), natural_key="id")
         list(src.stream(con))
 
-        rows = con.execute(
-            "SELECT id, val FROM _cdc_upserts ORDER BY id"
-        ).fetchall()
+        rows = con.execute("SELECT id, val FROM _cdc_upserts ORDER BY id").fetchall()
         assert len(rows) == 3
         assert rows[0] == (1, "snap1")
         assert rows[1] == (2, "snap2")
@@ -486,15 +497,17 @@ class TestDebeziumSource:
         class FakeKafka:
             def stream(self, _con, batch_size=10_000):
                 yield "SELECT * FROM _upd"
-            def commit(self, offset): pass
-            def checkpoint(self): return 1
+
+            def commit(self, offset):
+                pass
+
+            def checkpoint(self):
+                return 1
 
         src = DebeziumSource(kafka_source=FakeKafka(), natural_key="id")
         list(src.stream(con))
 
-        rows = con.execute(
-            "SELECT id, status FROM _cdc_upserts ORDER BY id"
-        ).fetchall()
+        rows = con.execute("SELECT id, status FROM _cdc_upserts ORDER BY id").fetchall()
         # Both rows appear — the view doesn't deduplicate; that's the
         # caller's responsibility (e.g., via MERGE in the dimension loader).
         assert len(rows) == 2
@@ -506,8 +519,10 @@ class TestDebeziumSource:
         class TrackingKafka:
             def stream(self, _con, batch_size=10_000):
                 yield "SELECT 1 AS id"
+
             def commit(self, offset):
                 call_log.append(("commit", offset))
+
             def checkpoint(self):
                 call_log.append(("checkpoint",))
                 return 42
@@ -524,31 +539,38 @@ class TestDebeziumSource:
 # __init__.py re-exports
 # ---------------------------------------------------------------------------
 
+
 class TestSourcesInit:
     def test_stream_source_adapter_importable_from_sources(self):
         from sqldim.sources import StreamSourceAdapter
+
         assert StreamSourceAdapter is not None
 
     def test_stream_result_importable_from_sources(self):
         from sqldim.sources import StreamResult
+
         assert StreamResult is not None
 
     def test_kafka_source_importable_from_sources(self):
         from sqldim.sources import KafkaSource
+
         assert KafkaSource is not None
 
     def test_kinesis_source_importable_from_sources(self):
         from sqldim.sources import KinesisSource
+
         assert KinesisSource is not None
 
     def test_debezium_source_importable_from_sources(self):
         from sqldim.sources import DebeziumSource
+
         assert DebeziumSource is not None
 
 
 # ---------------------------------------------------------------------------
 # KafkaSource._stream_native() — mock DuckDB connection
 # ---------------------------------------------------------------------------
+
 
 class TestKafkaStreamNative:
     def _make_src(self):
@@ -558,6 +580,7 @@ class TestKafkaStreamNative:
         """Build a MagicMock DuckDB connection that returns count_seq then
         offset_seq in alternating fetchone() calls."""
         from unittest.mock import MagicMock
+
         con = MagicMock()
         results = []
         for count, offset in zip(count_seq, offset_seq):
@@ -583,6 +606,7 @@ class TestKafkaStreamNative:
 
     def test_stops_when_count_is_zero(self):
         from unittest.mock import MagicMock
+
         src = self._make_src()
         # First batch has 0 rows → stop immediately
         con = MagicMock()
@@ -609,6 +633,7 @@ class TestKafkaStreamNative:
 # KafkaSource._stream_consumer() — mock confluent_kafka + polars
 # ---------------------------------------------------------------------------
 
+
 class TestKafkaStreamConsumer:
     def _make_src(self):
         return KafkaSource(brokers="b:9092", topic="events", group_id="g")
@@ -616,6 +641,7 @@ class TestKafkaStreamConsumer:
     def _make_mock_msg(self, payload: dict, offset_val: int):
         from unittest.mock import MagicMock
         import json
+
         msg = MagicMock()
         msg.error.return_value = None
         msg.value.return_value = json.dumps(payload).encode()
@@ -641,7 +667,9 @@ class TestKafkaStreamConsumer:
         con = MagicMock()
 
         src = self._make_src()
-        with patch.dict(sys.modules, {"confluent_kafka": mock_confluent, "polars": mock_polars}):
+        with patch.dict(
+            sys.modules, {"confluent_kafka": mock_confluent, "polars": mock_polars}
+        ):
             fragments = list(src._stream_consumer(con, batch_size=10))
 
         assert len(fragments) == 1
@@ -662,7 +690,9 @@ class TestKafkaStreamConsumer:
         mock_polars = MagicMock()
 
         src = self._make_src()
-        with patch.dict(sys.modules, {"confluent_kafka": mock_confluent, "polars": mock_polars}):
+        with patch.dict(
+            sys.modules, {"confluent_kafka": mock_confluent, "polars": mock_polars}
+        ):
             list(src._stream_consumer(MagicMock(), batch_size=10))
 
         assert src._offset == 99
@@ -678,7 +708,9 @@ class TestKafkaStreamConsumer:
         mock_confluent.Consumer.return_value = mock_consumer
 
         src = self._make_src()
-        with patch.dict(sys.modules, {"confluent_kafka": mock_confluent, "polars": MagicMock()}):
+        with patch.dict(
+            sys.modules, {"confluent_kafka": mock_confluent, "polars": MagicMock()}
+        ):
             fragments = list(src._stream_consumer(MagicMock(), batch_size=10))
 
         assert fragments == []
@@ -694,7 +726,9 @@ class TestKafkaStreamConsumer:
         mock_confluent.Consumer.return_value = mock_consumer
 
         src = self._make_src()
-        with patch.dict(sys.modules, {"confluent_kafka": mock_confluent, "polars": MagicMock()}):
+        with patch.dict(
+            sys.modules, {"confluent_kafka": mock_confluent, "polars": MagicMock()}
+        ):
             list(src._stream_consumer(MagicMock(), batch_size=10))
 
         mock_consumer.close.assert_called_once()
@@ -721,7 +755,9 @@ class TestKafkaStreamConsumer:
         mock_polars = MagicMock()
 
         src = self._make_src()
-        with patch.dict(sys.modules, {"confluent_kafka": mock_confluent, "polars": mock_polars}):
+        with patch.dict(
+            sys.modules, {"confluent_kafka": mock_confluent, "polars": mock_polars}
+        ):
             list(src._stream_consumer(MagicMock(), batch_size=10))
 
         # from_dicts should only have been called with the good message's data
@@ -732,6 +768,7 @@ class TestKafkaStreamConsumer:
 # ---------------------------------------------------------------------------
 # KafkaSource.stream() — try/except: native → consumer fallback
 # ---------------------------------------------------------------------------
+
 
 class TestKafkaStream:
     def test_stream_falls_back_to_consumer_when_load_fails(self):
@@ -758,7 +795,9 @@ class TestKafkaStream:
         con.execute.side_effect = Exception("kafka extension not found")
 
         src = KafkaSource(brokers="b:9092", topic="events", group_id="g")
-        with patch.dict(sys.modules, {"confluent_kafka": mock_confluent, "polars": mock_polars}):
+        with patch.dict(
+            sys.modules, {"confluent_kafka": mock_confluent, "polars": mock_polars}
+        ):
             fragments = list(src.stream(con, batch_size=10))
 
         assert len(fragments) == 1
@@ -768,6 +807,7 @@ class TestKafkaStream:
 # ---------------------------------------------------------------------------
 # KinesisSource.stream() — mock boto3 + polars
 # ---------------------------------------------------------------------------
+
 
 class TestKinesisStream:
     def _make_src(self):
@@ -831,7 +871,10 @@ class TestKinesisStream:
         mock_client = MagicMock()
         mock_client.list_shards.return_value = {"Shards": [{"ShardId": "shard-000"}]}
         mock_client.get_shard_iterator.return_value = {"ShardIterator": "iter-0"}
-        mock_client.get_records.return_value = {"Records": [], "NextShardIterator": "iter-1"}
+        mock_client.get_records.return_value = {
+            "Records": [],
+            "NextShardIterator": "iter-1",
+        }
 
         mock_boto3 = MagicMock()
         mock_boto3.client.return_value = mock_client
@@ -997,6 +1040,7 @@ class TestKinesisStream:
 # KafkaSource fallback path  (kafka.py lines 70, 140)
 # ---------------------------------------------------------------------------
 
+
 class TestKafkaSourceFallback:
     """Covers lines 70 (consumer fallback) and 140 (yield in _stream_consumer)."""
 
@@ -1070,10 +1114,13 @@ class TestKafkaSourceFallback:
 
         mock_con = MagicMock()
 
-        with patch.dict(sys.modules, {
-            "confluent_kafka": mock_confluent,
-            "polars": mock_polars,
-        }):
+        with patch.dict(
+            sys.modules,
+            {
+                "confluent_kafka": mock_confluent,
+                "polars": mock_polars,
+            },
+        ):
             fragments = list(src._stream_consumer(mock_con, batch_size=100))
 
         assert fragments == ["SELECT * FROM _kafka_batch"]
@@ -1090,7 +1137,7 @@ class TestKafkaSourceFallback:
         src = self._make_src()
 
         bad_msg = MagicMock()
-        bad_msg.error.return_value = "kafka-error"   # truthy → filtered out
+        bad_msg.error.return_value = "kafka-error"  # truthy → filtered out
 
         good_msg = MagicMock()
         good_msg.error.return_value = None
@@ -1113,10 +1160,13 @@ class TestKafkaSourceFallback:
 
         mock_con = MagicMock()
 
-        with patch.dict(sys.modules, {
-            "confluent_kafka": mock_confluent,
-            "polars": mock_polars,
-        }):
+        with patch.dict(
+            sys.modules,
+            {
+                "confluent_kafka": mock_confluent,
+                "polars": mock_polars,
+            },
+        ):
             fragments = list(src._stream_consumer(mock_con, batch_size=100))
 
         # Only the good batch yielded a fragment; error batch hit continue

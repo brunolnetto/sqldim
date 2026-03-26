@@ -269,9 +269,12 @@ class LazySCDProcessor(_Type2StreamMixin):
 
     def _count_unchanged(self) -> int:
         """Return the count of rows that had no attribute changes."""
-        return self._con.execute(
-            "SELECT count(*) FROM classified WHERE _scd_class = 'unchanged'"
-        ).fetchone()[0]
+        return (
+            self._con.execute(
+                "SELECT count(*) FROM classified WHERE _scd_class = 'unchanged'"
+            ).fetchone()
+            or (0,)
+        )[0]
 
     def _update_local_fingerprint_after_batch(self) -> None:
         """Sync the local ``current_checksums`` TABLE with rows written in this batch.
@@ -351,4 +354,6 @@ class LazySCDProcessor(_Type2StreamMixin):
 # ---------------------------------------------------------------------------
 # LazyType1Processor re-exported from _lazy_type1 for backward compatibility
 # ---------------------------------------------------------------------------
-from sqldim.core.kimball.dimensions.scd.processors.lazy.type1 import LazyType1Processor as LazyType1Processor  # noqa: F401
+from sqldim.core.kimball.dimensions.scd.processors.lazy.type1 import (  # noqa: E402, F401
+    LazyType1Processor as LazyType1Processor,
+)

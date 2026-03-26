@@ -1,4 +1,5 @@
 """Tests for EdgeModel base class — Task 6.2."""
+
 import pytest
 from typing import Optional
 from sqlmodel import Field
@@ -11,6 +12,7 @@ from sqldim.exceptions import SchemaError
 # ---------------------------------------------------------------------------
 # Vertex fixtures
 # ---------------------------------------------------------------------------
+
 
 class VPlayer(VertexModel, table=True):
     __tablename__ = "v_player"
@@ -31,6 +33,7 @@ class VGame(VertexModel, table=True):
 # ---------------------------------------------------------------------------
 # Edge fixtures
 # ---------------------------------------------------------------------------
+
 
 class PlaysInE(EdgeModel, table=True):
     __tablename__ = "plays_in_e"
@@ -61,6 +64,7 @@ class SelfRefEdge(EdgeModel, table=True):
 # ---------------------------------------------------------------------------
 # Tests
 # ---------------------------------------------------------------------------
+
 
 def test_edge_model_is_also_fact_model():
     assert issubclass(PlaysInE, FactModel)

@@ -6,16 +6,25 @@ FK join conditions are inferred from SQLAlchemy metadata.
 
 from __future__ import annotations
 
+from typing import Any
+
 from sqldim.exceptions import SemanticError
-from sqldim.core.query.dgm.refs import PropRef, AggRef, WinRef, SignatureRef
+from sqldim.core.query.dgm.refs import _SQLExpr
 from sqldim.core.query.dgm.preds import (
-    ScalarPred, AND, OR, NOT, RawPred, PathPred, SignaturePred, _HopBase,
+    AND,
+    RawPred,
+    _HopBase,
 )
 from sqldim.core.query.dgm.temporal import TemporalContext
 from sqldim.core.query.dgm._query_helpers import (
-    _collect_fk_matches, _infer_on,
-    _check_where_pred, _check_having_pred, _check_qualify_pred,
-    _validate_bands, _build_select_list, _build_from_joins, _semi_additive_expr,
+    _infer_on,
+    _check_where_pred,
+    _check_having_pred,
+    _check_qualify_pred,
+    _validate_bands,
+    _build_select_list,
+    _build_from_joins,
+    _semi_additive_expr,
 )
 
 
@@ -32,15 +41,15 @@ class DGMQuery:
         self._joins: list[tuple[str, str, str]] = []
         self._scd2_joins: list[tuple[str, str, str, str]] = []
         self._as_of: str | None = None
-        self._where_pred: object = None
+        self._where_pred: "_SQLExpr | None" = None
         self._group_by_cols: list[str] = []
         self._agg_exprs: dict[str, str] = {}
-        self._having_pred: object = None
+        self._having_pred: "_SQLExpr | None" = None
         self._window_exprs: dict[str, str] = {}
-        self._qualify_pred: object = None
+        self._qualify_pred: "_SQLExpr | None" = None
         self._temporal_context: "TemporalContext | None" = None
         # Maps alias → model class for FK inference in model-first path_join
-        self._alias_registry: dict[str, type] = {}
+        self._alias_registry: dict[str, Any] = {}
         if fact_table is not None:
             self._anchor_table = fact_table
             self._anchor_alias = "f"
@@ -76,7 +85,8 @@ class DGMQuery:
         infer FK join conditions automatically.
         """
         if isinstance(table_or_model, type):
-            table = table_or_model.table_name()
+            model_cls: Any = table_or_model
+            table = model_cls.table_name()
             key = alias if alias is not None else table
             self._alias_registry[key] = table_or_model
         else:
@@ -131,7 +141,7 @@ class DGMQuery:
 
     def _resolve_model_join(
         self,
-        model: type,
+        model: Any,
         from_alias: "str | None",
         to_alias: "str | None",
     ) -> "tuple[str, str, str]":
@@ -154,12 +164,14 @@ class DGMQuery:
         self,
         hop: "_HopBase",
     ) -> "tuple[str, str, str]":
-        table = hop.table or hop.model.table_name()
+        hop_model: Any = hop.model
+        table = hop.table or hop_model.table_name()
         on = hop.on
         if on is None:
             from_model = self._alias_registry[hop.from_alias]
+            assert hop.model is not None, "hop.model required when hop.on is absent"
             on = _infer_on(
-                hop.from_alias, hop.to_alias, hop.model, from_model.table_name()
+                hop.from_alias, hop.to_alias, hop_model, from_model.table_name()
             )
         if hop.model is not None:
             self._alias_registry[hop.to_alias] = hop.model
@@ -173,7 +185,7 @@ class DGMQuery:
         """Point-in-time SCD2 filter (alias for :meth:`temporal_join`)."""
         return self.temporal_join(point_in_time)
 
-    def where(self, pred: object) -> "DGMQuery":
+    def where(self, pred: "_SQLExpr") -> "DGMQuery":
         """Apply a B1 filter (PropRef, PathPred, or raw SQL string).
 
         Raises :class:`~sqldim.exceptions.SemanticError` at construction time
@@ -199,7 +211,7 @@ class DGMQuery:
         self._agg_exprs.update(named_exprs)
         return self
 
-    def having(self, pred: object) -> "DGMQuery":
+    def having(self, pred: "_SQLExpr") -> "DGMQuery":
         """Apply a B2 filter (AggRef only; PathPred not allowed).
 
         Raises :class:`~sqldim.exceptions.SemanticError` at construction time
@@ -212,7 +224,7 @@ class DGMQuery:
     def aggregate(
         self,
         *group_by_cols: str,
-        having: object = None,
+        having: "_SQLExpr | None" = None,
         **agg_exprs: str,
     ) -> "DGMQuery":
         """Combined B2 setup — matches the DGM spec vocabulary (Band 2 = Aggregation).
@@ -233,7 +245,7 @@ class DGMQuery:
         self._window_exprs.update(named_exprs)
         return self
 
-    def qualify(self, pred: object) -> "DGMQuery":
+    def qualify(self, pred: "_SQLExpr") -> "DGMQuery":
         """Apply a B3 filter (WinRef only; PathPred not allowed).
 
         Raises :class:`~sqldim.exceptions.SemanticError` at construction time
@@ -243,7 +255,9 @@ class DGMQuery:
         self._qualify_pred = pred
         return self
 
-    def rank(self, *, qualify: object = None, **window_exprs: str) -> "DGMQuery":
+    def rank(
+        self, *, qualify: "_SQLExpr | None" = None, **window_exprs: str
+    ) -> "DGMQuery":
         """Combined B3 setup — matches the DGM spec vocabulary (Band 3 = Ranking).
 
         Equivalent to chaining ``.window(**exprs).qualify(pred)``::
@@ -276,7 +290,7 @@ class DGMQuery:
             lines.append("QUALIFY " + self._qualify_pred.to_sql())
         return "\n".join(lines)
 
-    def execute(self, con: object) -> list:
+    def execute(self, con: Any) -> list:
         """Execute the query and return all rows."""
         return con.execute(self.to_sql()).fetchall()
 
@@ -382,7 +396,7 @@ class DGMQuery:
         )
         return self
 
-    def as_view(self, con: object, view_name: str) -> str:
+    def as_view(self, con: Any, view_name: str) -> str:
         """Register the compiled SQL as a DuckDB VIEW and return the view name."""
         con.execute(f"CREATE OR REPLACE VIEW {view_name} AS\n{self.to_sql()}")
         return view_name

@@ -1,13 +1,19 @@
 """Tests for lineage event model — LineageEvent, RunState, DatasetRef."""
+
 from datetime import datetime, timezone
 
 from sqldim.lineage import LineageEvent, RunState
-from sqldim.lineage.events import DatasetRef, InferredMemberEvent, InferredMemberEventType
+from sqldim.lineage.events import (
+    DatasetRef,
+    InferredMemberEvent,
+    InferredMemberEventType,
+)
 
 
 # ---------------------------------------------------------------------------
 # RunState
 # ---------------------------------------------------------------------------
+
 
 class TestRunState:
     def test_all_states_exist(self):
@@ -31,6 +37,7 @@ class TestRunState:
 # DatasetRef
 # ---------------------------------------------------------------------------
 
+
 class TestDatasetRef:
     def test_basic_fields(self):
         d = DatasetRef(namespace="sqldim.bronze", name="raw_orders")
@@ -50,6 +57,7 @@ class TestDatasetRef:
 # ---------------------------------------------------------------------------
 # LineageEvent
 # ---------------------------------------------------------------------------
+
 
 class TestLineageEvent:
     def test_defaults(self):
@@ -115,6 +123,7 @@ class TestLineageEvent:
 
     def test_to_dict_is_json_serialisable(self):
         import json
+
         ev = LineageEvent(
             job_name="x",
             inputs=[DatasetRef("ns", "tbl", facets={"count": 10})],
@@ -130,6 +139,7 @@ class TestLineageEvent:
 
     def test_all_run_states_produce_valid_dicts(self):
         import json
+
         for state in RunState:
             ev = LineageEvent(job_name="x", state=state)
             d = ev.to_dict()
@@ -140,6 +150,7 @@ class TestLineageEvent:
 # ---------------------------------------------------------------------------
 # InferredMemberEvent
 # ---------------------------------------------------------------------------
+
 
 class TestInferredMemberEvent:
     def test_to_dict_created_event(self):
@@ -169,4 +180,3 @@ class TestInferredMemberEvent:
         assert d["eventType"] == InferredMemberEventType.RECONNECTED.value
         assert d["versionsMerged"] == 3
         assert d["factTable"] == ""
-

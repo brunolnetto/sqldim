@@ -59,8 +59,8 @@ import time
 from typing import Any
 
 import duckdb
-import dlt
-import requests
+import dlt  # type: ignore[import-not-found]
+import requests  # type: ignore[import-untyped]
 
 from sqldim.core.kimball.dimensions.scd.processors.scd_engine import LazySCDProcessor
 from sqldim.sinks import DuckDBSink
@@ -79,7 +79,14 @@ from sqldim.application.examples.features.utils import make_tmp_db
 _BASE_URL = ""  # set at runtime once we know which port Flask is on
 
 # Column order matching the dim_customer DDL (business columns only)
-_CUSTOMER_COL_ORDER = ["customer_id", "email", "full_name", "loyalty_tier", "country_code", "acquisition_channel"]
+_CUSTOMER_COL_ORDER = [
+    "customer_id",
+    "email",
+    "full_name",
+    "loyalty_tier",
+    "country_code",
+    "acquisition_channel",
+]
 
 
 @dlt.resource(name="customers", write_disposition="replace")
@@ -160,8 +167,7 @@ def _print_upgrade_history(wh) -> None:
     for r in history_rows:
         flag = "✓" if r[4] else "H"
         print(
-            f"      [{flag}] id={r[0]}  {r[1]:<28}  "
-            f"tier={r[2]:<10}  valid_from={r[3]}"
+            f"      [{flag}] id={r[0]}  {r[1]:<28}  tier={r[2]:<10}  valid_from={r[3]}"
         )
 
 
@@ -178,7 +184,14 @@ def run_flask_dlt_example() -> None:
 
     # Seed the Flask store from LoyaltyCustomersSource — loyalty_tier already present.
     raw = LoyaltyCustomersSource(n_entities=20, seed=42)
-    _export_keys = ["customer_id", "email", "full_name", "loyalty_tier", "country_code", "acquisition_channel"]
+    _export_keys = [
+        "customer_id",
+        "email",
+        "full_name",
+        "loyalty_tier",
+        "country_code",
+        "acquisition_channel",
+    ]
     customers = _export_customers(raw, _export_keys)
     build_flask_app(customers)
 
@@ -228,12 +241,20 @@ def run_flask_dlt_example() -> None:
     setup_con.execute(_DIM_DDL)
     setup_con.close()
 
-    tracked = ["email", "full_name", "loyalty_tier", "country_code", "acquisition_channel"]
+    tracked = [
+        "email",
+        "full_name",
+        "loyalty_tier",
+        "country_code",
+        "acquisition_channel",
+    ]
 
     try:
         # ── T0: initial extract -> stage -> warehouse ─────────────────────
         print("\n  T0 — initial dlt extract + sqldim load …")
-        result_t0 = _load_rows_into_warehouse(bridge, staging_dir + "/t0", warehouse_db, tracked)
+        result_t0 = _load_rows_into_warehouse(
+            bridge, staging_dir + "/t0", warehouse_db, tracked
+        )
         print(f"    sqldim T0  →  inserted={result_t0.inserted}")
 
         # ── Apply three tier-upgrade events via the Flask API ─────────────
@@ -242,7 +263,9 @@ def run_flask_dlt_example() -> None:
 
         # ── T1: incremental extract -> stage -> warehouse ─────────────────
         print("\n  T1 — incremental dlt extract + sqldim load …")
-        result_t1 = _load_rows_into_warehouse(bridge, staging_dir + "/t1", warehouse_db, tracked)
+        result_t1 = _load_rows_into_warehouse(
+            bridge, staging_dir + "/t1", warehouse_db, tracked
+        )
         print(
             f"    sqldim T1  →  inserted={result_t1.inserted}, "
             f"versioned={result_t1.versioned}, unchanged={result_t1.unchanged}"
@@ -251,7 +274,7 @@ def run_flask_dlt_example() -> None:
         # ── Report ────────────────────────────────────────────────────────
         print("\n  Warehouse dim_customer:")
         wh = duckdb.connect(warehouse_db)
-        total, current, hist = wh.execute(
+        total, current, hist = wh.execute(  # type: ignore[misc]
             "SELECT COUNT(*), SUM(is_current::INT), SUM((NOT is_current)::INT) "
             "FROM dim_customer"
         ).fetchone()

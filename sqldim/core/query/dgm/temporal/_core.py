@@ -10,6 +10,7 @@ continues to work unchanged.
 from __future__ import annotations
 
 # Re-export mode and ordering types for backward compatibility
+from sqldim.core.query.dgm.refs import _SQLExpr
 from sqldim.core.query.dgm.temporal._modes import (  # noqa: F401
     TemporalMode,
     EVENTUALLY,
@@ -137,6 +138,7 @@ class TemporalWindow:
 
 class _SingletonWindow(TemporalWindow):
     """Base for parameterless windows — subclasses are used as the class itself."""
+
     sql_operator: str = ""
 
     def to_sql(self) -> str:
@@ -145,16 +147,19 @@ class _SingletonWindow(TemporalWindow):
 
 class YTD(_SingletonWindow):
     """Year-to-date window."""
+
     sql_operator = "YTD"
 
 
 class QTD(_SingletonWindow):
     """Quarter-to-date window."""
+
     sql_operator = "QTD"
 
 
 class MTD(_SingletonWindow):
     """Month-to-date window."""
+
     sql_operator = "MTD"
 
 
@@ -213,8 +218,8 @@ class TemporalAgg:
     def __init__(
         self,
         fn: str,
-        ref: object,
-        timestamp: object,
+        ref: _SQLExpr,
+        timestamp: _SQLExpr,
         window: "type | TemporalWindow",
     ) -> None:
         self.fn = fn
@@ -236,11 +241,7 @@ class TemporalAgg:
         win_sql = self._window_sql()
         ts_sql = self.timestamp.to_sql()
         ref_sql = self.ref.to_sql()
-        return (
-            f"{self.fn}({ref_sql}) OVER ("
-            f"ORDER BY {ts_sql} "
-            f"{win_sql})"
-        )
+        return f"{self.fn}({ref_sql}) OVER (ORDER BY {ts_sql} {win_sql})"
 
 
 # ---------------------------------------------------------------------------
@@ -324,7 +325,7 @@ class DeltaQuery:
         t2: str,
         spec: "DeltaSpec",
         *,
-        filter: "object | None" = None,
+        filter: "_SQLExpr | None" = None,
     ) -> None:
         self.t1 = t1
         self.t2 = t2
@@ -337,6 +338,4 @@ class DeltaQuery:
         filter_sql = ""
         if self.filter is not None:
             filter_sql = f" WHERE {self.filter.to_sql()}"
-        return (
-            f"-- Q_delta({spec_name}, t1='{self.t1}', t2='{self.t2}'){filter_sql}"
-        )
+        return f"-- Q_delta({spec_name}, t1='{self.t1}', t2='{self.t2}'){filter_sql}"

@@ -42,6 +42,8 @@ Local / REST catalog example::
 
 from __future__ import annotations
 
+from typing import Any
+
 import duckdb
 
 from sqldim.sinks._connection import make_connection
@@ -82,8 +84,8 @@ class IcebergSink(_IcebergMutateMixin):
         self._namespace = namespace
         self._catalog_config = catalog_config or {}
         self._location_base = table_location_base
-        self._catalog = None
-        self._con: duckdb.DuckDBPyConnection | None = None
+        self._catalog: Any = None
+        self._con: Any = None
         self._max_python_rows = max_python_rows
 
     # ── Internal helpers ──────────────────────────────────────────────────

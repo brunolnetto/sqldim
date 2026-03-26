@@ -1,4 +1,5 @@
 """Tests for HierarchyMixin, strategies, and HierarchyRoller."""
+
 import pytest
 from sqldim.core.kimball.dimensions.hierarchy import (
     HierarchyMixin,
@@ -12,6 +13,7 @@ from sqldim.core.kimball.dimensions.hierarchy import (
 # ---------------------------------------------------------------------------
 # HierarchyMixin.hierarchy_strategy — unknown name raises ValueError
 # ---------------------------------------------------------------------------
+
 
 class TestHierarchyMixinStrategy:
     def test_unknown_strategy_raises(self):
@@ -47,6 +49,7 @@ class TestHierarchyMixinStrategy:
 # MaterializedPathStrategy.rollup_sql — covers line 445
 # ---------------------------------------------------------------------------
 
+
 class TestMaterializedPathStrategy:
     def test_rollup_sql_contains_hierarchy_path(self):
         sql = MaterializedPathStrategy().rollup_sql(
@@ -74,6 +77,7 @@ class TestMaterializedPathStrategy:
 # HierarchyRoller — explicit strategy override (lines 723-726)
 # ---------------------------------------------------------------------------
 
+
 class TestHierarchyRoller:
     def test_rollup_sql_with_explicit_strategy(self):
         """Passing strategy= uses it directly, skipping auto-detect."""
@@ -90,6 +94,7 @@ class TestHierarchyRoller:
 
     def test_rollup_sql_with_dim_cls(self):
         """dim_cls= auto-detects strategy from class attribute."""
+
         class OrgDim(HierarchyMixin):
             __hierarchy_strategy__ = "adjacency"
 
@@ -114,6 +119,7 @@ class TestHierarchyRoller:
 # ---------------------------------------------------------------------------
 # OrgChartSource — teardown and snapshot (datasets/hierarchy.py lines 203-209)
 # ---------------------------------------------------------------------------
+
 
 class TestOrgChartSource:
     def test_teardown_drops_tables(self):

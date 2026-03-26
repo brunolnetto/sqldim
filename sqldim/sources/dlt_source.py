@@ -42,7 +42,7 @@ from __future__ import annotations
 
 def _require_dlt():
     try:
-        import dlt as _dlt
+        import dlt as _dlt  # type: ignore[import-not-found]
 
         return _dlt
     except ImportError:  # pragma: no cover

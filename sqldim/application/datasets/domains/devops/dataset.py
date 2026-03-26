@@ -14,6 +14,7 @@ Instantiate and use with a DuckDB connection:
 
     devops_dataset.teardown(con)
 """
+
 from sqldim.application.datasets.dataset import Dataset
 from sqldim.application.datasets.domains.devops.sources import (
     GitHubIssuesSource,
@@ -26,4 +27,11 @@ devops_dataset = Dataset(
     ],
 )
 
-__all__ = ["devops_dataset"]
+DATASET_METADATA = {
+    "name": "devops",
+    "title": "DevOps observability",
+    "description": "Services, deployments, incidents, alerts, and SLO metrics",
+    "dataset_attr": "devops_dataset",
+}
+
+__all__ = ["devops_dataset", "DATASET_METADATA"]

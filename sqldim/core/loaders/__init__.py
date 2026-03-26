@@ -14,7 +14,10 @@ from sqldim.core.loaders.fact.snapshot import (
     LazyTransactionLoader,
     LazySnapshotLoader,
 )
-from sqldim.core.loaders.fact.accumulating import AccumulatingLoader, LazyAccumulatingLoader
+from sqldim.core.loaders.fact.accumulating import (
+    AccumulatingLoader,
+    LazyAccumulatingLoader,
+)
 from sqldim.core.loaders.fact.cumulative import LazyCumulativeLoader
 from sqldim.core.loaders.dimension.bitmask import LazyBitmaskLoader
 from sqldim.core.loaders.dimension.array_metric import LazyArrayMetricLoader

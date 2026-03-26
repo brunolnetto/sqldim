@@ -28,7 +28,7 @@ def _vertex_info(v: type) -> dict[str, Any]:
         "name": v.__name__,
         "vertex_type": getattr(v, "__vertex_type__", v.__name__.lower()),
         "natural_key": getattr(v, "__natural_key__", []),
-        "columns": list(v.model_fields.keys()),
+        "columns": list(v.model_fields.keys()),  # type: ignore[attr-defined]
     }
 
 
@@ -69,15 +69,15 @@ def _edge_info(e: type, dimensions: list) -> dict[str, Any]:
         "object": object_cls.__name__ if object_cls else None,
         "directed": directed,
         "self_referential": subject_cls is not None and subject_cls is object_cls,
-        "columns": list(e.model_fields.keys()),
-        "valid_from": "valid_from" in e.model_fields,
-        "valid_to": "valid_to" in e.model_fields,
+        "columns": list(e.model_fields.keys()),  # type: ignore[attr-defined]
+        "valid_from": "valid_from" in e.model_fields,  # type: ignore[attr-defined]
+        "valid_to": "valid_to" in e.model_fields,  # type: ignore[attr-defined]
     }
 
 
 def _has_column(model_cls: type, col: str) -> bool:
     """Return True if *col* is present in model_fields (O(1) dict lookup)."""
-    return col in model_cls.model_fields
+    return col in model_cls.model_fields  # type: ignore[attr-defined]
 
 
 def _verb_adj_entries(
@@ -128,8 +128,8 @@ def _bridge_edge_info(b: type) -> dict[str, Any]:
         "subject": getattr(b, "__subject__", None),
         "object": getattr(b, "__object__", None),
         "directed": getattr(b, "__directed__", False),
-        "columns": list(b.model_fields.keys()),
-        "has_weight": "weight" in b.model_fields,
+        "columns": list(b.model_fields.keys()),  # type: ignore[attr-defined]
+        "has_weight": "weight" in b.model_fields,  # type: ignore[attr-defined]
         "valid_from": _has_column(b, "valid_from"),
         "valid_to": _has_column(b, "valid_to"),
     }
@@ -149,7 +149,7 @@ def _render_graph_model(m: type, lines: list) -> None:
     if hasattr(m, "_rendered_in_mermaid"):
         return
     lines.append(f"    {m.__name__} {{")
-    for col_name in m.model_fields:
+    for col_name in m.model_fields:  # type: ignore[attr-defined]
         annotation = m.__annotations__.get(col_name)
         lines.append(f"        {_annotation_type(annotation)} {col_name}")
     lines.append("    }")
@@ -450,7 +450,11 @@ class SchemaGraph(_BaseSchemaGraph):
         )
 
 
-from sqldim.core.graph._impl._schema_diff import ColumnDiff, SchemaDiff, _collect_column_diff  # noqa: E402, F401
+from sqldim.core.graph._impl._schema_diff import (  # noqa: E402, F401
+    ColumnDiff,
+    SchemaDiff,
+    _collect_column_diff,
+)
 
 
 def _added(absent_from: dict, present_in: dict) -> list:

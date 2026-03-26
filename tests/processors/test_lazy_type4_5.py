@@ -6,15 +6,20 @@ Coverage targets
 sqldim/narwhals/scd_engine.py  — LazyType4Processor, LazyType5Processor
 sqldim/sinks/duckdb.py        — upsert()
 """
+
 from __future__ import annotations
 import duckdb
 
-from sqldim.core.kimball.dimensions.scd.processors.scd_engine import LazyType4Processor, LazyType5Processor
+from sqldim.core.kimball.dimensions.scd.processors.scd_engine import (
+    LazyType4Processor,
+    LazyType5Processor,
+)
 
 
 # ---------------------------------------------------------------------------
 # InMemorySink — mirrors test_lazy_scd.py but adds upsert()
 # ---------------------------------------------------------------------------
+
 
 class InMemorySink:
     """Minimal sink that operates directly on an in-memory DuckDB connection."""
@@ -53,21 +58,22 @@ class InMemorySink:
             """)
         return con.execute(f"SELECT count(*) FROM {updates_view}").fetchone()[0]
 
-    def upsert(self, con, view_name, table_name, conflict_cols, returning_col,
-               output_view):
+    def upsert(
+        self, con, view_name, table_name, conflict_cols, returning_col, output_view
+    ):
         """Insert new combinations; register output_view mapping (id, *cols)."""
         cols_str = ", ".join(conflict_cols)
         inner_join = " AND ".join(f"src.{c} = t.{c}" for c in conflict_cols)
-        view_join  = " AND ".join(f"t.{c} = v.{c}" for c in conflict_cols)
+        view_join = " AND ".join(f"t.{c} = v.{c}" for c in conflict_cols)
 
         con.execute(f"""
             INSERT INTO {table_name} ({returning_col}, {cols_str})
             SELECT
                 (SELECT COALESCE(MAX({returning_col}), 0) FROM {table_name})
                     + row_number() OVER () AS {returning_col},
-                {', '.join(f'src.{c}' for c in conflict_cols)}
+                {", ".join(f"src.{c}" for c in conflict_cols)}
             FROM (
-                SELECT DISTINCT {', '.join(f'src.{c}' for c in conflict_cols)}
+                SELECT DISTINCT {", ".join(f"src.{c}" for c in conflict_cols)}
                 FROM {view_name} src
                 WHERE NOT EXISTS (
                     SELECT 1 FROM {table_name} t WHERE {inner_join}
@@ -78,7 +84,7 @@ class InMemorySink:
         con.execute(f"""
             CREATE OR REPLACE VIEW {output_view} AS
             SELECT t.{returning_col},
-                   {', '.join(f't.{c}' for c in conflict_cols)}
+                   {", ".join(f"t.{c}" for c in conflict_cols)}
             FROM {table_name} t
             INNER JOIN (SELECT DISTINCT {cols_str} FROM {view_name}) v
                 ON {view_join}
@@ -90,6 +96,7 @@ class InMemorySink:
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
+
 
 def _make_con():
     return duckdb.connect()
@@ -106,8 +113,9 @@ def _create_mini_dim(con: duckdb.DuckDBPyConnection, name: str) -> None:
     """)
 
 
-def _create_base_dim(con: duckdb.DuckDBPyConnection, name: str,
-                     extra_cols: list[str] | None = None) -> None:
+def _create_base_dim(
+    con: duckdb.DuckDBPyConnection, name: str, extra_cols: list[str] | None = None
+) -> None:
     """Empty base dimension table with SCD2 structure."""
     extras = ""
     if extra_cols:
@@ -146,10 +154,11 @@ def _seed_incoming(con: duckdb.DuckDBPyConnection, rows: list[dict]) -> str:
 # TestLazyType4Processor
 # ---------------------------------------------------------------------------
 
-class TestLazyType4Processor:
 
-    def _make_processor(self, con, base_dim="dim_customer",
-                        mini_dim="dim_profile", extra_base_cols=None):
+class TestLazyType4Processor:
+    def _make_processor(
+        self, con, base_dim="dim_customer", mini_dim="dim_profile", extra_base_cols=None
+    ):
         sink = InMemorySink()
         _create_mini_dim(con, mini_dim)
         _create_base_dim(con, base_dim, extra_base_cols)
@@ -168,9 +177,17 @@ class TestLazyType4Processor:
     def test_new_rows_inserted(self):
         con = _make_con()
         proc = self._make_processor(con)
-        src_sql = _seed_incoming(con, [
-            {"customer_id": "C1", "name": "Alice", "age_band": "18-24", "income_band": "low"},
-        ])
+        src_sql = _seed_incoming(
+            con,
+            [
+                {
+                    "customer_id": "C1",
+                    "name": "Alice",
+                    "age_band": "18-24",
+                    "income_band": "low",
+                },
+            ],
+        )
         result = proc.process(src_sql)
         assert result["inserted"] == 1
         assert result["versioned"] == 0
@@ -182,10 +199,23 @@ class TestLazyType4Processor:
     def test_mini_dim_rows_populated(self):
         con = _make_con()
         proc = self._make_processor(con)
-        src_sql = _seed_incoming(con, [
-            {"customer_id": "C1", "name": "Alice", "age_band": "18-24", "income_band": "low"},
-            {"customer_id": "C2", "name": "Bob",   "age_band": "25-34", "income_band": "mid"},
-        ])
+        src_sql = _seed_incoming(
+            con,
+            [
+                {
+                    "customer_id": "C1",
+                    "name": "Alice",
+                    "age_band": "18-24",
+                    "income_band": "low",
+                },
+                {
+                    "customer_id": "C2",
+                    "name": "Bob",
+                    "age_band": "25-34",
+                    "income_band": "mid",
+                },
+            ],
+        )
         result = proc.process(src_sql)
         assert result["mini_dim_rows"] == 2
         mini = con.execute("SELECT * FROM dim_profile").fetchdf()
@@ -194,10 +224,23 @@ class TestLazyType4Processor:
     def test_mini_dim_deduplicates_same_profile(self):
         con = _make_con()
         proc = self._make_processor(con)
-        src_sql = _seed_incoming(con, [
-            {"customer_id": "C1", "name": "Alice", "age_band": "18-24", "income_band": "low"},
-            {"customer_id": "C2", "name": "Bob",   "age_band": "18-24", "income_band": "low"},
-        ])
+        src_sql = _seed_incoming(
+            con,
+            [
+                {
+                    "customer_id": "C1",
+                    "name": "Alice",
+                    "age_band": "18-24",
+                    "income_band": "low",
+                },
+                {
+                    "customer_id": "C2",
+                    "name": "Bob",
+                    "age_band": "18-24",
+                    "income_band": "low",
+                },
+            ],
+        )
         result = proc.process(src_sql)
         assert result["mini_dim_rows"] == 1
         mini = con.execute("SELECT * FROM dim_profile").fetchdf()
@@ -206,9 +249,17 @@ class TestLazyType4Processor:
     def test_profile_sk_attached_to_base_row(self):
         con = _make_con()
         proc = self._make_processor(con)
-        src_sql = _seed_incoming(con, [
-            {"customer_id": "C1", "name": "Alice", "age_band": "18-24", "income_band": "low"},
-        ])
+        src_sql = _seed_incoming(
+            con,
+            [
+                {
+                    "customer_id": "C1",
+                    "name": "Alice",
+                    "age_band": "18-24",
+                    "income_band": "low",
+                },
+            ],
+        )
         proc.process(src_sql)
         row = con.execute("SELECT profile_sk FROM dim_customer").fetchone()
         assert row[0] is not None and row[0] >= 1
@@ -218,39 +269,71 @@ class TestLazyType4Processor:
         proc = self._make_processor(con)
 
         # Initial load
-        src1 = _seed_incoming(con, [
-            {"customer_id": "C1", "name": "Alice", "age_band": "18-24", "income_band": "low"},
-        ])
+        src1 = _seed_incoming(
+            con,
+            [
+                {
+                    "customer_id": "C1",
+                    "name": "Alice",
+                    "age_band": "18-24",
+                    "income_band": "low",
+                },
+            ],
+        )
         r1 = proc.process(src1)
         assert r1["inserted"] == 1
 
         # Profile changes → new SCD2 version
         con.execute("DROP TABLE src_table")
-        src2 = _seed_incoming(con, [
-            {"customer_id": "C1", "name": "Alice", "age_band": "25-34", "income_band": "mid"},
-        ])
+        src2 = _seed_incoming(
+            con,
+            [
+                {
+                    "customer_id": "C1",
+                    "name": "Alice",
+                    "age_band": "25-34",
+                    "income_band": "mid",
+                },
+            ],
+        )
         r2 = proc.process(src2)
         assert r2["versioned"] == 1
         assert r2["inserted"] == 0
 
         rows = con.execute("SELECT * FROM dim_customer ORDER BY valid_from").fetchdf()
-        assert len(rows) == 2     # one historical, one current
+        assert len(rows) == 2  # one historical, one current
         assert rows["is_current"].tolist() == [False, True]
 
     def test_unchanged_row_stays_unchanged(self):
         con = _make_con()
         proc = self._make_processor(con)
 
-        src1 = _seed_incoming(con, [
-            {"customer_id": "C1", "name": "Alice", "age_band": "18-24", "income_band": "low"},
-        ])
+        src1 = _seed_incoming(
+            con,
+            [
+                {
+                    "customer_id": "C1",
+                    "name": "Alice",
+                    "age_band": "18-24",
+                    "income_band": "low",
+                },
+            ],
+        )
         proc.process(src1)
 
         # Same data → unchanged
         con.execute("DROP TABLE src_table")
-        src2 = _seed_incoming(con, [
-            {"customer_id": "C1", "name": "Alice", "age_band": "18-24", "income_band": "low"},
-        ])
+        src2 = _seed_incoming(
+            con,
+            [
+                {
+                    "customer_id": "C1",
+                    "name": "Alice",
+                    "age_band": "18-24",
+                    "income_band": "low",
+                },
+            ],
+        )
         r2 = proc.process(src2)
         assert r2["unchanged"] == 1
         assert r2["inserted"] == 0
@@ -262,16 +345,32 @@ class TestLazyType4Processor:
         con = _make_con()
         proc = self._make_processor(con)
 
-        src1 = _seed_incoming(con, [
-            {"customer_id": "C1", "name": "Alice", "age_band": "18-24", "income_band": "low"},
-        ])
+        src1 = _seed_incoming(
+            con,
+            [
+                {
+                    "customer_id": "C1",
+                    "name": "Alice",
+                    "age_band": "18-24",
+                    "income_band": "low",
+                },
+            ],
+        )
         proc.process(src1)
 
         # Same profile combination — mini dim should still have only 1 row
         con.execute("DROP TABLE src_table")
-        src2 = _seed_incoming(con, [
-            {"customer_id": "C1", "name": "Alice updated", "age_band": "18-24", "income_band": "low"},
-        ])
+        src2 = _seed_incoming(
+            con,
+            [
+                {
+                    "customer_id": "C1",
+                    "name": "Alice updated",
+                    "age_band": "18-24",
+                    "income_band": "low",
+                },
+            ],
+        )
         proc.process(src2)
         mini_count = con.execute("SELECT count(*) FROM dim_profile").fetchone()[0]
         assert mini_count == 1
@@ -279,20 +378,51 @@ class TestLazyType4Processor:
     def test_process_returns_dict_keys(self):
         con = _make_con()
         proc = self._make_processor(con)
-        src_sql = _seed_incoming(con, [
-            {"customer_id": "C1", "name": "Alice", "age_band": "18-24", "income_band": "low"},
-        ])
+        src_sql = _seed_incoming(
+            con,
+            [
+                {
+                    "customer_id": "C1",
+                    "name": "Alice",
+                    "age_band": "18-24",
+                    "income_band": "low",
+                },
+            ],
+        )
         result = proc.process(src_sql)
-        assert set(result.keys()) == {"mini_dim_rows", "inserted", "versioned", "unchanged"}
+        assert set(result.keys()) == {
+            "mini_dim_rows",
+            "inserted",
+            "versioned",
+            "unchanged",
+        }
 
     def test_multiple_customers_different_profiles(self):
         con = _make_con()
         proc = self._make_processor(con)
-        src_sql = _seed_incoming(con, [
-            {"customer_id": "C1", "name": "Alice", "age_band": "18-24", "income_band": "low"},
-            {"customer_id": "C2", "name": "Bob",   "age_band": "25-34", "income_band": "mid"},
-            {"customer_id": "C3", "name": "Carol", "age_band": "35-44", "income_band": "high"},
-        ])
+        src_sql = _seed_incoming(
+            con,
+            [
+                {
+                    "customer_id": "C1",
+                    "name": "Alice",
+                    "age_band": "18-24",
+                    "income_band": "low",
+                },
+                {
+                    "customer_id": "C2",
+                    "name": "Bob",
+                    "age_band": "25-34",
+                    "income_band": "mid",
+                },
+                {
+                    "customer_id": "C3",
+                    "name": "Carol",
+                    "age_band": "35-44",
+                    "income_band": "high",
+                },
+            ],
+        )
         result = proc.process(src_sql)
         assert result["inserted"] == 3
         assert result["mini_dim_rows"] == 3
@@ -302,8 +432,8 @@ class TestLazyType4Processor:
 # TestLazyType5Processor
 # ---------------------------------------------------------------------------
 
-class TestLazyType5Processor:
 
+class TestLazyType5Processor:
     def _create_base_with_current_fk(self, con, name="dim_cust5"):
         """Base dim with both profile_sk (SCD2 tracked) and current_profile_sk (T1)."""
         con.execute(f"""
@@ -339,9 +469,17 @@ class TestLazyType5Processor:
     def test_new_row_has_current_profile_sk(self):
         con = _make_con()
         proc = self._make_processor(con)
-        src_sql = _seed_incoming(con, [
-            {"customer_id": "C1", "name": "Alice", "age_band": "18-24", "income_band": "low"},
-        ])
+        src_sql = _seed_incoming(
+            con,
+            [
+                {
+                    "customer_id": "C1",
+                    "name": "Alice",
+                    "age_band": "18-24",
+                    "income_band": "low",
+                },
+            ],
+        )
         proc.process(src_sql)
         row = con.execute(
             "SELECT profile_sk, current_profile_sk FROM dim_cust5"
@@ -353,9 +491,17 @@ class TestLazyType5Processor:
         con = _make_con()
         proc = self._make_processor(con)
 
-        src1 = _seed_incoming(con, [
-            {"customer_id": "C1", "name": "Alice", "age_band": "18-24", "income_band": "low"},
-        ])
+        src1 = _seed_incoming(
+            con,
+            [
+                {
+                    "customer_id": "C1",
+                    "name": "Alice",
+                    "age_band": "18-24",
+                    "income_band": "low",
+                },
+            ],
+        )
         proc.process(src1)
         sk1 = con.execute(
             "SELECT current_profile_sk FROM dim_cust5 WHERE is_current = TRUE"
@@ -363,9 +509,17 @@ class TestLazyType5Processor:
 
         # Change profile
         con.execute("DROP TABLE src_table")
-        src2 = _seed_incoming(con, [
-            {"customer_id": "C1", "name": "Alice", "age_band": "25-34", "income_band": "mid"},
-        ])
+        src2 = _seed_incoming(
+            con,
+            [
+                {
+                    "customer_id": "C1",
+                    "name": "Alice",
+                    "age_band": "25-34",
+                    "income_band": "mid",
+                },
+            ],
+        )
         proc.process(src2)
         sk2 = con.execute(
             "SELECT current_profile_sk FROM dim_cust5 WHERE is_current = TRUE"
@@ -377,16 +531,32 @@ class TestLazyType5Processor:
         con = _make_con()
         proc = self._make_processor(con)
 
-        src1 = _seed_incoming(con, [
-            {"customer_id": "C1", "name": "Alice", "age_band": "18-24", "income_band": "low"},
-        ])
+        src1 = _seed_incoming(
+            con,
+            [
+                {
+                    "customer_id": "C1",
+                    "name": "Alice",
+                    "age_band": "18-24",
+                    "income_band": "low",
+                },
+            ],
+        )
         proc.process(src1)
 
         # Re-process identical data
         con.execute("DROP TABLE src_table")
-        src2 = _seed_incoming(con, [
-            {"customer_id": "C1", "name": "Alice", "age_band": "18-24", "income_band": "low"},
-        ])
+        src2 = _seed_incoming(
+            con,
+            [
+                {
+                    "customer_id": "C1",
+                    "name": "Alice",
+                    "age_band": "18-24",
+                    "income_band": "low",
+                },
+            ],
+        )
         r2 = proc.process(src2)
 
         assert r2["unchanged"] == 1
@@ -398,11 +568,24 @@ class TestLazyType5Processor:
     def test_inherits_type4_result_keys(self):
         con = _make_con()
         proc = self._make_processor(con)
-        src_sql = _seed_incoming(con, [
-            {"customer_id": "C1", "name": "Alice", "age_band": "18-24", "income_band": "low"},
-        ])
+        src_sql = _seed_incoming(
+            con,
+            [
+                {
+                    "customer_id": "C1",
+                    "name": "Alice",
+                    "age_band": "18-24",
+                    "income_band": "low",
+                },
+            ],
+        )
         result = proc.process(src_sql)
-        assert set(result.keys()) == {"mini_dim_rows", "inserted", "versioned", "unchanged"}
+        assert set(result.keys()) == {
+            "mini_dim_rows",
+            "inserted",
+            "versioned",
+            "unchanged",
+        }
 
     def test_is_instance_of_type4(self):
         con = _make_con()
@@ -427,15 +610,31 @@ class TestLazyType5Processor:
         con = _make_con()
         proc = self._make_processor(con)
 
-        src1 = _seed_incoming(con, [
-            {"customer_id": "C1", "name": "Alice", "age_band": "18-24", "income_band": "low"},
-        ])
+        src1 = _seed_incoming(
+            con,
+            [
+                {
+                    "customer_id": "C1",
+                    "name": "Alice",
+                    "age_band": "18-24",
+                    "income_band": "low",
+                },
+            ],
+        )
         proc.process(src1)
 
         con.execute("DROP TABLE src_table")
-        src2 = _seed_incoming(con, [
-            {"customer_id": "C1", "name": "Alice", "age_band": "35-44", "income_band": "high"},
-        ])
+        src2 = _seed_incoming(
+            con,
+            [
+                {
+                    "customer_id": "C1",
+                    "name": "Alice",
+                    "age_band": "35-44",
+                    "income_band": "high",
+                },
+            ],
+        )
         proc.process(src2)
 
         rows = con.execute("SELECT * FROM dim_cust5 ORDER BY valid_from").fetchdf()
@@ -447,8 +646,8 @@ class TestLazyType5Processor:
 # DuckDBSink.upsert() via actual file sink
 # ---------------------------------------------------------------------------
 
-class TestDuckDBSinkUpsert:
 
+class TestDuckDBSinkUpsert:
     def test_upsert_inserts_new_combinations(self, tmp_path):
         from sqldim.sinks import DuckDBSink
 
@@ -508,13 +707,16 @@ class TestDuckDBSinkUpsert:
         # Should return 1 row from the view (existing), not insert a duplicate
         assert n == 1
         # Verify no duplicate in the actual table
-        count = duckdb.connect(db).execute("SELECT count(*) FROM dim_profile").fetchone()[0]
+        count = (
+            duckdb.connect(db).execute("SELECT count(*) FROM dim_profile").fetchone()[0]
+        )
         assert count == 1
 
 
 # ---------------------------------------------------------------------------
 # _lazy_type4_5.py lines 195–196: except Exception: pass in cleanup loop
 # ---------------------------------------------------------------------------
+
 
 class TestLazyType4DropViewsExceptionSwallowed:
     """The DROP VIEW IF EXISTS cleanup loop inside process() must silently
@@ -525,10 +727,12 @@ class TestLazyType4DropViewsExceptionSwallowed:
         class _DropViewRaisingProxy:
             def __init__(self, real_con):
                 self._real = real_con
+
             def execute(self, sql, *args, **kwargs):
                 if "DROP VIEW IF EXISTS" in sql:
                     raise RuntimeError("Simulated DROP VIEW failure")
                 return self._real.execute(sql, *args, **kwargs)
+
             def __getattr__(self, name):
                 return getattr(self._real, name)
 
@@ -547,10 +751,17 @@ class TestLazyType4DropViewsExceptionSwallowed:
             sink=sink,
             con=proxy,
         )
-        src_sql = _seed_incoming(real_con, [
-            {"customer_id": "C1", "name": "Alice",
-             "age_band": "18-24", "income_band": "low"},
-        ])
+        src_sql = _seed_incoming(
+            real_con,
+            [
+                {
+                    "customer_id": "C1",
+                    "name": "Alice",
+                    "age_band": "18-24",
+                    "income_band": "low",
+                },
+            ],
+        )
         # Must complete without raising even though every DROP VIEW call fails.
         result = proc.process(src_sql)
         assert result["inserted"] == 1

@@ -348,7 +348,7 @@ def run_showcase() -> None:
 def _print_fallback(rel: object, err: Exception) -> None:
     """Print raw rows when pandas is unavailable."""
     try:
-        rows = rel.fetchall()  # type: ignore[union-attr]
+        rows = rel.fetchall()  # type: ignore[attr-defined]
         for row in rows:
             print("  ", row)
     except Exception:

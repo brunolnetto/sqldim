@@ -4,8 +4,19 @@ from datetime import date
 from unittest.mock import MagicMock
 from sqlmodel import Session, SQLModel, create_engine, select
 from sqldim.application.examples.real_world.nba_analytics.staging import PlayerSeasons
-from sqldim.application.examples.real_world.nba_analytics.models import Player, PlayerSCD, ScoringClass, SeasonStats, Game, PlaysInEdge
-from sqldim.core.kimball.dimensions.scd.backfill import backfill_scd2, backfill_cumulative
+from sqldim.application.examples.real_world.nba_analytics.models import (
+    Player,
+    PlayerSCD,
+    ScoringClass,
+    SeasonStats,
+    Game,
+    PlaysInEdge,
+)
+from sqldim.core.kimball.dimensions.scd.backfill import (
+    backfill_scd2,
+    backfill_cumulative,
+)
+
 
 @pytest.fixture
 def session():
@@ -19,12 +30,19 @@ def session():
         yield session
     engine.dispose()
 
+
 @pytest.mark.asyncio
 async def test_nba_full_pipeline(session):
     # 1. Seed Staging Data (Michael Jordan 1996-1998)
-    s1 = PlayerSeasons(player_name="Michael Jordan", season=1996, pts=30.4, reb=6.6, ast=4.3, gp=82)
-    s2 = PlayerSeasons(player_name="Michael Jordan", season=1997, pts=29.6, reb=5.9, ast=4.3, gp=82)
-    s3 = PlayerSeasons(player_name="Michael Jordan", season=1998, pts=28.7, reb=5.8, ast=3.5, gp=82)
+    s1 = PlayerSeasons(
+        player_name="Michael Jordan", season=1996, pts=30.4, reb=6.6, ast=4.3, gp=82
+    )
+    s2 = PlayerSeasons(
+        player_name="Michael Jordan", season=1997, pts=29.6, reb=5.9, ast=4.3, gp=82
+    )
+    s3 = PlayerSeasons(
+        player_name="Michael Jordan", season=1998, pts=28.7, reb=5.8, ast=3.5, gp=82
+    )
     session.add_all([s1, s2, s3])
     session.commit()
 
@@ -35,10 +53,16 @@ async def test_nba_full_pipeline(session):
         current_season=1998,
         scoring_class=ScoringClass.star,
         seasons=[
-            SeasonStats(season=1996, pts=30.4, ast=4.3, reb=6.6, weight=190).model_dump(),
-            SeasonStats(season=1997, pts=29.6, ast=4.3, reb=5.9, weight=190).model_dump(),
-            SeasonStats(season=1998, pts=28.7, ast=3.5, reb=5.8, weight=190).model_dump(),
-        ]
+            SeasonStats(
+                season=1996, pts=30.4, ast=4.3, reb=6.6, weight=190
+            ).model_dump(),
+            SeasonStats(
+                season=1997, pts=29.6, ast=4.3, reb=5.9, weight=190
+            ).model_dump(),
+            SeasonStats(
+                season=1998, pts=28.7, ast=3.5, reb=5.8, weight=190
+            ).model_dump(),
+        ],
     )
     session.add(p1)
     session.commit()
@@ -47,12 +71,12 @@ async def test_nba_full_pipeline(session):
     # We create a flat historical table for the backfill to read from
     # and verify the streak detection logic.
     backfill_scd2(
-        source_table="player", 
+        source_table="player",
         target_model=PlayerSCD,
         partition_by="player_name",
         order_by="current_season",
         track_columns=["scoring_class", "is_active"],
-        session=session
+        session=session,
     )
 
     scd_rows = session.exec(select(PlayerSCD)).all()
@@ -61,7 +85,14 @@ async def test_nba_full_pipeline(session):
     assert scd_rows[0].scoring_class == ScoringClass.star
 
     # 4. Graph Projection (reproduces player_game_edges.sql)
-    g1 = Game(game_id=1, game_date=date(1998, 6, 14), home_team_id=1, visitor_team_id=2, pts_home=87, pts_visitor=86)
+    g1 = Game(
+        game_id=1,
+        game_date=date(1998, 6, 14),
+        home_team_id=1,
+        visitor_team_id=2,
+        pts_home=87,
+        pts_visitor=86,
+    )
     session.add(g1)
     session.commit()
 
@@ -71,10 +102,11 @@ async def test_nba_full_pipeline(session):
 
     # Verify graph link
     from sqldim.core.graph.registry import GraphModel
+
     graph = GraphModel(Player, Game, PlaysInEdge, session=session)
     jordan = await graph.get_vertex(Player, p1.id)
     neighbors = await graph.neighbors(jordan, edge_type=PlaysInEdge)
-    
+
     assert len(neighbors) == 1
     assert neighbors[0].game_id == 1
 
@@ -82,6 +114,7 @@ async def test_nba_full_pipeline(session):
 # ---------------------------------------------------------------------------
 # backfill_cumulative — mock-based tests (covers lines 71-87)
 # ---------------------------------------------------------------------------
+
 
 class TestBackfillCumulative:
     """
@@ -151,10 +184,10 @@ class TestBackfillCumulative:
             session=session,
         )
         call_arg = str(session.execute.call_args[0][0])
-        assert "ARRAY_AGG"        in call_arg
+        assert "ARRAY_AGG" in call_arg
         assert "JSON_BUILD_OBJECT" in call_arg
-        assert "pts"               in call_arg
-        assert "reb"               in call_arg
+        assert "pts" in call_arg
+        assert "reb" in call_arg
 
     def test_commit_is_called(self):
         session = self._mock_session()

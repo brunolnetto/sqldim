@@ -67,7 +67,7 @@ class PostgreSQLSink:
             WHERE {where}
         """)
         self._hash_cache[table_name] = local
-        return con.execute(f"SELECT count(*) FROM {local}").fetchone()[0]
+        return (con.execute(f"SELECT count(*) FROM {local}").fetchone() or (0,))[0]
 
     def current_state_sql(self, table_name: str) -> str:
         # Prefer a locally-cached slim fingerprint TABLE when available.
@@ -101,7 +101,7 @@ class PostgreSQLSink:
 
         _log = logging.getLogger(__name__)
 
-        total = con.execute(f"SELECT count(*) FROM {view_name}").fetchone()[0]
+        total = (con.execute(f"SELECT count(*) FROM {view_name}").fetchone() or (0,))[0]
         if total == 0:
             return 0
         target = f"{self._alias}.{self._schema}.{table_name}"
@@ -146,7 +146,7 @@ class PostgreSQLSink:
 
         _log = logging.getLogger(__name__)
 
-        total = con.execute(f"SELECT count(*) FROM {view_name}").fetchone()[0]
+        total = (con.execute(f"SELECT count(*) FROM {view_name}").fetchone() or (0,))[0]
         if total == 0:
             return 0
         cols = ", ".join(columns)
@@ -186,7 +186,7 @@ class PostgreSQLSink:
              WHERE {join_cond}
                AND t.is_current = TRUE
         """)
-        return con.execute(f"SELECT count(*) FROM {nk_view}").fetchone()[0]
+        return (con.execute(f"SELECT count(*) FROM {nk_view}").fetchone() or (0,))[0]
 
     # ── SinkAdapter extended ──────────────────────────────────────────────
 
@@ -207,7 +207,9 @@ class PostgreSQLSink:
              WHERE t.{nk_col} = u.{nk_col}
                AND t.is_current = TRUE
         """)
-        return con.execute(f"SELECT count(*) FROM {updates_view}").fetchone()[0]
+        return (con.execute(f"SELECT count(*) FROM {updates_view}").fetchone() or (0,))[
+            0
+        ]
 
     def rotate_attributes(
         self,
@@ -233,7 +235,9 @@ class PostgreSQLSink:
              WHERE t.{nk_col} = r.{nk_col}
                AND t.is_current = TRUE
         """)
-        return con.execute(f"SELECT count(*) FROM {rotations_view}").fetchone()[0]
+        return (
+            con.execute(f"SELECT count(*) FROM {rotations_view}").fetchone() or (0,)
+        )[0]
 
     def update_milestones(
         self,
@@ -257,7 +261,9 @@ class PostgreSQLSink:
               FROM {updates_view} u
              WHERE t.{match_col} = u.{match_col}
         """)
-        return con.execute(f"SELECT count(*) FROM {updates_view}").fetchone()[0]
+        return (con.execute(f"SELECT count(*) FROM {updates_view}").fetchone() or (0,))[
+            0
+        ]
 
     # ── Context manager ───────────────────────────────────────────────────
 

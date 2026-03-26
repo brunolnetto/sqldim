@@ -1,12 +1,16 @@
 """Tests for TransformPipeline and col() DSL — Task 7.4."""
+
 import pytest
 import polars as pl
-import pandas as pd
+import pandas as pd  # type: ignore[import-untyped]
 import narwhals as nw
 
 from sqldim.core.kimball.dimensions.scd.processors.transforms import (
-    col, TransformPipeline, Transform,
-    _types_compatible, _python_type_to_nw,
+    col,
+    TransformPipeline,
+    Transform,
+    _types_compatible,
+    _python_type_to_nw,
 )
 from sqldim.exceptions import TransformTypeError
 
@@ -15,28 +19,40 @@ from sqldim.exceptions import TransformTypeError
 # Fixtures
 # ---------------------------------------------------------------------------
 
+
 def _pl_frame():
-    return nw.from_native(pl.DataFrame({
-        "name":    ["  Alice  ", "BOB"],
-        "code":    ["A001",     "B002"],
-        "amount":  ["10.5",     "20.0"],
-        "date_str":["2024-01-15", "2024-03-22"],
-        "active":  [1,           0],
-        "nullable":["x",         None],
-    }), eager_only=True)
+    return nw.from_native(
+        pl.DataFrame(
+            {
+                "name": ["  Alice  ", "BOB"],
+                "code": ["A001", "B002"],
+                "amount": ["10.5", "20.0"],
+                "date_str": ["2024-01-15", "2024-03-22"],
+                "active": [1, 0],
+                "nullable": ["x", None],
+            }
+        ),
+        eager_only=True,
+    )
 
 
 def _pd_frame():
-    return nw.from_native(pd.DataFrame({
-        "name":  ["  Alice  ", "BOB"],
-        "code":  ["A001",     "B002"],
-        "amount":["10.5",     "20.0"],
-    }), eager_only=True)
+    return nw.from_native(
+        pd.DataFrame(
+            {
+                "name": ["  Alice  ", "BOB"],
+                "code": ["A001", "B002"],
+                "amount": ["10.5", "20.0"],
+            }
+        ),
+        eager_only=True,
+    )
 
 
 # ---------------------------------------------------------------------------
 # String transforms
 # ---------------------------------------------------------------------------
+
 
 def test_str_lowercase():
     frame = _pl_frame()
@@ -76,11 +92,13 @@ def test_str_slice():
 # Cast transforms
 # ---------------------------------------------------------------------------
 
+
 def test_cast_to_float():
     frame = _pl_frame()
     result = col("amount").cast(float).apply(frame)
     schema = result.schema
     import narwhals as nw
+
     assert schema["amount"] in (nw.Float32, nw.Float64)
 
 
@@ -89,6 +107,7 @@ def test_cast_to_int():
     result = col("active").cast(int).apply(frame)
     schema = result.schema
     import narwhals as nw
+
     assert schema["active"] in (nw.Int8, nw.Int16, nw.Int32, nw.Int64)
 
 
@@ -96,6 +115,7 @@ def test_cast_to_str():
     frame = _pl_frame()
     result = col("active").cast(str).apply(frame)
     import narwhals as nw
+
     assert result.schema["active"] == nw.String
 
 
@@ -103,12 +123,14 @@ def test_cast_pandas_frame():
     frame = _pd_frame()
     result = col("amount").cast(float).apply(frame)
     import narwhals as nw
+
     assert result.schema["amount"] in (nw.Float32, nw.Float64)
 
 
 # ---------------------------------------------------------------------------
 # Null handling
 # ---------------------------------------------------------------------------
+
 
 def test_fill_null():
     frame = _pl_frame()
@@ -128,6 +150,7 @@ def test_is_null_produces_boolean():
     frame = _pl_frame()
     result = col("nullable").is_null().apply(frame)
     import narwhals as nw
+
     assert result.schema["nullable"] == nw.Boolean
 
 
@@ -135,32 +158,45 @@ def test_is_null_produces_boolean():
 # Date parsing
 # ---------------------------------------------------------------------------
 
+
 def test_to_date():
     frame = _pl_frame()
     result = col("date_str").to_date("%Y-%m-%d").apply(frame)
     import narwhals as nw
+
     assert result.schema["date_str"] == nw.Date
 
 
 def test_to_datetime():
-    frame = nw.from_native(pl.DataFrame({
-        "ts": ["2024-01-15 12:00:00", "2024-03-22 08:30:00"],
-    }), eager_only=True)
+    frame = nw.from_native(
+        pl.DataFrame(
+            {
+                "ts": ["2024-01-15 12:00:00", "2024-03-22 08:30:00"],
+            }
+        ),
+        eager_only=True,
+    )
     result = col("ts").to_datetime("%Y-%m-%d %H:%M:%S").apply(frame)
     # Datetime dtype may carry time unit — check the base class
-    assert type(result.schema["ts"]).__name__ == "Datetime" or result.schema["ts"] == nw.Datetime
+    assert (
+        type(result.schema["ts"]).__name__ == "Datetime"
+        or result.schema["ts"] == nw.Datetime
+    )
 
 
 # ---------------------------------------------------------------------------
 # TransformPipeline
 # ---------------------------------------------------------------------------
 
+
 def test_pipeline_applies_in_order():
     frame = _pl_frame()
-    pipeline = TransformPipeline(transforms=[
-        col("name").str.strip(),
-        col("name").str.lowercase(),
-    ])
+    pipeline = TransformPipeline(
+        transforms=[
+            col("name").str.strip(),
+            col("name").str.lowercase(),
+        ]
+    )
     result = pipeline.apply(frame)
     assert result["name"].to_list()[0] == "alice"
 
@@ -212,6 +248,7 @@ def test_pipeline_schema_validation_fails_type_mismatch():
 # _types_compatible
 # ---------------------------------------------------------------------------
 
+
 def test_types_compatible_identical():
     assert _types_compatible(nw.Int64, nw.Int64) is True
 
@@ -241,6 +278,7 @@ def test_types_compatible_incompatible():
 # _python_type_to_nw
 # ---------------------------------------------------------------------------
 
+
 def test_python_type_to_nw_int():
     assert _python_type_to_nw(int) == nw.Int64
 
@@ -260,11 +298,13 @@ def test_python_type_to_nw_bool():
 def test_python_type_to_nw_unknown_returns_none():
     class CustomType:
         pass
+
     assert _python_type_to_nw(CustomType) is None
 
 
 def test_python_type_to_nw_optional():
     from typing import Optional
+
     result = _python_type_to_nw(Optional[str])
     assert result == nw.String
 
@@ -272,6 +312,7 @@ def test_python_type_to_nw_optional():
 # ---------------------------------------------------------------------------
 # Migrated from test_coverage_100.py, test_coverage_gap.py, test_coverage_gap_v2.py
 # ---------------------------------------------------------------------------
+
 
 class TestTransformsMissingLines:
     def test_python_type_to_nw_all_none_args(self):
@@ -345,6 +386,7 @@ class TestTransformsMissingLines:
 
 def test_python_type_to_nw_list():
     from typing import List
+
     assert _python_type_to_nw(List[str]) == nw.String
 
 
@@ -355,6 +397,7 @@ def test_python_type_to_nw_none_type():
 def test_python_type_to_nw_unknown_class():
     class UnkCov:
         pass
+
     assert _python_type_to_nw(UnkCov) is None
 
 
@@ -367,6 +410,7 @@ def test_transform_abstract_apply_raises():
 
 def test_transform_pipeline_raw_and_type_error():
     """TransformPipeline raises TransformTypeError on incompatible types."""
+
     class MockModel:
         __annotations__ = {"val": int}
 

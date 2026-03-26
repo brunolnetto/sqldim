@@ -1,6 +1,6 @@
 """Tests for extended SchemaGraph — Task 6.5."""
+
 from typing import Optional
-from sqlmodel import Field
 
 from sqldim import Field, GraphSchemaGraph
 from sqldim.core.graph import VertexModel, EdgeModel
@@ -11,6 +11,7 @@ from sqldim.core.kimball.models import DimensionModel, FactModel
 # ---------------------------------------------------------------------------
 # Model fixtures
 # ---------------------------------------------------------------------------
+
 
 class SGPlayer(VertexModel, table=True):
     __tablename__ = "sg_player"
@@ -62,6 +63,7 @@ class OrphanSGEdge(EdgeModel, table=True):
 # ---------------------------------------------------------------------------
 # Tests
 # ---------------------------------------------------------------------------
+
 
 def test_vertices_property():
     sg = SchemaGraph([SGPlayer, SGGame, SGEdge])
@@ -190,6 +192,7 @@ def test_from_models_classmethod():
 # TD-001 — implicit vertex/edge tests
 # ---------------------------------------------------------------------------
 
+
 def test_vertices_includes_all_dimensions_td001():
     # TD-001: every DimensionModel is a vertex — no VertexModel required
     sg = SchemaGraph([SGPlayer, SGGame, SGFact])
@@ -289,6 +292,7 @@ def test_fk_dimensions_returns_dimension_mapping():
 # Tests migrated from test_coverage_gap.py and test_coverage_100.py
 # ---------------------------------------------------------------------------
 
+
 class Cov100SgPlayer(VertexModel, table=True):
     __tablename__ = "cov100_sg_player"
     __natural_key__ = ["code"]
@@ -308,6 +312,7 @@ class Cov100SgGame(VertexModel, table=True):
 
 class Cov100SgImplicitFact(FactModel, table=True):
     """Plain FactModel with FK dimension metadata."""
+
     __tablename__ = "cov100_sg_implicit_fact"
     id: Optional[int] = Field(default=None, primary_key=True)
     player_id: int = Field(foreign_key="cov100_sg_player.id", dimension=Cov100SgPlayer)
@@ -365,6 +370,7 @@ class TestSchemaGraphToMermaidExtended:
 
 def test_schema_graph_validation_orphans_final():
     """validate() flags orphan edges whose subject/object are not in the schema."""
+
     class ExternalDim(DimensionModel):
         pass
 
@@ -384,6 +390,7 @@ def test_schema_graph_validation_orphans_final():
 # SchemaGraph.diff() — SchemaDiff, ColumnDiff, _collect_column_diff
 # ---------------------------------------------------------------------------
 
+
 class SDimV1(DimensionModel, table=True):
     __tablename__ = "sg_dim_v1_cov"
     __natural_key__ = ["code"]
@@ -393,6 +400,7 @@ class SDimV1(DimensionModel, table=True):
 
 class SDimV2(DimensionModel, table=True):
     """V1 + extra 'label' column."""
+
     __tablename__ = "sg_dim_v2_cov"
     __natural_key__ = ["code"]
     id: Optional[int] = Field(default=None, primary_key=True)
@@ -461,6 +469,7 @@ class TestSchemaDiff:
 
     def test_column_diff_is_empty_predicate(self):
         from sqldim.core.graph.schema_graph import ColumnDiff
+
         cd_empty = ColumnDiff("M", "vertex", [], [])
         assert cd_empty.is_empty
         cd_nonempty = ColumnDiff("M", "vertex", ["a"], [])
@@ -514,6 +523,7 @@ class TestCollectColumnDiff:
 # SchemaDiff.summary with column_diffs (covers _schema_diff.py lines 75, 77)
 # ---------------------------------------------------------------------------
 
+
 class TestSchemaDiffColumnDiffSummary:
     def test_summary_includes_nonempty_column_diff(self):
         """SchemaDiff.summary() formats column_diffs where is_empty is False."""
@@ -562,13 +572,17 @@ class TestSchemaDiffColumnDiffSummary:
 # SchemaGraph.diff with edge models (covers schema_graph.py lines 311-313)
 # ---------------------------------------------------------------------------
 
+
 class SEdgeFactDiff(FactModel, table=True):
     """FactModel used for edge-diff coverage tests."""
+
     __tablename__ = "sg_edge_fact_diff_cov"
     __grain__ = "test diff"
     id: Optional[int] = Field(default=None, primary_key=True)
     v1_id: int = Field(foreign_key="sg_dim_v1_cov.id", dimension=SDimV1)
-    extra_id: Optional[int] = Field(default=None, foreign_key="sg_extra_dim_cov.id", dimension=SExtraDim)
+    extra_id: Optional[int] = Field(
+        default=None, foreign_key="sg_extra_dim_cov.id", dimension=SExtraDim
+    )
     amount: float = 0.0
 
 
@@ -596,7 +610,9 @@ def test_to_dict_annotation_frozenset_field_sorted():
     schema = GraphSchema(
         vertices=[{"name": "customer", "columns": []}],
         edges=[],
-        annotations=[Conformed(dim="customer", fact_types=frozenset({"Sale", "Return"}))],
+        annotations=[
+            Conformed(dim="customer", fact_types=frozenset({"Sale", "Return"}))
+        ],
     )
     d = schema.to_dict()
     ann_dict = d["annotations"][0]

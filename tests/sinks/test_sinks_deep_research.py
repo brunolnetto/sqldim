@@ -7,6 +7,7 @@ Tests for deep_research.md sink enhancements:
   - DeltaLakeSink: honest write() docs (blind INSERT, not MERGE INTO), factory
   - IcebergSink: size guard on close_versions / update_attributes
 """
+
 import pytest
 import duckdb
 from unittest.mock import MagicMock, patch
@@ -15,6 +16,7 @@ from unittest.mock import MagicMock, patch
 # ===========================================================================
 # DuckDBSink — make_connection factory + per_thread_output
 # ===========================================================================
+
 
 class TestDuckDBSinkDeepResearch:
     def test_enter_calls_make_connection(self, tmp_path):
@@ -33,6 +35,7 @@ class TestDuckDBSinkDeepResearch:
     def test_enter_sets_memory_limit(self, tmp_path):
         """Connection created by __enter__ should have memory limit applied."""
         from sqldim.sinks import DuckDBSink
+
         db = str(tmp_path / "test.duckdb")
         duckdb.connect(db).close()
         with DuckDBSink(db) as sink:
@@ -89,6 +92,7 @@ class TestDuckDBSinkDeepResearch:
 # ParquetSink — write() options
 # ===========================================================================
 
+
 class TestParquetSinkDeepResearch:
     """Zstd compression, ROW_GROUP_SIZE, preserve_insertion_order."""
 
@@ -115,9 +119,7 @@ class TestParquetSinkDeepResearch:
         from sqldim.sinks import ParquetSink
 
         con = duckdb.connect()
-        con.execute(
-            "CREATE VIEW v AS SELECT 1 AS id, TRUE AS is_current"
-        )
+        con.execute("CREATE VIEW v AS SELECT 1 AS id, TRUE AS is_current")
         out_base = str(tmp_path / "out")
         sink = ParquetSink(out_base)
         sink.write(con, "v", "dim_t")
@@ -132,9 +134,7 @@ class TestParquetSinkDeepResearch:
         from sqldim.sinks import ParquetSink
 
         con = duckdb.connect()
-        con.execute(
-            "CREATE VIEW v AS SELECT 1 AS id, TRUE AS is_current"
-        )
+        con.execute("CREATE VIEW v AS SELECT 1 AS id, TRUE AS is_current")
         out_base = str(tmp_path / "out")
         sink = ParquetSink(out_base)
         sink.write(con, "v", "dim_t")
@@ -147,6 +147,7 @@ class TestParquetSinkDeepResearch:
     def test_current_state_sql_selects_needed_columns(self, tmp_path):
         """current_state_sql should accept optional nk_cols + hash_col args."""
         from sqldim.sinks import ParquetSink
+
         sink = ParquetSink(str(tmp_path / "out"))
         # Original no-arg form still works
         sql = sink.current_state_sql("dim_t")
@@ -157,6 +158,7 @@ class TestParquetSinkDeepResearch:
 # ===========================================================================
 # MotherDuckSink — make_connection + inactivity TTL
 # ===========================================================================
+
 
 class TestMotherDuckSinkDeepResearch:
     def test_enter_calls_make_connection(self, tmp_path):
@@ -174,6 +176,7 @@ class TestMotherDuckSinkDeepResearch:
 
     def test_enter_sets_memory_limit(self, tmp_path):
         from sqldim.sinks import MotherDuckSink
+
         db = str(tmp_path / "local.duckdb")
         duckdb.connect(db).close()
         with MotherDuckSink(db=db) as sink:
@@ -186,6 +189,7 @@ class TestMotherDuckSinkDeepResearch:
 # ===========================================================================
 # PostgreSQLSink — make_connection + pg_use_binary_copy
 # ===========================================================================
+
 
 class TestPostgreSQLSinkDeepResearch:
     """Unit tests that mock the pg extension — no live Postgres needed."""
@@ -203,9 +207,7 @@ class TestPostgreSQLSinkDeepResearch:
         with patch(
             "sqldim.sinks.sql.postgresql.make_connection", wraps=make_connection
         ) as mock_mc:
-            with patch.object(
-                duckdb.DuckDBPyConnection, "execute", return_value=None
-            ):
+            with patch.object(duckdb.DuckDBPyConnection, "execute", return_value=None):
                 try:
                     with PostgreSQLSink(dsn="host=localhost dbname=test"):
                         pass
@@ -220,7 +222,9 @@ class TestPostgreSQLSinkDeepResearch:
         sink = PostgreSQLSink(dsn="host=localhost dbname=test")
         mock_con = self._make_mock_con()
 
-        with patch("sqldim.sinks.sql.postgresql.make_connection", return_value=mock_con):
+        with patch(
+            "sqldim.sinks.sql.postgresql.make_connection", return_value=mock_con
+        ):
             try:
                 sink.__enter__()
             except Exception:
@@ -233,6 +237,7 @@ class TestPostgreSQLSinkDeepResearch:
 # ===========================================================================
 # DeltaLakeSink — factory + honest write() (blind INSERT)
 # ===========================================================================
+
 
 class TestDeltaLakeSinkDeepResearch:
     def test_enter_calls_make_connection(self, tmp_path):
@@ -251,12 +256,14 @@ class TestDeltaLakeSinkDeepResearch:
 
     def test_write_docstring_mentions_blind_insert(self):
         from sqldim.sinks.file.delta import DeltaLakeSink
+
         doc = DeltaLakeSink.write.__doc__ or ""
         # Deep research says write() should be honest about limitations
         assert doc.strip()  # has some documentation
 
     def test_close_versions_returns_zero(self):
         from sqldim.sinks import DeltaLakeSink
+
         con = MagicMock()
         sink = DeltaLakeSink("/tmp/delta_test", "id")
         result = sink.close_versions(con, "dim_t", "id", "nk_view", "2099-12-31")
@@ -266,6 +273,7 @@ class TestDeltaLakeSinkDeepResearch:
 # ===========================================================================
 # IcebergSink — size guard
 # ===========================================================================
+
 
 class TestIcebergSinkSizeGuard:
     """Size guard on mutation methods that do full scan().to_arrow()."""
@@ -281,16 +289,20 @@ class TestIcebergSinkSizeGuard:
         sink._max_python_rows = 500_000  # guard threshold
 
         # Build a mock iceberg table that reports row_count rows
-        pa.schema([
-            ("id", pa.int32()),
-            ("is_current", pa.bool_()),
-            ("valid_to", pa.string()),
-        ])
-        rows = pa.table({
-            "id": pa.array(list(range(row_count)), type=pa.int32()),
-            "is_current": pa.array([True] * row_count),
-            "valid_to": pa.array([None] * row_count, type=pa.string()),
-        })
+        pa.schema(
+            [
+                ("id", pa.int32()),
+                ("is_current", pa.bool_()),
+                ("valid_to", pa.string()),
+            ]
+        )
+        rows = pa.table(
+            {
+                "id": pa.array(list(range(row_count)), type=pa.int32()),
+                "is_current": pa.array([True] * row_count),
+                "valid_to": pa.array([None] * row_count, type=pa.string()),
+            }
+        )
 
         mock_iceberg_table = MagicMock()
         mock_iceberg_table.scan.return_value.to_arrow.return_value = rows
@@ -317,15 +329,16 @@ class TestIcebergSinkSizeGuard:
 
     def test_close_versions_small_table_proceeds_normally(self):
         """close_versions() should NOT raise for table within size limit."""
-        try:
-            import pyarrow as pa
-        except ImportError:
+        import importlib.util
+
+        if importlib.util.find_spec("pyarrow") is None:
             pytest.skip("pyarrow not installed")
 
         sink = self._make_sink_with_large_table(row_count=10)
         con = MagicMock()
         # Return an empty set of NKs to close (fast-path return 0)
-        import pandas as pd
+        import pandas as pd  # type: ignore[import-untyped]
+
         con.execute.return_value.fetchdf.return_value = pd.DataFrame({"id": []})
         # Should not raise
         result = sink.close_versions(con, "dim_t", "id", "nk_view", "2099-12-31")
@@ -340,7 +353,8 @@ class TestIcebergSinkSizeGuard:
 
         sink = self._make_sink_with_large_table(row_count=2_000_000)
         con = MagicMock()
-        import pandas as pd
+        import pandas as pd  # type: ignore[import-untyped]
+
         con.execute.return_value.fetchdf.return_value = pd.DataFrame(
             {"id": ["id_1"], "name": ["Alice"]}
         )

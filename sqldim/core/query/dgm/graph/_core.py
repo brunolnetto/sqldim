@@ -7,6 +7,8 @@ that ``from sqldim.core.query.dgm.graph import X`` continues to work unchanged.
 
 from __future__ import annotations
 
+from sqldim.core.query.dgm.refs import _SQLExpr
+
 # Re-export algorithm classes for backward compatibility
 from sqldim.core.query.dgm.graph._algs import (  # noqa: F401
     GraphAlgorithm,
@@ -86,11 +88,11 @@ class SubgraphExpr:
     def __init__(
         self,
         algorithm: SubgraphAlg,
-        partition: "list[object | None]" = None,
+        partition: "list[_SQLExpr] | None" = None,
         scope: "RelationshipSubgraph | None" = None,
     ) -> None:
         self.algorithm = algorithm
-        self.partition: list[object | None] = partition
+        self.partition: "list[_SQLExpr] | None" = partition
         self.scope = scope
 
     def to_sql(self) -> str:

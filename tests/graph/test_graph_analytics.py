@@ -18,6 +18,7 @@ Tier 3: Role-Playing & Bridge-Aware Traversal
   - Weighted bridge traversal  → aggregate_sql(weighted=True)
   - Strategy-guided freshness  → GraphModel.freshness(edge_type)
 """
+
 from __future__ import annotations
 
 import pytest
@@ -39,8 +40,10 @@ from sqldim.exceptions import SchemaError, SemanticError, GrainCompatibilityErro
 # Model definitions — unique table names to avoid conflicts
 # ===========================================================================
 
+
 class GAPersonDim(VertexModel, table=True):
     """SCD Type 1 person dimension — used for natural key lookup tests."""
+
     __tablename__ = "ga_person"
     __vertex_type__ = "ga_person"
     __natural_key__ = ["email"]
@@ -53,6 +56,7 @@ class GAPersonDim(VertexModel, table=True):
 
 class GAProductDim(VertexModel, table=True):
     """SCD Type 1 product — used for additive guard tests."""
+
     __tablename__ = "ga_product"
     __vertex_type__ = "ga_product"
     __natural_key__ = ["sku"]
@@ -65,6 +69,7 @@ class GAProductDim(VertexModel, table=True):
 
 class GACustomerDim(VertexModel, table=True):
     """SCD Type 2 customer — used for temporal traversal tests."""
+
     __tablename__ = "ga_customer_scd2"
     __vertex_type__ = "ga_customer"
     __natural_key__ = ["customer_code"]
@@ -80,6 +85,7 @@ class GACustomerDim(VertexModel, table=True):
 
 class GAPurchaseEdge(EdgeModel, table=True):
     """Edge with additive + non-additive measures."""
+
     __tablename__ = "ga_purchase"
     __edge_type__ = "ga_purchased"
     __subject__ = GAPersonDim
@@ -95,6 +101,7 @@ class GAPurchaseEdge(EdgeModel, table=True):
 
 class GATemporalEdge(EdgeModel, table=True):
     """Edge connecting Person → Customer (SCD2) for temporal tests."""
+
     __tablename__ = "ga_temporal_edge"
     __edge_type__ = "ga_temporal"
     __subject__ = GAPersonDim
@@ -109,6 +116,7 @@ class GATemporalEdge(EdgeModel, table=True):
 
 class GAEdgeGrainA(EdgeModel, table=True):
     """Edge with grain declaration A."""
+
     __tablename__ = "ga_edge_grain_a"
     __edge_type__ = "ga_grain_a"
     __grain__ = "one row per transaction"
@@ -122,6 +130,7 @@ class GAEdgeGrainA(EdgeModel, table=True):
 
 class GAEdgeGrainB(EdgeModel, table=True):
     """Edge with incompatible grain declaration B."""
+
     __tablename__ = "ga_edge_grain_b"
     __edge_type__ = "ga_grain_b"
     __grain__ = "one row per day"
@@ -135,6 +144,7 @@ class GAEdgeGrainB(EdgeModel, table=True):
 
 class GAEdgeNoGrain(EdgeModel, table=True):
     """Edge without grain declaration — skipped in grain validation."""
+
     __tablename__ = "ga_edge_no_grain"
     __edge_type__ = "ga_no_grain"
     __subject__ = GAPersonDim
@@ -147,6 +157,7 @@ class GAEdgeNoGrain(EdgeModel, table=True):
 
 class GAWeightedEdge(EdgeModel, table=True):
     """Edge with weight column for bridge-style weighted aggregation."""
+
     __tablename__ = "ga_weighted_edge"
     __edge_type__ = "ga_weighted"
     __subject__ = GAPersonDim
@@ -162,6 +173,7 @@ class GAWeightedEdge(EdgeModel, table=True):
 
 class GABulkEdge(EdgeModel, table=True):
     """Edge with bulk load strategy — freshness returns MAX(updated_at)."""
+
     __tablename__ = "ga_bulk_edge"
     __edge_type__ = "ga_bulk"
     __strategy__ = "bulk"
@@ -176,6 +188,7 @@ class GABulkEdge(EdgeModel, table=True):
 
 class GAUpsertEdge(EdgeModel, table=True):
     """Edge with upsert strategy — freshness always returns None."""
+
     __tablename__ = "ga_upsert_edge"
     __edge_type__ = "ga_upsert"
     __strategy__ = "upsert"
@@ -189,6 +202,7 @@ class GAUpsertEdge(EdgeModel, table=True):
 
 class GAUndirectedSCD2Edge(EdgeModel, table=True):
     """Undirected edge pointing to SCD2 Customer vertex — forces direction='both' in temporal SQL."""
+
     __tablename__ = "ga_undirected_scd2"
     __edge_type__ = "ga_undir_scd2"
     __subject__ = GACustomerDim
@@ -213,6 +227,7 @@ class GADateDim(DimensionModel, table=True):
 
 class GAShipmentEdge(EdgeModel, table=True):
     """Edge with two role-playing FK columns pointing to GADateDim."""
+
     __tablename__ = "ga_shipment_edge"
     __edge_type__ = "ga_shipment"
     __grain__ = "one row per shipment"
@@ -222,8 +237,12 @@ class GAShipmentEdge(EdgeModel, table=True):
     id: Optional[int] = Field(default=None, primary_key=True)
     subject_id: int = DimField(default=0, foreign_key="ga_person.id")
     object_id: int = DimField(default=0, foreign_key="ga_product.id")
-    ship_date_id: int = DimField(default=0, foreign_key="ga_date_dim.id", dimension=GADateDim, role="ship_date")
-    order_date_id: int = DimField(default=0, foreign_key="ga_date_dim.id", dimension=GADateDim, role="order_date")
+    ship_date_id: int = DimField(
+        default=0, foreign_key="ga_date_dim.id", dimension=GADateDim, role="ship_date"
+    )
+    order_date_id: int = DimField(
+        default=0, foreign_key="ga_date_dim.id", dimension=GADateDim, role="order_date"
+    )
     weight_kg: float = DimField(default=0.0, measure=True, additive=True)
 
 
@@ -231,13 +250,16 @@ class GAShipmentEdge(EdgeModel, table=True):
 # Helpers
 # ===========================================================================
 
+
 def _mock_session(first_rows=None, second_rows=None):
     """Build a minimal async session mock."""
     session = AsyncMock()
     if second_rows is None:
         # Single-call path (get_vertex, aggregation, degree, freshness)
         result = MagicMock()
-        result.mappings.return_value.first.return_value = first_rows[0] if first_rows else None
+        result.mappings.return_value.first.return_value = (
+            first_rows[0] if first_rows else None
+        )
         result.fetchone.return_value = first_rows[0] if first_rows else (None,)
         result.fetchall.return_value = first_rows or []
         result.mappings.return_value.fetchall.return_value = first_rows or []
@@ -256,8 +278,8 @@ def _mock_session(first_rows=None, second_rows=None):
 # Tier 1: Natural Key Lookup
 # ===========================================================================
 
-class TestNaturalKeyLookup:
 
+class TestNaturalKeyLookup:
     async def test_get_vertex_by_key_returns_instance(self):
         row = {"id": 42, "email": "alice@example.com", "name": "Alice"}
         session = _mock_session(first_rows=[row])
@@ -317,8 +339,8 @@ class TestNaturalKeyLookup:
 # Tier 1: Additive Guard on neighbor_aggregation
 # ===========================================================================
 
-class TestAdditiveGuard:
 
+class TestAdditiveGuard:
     async def test_additive_measure_sum_allowed(self):
         """SUM on additive=True column is always allowed."""
         session = AsyncMock()
@@ -340,7 +362,11 @@ class TestAdditiveGuard:
 
         with pytest.raises(SemanticError, match="non-additive"):
             await g.neighbor_aggregation(
-                person, GAPurchaseEdge, measure="discount", agg="sum", validate_additive=True
+                person,
+                GAPurchaseEdge,
+                measure="discount",
+                agg="sum",
+                validate_additive=True,
             )
 
     async def test_non_additive_measure_avg_raises(self):
@@ -350,7 +376,11 @@ class TestAdditiveGuard:
 
         with pytest.raises(SemanticError, match="non-additive"):
             await g.neighbor_aggregation(
-                person, GAPurchaseEdge, measure="discount", agg="avg", validate_additive=True
+                person,
+                GAPurchaseEdge,
+                measure="discount",
+                agg="avg",
+                validate_additive=True,
             )
 
     async def test_non_additive_measure_count_allowed(self):
@@ -363,7 +393,11 @@ class TestAdditiveGuard:
         g = GraphModel(GAPersonDim, GAProductDim, GAPurchaseEdge, session=session)
         person = GAPersonDim(id=1, email="x@x.com", name="X")
         count = await g.neighbor_aggregation(
-            person, GAPurchaseEdge, measure="discount", agg="count", validate_additive=True
+            person,
+            GAPurchaseEdge,
+            measure="discount",
+            agg="count",
+            validate_additive=True,
         )
         assert count == 5.0
 
@@ -377,7 +411,11 @@ class TestAdditiveGuard:
         g = GraphModel(GAPersonDim, GAProductDim, GAPurchaseEdge, session=session)
         person = GAPersonDim(id=1, email="x@x.com", name="X")
         val = await g.neighbor_aggregation(
-            person, GAPurchaseEdge, measure="discount", agg="max", validate_additive=True
+            person,
+            GAPurchaseEdge,
+            measure="discount",
+            agg="max",
+            validate_additive=True,
         )
         assert val == 25.0
 
@@ -401,8 +439,8 @@ class TestAdditiveGuard:
 # Tier 1: Grain Compatibility Validation
 # ===========================================================================
 
-class TestGrainValidation:
 
+class TestGrainValidation:
     def test_same_grains_passes(self):
         """Two edges with the same grain are compatible."""
         g = GraphModel(GAPersonDim, GAProductDim, session=AsyncMock())
@@ -443,14 +481,17 @@ class TestGrainValidation:
 # Tier 2: Temporal SQL Generation
 # ===========================================================================
 
-class TestTemporalSQLGeneration:
 
+class TestTemporalSQLGeneration:
     def test_neighbors_sql_at_scd2_direction_out(self):
         """Temporal neighbors SQL includes effective_from/effective_to JOIN for SCD2."""
         te = TraversalEngine()
         sql = te.neighbors_sql_at(
-            GATemporalEdge, GACustomerDim, start_id=1,
-            as_of=date(2022, 6, 1), direction="out",
+            GATemporalEdge,
+            GACustomerDim,
+            start_id=1,
+            as_of=date(2022, 6, 1),
+            direction="out",
         )
         assert "effective_from" in sql
         assert "2022-06-01" in sql
@@ -462,8 +503,11 @@ class TestTemporalSQLGeneration:
         """Temporal in-neighbors SQL for SCD1 vertex has no temporal filter."""
         te = TraversalEngine()
         sql = te.neighbors_sql_at(
-            GATemporalEdge, GAPersonDim, start_id=1,
-            as_of=date(2022, 6, 1), direction="in",
+            GATemporalEdge,
+            GAPersonDim,
+            start_id=1,
+            as_of=date(2022, 6, 1),
+            direction="in",
         )
         # GAPersonDim is SCD1 — no temporal predicates added
         assert "ga_temporal_edge" in sql
@@ -474,8 +518,11 @@ class TestTemporalSQLGeneration:
         """SCD Type 1 vertex model does not receive a temporal filter."""
         te = TraversalEngine()
         sql = te.neighbors_sql_at(
-            GAPurchaseEdge, GAProductDim, start_id=1,
-            as_of=date(2022, 6, 1), direction="out",
+            GAPurchaseEdge,
+            GAProductDim,
+            start_id=1,
+            as_of=date(2022, 6, 1),
+            direction="out",
         )
         # GAProductDim is SCD1 — no temporal predicates
         assert "effective_from" not in sql
@@ -494,10 +541,14 @@ class TestTemporalSQLGeneration:
     def test_neighbors_sql_at_accepts_datetime_object(self):
         """as_of accepts a datetime.date object and formats it correctly."""
         from datetime import datetime
+
         te = TraversalEngine()
         sql = te.neighbors_sql_at(
-            GATemporalEdge, GACustomerDim, start_id=1,
-            as_of=datetime(2023, 3, 15, 12, 0, 0), direction="out",
+            GATemporalEdge,
+            GACustomerDim,
+            start_id=1,
+            as_of=datetime(2023, 3, 15, 12, 0, 0),
+            direction="out",
         )
         assert "2023-03-15" in sql
 
@@ -505,8 +556,11 @@ class TestTemporalSQLGeneration:
         """SCD2 vertex with direction='in' generates in-neighbor SQL (no temporal join on subjects)."""
         te = TraversalEngine()
         sql = te.neighbors_sql_at(
-            GATemporalEdge, GACustomerDim, start_id=2,
-            as_of=date(2022, 6, 1), direction="in",
+            GATemporalEdge,
+            GACustomerDim,
+            start_id=2,
+            as_of=date(2022, 6, 1),
+            direction="in",
         )
         # The "in" branch returns subject_id without a temporal vertex JOIN
         assert "ga_temporal_edge" in sql
@@ -517,8 +571,11 @@ class TestTemporalSQLGeneration:
         """SCD2 vertex with direction='both' produces a UNION of temporal out + in."""
         te = TraversalEngine()
         sql = te.neighbors_sql_at(
-            GATemporalEdge, GACustomerDim, start_id=2,
-            as_of=date(2022, 6, 1), direction="both",
+            GATemporalEdge,
+            GACustomerDim,
+            start_id=2,
+            as_of=date(2022, 6, 1),
+            direction="both",
         )
         assert "UNION" in sql
         assert "effective_from" in sql
@@ -528,8 +585,11 @@ class TestTemporalSQLGeneration:
         """Undirected edge overrides direction to 'both' even when 'out' is requested."""
         te = TraversalEngine()
         sql = te.neighbors_sql_at(
-            GAUndirectedSCD2Edge, GACustomerDim, start_id=1,
-            as_of=date(2022, 6, 1), direction="out",
+            GAUndirectedSCD2Edge,
+            GACustomerDim,
+            start_id=1,
+            as_of=date(2022, 6, 1),
+            direction="out",
         )
         # __directed__ = False forces "both", producing UNION with temporal JOIN
         assert "UNION" in sql
@@ -540,8 +600,8 @@ class TestTemporalSQLGeneration:
 # Tier 2: GraphModel.neighbors() with as_of
 # ===========================================================================
 
-class TestGraphModelTemporalNeighbors:
 
+class TestGraphModelTemporalNeighbors:
     async def test_neighbors_as_of_injects_temporal_clause(self):
         """neighbors() with as_of passes temporal where clause to hydration SQL."""
         session = AsyncMock()
@@ -549,14 +609,22 @@ class TestGraphModelTemporalNeighbors:
         r1.fetchall.return_value = [(2,)]
         r2 = MagicMock()
         r2.mappings.return_value.fetchall.return_value = [
-            {"id": 2, "customer_code": "C01", "name": "Alice",
-             "is_current": True, "effective_from": "2020-01-01", "effective_to": None}
+            {
+                "id": 2,
+                "customer_code": "C01",
+                "name": "Alice",
+                "is_current": True,
+                "effective_from": "2020-01-01",
+                "effective_to": None,
+            }
         ]
         session.execute.side_effect = [r1, r2]
 
         g = GraphModel(GAPersonDim, GACustomerDim, GATemporalEdge, session=session)
         person = GAPersonDim(id=1, email="a@a.com", name="A")
-        await g.neighbors(person, edge_type=GATemporalEdge, direction="out", as_of=date(2022, 6, 1))
+        await g.neighbors(
+            person, edge_type=GATemporalEdge, direction="out", as_of=date(2022, 6, 1)
+        )
 
         # Second call (vertex hydration) SQL should contain temporal predicates
         hydration_sql = str(session.execute.call_args_list[1][0][0])
@@ -570,8 +638,14 @@ class TestGraphModelTemporalNeighbors:
         r1.fetchall.return_value = [(2,)]
         r2 = MagicMock()
         r2.mappings.return_value.fetchall.return_value = [
-            {"id": 2, "customer_code": "C01", "name": "Alice",
-             "is_current": True, "effective_from": "2020-01-01", "effective_to": None}
+            {
+                "id": 2,
+                "customer_code": "C01",
+                "name": "Alice",
+                "is_current": True,
+                "effective_from": "2020-01-01",
+                "effective_to": None,
+            }
         ]
         session.execute.side_effect = [r1, r2]
 
@@ -595,7 +669,9 @@ class TestGraphModelTemporalNeighbors:
 
         g = GraphModel(GAPersonDim, GAProductDim, GAPurchaseEdge, session=session)
         person = GAPersonDim(id=1, email="a@a.com", name="A")
-        await g.neighbors(person, edge_type=GAPurchaseEdge, direction="out", as_of=date(2022, 6, 1))
+        await g.neighbors(
+            person, edge_type=GAPurchaseEdge, direction="out", as_of=date(2022, 6, 1)
+        )
 
         hydration_sql = str(session.execute.call_args_list[1][0][0])
         # GAProductDim is SCD1 — no temporal filter
@@ -606,10 +682,12 @@ class TestGraphModelTemporalNeighbors:
 # Tier 2: DuckDB temporal neighbors integration
 # ===========================================================================
 
+
 @pytest.fixture
 def ddb_scd2_con():
     """DuckDB in-memory DB with SCD2 customer and temporal edge data."""
     import duckdb
+
     con = duckdb.connect()
     con.execute("""
         CREATE TABLE ga_customer_scd2 (
@@ -641,13 +719,15 @@ def ddb_scd2_con():
 
 
 class TestDuckDBTemporalNeighbors:
-
     def test_neighbors_at_scd2_past_date_filters_to_old_version(self, ddb_scd2_con):
         """As-of 2020 returns old version (id=1) of Alice, not new (id=2)."""
         te = DuckDBTraversalEngine(ddb_scd2_con)
         neighbors = te.neighbors_at(
-            GATemporalEdge, GACustomerDim,
-            start_id=10, as_of=date(2020, 6, 1), direction="out",
+            GATemporalEdge,
+            GACustomerDim,
+            start_id=10,
+            as_of=date(2020, 6, 1),
+            direction="out",
         )
         assert 1 in neighbors
         assert 2 not in neighbors
@@ -656,8 +736,11 @@ class TestDuckDBTemporalNeighbors:
         """As-of 2023 returns new version (id=2) of Alice, not old (id=1)."""
         te = DuckDBTraversalEngine(ddb_scd2_con)
         neighbors = te.neighbors_at(
-            GATemporalEdge, GACustomerDim,
-            start_id=10, as_of=date(2023, 3, 1), direction="out",
+            GATemporalEdge,
+            GACustomerDim,
+            start_id=10,
+            as_of=date(2023, 3, 1),
+            direction="out",
         )
         assert 2 in neighbors
         assert 1 not in neighbors
@@ -674,8 +757,11 @@ class TestDuckDBTemporalNeighbors:
         con.execute("INSERT INTO ga_person VALUES (10, 'p@p.com', 'Person')")
         # This should not apply temporal filters since GAPersonDim.__scd_type__ = 1
         neighbors = te.neighbors_at(
-            GATemporalEdge, GAPersonDim,
-            start_id=2, as_of=date(2022, 6, 1), direction="in",
+            GATemporalEdge,
+            GAPersonDim,
+            start_id=2,
+            as_of=date(2022, 6, 1),
+            direction="in",
         )
         assert 10 in neighbors
 
@@ -684,19 +770,23 @@ class TestDuckDBTemporalNeighbors:
 # Tier 3: Role-Aware Edge Discovery
 # ===========================================================================
 
-class TestRoleAwareEdgeDiscovery:
 
+class TestRoleAwareEdgeDiscovery:
     def test_discover_role_edges_returns_dict(self):
         """discover_role_edges returns a dict keyed by fact class name."""
         g = GraphModel(GAPersonDim, GAProductDim, GAShipmentEdge, session=AsyncMock())
-        schema = SchemaGraph.from_models([GAPersonDim, GAProductDim, GADateDim, GAShipmentEdge])
+        schema = SchemaGraph.from_models(
+            [GAPersonDim, GAProductDim, GADateDim, GAShipmentEdge]
+        )
         result = g.discover_role_edges(schema)
         assert isinstance(result, dict)
 
     def test_discover_role_edges_finds_shipment_roles(self):
         """discover_role_edges finds ship_date and order_date roles."""
         g = GraphModel(GAPersonDim, GAProductDim, GAShipmentEdge, session=AsyncMock())
-        schema = SchemaGraph.from_models([GAPersonDim, GAProductDim, GADateDim, GAShipmentEdge])
+        schema = SchemaGraph.from_models(
+            [GAPersonDim, GAProductDim, GADateDim, GAShipmentEdge]
+        )
         result = g.discover_role_edges(schema)
 
         assert "GAShipmentEdge" in result
@@ -723,7 +813,9 @@ class TestRoleAwareEdgeDiscovery:
     def test_discover_role_edges_refs_have_correct_dimension(self):
         """RolePlayingRef instances reference the GADateDim dimension."""
         g = GraphModel(GAPersonDim, GAProductDim, GAShipmentEdge, session=AsyncMock())
-        schema = SchemaGraph.from_models([GAPersonDim, GAProductDim, GADateDim, GAShipmentEdge])
+        schema = SchemaGraph.from_models(
+            [GAPersonDim, GAProductDim, GADateDim, GAShipmentEdge]
+        )
         result = g.discover_role_edges(schema)
         refs = result["GAShipmentEdge"]
         for ref in refs:
@@ -744,14 +836,18 @@ class TestRoleAwareEdgeDiscovery:
 # Tier 3: Weighted Bridge Traversal (SQL generation)
 # ===========================================================================
 
-class TestWeightedAggregationSQL:
 
+class TestWeightedAggregationSQL:
     def test_aggregate_sql_weighted_sum(self):
         """Weighted SUM multiplies measure by weight column."""
         te = TraversalEngine()
         sql = te.aggregate_sql(
-            GAWeightedEdge, start_id=1, measure="revenue", agg="sum",
-            direction="out", weighted=True,
+            GAWeightedEdge,
+            start_id=1,
+            measure="revenue",
+            agg="sum",
+            direction="out",
+            weighted=True,
         )
         assert "revenue * weight" in sql or "weight * revenue" in sql
         assert "SUM" in sql.upper()
@@ -760,8 +856,12 @@ class TestWeightedAggregationSQL:
         """Weighted AVG multiplies measure by weight column."""
         te = TraversalEngine()
         sql = te.aggregate_sql(
-            GAWeightedEdge, start_id=1, measure="revenue", agg="avg",
-            direction="out", weighted=True,
+            GAWeightedEdge,
+            start_id=1,
+            measure="revenue",
+            agg="avg",
+            direction="out",
+            weighted=True,
         )
         assert "revenue * weight" in sql or "weight * revenue" in sql
 
@@ -769,8 +869,12 @@ class TestWeightedAggregationSQL:
         """Without weighted=True, SQL aggregates measure directly (no * weight)."""
         te = TraversalEngine()
         sql = te.aggregate_sql(
-            GAWeightedEdge, start_id=1, measure="revenue", agg="sum",
-            direction="out", weighted=False,
+            GAWeightedEdge,
+            start_id=1,
+            measure="revenue",
+            agg="sum",
+            direction="out",
+            weighted=False,
         )
         assert "SUM(revenue)" in sql
         assert "* weight" not in sql  # no bridge multiplication
@@ -779,8 +883,12 @@ class TestWeightedAggregationSQL:
         """COUNT(*) remains unaffected when weighted=True."""
         te = TraversalEngine()
         sql = te.aggregate_sql(
-            GAWeightedEdge, start_id=1, measure="*", agg="count",
-            direction="out", weighted=True,
+            GAWeightedEdge,
+            start_id=1,
+            measure="*",
+            agg="count",
+            direction="out",
+            weighted=True,
         )
         assert "COUNT(*)" in sql
         assert "* weight" not in sql  # COUNT(*) is not multiplied by weight
@@ -790,6 +898,7 @@ class TestWeightedAggregationSQL:
 def ddb_weighted_con():
     """DuckDB in-memory DB with weighted edge data."""
     import duckdb
+
     con = duckdb.connect()
     con.execute("""
         CREATE TABLE ga_weighted_edge (
@@ -797,19 +906,24 @@ def ddb_weighted_con():
         )
     """)
     # Two edges from vertex 1: revenue=100 w=0.5, revenue=200 w=0.25
-    con.execute("INSERT INTO ga_weighted_edge VALUES (1,1,2,100.0,0.5),(2,1,3,200.0,0.25)")
+    con.execute(
+        "INSERT INTO ga_weighted_edge VALUES (1,1,2,100.0,0.5),(2,1,3,200.0,0.25)"
+    )
     yield con
     con.close()
 
 
 class TestWeightedAggregationDuckDB:
-
     def test_duckdb_weighted_sum_correct(self, ddb_weighted_con):
         """Weighted SUM = 100*0.5 + 200*0.25 = 100."""
         te = DuckDBTraversalEngine(ddb_weighted_con)
         result = te.aggregate(
-            GAWeightedEdge, start_id=1, measure="revenue", agg="sum",
-            direction="out", weighted=True,
+            GAWeightedEdge,
+            start_id=1,
+            measure="revenue",
+            agg="sum",
+            direction="out",
+            weighted=True,
         )
         assert result == pytest.approx(100.0)  # 50 + 50
 
@@ -817,8 +931,12 @@ class TestWeightedAggregationDuckDB:
         """Unweighted SUM = 100 + 200 = 300."""
         te = DuckDBTraversalEngine(ddb_weighted_con)
         result = te.aggregate(
-            GAWeightedEdge, start_id=1, measure="revenue", agg="sum",
-            direction="out", weighted=False,
+            GAWeightedEdge,
+            start_id=1,
+            measure="revenue",
+            agg="sum",
+            direction="out",
+            weighted=False,
         )
         assert result == pytest.approx(300.0)
 
@@ -827,8 +945,8 @@ class TestWeightedAggregationDuckDB:
 # Tier 3: Strategy-Guided Freshness
 # ===========================================================================
 
-class TestStrategyGuidedFreshness:
 
+class TestStrategyGuidedFreshness:
     async def test_freshness_upsert_returns_none_without_db_query(self):
         """upsert strategy means data is always current — returns None immediately."""
         session = AsyncMock()
@@ -839,6 +957,7 @@ class TestStrategyGuidedFreshness:
 
     async def test_freshness_merge_returns_none(self):
         """merge strategy also returns None without querying."""
+
         class GAMergeEdge(EdgeModel, table=True):
             __tablename__ = "ga_merge_edge"
             __edge_type__ = "ga_merge"
@@ -881,6 +1000,7 @@ class TestStrategyGuidedFreshness:
 
     async def test_freshness_no_strategy_queries_table(self):
         """Without __strategy__, freshness still queries MAX timestamp."""
+
         class GANoStrategyEdge(EdgeModel, table=True):
             __tablename__ = "ga_no_strategy_edge"
             __edge_type__ = "ga_no_strategy"
@@ -912,10 +1032,11 @@ class TestStrategyGuidedFreshness:
 # _check_additive edge cases (defensive returns)
 # ===========================================================================
 
-class TestCheckAdditiveEdgeCases:
 
+class TestCheckAdditiveEdgeCases:
     def test_check_additive_class_without_table_returns_silently(self):
         """_check_additive returns without error when edge_type has no __table__."""
+
         class NotATable:
             """Plain Python class — no __table__ attribute."""
 

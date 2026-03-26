@@ -115,7 +115,7 @@ def populate_junk_dimension(
     for combo in combos:
         row_data = dict(zip(cols, combo))
         # Check if already exists
-        conditions = [model.__table__.c[col] == val for col, val in row_data.items()]
+        conditions = [model.__table__.c[col] == val for col, val in row_data.items()]  # type: ignore[attr-defined]
         existing = session.exec(select(model).where(*conditions)).first()
         if not existing:
             row = model(**row_data)

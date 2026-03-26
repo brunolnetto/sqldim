@@ -1,4 +1,5 @@
 """Tests for lineage emitters — ConsoleLineageEmitter, OpenLineageEmitter guard."""
+
 import io
 import json
 from unittest.mock import MagicMock
@@ -19,6 +20,7 @@ from sqldim.lineage.events import DatasetRef
 # Protocol compliance
 # ---------------------------------------------------------------------------
 
+
 class TestProtocolCompliance:
     def test_console_emitter_is_lineage_emitter(self):
         assert isinstance(ConsoleLineageEmitter(), LineageEmitter)
@@ -27,6 +29,7 @@ class TestProtocolCompliance:
 # ---------------------------------------------------------------------------
 # ConsoleLineageEmitter
 # ---------------------------------------------------------------------------
+
 
 class TestConsoleLineageEmitter:
     def test_writes_event_as_json_line(self):
@@ -92,6 +95,7 @@ class _BrokenStream:
 # OpenLineageEmitter — ImportError guard
 # ---------------------------------------------------------------------------
 
+
 class TestOpenLineageImportGuard:
     def test_raises_import_error_without_dep(self):
         with pytest.raises(ImportError, match="pip install sqldim\\[lineage\\]"):
@@ -101,6 +105,7 @@ class TestOpenLineageImportGuard:
 # ---------------------------------------------------------------------------
 # OpenLineageEmitter — mocked SDK
 # ---------------------------------------------------------------------------
+
 
 class TestOpenLineageEmitterMocked:
     """Cover lines 81-123 of emitter.py with a mocked openlineage package."""
@@ -145,26 +150,34 @@ class TestOpenLineageEmitterMocked:
         ctx, mod = self._patch_context(mock_ol)
         with ctx:
             import importlib
+
             importlib.reload(mod)
-            emitter = mod.OpenLineageEmitter(url="http://marquez:5000", namespace="prod")
+            emitter = mod.OpenLineageEmitter(
+                url="http://marquez:5000", namespace="prod"
+            )
 
         assert emitter._namespace == "prod"
-        mock_ol.client.OpenLineageClient.assert_called_once_with(url="http://marquez:5000")
+        mock_ol.client.OpenLineageClient.assert_called_once_with(
+            url="http://marquez:5000"
+        )
 
     def test_emit_translates_event_to_run_event(self):
         mock_ol = self._build_mocks()
         ctx, mod = self._patch_context(mock_ol)
         with ctx:
             import importlib
+
             importlib.reload(mod)
             emitter = mod.OpenLineageEmitter(namespace="sqldim")
-            emitter.emit(LineageEvent(
-                run_id="run-abc",
-                job_name="bronze_to_silver",
-                inputs=[DatasetRef(name="bronze.orders", namespace="sqldim")],
-                outputs=[DatasetRef(name="silver.orders", namespace="sqldim")],
-                state=RunState.COMPLETE,
-            ))
+            emitter.emit(
+                LineageEvent(
+                    run_id="run-abc",
+                    job_name="bronze_to_silver",
+                    inputs=[DatasetRef(name="bronze.orders", namespace="sqldim")],
+                    outputs=[DatasetRef(name="silver.orders", namespace="sqldim")],
+                    state=RunState.COMPLETE,
+                )
+            )
 
         # MagicMock kwargs are NOT stored as attrs — inspect call_args instead
         run_event_call = mock_ol.client.run.RunEvent.call_args.kwargs
@@ -181,9 +194,16 @@ class TestOpenLineageEmitterMocked:
         ctx, mod = self._patch_context(mock_ol)
         with ctx:
             import importlib
+
             importlib.reload(mod)
             emitter = mod.OpenLineageEmitter()
-            for state in (RunState.START, RunState.RUNNING, RunState.COMPLETE, RunState.FAIL, RunState.ABORT):
+            for state in (
+                RunState.START,
+                RunState.RUNNING,
+                RunState.COMPLETE,
+                RunState.FAIL,
+                RunState.ABORT,
+            ):
                 emitter.emit(LineageEvent(job_name="x", state=state))
 
         assert mock_ol.client.run.RunEvent.call_count == 5
@@ -194,13 +214,16 @@ class TestOpenLineageEmitterMocked:
         ctx, mod = self._patch_context(mock_ol)
         with ctx:
             import importlib
+
             importlib.reload(mod)
             emitter = mod.OpenLineageEmitter(namespace="default_ns")
-            emitter.emit(LineageEvent(
-                job_name="x",
-                state=RunState.COMPLETE,
-                namespace="custom_ns",
-            ))
+            emitter.emit(
+                LineageEvent(
+                    job_name="x",
+                    state=RunState.COMPLETE,
+                    namespace="custom_ns",
+                )
+            )
 
         job_call = mock_ol.client.run.Job.call_args.kwargs
         assert job_call["namespace"] == "custom_ns"
@@ -211,13 +234,16 @@ class TestOpenLineageEmitterMocked:
         ctx, mod = self._patch_context(mock_ol)
         with ctx:
             import importlib
+
             importlib.reload(mod)
             emitter = mod.OpenLineageEmitter()
-            emitter.emit(LineageEvent(
-                job_name="x",
-                state=RunState.COMPLETE,
-                facets={"rows": 100, "duration_ms": 42},
-            ))
+            emitter.emit(
+                LineageEvent(
+                    job_name="x",
+                    state=RunState.COMPLETE,
+                    facets={"rows": 100, "duration_ms": 42},
+                )
+            )
 
         run_call = mock_ol.client.run.Run.call_args.kwargs
         assert run_call["facets"] == {"rows": 100, "duration_ms": 42}
@@ -228,6 +254,7 @@ class TestOpenLineageEmitterMocked:
         ctx, mod = self._patch_context(mock_ol)
         with ctx:
             import importlib
+
             importlib.reload(mod)
             emitter = mod.OpenLineageEmitter()
             emitter.emit(LineageEvent(job_name="x", state=RunState.START))
@@ -241,23 +268,29 @@ class TestOpenLineageEmitterMocked:
         from sqldim.lineage.column import ColumnLineageFacet, ColumnLineageEntry
         from sqldim.lineage.events import DatasetRef
 
-        col_facet = ColumnLineageFacet(entries=[
-            ColumnLineageEntry("customer_sk", ["raw.customer_id"]),
-        ])
-        ref = DatasetRef(namespace="sqldim", name="dim_customer",
-                         facets={"columnLineage": col_facet})
+        col_facet = ColumnLineageFacet(
+            entries=[
+                ColumnLineageEntry("customer_sk", ["raw.customer_id"]),
+            ]
+        )
+        ref = DatasetRef(
+            namespace="sqldim", name="dim_customer", facets={"columnLineage": col_facet}
+        )
 
         mock_ol = self._build_mocks()
         ctx, mod = self._patch_context(mock_ol)
         with ctx:
             import importlib
+
             importlib.reload(mod)
             emitter = mod.OpenLineageEmitter()
-            emitter.emit(LineageEvent(
-                job_name="x",
-                state=RunState.COMPLETE,
-                outputs=[ref],
-            ))
+            emitter.emit(
+                LineageEvent(
+                    job_name="x",
+                    state=RunState.COMPLETE,
+                    outputs=[ref],
+                )
+            )
 
         # Dataset should have been called; the facets dict should have the
         # ColumnLineageFacet converted to a plain dict (not the object itself)
@@ -266,6 +299,6 @@ class TestOpenLineageEmitterMocked:
         if facets_passed:
             col_lineage_val = facets_passed.get("columnLineage")
             if col_lineage_val is not None:
-                assert isinstance(col_lineage_val, dict), \
+                assert isinstance(col_lineage_val, dict), (
                     "ColumnLineageFacet should be serialised to dict"
-
+                )

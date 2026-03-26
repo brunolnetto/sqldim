@@ -1,36 +1,45 @@
 """Tests for backfill_scd2_narwhals — Task 7.5."""
+
 import polars as pl
-import pandas as pd
+import pandas as pd  # type: ignore[import-untyped]
 import narwhals as nw
 
-from sqldim.core.kimball.dimensions.scd.processors.backfill import backfill_scd2_narwhals
+from sqldim.core.kimball.dimensions.scd.processors.backfill import (
+    backfill_scd2_narwhals,
+)
 
 
 # ---------------------------------------------------------------------------
 # Fixtures
 # ---------------------------------------------------------------------------
 
+
 def _snapshot_pl():
     """Flat snapshot: player changes scoring_class between seasons."""
-    return pl.DataFrame({
-        "player_name":    ["Jordan", "Jordan", "Jordan", "Bird", "Bird"],
-        "season":         [1990,     1991,     1992,     1990,   1991],
-        "scoring_class":  ["Star",   "Star",   "Elite",  "Star", "Star"],
-        "is_active":      [True,     True,     True,     True,   False],
-    })
+    return pl.DataFrame(
+        {
+            "player_name": ["Jordan", "Jordan", "Jordan", "Bird", "Bird"],
+            "season": [1990, 1991, 1992, 1990, 1991],
+            "scoring_class": ["Star", "Star", "Elite", "Star", "Star"],
+            "is_active": [True, True, True, True, False],
+        }
+    )
 
 
 def _snapshot_pd():
-    return pd.DataFrame({
-        "player_name":   ["Jordan", "Jordan", "Jordan"],
-        "season":        [1990,     1991,     1992],
-        "scoring_class": ["Star",   "Elite",  "Elite"],
-    })
+    return pd.DataFrame(
+        {
+            "player_name": ["Jordan", "Jordan", "Jordan"],
+            "season": [1990, 1991, 1992],
+            "scoring_class": ["Star", "Elite", "Elite"],
+        }
+    )
 
 
 # ---------------------------------------------------------------------------
 # Basic functionality
 # ---------------------------------------------------------------------------
+
 
 def test_dry_run_returns_dataframe():
     result = backfill_scd2_narwhals(

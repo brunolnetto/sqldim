@@ -9,6 +9,7 @@ sqldim/examples/datasets/user_activity.py
 sqldim/examples/datasets/fintech.py
 sqldim/examples/datasets/supply_chain.py
 """
+
 from __future__ import annotations
 
 import duckdb
@@ -19,16 +20,16 @@ from sqldim.sources.batch.sql import SQLSource
 
 from sqldim.application.datasets.domains.nba_analytics import PlayerSeasonsSource
 from sqldim.application.datasets.domains.saas_growth import SaaSUsersSource
-from sqldim.application.datasets.domains.user_activity import DevicesSource, EventsSource
+from sqldim.application.datasets.domains.user_activity import (
+    DevicesSource,
+    EventsSource,
+)
 from sqldim.application.datasets.domains.fintech import (
-    AccountsSource as FintechAccountsSource,
     CounterpartiesSource,
     TransactionsSource,
 )
 from sqldim.application.datasets.domains.supply_chain import (
     SuppliersSource,
-    WarehousesSource,
-    SKUsSource,
     ReceiptsSource,
 )
 
@@ -37,8 +38,8 @@ from sqldim.application.datasets.domains.supply_chain import (
 # PlayerSeasonsSource
 # ---------------------------------------------------------------------------
 
-class TestPlayerSeasonsSource:
 
+class TestPlayerSeasonsSource:
     @pytest.fixture()
     def src(self):
         return PlayerSeasonsSource(n=10, seed=0)
@@ -81,12 +82,13 @@ class TestPlayerSeasonsSource:
     def test_event_batch_advances_season(self, src):
         con = duckdb.connect()
         initial = con.execute(src.snapshot().as_sql(con)).fetchdf()
-        events  = con.execute(src.event_batch(1).as_sql(con)).fetchdf()
+        events = con.execute(src.event_batch(1).as_sql(con)).fetchdf()
         # Event batch should have incremented season by 1 for each row
         assert (events["season"] > initial["season"].min()).any()
 
     def test_provider_is_set(self, src):
         from sqldim.application.datasets.base import SourceProvider
+
         assert src.provider is not None
         assert isinstance(src.provider, SourceProvider)
         assert "NBA" in src.provider.name
@@ -119,8 +121,8 @@ class TestPlayerSeasonsSource:
 # SaaSUsersSource
 # ---------------------------------------------------------------------------
 
-class TestSaaSUsersSource:
 
+class TestSaaSUsersSource:
     @pytest.fixture()
     def src(self):
         return SaaSUsersSource(n=20, seed=7)
@@ -161,13 +163,13 @@ class TestSaaSUsersSource:
         # Use a large seed population so upgrades are statistically certain
         big = SaaSUsersSource(n=100, seed=99)
         upgraded = [
-            row for row in big.events
-            if row.get("plan_tier") in ("pro", "enterprise")
+            row for row in big.events if row.get("plan_tier") in ("pro", "enterprise")
         ]
         assert len(upgraded) > 0
 
     def test_provider_is_set(self, src):
         from sqldim.application.datasets.base import SourceProvider
+
         assert isinstance(src.provider, SourceProvider)
 
     def test_setup_and_teardown(self, src):
@@ -189,8 +191,8 @@ class TestSaaSUsersSource:
 # DevicesSource
 # ---------------------------------------------------------------------------
 
-class TestDevicesSource:
 
+class TestDevicesSource:
     @pytest.fixture()
     def src(self):
         return DevicesSource(n=15, seed=3)
@@ -229,6 +231,7 @@ class TestDevicesSource:
 
     def test_provider_is_set(self, src):
         from sqldim.application.datasets.base import SourceProvider
+
         assert isinstance(src.provider, SourceProvider)
 
     def test_setup_and_teardown(self, src):
@@ -245,8 +248,8 @@ class TestDevicesSource:
 # EventsSource
 # ---------------------------------------------------------------------------
 
-class TestEventsSource:
 
+class TestEventsSource:
     @pytest.fixture()
     def src(self):
         return EventsSource(n=30, seed=5)
@@ -276,8 +279,16 @@ class TestEventsSource:
             assert col in df.columns
 
     def test_url_values(self, src):
-        valid_prefixes = {"/home", "/dashboard", "/pricing", "/docs",
-                         "/blog", "/login", "/signup", "/settings"}
+        valid_prefixes = {
+            "/home",
+            "/dashboard",
+            "/pricing",
+            "/docs",
+            "/blog",
+            "/login",
+            "/signup",
+            "/settings",
+        }
         actual = {row["url"] for row in src.initial}
         assert actual <= valid_prefixes
 
@@ -292,6 +303,7 @@ class TestEventsSource:
 
     def test_provider_is_set(self, src):
         from sqldim.application.datasets.base import SourceProvider
+
         assert isinstance(src.provider, SourceProvider)
 
     def test_setup_and_teardown(self, src):
@@ -308,8 +320,8 @@ class TestEventsSource:
 # CounterpartiesSource  (fintech)
 # ---------------------------------------------------------------------------
 
-class TestCounterpartiesSource:
 
+class TestCounterpartiesSource:
     @pytest.fixture()
     def src(self):
         return CounterpartiesSource(n_entities=10, seed=0)
@@ -326,7 +338,13 @@ class TestCounterpartiesSource:
     def test_snapshot_has_key_fields(self, src):
         con = duckdb.connect()
         df = con.execute(src.snapshot().as_sql(con)).fetchdf()
-        for col in ("cp_id", "bic_code", "institution_name", "country_code", "is_sanctioned"):
+        for col in (
+            "cp_id",
+            "bic_code",
+            "institution_name",
+            "country_code",
+            "is_sanctioned",
+        ):
             assert col in df.columns
 
     def test_event_batch_returns_sql_source(self, src):
@@ -337,8 +355,8 @@ class TestCounterpartiesSource:
 # TransactionsSource  (fintech)
 # ---------------------------------------------------------------------------
 
-class TestTransactionsSource:
 
+class TestTransactionsSource:
     @pytest.fixture()
     def src(self):
         return TransactionsSource(n_entities=20, seed=1)
@@ -355,7 +373,13 @@ class TestTransactionsSource:
     def test_snapshot_has_key_fields(self, src):
         con = duckdb.connect()
         df = con.execute(src.snapshot().as_sql(con)).fetchdf()
-        for col in ("txn_id", "account_id", "counterparty_id", "amount_usd", "txn_type"):
+        for col in (
+            "txn_id",
+            "account_id",
+            "counterparty_id",
+            "amount_usd",
+            "txn_type",
+        ):
             assert col in df.columns
 
     def test_event_batch_changes_amounts(self, src):
@@ -370,8 +394,8 @@ class TestTransactionsSource:
 # SuppliersSource  (supply_chain)
 # ---------------------------------------------------------------------------
 
-class TestSuppliersSource:
 
+class TestSuppliersSource:
     @pytest.fixture()
     def src(self):
         return SuppliersSource(n_entities=8, seed=10)
@@ -388,8 +412,13 @@ class TestSuppliersSource:
     def test_snapshot_has_key_fields(self, src):
         con = duckdb.connect()
         df = con.execute(src.snapshot().as_sql(con)).fetchdf()
-        for col in ("supplier_id", "supplier_code", "supplier_name",
-                    "country_code", "reliability_score"):
+        for col in (
+            "supplier_id",
+            "supplier_code",
+            "supplier_name",
+            "country_code",
+            "reliability_score",
+        ):
             assert col in df.columns
 
     def test_event_batch_returns_sql_source(self, src):
@@ -400,8 +429,8 @@ class TestSuppliersSource:
 # ReceiptsSource  (supply_chain)
 # ---------------------------------------------------------------------------
 
-class TestReceiptsSource:
 
+class TestReceiptsSource:
     @pytest.fixture()
     def src(self):
         return ReceiptsSource(n_entities=15, seed=7)
@@ -418,6 +447,12 @@ class TestReceiptsSource:
     def test_snapshot_has_key_fields(self, src):
         con = duckdb.connect()
         df = con.execute(src.snapshot().as_sql(con)).fetchdf()
-        for col in ("receipt_id", "warehouse_id", "supplier_id",
-                    "sku_id", "receipt_date", "quantity_received"):
+        for col in (
+            "receipt_id",
+            "warehouse_id",
+            "supplier_id",
+            "sku_id",
+            "receipt_date",
+            "quantity_received",
+        ):
             assert col in df.columns

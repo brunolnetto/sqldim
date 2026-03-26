@@ -1,12 +1,15 @@
 from sqldim.core.kimball.dimensions.time import TimeDimension
 
+
 def test_generate_creates_1440_rows():
     from unittest.mock import MagicMock
+
     session = MagicMock()
     rows = TimeDimension.generate(session)
     assert len(rows) == 1440
     assert session.add.call_count == 1440
     session.commit.assert_called_once()
+
 
 def test_midnight():
     row = TimeDimension._from_time(0, 0)
@@ -17,11 +20,13 @@ def test_midnight():
     assert row.hour_12 == 12
     assert row.time_of_day == "Night"
 
+
 def test_noon():
     row = TimeDimension._from_time(12, 0)
     assert row.period == "PM"
     assert row.hour_12 == 12
     assert row.time_of_day == "Afternoon"
+
 
 def test_morning():
     row = TimeDimension._from_time(8, 30)
@@ -29,15 +34,18 @@ def test_morning():
     assert row.period == "AM"
     assert row.hour_12 == 8
 
+
 def test_afternoon():
     row = TimeDimension._from_time(14, 0)
     assert row.time_of_day == "Afternoon"
     assert row.period == "PM"
     assert row.hour_12 == 2
 
+
 def test_evening():
     row = TimeDimension._from_time(19, 0)
     assert row.time_of_day == "Evening"
+
 
 def test_night_late():
     row = TimeDimension._from_time(23, 59)
@@ -75,4 +83,3 @@ def test_bucket_sql_default_bins():
     assert "Morning" in sql
     assert "Night" in sql
     assert "CASE" in sql
-

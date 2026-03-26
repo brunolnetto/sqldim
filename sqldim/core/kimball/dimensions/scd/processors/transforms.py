@@ -13,7 +13,7 @@ DSL scope (locked):
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 import narwhals as nw
 
@@ -27,14 +27,14 @@ if TYPE_CHECKING:
 # Type compatibility helper
 # ---------------------------------------------------------------------------
 
-_PYTHON_TO_NW: dict[type, nw.DataType] = {
+_PYTHON_TO_NW: dict[type, Any] = {
     int: nw.Int64,
     float: nw.Float64,
     str: nw.String,
     bool: nw.Boolean,
 }
 
-_COMPATIBLE_GROUPS: list[set[nw.DataType]] = [
+_COMPATIBLE_GROUPS: list[set[Any]] = [
     {nw.Int8, nw.Int16, nw.Int32, nw.Int64, nw.UInt8, nw.UInt16, nw.UInt32, nw.UInt64},
     {nw.Float32, nw.Float64},
     {nw.String, nw.Categorical},
@@ -43,7 +43,7 @@ _COMPATIBLE_GROUPS: list[set[nw.DataType]] = [
 ]
 
 
-def _types_compatible(nw_dtype: nw.DataType, model_dtype: nw.DataType) -> bool:
+def _types_compatible(nw_dtype: Any, model_dtype: Any) -> bool:
     """Return True when *nw_dtype* is a valid match for *model_dtype*.
 
     Considers both exact equality and membership in the same compatibility
@@ -57,7 +57,7 @@ def _types_compatible(nw_dtype: nw.DataType, model_dtype: nw.DataType) -> bool:
     return False
 
 
-def _python_type_to_nw(annotation: object) -> nw.DataType | None:
+def _python_type_to_nw(annotation: Any) -> Any | None:
     """Convert a Python type annotation to a narwhals dtype, or None.
 
     Handles ``Optional[T]`` by unwrapping the inner type, and returns
@@ -111,14 +111,14 @@ class _AppliedTransform(Transform):
     def str(self) -> StringTransforms:
         return StringTransforms(self._column, self._expr)
 
-    def cast(self, dtype: type | nw.DataType) -> _AppliedTransform:
+    def cast(self, dtype: type | Any) -> _AppliedTransform:
         if dtype in _PYTHON_TO_NW:
             nw_dtype = _PYTHON_TO_NW[dtype]
         else:
             nw_dtype = dtype
         return _AppliedTransform(self._column, self._expr.cast(nw_dtype))
 
-    def fill_null(self, value: object) -> _AppliedTransform:
+    def fill_null(self, value: Any) -> _AppliedTransform:
         return _AppliedTransform(self._column, self._expr.fill_null(value))
 
     def is_null(self) -> _AppliedTransform:
@@ -168,14 +168,14 @@ class ColTransform:
     def str(self) -> StringTransforms:
         return StringTransforms(self._column)
 
-    def cast(self, dtype: type | nw.DataType) -> _AppliedTransform:
+    def cast(self, dtype: type | Any) -> _AppliedTransform:
         if dtype in _PYTHON_TO_NW:
             nw_dtype = _PYTHON_TO_NW[dtype]
         else:
             nw_dtype = dtype
         return _AppliedTransform(self._column, nw.col(self._column).cast(nw_dtype))
 
-    def fill_null(self, value: object) -> _AppliedTransform:
+    def fill_null(self, value: Any) -> _AppliedTransform:
         return _AppliedTransform(self._column, nw.col(self._column).fill_null(value))
 
     def drop_nulls(self) -> _DropNullsTransform:
@@ -186,12 +186,12 @@ class ColTransform:
             self._column, nw.col(self._column).is_null().cast(nw.Boolean)
         )
 
-    def to_date(self, format: str) -> _AppliedTransform:
+    def to_date(self, format: str) -> _AppliedTransform:  # type: ignore[valid-type]
         return _AppliedTransform(
             self._column, nw.col(self._column).str.to_date(format=format)
         )
 
-    def to_datetime(self, format: str) -> _AppliedTransform:
+    def to_datetime(self, format: str) -> _AppliedTransform:  # type: ignore[valid-type]
         return _AppliedTransform(
             self._column, nw.col(self._column).str.to_datetime(format=format)
         )

@@ -2,6 +2,7 @@
 Tests for sqldim.sinks._connection.make_connection() factory.
 Red-green target: 100 % line coverage on _connection.py.
 """
+
 import os
 import duckdb
 from unittest.mock import patch
@@ -11,14 +12,17 @@ from unittest.mock import patch
 # Helpers — import guard
 # ---------------------------------------------------------------------------
 
+
 def _import():
     from sqldim.sinks._connection import make_connection
+
     return make_connection
 
 
 # ---------------------------------------------------------------------------
 # make_connection() — basic contract
 # ---------------------------------------------------------------------------
+
 
 class TestMakeConnectionBasic:
     def test_returns_duckdb_connection(self):
@@ -81,6 +85,7 @@ class TestMakeConnectionBasic:
 # make_connection() — environment variable fallbacks
 # ---------------------------------------------------------------------------
 
+
 class TestMakeConnectionEnvFallback:
     def test_env_memory_limit_used_when_no_arg(self):
         make_connection = _import()
@@ -114,19 +119,22 @@ class TestMakeConnectionEnvFallback:
 # make_connection() — psutil fallback
 # ---------------------------------------------------------------------------
 
+
 class TestMakeConnectionPsutilFallback:
     def test_uses_4gb_default_when_psutil_missing(self):
         make_connection = _import()
         import sys
+
         with patch.dict(sys.modules, {"psutil": None}):
             # Clear env so it must use hardcoded default
-            env = {k: v for k, v in os.environ.items()
-                   if k not in ("SQLDIM_MEMORY_LIMIT",)}
+            env = {
+                k: v for k, v in os.environ.items() if k not in ("SQLDIM_MEMORY_LIMIT",)
+            }
             with patch.dict(os.environ, env, clear=True):
                 con = make_connection()
-                row = con.execute(
-                    "SELECT current_setting('memory_limit')"
-                ).fetchone()[0]
+                row = con.execute("SELECT current_setting('memory_limit')").fetchone()[
+                    0
+                ]
                 # Either psutil was available (system RAM) or fallback "4GB"
                 assert row  # just ensure it's set
                 con.close()

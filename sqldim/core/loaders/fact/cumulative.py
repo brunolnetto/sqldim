@@ -6,7 +6,6 @@ Reproduces the pipeline_query.sql and user_cumulated_populate.sql patterns.
 from __future__ import annotations
 
 import asyncio
-from datetime import date, datetime
 from sqldim.core.loaders._utils import _resolve_table, _assert_not_dimension
 
 
@@ -45,7 +44,7 @@ class LazyCumulativeLoader:
         table: str | type,
         partition_key: str,
         cumulative_column: str,
-        metric_columns: List[str],
+        metric_columns: list[str],
         sink,
         current_period_column: str = "current_season",
         batch_size: int = 100_000,
@@ -62,6 +61,9 @@ class LazyCumulativeLoader:
         self.current_period_column = current_period_column
         self.batch_size = batch_size
         self._con = con or _duckdb.connect()
+        self._model_cls: type | None = (
+            None  # set by factory when created via as_loader()
+        )
 
     def process(self, today_source, target_period) -> int:
         """

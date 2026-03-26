@@ -1,40 +1,33 @@
 """DGM model benchmarks (groups Q–S): model building, layering, resolution."""
+
 from __future__ import annotations
 
-import os
 import time
 import traceback as _traceback
 
-import duckdb
-from sqlalchemy.pool import StaticPool
 
 from sqldim.application.benchmarks._dataset import (
     BenchmarkDatasetGenerator,
-    DatasetArtifact,
-    SCALE_TIERS,
 )
 from sqldim.application.benchmarks.infra import (
     BenchmarkResult,
-    SOURCE_NAMES,
-    _make_source,
-    _remove_db,
-    _configure,
-    _run_scd2_batch,
-    _run_metadata_batch,
     _select_tiers,
 )
 from sqldim.application.benchmarks.memory_probe import MemoryProbe
-from sqldim.application.benchmarks.scan_probe import DuckDBObjectTracker
 from sqldim.core.query.dgm.annotations import (
     AnnotationSigma,
-    Grain, GrainKind,
-    SCDType, SCDKind,
+    Grain,
+    GrainKind,
+    SCDType,
+    SCDKind,
     Conformed,
-    BridgeSemantics, BridgeSemanticsKind,
+    BridgeSemantics,
+    BridgeSemanticsKind,
     Hierarchy,
     FactlessFact,
     DerivedFact,
-    WeightConstraint, WeightConstraintKind,
+    WeightConstraint,
+    WeightConstraintKind,
 )
 from sqldim.core.query.dgm.recommender import DGMRecommender
 from sqldim.core.query.dgm.planner import DGMPlanner, QueryTarget, SinkTarget
@@ -44,24 +37,35 @@ from sqldim.core.query.dgm.graph import GraphStatistics
 # ── Group Q  DGMRecommender annotation + trail rules throughput ───────────
 # ═══════════════════════════════════════════════════════════════════════════
 
-_Q_SIGMA = AnnotationSigma(annotations=[
-    Grain(fact="sale", grain=GrainKind.PERIOD),
-    SCDType(dim="customer", scd=SCDKind.SCD2),
-    Conformed(dim="customer", fact_types=frozenset({"Sale"})),
-    BridgeSemantics(bridge="link", sem=BridgeSemanticsKind.CAUSAL),
-    Hierarchy(root="category", depth=3),
-    FactlessFact(fact="attendance"),
-    DerivedFact(fact="margin", sources=["revenue", "cost"], expr="revenue - cost"),
-    WeightConstraint(bridge="alloc", constraint=WeightConstraintKind.ALLOCATIVE),
-])
+_Q_SIGMA = AnnotationSigma(
+    annotations=[
+        Grain(fact="sale", grain=GrainKind.PERIOD),
+        SCDType(dim="customer", scd=SCDKind.SCD2),
+        Conformed(dim="customer", fact_types=frozenset({"Sale"})),
+        BridgeSemantics(bridge="link", sem=BridgeSemanticsKind.CAUSAL),
+        Hierarchy(root="category", depth=3),
+        FactlessFact(fact="attendance"),
+        DerivedFact(fact="margin", sources=["revenue", "cost"], expr="revenue - cost"),
+        WeightConstraint(bridge="alloc", constraint=WeightConstraintKind.ALLOCATIVE),
+    ]
+)
 
 
-def _q1_recommender_annotation(tier: str, n: int, temp_dir: str, rec: DGMRecommender) -> BenchmarkResult:
-    cid    = f"Q-recommender-annotation-{tier}"
+def _q1_recommender_annotation(
+    tier: str, n: int, temp_dir: str, rec: DGMRecommender
+) -> BenchmarkResult:
+    cid = f"Q-recommender-annotation-{tier}"
     result = BenchmarkResult(
-        case_id=cid, group="Q", profile="recommender-annotation", tier=tier,
-        processor="DGMRecommender", sink="none",
-        source="synthetic", phase="compute", n_rows=n, n_changed=0,
+        case_id=cid,
+        group="Q",
+        profile="recommender-annotation",
+        tier=tier,
+        processor="DGMRecommender",
+        sink="none",
+        source="synthetic",
+        phase="compute",
+        n_rows=n,
+        n_changed=0,
     )
     try:
         MemoryProbe.check_safe_to_run(label=cid)
@@ -72,25 +76,34 @@ def _q1_recommender_annotation(tier: str, n: int, temp_dir: str, rec: DGMRecomme
                 rec.run_annotation_rules()
             result.wall_s = time.perf_counter() - t0
         m = probe.report
-        result.peak_rss_gb      = m.peak_rss_gb
+        result.peak_rss_gb = m.peak_rss_gb
         result.min_sys_avail_gb = m.min_sys_avail_gb
-        result.rows_per_sec     = n / max(result.wall_s, 0.001)
-        result.inserted         = n
+        result.rows_per_sec = n / max(result.wall_s, 0.001)
+        result.inserted = n
     except RuntimeError as exc:
-        result.ok = False; result.error = f"SKIPPED: {exc}"
+        result.ok = False
+        result.error = f"SKIPPED: {exc}"
     except Exception as exc:
-        result.ok    = False
-        result.error = (f"{type(exc).__name__}: {exc}\n"
-                        + _traceback.format_exc()[-600:])
+        result.ok = False
+        result.error = f"{type(exc).__name__}: {exc}\n" + _traceback.format_exc()[-600:]
     return result
 
 
-def _q2_recommender_trail(tier: str, n: int, temp_dir: str, rec: DGMRecommender) -> BenchmarkResult:
-    cid    = f"Q-recommender-trail-{tier}"
+def _q2_recommender_trail(
+    tier: str, n: int, temp_dir: str, rec: DGMRecommender
+) -> BenchmarkResult:
+    cid = f"Q-recommender-trail-{tier}"
     result = BenchmarkResult(
-        case_id=cid, group="Q", profile="recommender-trail", tier=tier,
-        processor="DGMRecommender", sink="none",
-        source="synthetic", phase="compute", n_rows=n, n_changed=0,
+        case_id=cid,
+        group="Q",
+        profile="recommender-trail",
+        tier=tier,
+        processor="DGMRecommender",
+        sink="none",
+        source="synthetic",
+        phase="compute",
+        n_rows=n,
+        n_changed=0,
     )
     try:
         MemoryProbe.check_safe_to_run(label=cid)
@@ -99,19 +112,19 @@ def _q2_recommender_trail(tier: str, n: int, temp_dir: str, rec: DGMRecommender)
             t0 = time.perf_counter()
             for _ in range(n):
                 rec.run_trail_rules("customer", 6, 0.8, 0.75)
-                rec.run_trail_rules("product",  2, 0.3, 0.2)
+                rec.run_trail_rules("product", 2, 0.3, 0.2)
             result.wall_s = time.perf_counter() - t0
         m = probe.report
-        result.peak_rss_gb      = m.peak_rss_gb
+        result.peak_rss_gb = m.peak_rss_gb
         result.min_sys_avail_gb = m.min_sys_avail_gb
-        result.rows_per_sec     = n * 2 / max(result.wall_s, 0.001)
-        result.inserted         = n * 2
+        result.rows_per_sec = n * 2 / max(result.wall_s, 0.001)
+        result.inserted = n * 2
     except RuntimeError as exc:
-        result.ok = False; result.error = f"SKIPPED: {exc}"
+        result.ok = False
+        result.error = f"SKIPPED: {exc}"
     except Exception as exc:
-        result.ok    = False
-        result.error = (f"{type(exc).__name__}: {exc}\n"
-                        + _traceback.format_exc()[-600:])
+        result.ok = False
+        result.error = f"{type(exc).__name__}: {exc}\n" + _traceback.format_exc()[-600:]
     return result
 
 
@@ -122,10 +135,10 @@ def group_q_recommender(
     **_,
 ) -> list[BenchmarkResult]:
     """Group Q — DGMRecommender annotation rule + trail rule throughput."""
-    tier_map   = {"xs": 200, "s": 2_000, "m": 10_000}
+    tier_map = {"xs": 200, "s": 2_000, "m": 10_000}
     tier_order = ["xs", "s", "m"]
     active_tiers = _select_tiers(tier_order, tier_map, max_tier)
-    rec     = DGMRecommender(_Q_SIGMA)
+    rec = DGMRecommender(_Q_SIGMA)
     results: list[BenchmarkResult] = []
     for tier in active_tiers:
         n = tier_map[tier]
@@ -148,12 +161,21 @@ _R_PLANNER = DGMPlanner(
 )
 
 
-def _r1_rule1a(tier: str, n: int, temp_dir: str, planner: DGMPlanner) -> BenchmarkResult:
-    cid    = f"R-planner-rule1a-{tier}"
+def _r1_rule1a(
+    tier: str, n: int, temp_dir: str, planner: DGMPlanner
+) -> BenchmarkResult:
+    cid = f"R-planner-rule1a-{tier}"
     result = BenchmarkResult(
-        case_id=cid, group="R", profile="planner-rule1a", tier=tier,
-        processor="DGMPlanner", sink="none",
-        source="synthetic", phase="plan", n_rows=n, n_changed=0,
+        case_id=cid,
+        group="R",
+        profile="planner-rule1a",
+        tier=tier,
+        processor="DGMPlanner",
+        sink="none",
+        source="synthetic",
+        phase="plan",
+        n_rows=n,
+        n_changed=0,
     )
     try:
         MemoryProbe.check_safe_to_run(label=cid)
@@ -164,25 +186,32 @@ def _r1_rule1a(tier: str, n: int, temp_dir: str, planner: DGMPlanner) -> Benchma
                 planner.apply_rule_1a("Free-Free", "BFS", 100)
             result.wall_s = time.perf_counter() - t0
         m = probe.report
-        result.peak_rss_gb      = m.peak_rss_gb
+        result.peak_rss_gb = m.peak_rss_gb
         result.min_sys_avail_gb = m.min_sys_avail_gb
-        result.rows_per_sec     = n / max(result.wall_s, 0.001)
-        result.inserted         = n
+        result.rows_per_sec = n / max(result.wall_s, 0.001)
+        result.inserted = n
     except RuntimeError as exc:
-        result.ok = False; result.error = f"SKIPPED: {exc}"
+        result.ok = False
+        result.error = f"SKIPPED: {exc}"
     except Exception as exc:
-        result.ok    = False
-        result.error = (f"{type(exc).__name__}: {exc}\n"
-                        + _traceback.format_exc()[-600:])
+        result.ok = False
+        result.error = f"{type(exc).__name__}: {exc}\n" + _traceback.format_exc()[-600:]
     return result
 
 
 def _r2_rule9(tier: str, n: int, temp_dir: str, planner: DGMPlanner) -> BenchmarkResult:
-    cid    = f"R-planner-rule9-{tier}"
+    cid = f"R-planner-rule9-{tier}"
     result = BenchmarkResult(
-        case_id=cid, group="R", profile="planner-rule9", tier=tier,
-        processor="DGMPlanner", sink="none",
-        source="synthetic", phase="plan", n_rows=n, n_changed=0,
+        case_id=cid,
+        group="R",
+        profile="planner-rule9",
+        tier=tier,
+        processor="DGMPlanner",
+        sink="none",
+        source="synthetic",
+        phase="plan",
+        n_rows=n,
+        n_changed=0,
     )
     try:
         MemoryProbe.check_safe_to_run(label=cid)
@@ -198,25 +227,34 @@ def _r2_rule9(tier: str, n: int, temp_dir: str, planner: DGMPlanner) -> Benchmar
                 )
             result.wall_s = time.perf_counter() - t0
         m = probe.report
-        result.peak_rss_gb      = m.peak_rss_gb
+        result.peak_rss_gb = m.peak_rss_gb
         result.min_sys_avail_gb = m.min_sys_avail_gb
-        result.rows_per_sec     = n / max(result.wall_s, 0.001)
-        result.inserted         = n
+        result.rows_per_sec = n / max(result.wall_s, 0.001)
+        result.inserted = n
     except RuntimeError as exc:
-        result.ok = False; result.error = f"SKIPPED: {exc}"
+        result.ok = False
+        result.error = f"SKIPPED: {exc}"
     except Exception as exc:
-        result.ok    = False
-        result.error = (f"{type(exc).__name__}: {exc}\n"
-                        + _traceback.format_exc()[-600:])
+        result.ok = False
+        result.error = f"{type(exc).__name__}: {exc}\n" + _traceback.format_exc()[-600:]
     return result
 
 
-def _r3_build_plan(tier: str, n: int, temp_dir: str, planner: DGMPlanner) -> BenchmarkResult:
-    cid    = f"R-planner-build-plan-{tier}"
+def _r3_build_plan(
+    tier: str, n: int, temp_dir: str, planner: DGMPlanner
+) -> BenchmarkResult:
+    cid = f"R-planner-build-plan-{tier}"
     result = BenchmarkResult(
-        case_id=cid, group="R", profile="planner-build-plan", tier=tier,
-        processor="DGMPlanner", sink="none",
-        source="synthetic", phase="plan", n_rows=n, n_changed=0,
+        case_id=cid,
+        group="R",
+        profile="planner-build-plan",
+        tier=tier,
+        processor="DGMPlanner",
+        sink="none",
+        source="synthetic",
+        phase="plan",
+        n_rows=n,
+        n_changed=0,
     )
     try:
         MemoryProbe.check_safe_to_run(label=cid)
@@ -227,16 +265,16 @@ def _r3_build_plan(tier: str, n: int, temp_dir: str, planner: DGMPlanner) -> Ben
                 planner.build_plan("SELECT * FROM fact WHERE year = 2024")
             result.wall_s = time.perf_counter() - t0
         m = probe.report
-        result.peak_rss_gb      = m.peak_rss_gb
+        result.peak_rss_gb = m.peak_rss_gb
         result.min_sys_avail_gb = m.min_sys_avail_gb
-        result.rows_per_sec     = n / max(result.wall_s, 0.001)
-        result.inserted         = n
+        result.rows_per_sec = n / max(result.wall_s, 0.001)
+        result.inserted = n
     except RuntimeError as exc:
-        result.ok = False; result.error = f"SKIPPED: {exc}"
+        result.ok = False
+        result.error = f"SKIPPED: {exc}"
     except Exception as exc:
-        result.ok    = False
-        result.error = (f"{type(exc).__name__}: {exc}\n"
-                        + _traceback.format_exc()[-600:])
+        result.ok = False
+        result.error = f"{type(exc).__name__}: {exc}\n" + _traceback.format_exc()[-600:]
     return result
 
 
@@ -247,7 +285,7 @@ def group_r_planner(
     **_,
 ) -> list[BenchmarkResult]:
     """Group R — DGMPlanner rule cycles (1a, 9, build_plan)."""
-    tier_map   = {"xs": 500, "s": 5_000, "m": 20_000}
+    tier_map = {"xs": 500, "s": 5_000, "m": 20_000}
     tier_order = ["xs", "s", "m"]
     active_tiers = _select_tiers(tier_order, tier_map, max_tier)
     results: list[BenchmarkResult] = []
@@ -263,14 +301,28 @@ def group_r_planner(
 # ── Group S  DGM exporter throughput ─────────────────────────────────────
 # ═══════════════════════════════════════════════════════════════════════════
 
+
 def _s_exporter_case(
-    tier: str, n: int, exporter, plan, fmt: str, complexity: str, temp_dir: str,
+    tier: str,
+    n: int,
+    exporter,
+    plan,
+    fmt: str,
+    complexity: str,
+    temp_dir: str,
 ) -> "BenchmarkResult":
-    cid    = f"S-exporter-{fmt}-{complexity}-{tier}"
+    cid = f"S-exporter-{fmt}-{complexity}-{tier}"
     result = BenchmarkResult(
-        case_id=cid, group="S", profile=f"exporter-{fmt}-{complexity}", tier=tier,
-        processor=type(exporter).__name__, sink="none",
-        source="synthetic", phase="export", n_rows=n, n_changed=0,
+        case_id=cid,
+        group="S",
+        profile=f"exporter-{fmt}-{complexity}",
+        tier=tier,
+        processor=type(exporter).__name__,
+        sink="none",
+        source="synthetic",
+        phase="export",
+        n_rows=n,
+        n_changed=0,
     )
     try:
         MemoryProbe.check_safe_to_run(label=cid)
@@ -281,16 +333,16 @@ def _s_exporter_case(
                 exporter.export(plan)
             result.wall_s = time.perf_counter() - t0
         m = probe.report
-        result.peak_rss_gb      = m.peak_rss_gb
+        result.peak_rss_gb = m.peak_rss_gb
         result.min_sys_avail_gb = m.min_sys_avail_gb
-        result.rows_per_sec     = n / max(result.wall_s, 0.001)
-        result.inserted         = n
+        result.rows_per_sec = n / max(result.wall_s, 0.001)
+        result.inserted = n
     except RuntimeError as exc:
-        result.ok = False; result.error = f"SKIPPED: {exc}"
+        result.ok = False
+        result.error = f"SKIPPED: {exc}"
     except Exception as exc:
-        result.ok    = False
-        result.error = (f"{type(exc).__name__}: {exc}\n"
-                        + _traceback.format_exc()[-600:])
+        result.ok = False
+        result.error = f"{type(exc).__name__}: {exc}\n" + _traceback.format_exc()[-600:]
     return result
 
 
@@ -304,7 +356,7 @@ def group_s_exporter(
     from sqldim.core.query.dgm.planner import QueryTarget, SinkTarget, ExportPlan
     from sqldim.core.query.dgm.exporters import DGMJSONExporter, DGMYAMLExporter
 
-    tier_map   = {"xs": 500, "s": 5_000, "m": 20_000}
+    tier_map = {"xs": 500, "s": 5_000, "m": 20_000}
     tier_order = ["xs", "s", "m"]
     active_tiers = _select_tiers(tier_order, tier_map, max_tier)
 
@@ -321,9 +373,9 @@ def group_s_exporter(
     )
 
     exporters = [
-        ("json", "simple",  DGMJSONExporter(), simple_plan),
+        ("json", "simple", DGMJSONExporter(), simple_plan),
         ("json", "complex", DGMJSONExporter(), complex_plan),
-        ("yaml", "simple",  DGMYAMLExporter(), simple_plan),
+        ("yaml", "simple", DGMYAMLExporter(), simple_plan),
         ("yaml", "complex", DGMYAMLExporter(), complex_plan),
     ]
 
@@ -331,5 +383,7 @@ def group_s_exporter(
     for tier in active_tiers:
         n = tier_map[tier]
         for fmt, complexity, exporter, plan in exporters:
-            results.append(_s_exporter_case(tier, n, exporter, plan, fmt, complexity, temp_dir))
+            results.append(
+                _s_exporter_case(tier, n, exporter, plan, fmt, complexity, temp_dir)
+            )
     return results

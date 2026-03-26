@@ -11,7 +11,6 @@ from faker import Faker
 from sqldim.application.datasets.base import (
     BaseSource,
     DatasetFactory,
-    SchematicSource,
     SourceProvider,
 )
 from sqldim.application.datasets.schema import (
@@ -160,11 +159,11 @@ class AccountsSource(BaseSource):
     )
 
     @property
-    def OLTP_DDL(self) -> str:  # noqa: N802
+    def OLTP_DDL(self) -> str:  # type: ignore[override]  # noqa: N802
         return _ACCOUNTS_SPEC.source.oltp_ddl()
 
     @property
-    def DIM_DDL(self) -> str:  # noqa: N802
+    def DIM_DDL(self) -> str:  # type: ignore[override]  # noqa: N802
         """Periodic-snapshot fact target DDL for LazySnapshotLoader."""
         return _ACCOUNTS_SPEC.snapshot.oltp_ddl()
 

@@ -6,9 +6,9 @@ Covers:
   § DGM §2.3: P(e).valid_from/to metadata on verb and bridge edges
   § DGM §2.1: N = D ∪ F — fact nodes are first-class graph nodes (all_nodes)
 """
+
 from __future__ import annotations
 
-import pytest
 
 from sqldim import DimensionModel, FactModel, BridgeModel, Field
 from sqldim.core.graph.schema_graph import SchemaGraph
@@ -17,6 +17,7 @@ from sqldim.core.graph.schema_graph import SchemaGraph
 # ---------------------------------------------------------------------------
 # Minimal test models  (table-name prefix "trsp_" to avoid collisions)
 # ---------------------------------------------------------------------------
+
 
 class TrspRegionDim(DimensionModel, table=True):
     __tablename__ = "trsp_region"
@@ -36,23 +37,18 @@ class TrspSaleFact(FactModel, table=True):
     __tablename__ = "trsp_sale"
     __grain__ = "one row per sale"
     id: int = Field(default=None, primary_key=True)
-    region_id: int = Field(
-        foreign_key="trsp_region.id", dimension=TrspRegionDim
-    )
-    product_id: int = Field(
-        foreign_key="trsp_product.id", dimension=TrspProductDim
-    )
+    region_id: int = Field(foreign_key="trsp_region.id", dimension=TrspRegionDim)
+    product_id: int = Field(foreign_key="trsp_product.id", dimension=TrspProductDim)
     revenue: float
 
 
 class TrspTemporalFact(FactModel, table=True):
     """Fact model that carries valid_from / valid_to (used for temporal edges)."""
+
     __tablename__ = "trsp_temporal_fact"
     __grain__ = "one row per event"
     id: int = Field(default=None, primary_key=True)
-    region_id: int = Field(
-        foreign_key="trsp_region.id", dimension=TrspRegionDim
-    )
+    region_id: int = Field(foreign_key="trsp_region.id", dimension=TrspRegionDim)
     valid_from: str | None = None
     valid_to: str | None = None
     amount: float = 0.0
@@ -60,10 +56,11 @@ class TrspTemporalFact(FactModel, table=True):
 
 class TrspPromoBridge(BridgeModel, table=True):
     """Bridge edge between TrspRegionDim and TrspProductDim."""
+
     __tablename__ = "trsp_promo"
     __bridge_keys__ = ["region_id", "product_id"]
-    __subject__: type = TrspRegionDim   # type: ignore[assignment]
-    __object__: type = TrspProductDim   # type: ignore[assignment]
+    __subject__: type = TrspRegionDim  # type: ignore[assignment]
+    __object__: type = TrspProductDim  # type: ignore[assignment]
     id: int = Field(default=None, primary_key=True)
     region_id: int
     product_id: int
@@ -74,6 +71,7 @@ class TrspPromoBridge(BridgeModel, table=True):
 
 class TrspBridgeNoTemporal(BridgeModel, table=True):
     """Bridge edge with no valid_from/to columns."""
+
     __tablename__ = "trsp_bridge_notemporal"
     __bridge_keys__ = ["a_id", "b_id"]
     id: int = Field(default=None, primary_key=True)
@@ -84,6 +82,7 @@ class TrspBridgeNoTemporal(BridgeModel, table=True):
 # ---------------------------------------------------------------------------
 # § Edge temporal metadata  (DGM §2.3)
 # ---------------------------------------------------------------------------
+
 
 class TestEdgeTemporalFields:
     """P(e).valid_from/to are present in edge info dicts per DGM §2.3."""
@@ -157,6 +156,7 @@ class TestEdgeTemporalFields:
 # § Fact-as-node: N = D ∪ F  (DGM §2.1, §2.2)
 # ---------------------------------------------------------------------------
 
+
 class TestFactAsNode:
     """all_nodes returns N = D ∪ F — both DimensionModels and FactModels."""
 
@@ -189,6 +189,7 @@ class TestFactAsNode:
 # ---------------------------------------------------------------------------
 # § Forward adjacency  (DGM §2.1)
 # ---------------------------------------------------------------------------
+
 
 class TestForwardAdj:
     """forward_adj maps each node class_name → list of reachable class_names."""
@@ -239,6 +240,7 @@ class TestForwardAdj:
 # ---------------------------------------------------------------------------
 # § Transposed adjacency G^T  (DGM §2.1, D18)
 # ---------------------------------------------------------------------------
+
 
 class TestTransposedAdj:
     """transposed_adj reverses all edges; built at property access time O(|E|)."""

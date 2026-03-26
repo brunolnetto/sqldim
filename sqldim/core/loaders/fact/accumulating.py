@@ -35,7 +35,7 @@ class LazyAccumulatingLoader:
         self,
         table: str | type,
         match_column: str,
-        milestone_columns: List[str],
+        milestone_columns: list[str],
         sink,
         batch_size: int = 100_000,
         con=None,
@@ -49,8 +49,11 @@ class LazyAccumulatingLoader:
         self.sink = sink
         self.batch_size = batch_size
         self._con = con or _duckdb.connect()
+        self._model_cls: type | None = (
+            None  # set by factory when created via as_loader()
+        )
 
-    def process(self, source) -> Dict[str, int]:
+    def process(self, source) -> dict[str, int]:
         """
         Process incoming records.
 
@@ -109,7 +112,7 @@ class LazyAccumulatingLoader:
         self._con.execute("DROP TABLE IF EXISTS current_keys")
         return {"inserted": inserted, "updated": updated}
 
-    async def aload(self, source) -> Dict[str, int]:
+    async def aload(self, source) -> dict[str, int]:
         """Async wrapper — runs :meth:`process` in a thread pool executor."""
         return await asyncio.to_thread(self.process, source)
 
@@ -147,7 +150,9 @@ class AccumulatingLoader:
         self.milestone_columns = milestone_columns
         self.session = session
 
-    def _update_milestones(self, existing: FactModel, record: dict[str, object]) -> bool:
+    def _update_milestones(
+        self, existing: FactModel, record: dict[str, object]
+    ) -> bool:
         changed = False
         for col in self.milestone_columns:
             new_val = record.get(col)
@@ -156,7 +161,9 @@ class AccumulatingLoader:
                 changed = True
         return changed
 
-    def _update_attributes(self, existing: FactModel, record: dict[str, object]) -> bool:
+    def _update_attributes(
+        self, existing: FactModel, record: dict[str, object]
+    ) -> bool:
         changed = False
         for col, val in record.items():
             if col not in self.milestone_columns and col != self.match_column:

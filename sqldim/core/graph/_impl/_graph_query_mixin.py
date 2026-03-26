@@ -10,11 +10,17 @@ from typing import Any, TYPE_CHECKING
 
 if TYPE_CHECKING:
     from sqldim.core.graph.models import EdgeModel, VertexModel
+    from sqldim.core.graph._impl._traversal_base import TraversalEngine
 
 from sqldim.exceptions import SchemaError, SemanticError
 
 
 class _GraphQueryMixin:
+    if TYPE_CHECKING:
+        _engine: "TraversalEngine"
+        _vertex_models: dict[type, Any]
+        _edge_models: dict[type, Any]
+
     """SQL inspection and internal helper methods for GraphModel."""
 
     # ------------------------------------------------------------------
@@ -43,7 +49,7 @@ class _GraphQueryMixin:
                 f"Unknown operation {operation!r}. "
                 f"Valid operations: {list(dispatch.keys())}"
             )
-        return dispatch[operation](**kwargs)
+        return dispatch[operation](**kwargs)  # type: ignore[operator]
 
     # ------------------------------------------------------------------
     # Introspection helpers

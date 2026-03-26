@@ -1,6 +1,6 @@
 """Product domain events for the ecommerce domain."""
+
 from __future__ import annotations
-from typing import Any
 from sqldim.application.datasets.events import AggregateState, DomainEvent
 
 
@@ -69,7 +69,7 @@ class ProductStockOutEvent(DomainEvent):
 
     name = "product_stock_out"
 
-    def apply(
+    def apply(  # type: ignore[override]
         self,
         state: AggregateState,
         *,
@@ -78,7 +78,9 @@ class ProductStockOutEvent(DomainEvent):
     ) -> dict[str, list[dict]]:
         result: dict[str, list[dict]] = {}
         products = state.get("products")
-        updated_products = [_apply_stock_out_to_product(p, product_id, event_ts) for p in products]
+        updated_products = [
+            _apply_stock_out_to_product(p, product_id, event_ts) for p in products
+        ]
         changed_products = _changed_rows(products, updated_products)
         if changed_products:
             state.update("products", updated_products)

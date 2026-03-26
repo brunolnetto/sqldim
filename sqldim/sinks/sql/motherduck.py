@@ -92,7 +92,7 @@ class MotherDuckSink:
             WHERE {where}
         """)
         self._hash_cache[table_name] = local
-        return con.execute(f"SELECT count(*) FROM {local}").fetchone()[0]
+        return (con.execute(f"SELECT count(*) FROM {local}").fetchone() or (0,))[0]
 
     def current_state_sql(self, table_name: str) -> str:
         """Return a SQL fragment that reads the current dimension table from MotherDuck."""
@@ -116,7 +116,7 @@ class MotherDuckSink:
             f"INSERT INTO {self._alias}.{self._schema}.{table_name} "
             f"SELECT * FROM {view_name}"
         )
-        return con.execute(f"SELECT count(*) FROM {view_name}").fetchone()[0]
+        return (con.execute(f"SELECT count(*) FROM {view_name}").fetchone() or (0,))[0]
 
     def close_versions(
         self,
@@ -138,7 +138,7 @@ class MotherDuckSink:
              WHERE {nk_col} IN (SELECT {nk_col} FROM {nk_view})
                AND is_current = TRUE
         """)
-        return con.execute(f"SELECT count(*) FROM {nk_view}").fetchone()[0]
+        return (con.execute(f"SELECT count(*) FROM {nk_view}").fetchone() or (0,))[0]
 
     # ── SinkAdapter extended ──────────────────────────────────────────────
 
@@ -167,7 +167,9 @@ class MotherDuckSink:
              WHERE {nk_col} IN (SELECT {nk_col} FROM {updates_view})
                AND is_current = TRUE
         """)
-        return con.execute(f"SELECT count(*) FROM {updates_view}").fetchone()[0]
+        return (con.execute(f"SELECT count(*) FROM {updates_view}").fetchone() or (0,))[
+            0
+        ]
 
     def rotate_attributes(
         self,
@@ -197,7 +199,9 @@ class MotherDuckSink:
                AND {tbl}.is_current = TRUE
                AND t_old.is_current = TRUE
         """)
-        return con.execute(f"SELECT count(*) FROM {rotations_view}").fetchone()[0]
+        return (
+            con.execute(f"SELECT count(*) FROM {rotations_view}").fetchone() or (0,)
+        )[0]
 
     def update_milestones(
         self,
@@ -224,7 +228,9 @@ class MotherDuckSink:
                SET {set_clause}
              WHERE {match_col} IN (SELECT {match_col} FROM {updates_view})
         """)
-        return con.execute(f"SELECT count(*) FROM {updates_view}").fetchone()[0]
+        return (con.execute(f"SELECT count(*) FROM {updates_view}").fetchone() or (0,))[
+            0
+        ]
 
     def _upsert_sql(
         self,
@@ -280,7 +286,9 @@ class MotherDuckSink:
         )
         con.execute(insert_sql)
         con.execute(view_sql)
-        return con.execute(f"SELECT count(*) FROM {output_view}").fetchone()[0]
+        return (con.execute(f"SELECT count(*) FROM {output_view}").fetchone() or (0,))[
+            0
+        ]
 
     # ── Context manager ───────────────────────────────────────────────────
 

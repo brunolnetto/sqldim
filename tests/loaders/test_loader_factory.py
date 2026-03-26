@@ -4,6 +4,7 @@ These tests verify that the correct Lazy loader is built from model metadata,
 that field-type inference fills missing ClassVars, and that missing required
 params raise clear TypeError messages.
 """
+
 from __future__ import annotations
 
 from datetime import date, datetime
@@ -14,7 +15,6 @@ import pytest
 
 from sqldim.core.kimball.models import DimensionModel, FactModel
 from sqldim.core.kimball.mixins import SCD2Mixin
-from sqldim.core.loaders._factory import build_lazy_loader
 from sqldim.core.loaders.fact.snapshot import LazyTransactionLoader, LazySnapshotLoader
 from sqldim.core.loaders.fact.accumulating import LazyAccumulatingLoader
 from sqldim.core.loaders.fact.cumulative import LazyCumulativeLoader
@@ -29,6 +29,7 @@ from sqldim.core.kimball.fields import Field
 # Shared mock sink
 # ---------------------------------------------------------------------------
 
+
 @pytest.fixture
 def sink():
     return MagicMock()
@@ -37,6 +38,7 @@ def sink():
 # ---------------------------------------------------------------------------
 # Fact models used across tests
 # ---------------------------------------------------------------------------
+
 
 class BulkFact(FactModel):
     __strategy__ = "bulk"
@@ -58,6 +60,7 @@ class AccumulatingFactExplicit(FactModel):
 
 class AccumulatingFactInferred(FactModel):
     """No ClassVars — milestones inferred from Optional[datetime] fields."""
+
     __strategy__ = "accumulating"
     __natural_key__ = ["order_id"]
 
@@ -76,6 +79,7 @@ class CumulativeFact(FactModel):
 
 class CumulativeFactInferred(FactModel):
     """cumulative_column inferred from List[...] field."""
+
     __strategy__ = "cumulative"
     __natural_key__ = ["player_id"]
 
@@ -117,6 +121,7 @@ class MergeFact(FactModel):
 # Dimension model
 # ---------------------------------------------------------------------------
 
+
 class CustomerDim(DimensionModel, SCD2Mixin):
     __natural_key__ = ["code"]
     __scd_type__ = 2
@@ -128,6 +133,7 @@ class CustomerDim(DimensionModel, SCD2Mixin):
 # ---------------------------------------------------------------------------
 # Tests: FactModel.as_loader()
 # ---------------------------------------------------------------------------
+
 
 class TestBulkStrategy:
     def test_explicit_bulk(self, sink):
@@ -250,6 +256,7 @@ class TestEdgeProjectionStrategy:
 
     def test_missing_keys_raises(self, sink):
         with pytest.raises(TypeError, match="object_key|subject_key"):
+
             class BadEdge(FactModel):
                 __strategy__ = "edge_projection"
                 __subject_key__ = "player_id"
@@ -278,6 +285,7 @@ class TestUnknownStrategy:
 # ---------------------------------------------------------------------------
 # Tests: DimensionModel.as_loader()
 # ---------------------------------------------------------------------------
+
 
 class TestDimensionAsLoader:
     def test_returns_scd_handler(self):
@@ -334,10 +342,12 @@ class TestDimensionAsLoader:
 # _factory.py missing-required-ClassVar error paths (lines 128, 147)
 # ---------------------------------------------------------------------------
 
+
 class TestBitmaskMissingClassVars:
     def test_missing_partition_and_dates_column_raises(self, sink):
         """_factory.py line 128: bitmask without __partition_key__ AND __dates_column__
         and no natural_key for inference → TypeError."""
+
         class NoBitmaskKeys(FactModel):
             __strategy__ = "bitmask"
             # no __partition_key__, no __dates_column__, no __natural_key__
@@ -350,6 +360,7 @@ class TestArrayMetricMissingClassVars:
     def test_missing_partition_and_value_column_raises(self, sink):
         """_factory.py line 147: array_metric without __partition_key__ AND __value_column__
         and no natural_key for inference → TypeError."""
+
         class NoArrayMetricKeys(FactModel):
             __strategy__ = "array_metric"
             # no __partition_key__, no __value_column__, no __natural_key__
@@ -362,6 +373,7 @@ class TestEdgeProjectionMissingBothViaFactory:
     def test_missing_keys_with_natural_key_bypass_raises_at_factory(self, sink):
         """_factory.py line 164: model with __natural_key__ bypasses class-definition
         guard but factory still raises when both subject/object keys are absent."""
+
         class EdgeWithNK(FactModel):
             __strategy__ = "edge_projection"
             __natural_key__ = ["id"]  # bypasses __init_subclass__ guard
@@ -374,6 +386,7 @@ class TestEdgeProjectionMissingBothViaFactory:
 # ---------------------------------------------------------------------------
 # _utils.py edge-case paths (lines 35, 46, 65-68, 110-112)
 # ---------------------------------------------------------------------------
+
 
 class TestUtilsInternals:
     def test_assert_not_dimension_raises_for_dim_model(self, sink):

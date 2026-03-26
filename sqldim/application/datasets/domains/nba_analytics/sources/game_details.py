@@ -45,7 +45,6 @@ drawn from the same ID pool as ``GamesSource``.
 from __future__ import annotations
 
 import random
-from typing import Any
 
 import duckdb
 from faker import Faker
@@ -59,8 +58,8 @@ from sqldim.application.datasets.domains.nba_analytics.sources.teams import (
 
 # ── Position / DNP vocabulary ──────────────────────────────────────────────────
 
-_STARTERS  = [("G", ""), ("G", ""), ("F", ""), ("F", ""), ("C", "")]
-_DNP_MSGS  = [
+_STARTERS = [("G", ""), ("G", ""), ("F", ""), ("F", ""), ("C", "")]
+_DNP_MSGS = [
     "DNP - Coach's Decision",
     "DNP - Injury/Illness",
     "DNP - Rest",
@@ -132,10 +131,10 @@ def _player_row(
     dnp_comment: str,
     plus_minus_base: float,
 ) -> str:
-    dnp     = bool(dnp_comment)
+    dnp = bool(dnp_comment)
     min_str = _mins(dnp)
-    abbrev  = NBA_ABBREV.get(team_id, "UNK")
-    city    = NBA_CITY.get(team_id, "Unknown")
+    abbrev = NBA_ABBREV.get(team_id, "UNK")
+    city = NBA_CITY.get(team_id, "Unknown")
 
     if dnp:
         # DNP row — all stats NULL / 0
@@ -147,20 +146,20 @@ def _player_row(
             f"0, 0, 0, 0, 0, 0, 0, 0, 0.0, 0.0)"
         )
 
-    fgm   = random.randint(0, 12)
-    fga   = max(fgm, random.randint(fgm, fgm + 8))
-    fg3m  = random.randint(0, min(fgm, 5))
-    fg3a  = max(fg3m, random.randint(fg3m, fg3m + 4))
-    ftm   = random.randint(0, 8)
-    fta   = max(ftm, random.randint(ftm, ftm + 3))
-    oreb  = random.randint(0, 4)
-    dreb  = random.randint(0, 8)
+    fgm = random.randint(0, 12)
+    fga = max(fgm, random.randint(fgm, fgm + 8))
+    fg3m = random.randint(0, min(fgm, 5))
+    fg3a = max(fg3m, random.randint(fg3m, fg3m + 4))
+    ftm = random.randint(0, 8)
+    fta = max(ftm, random.randint(ftm, ftm + 3))
+    oreb = random.randint(0, 4)
+    dreb = random.randint(0, 8)
 
-    fg_pct  = round(fgm / fga, 3) if fga else 0.0
+    fg_pct = round(fgm / fga, 3) if fga else 0.0
     fg3_pct = round(fg3m / fg3a, 3) if fg3a else 0.0
-    ft_pct  = round(ftm / fta, 3) if fta else 0.0
-    pts     = float(fgm * 2 + fg3m + ftm)
-    pm      = round(plus_minus_base + random.uniform(-8, 8), 1)
+    ft_pct = round(ftm / fta, 3) if fta else 0.0
+    pts = float(fgm * 2 + fg3m + ftm)
+    pm = round(plus_minus_base + random.uniform(-8, 8), 1)
 
     return (
         f"({game_id}, {team_id}, '{abbrev}', '{_esc(city)}', "
@@ -192,7 +191,7 @@ def _generate_player_rows(
         elif j < n_players_per_team - n_dnp:
             pos, comment = "", ""
         else:
-            pos     = ""
+            pos = ""
             comment = random.choice(_DNP_MSGS)
         rows.append(_player_row(game_id, team_id, pid, pname, pos, comment, pm_base))
     return rows
@@ -277,8 +276,7 @@ class GameDetailsSource(BaseSource):
         team_player_pool: dict[int, list[tuple[int, str]]] = {}
         for team_id in NBA_TEAM_IDS:
             team_player_pool[team_id] = [
-                (player_id_counter + j, fake.name())
-                for j in range(n_players_per_team)
+                (player_id_counter + j, fake.name()) for j in range(n_players_per_team)
             ]
             player_id_counter += n_players_per_team
 
@@ -288,10 +286,15 @@ class GameDetailsSource(BaseSource):
             # Determine home/away plus-minus direction
             pm_sign = random.choice([1, -1])
 
-            for team_id, pm_base in [(home_id, pm_sign * 4.0), (away_id, -pm_sign * 4.0)]:
+            for team_id, pm_base in [
+                (home_id, pm_sign * 4.0),
+                (away_id, -pm_sign * 4.0),
+            ]:
                 players = team_player_pool[team_id]
                 self._rows.extend(
-                    _generate_player_rows(game_id, team_id, players, n_players_per_team, pm_base)
+                    _generate_player_rows(
+                        game_id, team_id, players, n_players_per_team, pm_base
+                    )
                 )
 
     def snapshot(self):
@@ -302,4 +305,6 @@ class GameDetailsSource(BaseSource):
 
     def setup(self, con: duckdb.DuckDBPyConnection, table: str) -> None:
         con.execute(_GAME_DETAILS_DDL.format(table=table))
-        con.execute(f"INSERT INTO {table} SELECT * FROM ({self.snapshot().as_sql(con)})")
+        con.execute(
+            f"INSERT INTO {table} SELECT * FROM ({self.snapshot().as_sql(con)})"
+        )

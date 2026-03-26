@@ -11,6 +11,7 @@ sqldim/examples/datasets/enterprise.py
 sqldim/examples/datasets/media.py
 sqldim/examples/datasets/devops.py
 """
+
 from __future__ import annotations
 import pytest
 import duckdb
@@ -35,8 +36,8 @@ from sqldim.application.datasets import (
 # SourceProvider
 # ---------------------------------------------------------------------------
 
-class TestSourceProvider:
 
+class TestSourceProvider:
     def test_describe_with_all_fields(self):
         sp = SourceProvider(
             name="Test System",
@@ -70,8 +71,8 @@ class TestSourceProvider:
 # BaseSource (abstract interface)
 # ---------------------------------------------------------------------------
 
-class TestBaseSource:
 
+class TestBaseSource:
     def test_subclass_must_implement_snapshot(self):
         with pytest.raises(TypeError):
             BaseSource()  # abstract class
@@ -79,15 +80,19 @@ class TestBaseSource:
     def test_concrete_subclass_works(self):
         class MySource(BaseSource):
             DIM_DDL = "CREATE TABLE IF NOT EXISTS {table} (id INTEGER)"
+
             def snapshot(self):
                 return None
+
         src = MySource()
         assert src is not None
 
     def test_default_setup_creates_table(self):
         class MySource(BaseSource):
             DIM_DDL = "CREATE TABLE IF NOT EXISTS {table} (id INTEGER, name VARCHAR)"
-            def snapshot(self): return None
+
+            def snapshot(self):
+                return None
 
         con = duckdb.connect()
         src = MySource()
@@ -99,7 +104,9 @@ class TestBaseSource:
     def test_default_teardown_drops_table(self):
         class MySource(BaseSource):
             DIM_DDL = "CREATE TABLE IF NOT EXISTS {table} (id INTEGER)"
-            def snapshot(self): return None
+
+            def snapshot(self):
+                return None
 
         con = duckdb.connect()
         src = MySource()
@@ -112,7 +119,9 @@ class TestBaseSource:
         class MySource(BaseSource):
             DIM_DDL = ""
             provider = None
-            def snapshot(self): return None
+
+            def snapshot(self):
+                return None
 
         src = MySource()
         desc = src.describe_provider()
@@ -122,7 +131,9 @@ class TestBaseSource:
         class MySource(BaseSource):
             DIM_DDL = ""
             provider = SourceProvider(name="Test System")
-            def snapshot(self): return None
+
+            def snapshot(self):
+                return None
 
         src = MySource()
         desc = src.describe_provider()
@@ -131,7 +142,9 @@ class TestBaseSource:
     def test_event_batch_raises_not_implemented(self):
         class MySource(BaseSource):
             DIM_DDL = ""
-            def snapshot(self): return None
+
+            def snapshot(self):
+                return None
 
         src = MySource()
         with pytest.raises(NotImplementedError):
@@ -142,12 +155,20 @@ class TestBaseSource:
 # DatasetFactory
 # ---------------------------------------------------------------------------
 
-class TestDatasetFactory:
 
+class TestDatasetFactory:
     def test_available_returns_all_registered(self):
         available = DatasetFactory.available()
-        for name in ("products", "customers", "stores", "orders",
-                     "employees", "accounts", "movies", "github_issues"):
+        for name in (
+            "products",
+            "customers",
+            "stores",
+            "orders",
+            "employees",
+            "accounts",
+            "movies",
+            "github_issues",
+        ):
             assert name in available
 
     def test_create_products(self):
@@ -183,16 +204,18 @@ class TestDatasetFactory:
 # ProductsSource
 # ---------------------------------------------------------------------------
 
-class TestProductsSource:
 
+class TestProductsSource:
     def test_snapshot_returns_sql_source(self):
         from sqldim.sources.batch.sql import SQLSource
+
         src = ProductsSource(n=5, seed=42)
         snap = src.snapshot()
         assert isinstance(snap, SQLSource)
 
     def test_event_batch_returns_sql_source(self):
         from sqldim.sources.batch.sql import SQLSource
+
         src = ProductsSource(n=5, seed=42)
         batch = src.event_batch(1)
         assert isinstance(batch, SQLSource)
@@ -229,8 +252,8 @@ class TestProductsSource:
 # CustomersSource
 # ---------------------------------------------------------------------------
 
-class TestCustomersSource:
 
+class TestCustomersSource:
     def test_snapshot_not_empty(self):
         src = CustomersSource(n=4, seed=42)
         con = duckdb.connect()
@@ -260,8 +283,8 @@ class TestCustomersSource:
 # StoresSource
 # ---------------------------------------------------------------------------
 
-class TestStoresSource:
 
+class TestStoresSource:
     def test_snapshot_not_empty(self):
         src = StoresSource(n=3, seed=42)
         con = duckdb.connect()
@@ -287,10 +310,11 @@ class TestStoresSource:
 # OrdersSource
 # ---------------------------------------------------------------------------
 
-class TestOrdersSource:
 
+class TestOrdersSource:
     def test_snapshot(self):
         from sqldim.sources.batch.sql import SQLSource
+
         src = OrdersSource(n=4, seed=42)
         assert isinstance(src.snapshot(), SQLSource)
 
@@ -332,8 +356,8 @@ class TestOrdersSource:
 # EmployeesSource
 # ---------------------------------------------------------------------------
 
-class TestEmployeesSource:
 
+class TestEmployeesSource:
     def test_snapshot(self):
         src = EmployeesSource(n=4, seed=42)
         con = duckdb.connect()
@@ -359,8 +383,8 @@ class TestEmployeesSource:
 # AccountsSource
 # ---------------------------------------------------------------------------
 
-class TestAccountsSource:
 
+class TestAccountsSource:
     def test_snapshot(self):
         src = AccountsSource(n=3, seed=42)
         con = duckdb.connect()
@@ -390,10 +414,11 @@ class TestAccountsSource:
 # MoviesSource
 # ---------------------------------------------------------------------------
 
-class TestMoviesSource:
 
+class TestMoviesSource:
     def test_snapshot_alias(self):
         from sqldim.sources.batch.sql import SQLSource
+
         src = MoviesSource(n_movies=3)
         assert isinstance(src.snapshot(), SQLSource)
 
@@ -448,10 +473,11 @@ class TestMoviesSource:
 # GitHubIssuesSource
 # ---------------------------------------------------------------------------
 
-class TestGitHubIssuesSource:
 
+class TestGitHubIssuesSource:
     def test_snapshot(self):
         from sqldim.sources.batch.sql import SQLSource
+
         src = GitHubIssuesSource(n=5, seed=42)
         assert isinstance(src.snapshot(), SQLSource)
 
@@ -466,10 +492,14 @@ class TestGitHubIssuesSource:
         path = str(tmp_path / "staging.duckdb")
         src.seed_staging(path, "initial")
         con = duckdb.connect(path)
-        tables = con.execute(
-            "SELECT table_name FROM information_schema.tables "
-            "WHERE table_schema = 'github_staging'"
-        ).fetchdf()["table_name"].tolist()
+        tables = (
+            con.execute(
+                "SELECT table_name FROM information_schema.tables "
+                "WHERE table_schema = 'github_staging'"
+            )
+            .fetchdf()["table_name"]
+            .tolist()
+        )
         assert "issues" in tables
 
     def test_seed_staging_updated(self, tmp_path):
@@ -477,10 +507,14 @@ class TestGitHubIssuesSource:
         path = str(tmp_path / "staging2.duckdb")
         src.seed_staging(path, "updated")
         con = duckdb.connect(path)
-        tables = con.execute(
-            "SELECT table_name FROM information_schema.tables "
-            "WHERE table_schema = 'github_staging'"
-        ).fetchdf()["table_name"].tolist()
+        tables = (
+            con.execute(
+                "SELECT table_name FROM information_schema.tables "
+                "WHERE table_schema = 'github_staging'"
+            )
+            .fetchdf()["table_name"]
+            .tolist()
+        )
         assert "issues" in tables
 
     def test_provider_set(self):
@@ -494,39 +528,47 @@ class TestGitHubIssuesSource:
 
 # ── event_batch raises ValueError for n > 1 ──────────────────────────────────
 
+
 class TestEventBatchValueError:
     def test_products_raises(self):
         from sqldim.application.datasets.domains.ecommerce import ProductsSource
+
         with pytest.raises(ValueError, match="1 event batch"):
             ProductsSource(n=3, seed=1).event_batch(2)
 
     def test_customers_raises(self):
         from sqldim.application.datasets.domains.ecommerce import CustomersSource
+
         with pytest.raises(ValueError, match="1 event batch"):
             CustomersSource(n=3, seed=1).event_batch(2)
 
     def test_stores_raises(self):
         from sqldim.application.datasets.domains.ecommerce import StoresSource
+
         with pytest.raises(ValueError, match="1 event batch"):
             StoresSource(n=3, seed=1).event_batch(2)
 
     def test_employees_raises(self):
         from sqldim.application.datasets.domains.enterprise import EmployeesSource
+
         with pytest.raises(ValueError, match="1 event batch"):
             EmployeesSource(n=3, seed=1).event_batch(2)
 
     def test_movies_raises(self):
         from sqldim.application.datasets.domains.media import MoviesSource
+
         with pytest.raises(ValueError, match="1 event batch"):
             MoviesSource().new_releases(2)
 
     def test_githubissues_raises(self):
         from sqldim.application.datasets.domains.devops import GitHubIssuesSource
+
         with pytest.raises(ValueError, match="1 event batch"):
             GitHubIssuesSource(n=3, seed=1).event_batch(2)
 
 
 # ── BaseSource.setup() raises NotImplementedError when DIM_DDL is empty ──────
+
 
 def test_base_source_setup_raises_not_implemented():
     import duckdb
@@ -542,6 +584,7 @@ def test_base_source_setup_raises_not_implemented():
 
 # ── OrdersSource.orders property ─────────────────────────────────────────────
 
+
 def test_orders_source_orders_property():
     from sqldim.application.datasets.domains.ecommerce import OrdersSource
 
@@ -555,17 +598,22 @@ def test_orders_source_orders_property():
 # Schema primitives — FieldSpec, EntitySchema, ChangeRule, EventSpec
 # =============================================================================
 
+
 class TestFieldSpec:
     """Unit tests for every FieldSpec.kind and helper methods."""
 
     def _fake(self, seed=0):
         from faker import Faker
         import random
-        f = Faker(); Faker.seed(seed); random.seed(seed)
+
+        f = Faker()
+        Faker.seed(seed)
+        random.seed(seed)
         return f
 
     def test_seq_default(self):
         from sqldim.application.datasets.schema import FieldSpec
+
         spec = FieldSpec("x", "INTEGER", kind="seq")
         fake = self._fake()
         assert spec.generate(fake, 0) == 1
@@ -573,6 +621,7 @@ class TestFieldSpec:
 
     def test_seq_start_step(self):
         from sqldim.application.datasets.schema import FieldSpec
+
         spec = FieldSpec("x", "INTEGER", kind="seq", start=10, step=10)
         fake = self._fake()
         assert spec.generate(fake, 0) == 10
@@ -580,24 +629,30 @@ class TestFieldSpec:
 
     def test_faker_method(self):
         from sqldim.application.datasets.schema import FieldSpec
+
         spec = FieldSpec("n", "VARCHAR", kind="faker", method="first_name")
         result = spec.generate(self._fake(), 0)
         assert isinstance(result, str) and len(result) > 0
 
     def test_faker_with_pattern(self):
         from sqldim.application.datasets.schema import FieldSpec
-        spec = FieldSpec("phone", "VARCHAR", kind="faker", method="numerify", pattern="555-####")
+
+        spec = FieldSpec(
+            "phone", "VARCHAR", kind="faker", method="numerify", pattern="555-####"
+        )
         result = spec.generate(self._fake(), 0)
         assert result.startswith("555-")
 
     def test_faker_with_transform(self):
         from sqldim.application.datasets.schema import FieldSpec
+
         spec = FieldSpec("w", "VARCHAR", kind="faker", method="word", transform="upper")
         result = spec.generate(self._fake(), 0)
         assert result == result.upper()
 
     def test_choices(self):
         from sqldim.application.datasets.schema import FieldSpec
+
         opts = ["a", "b", "c"]
         spec = FieldSpec("v", "VARCHAR", kind="choices", choices=opts)
         result = spec.generate(self._fake(), 0)
@@ -605,93 +660,119 @@ class TestFieldSpec:
 
     def test_uniform(self):
         from sqldim.application.datasets.schema import FieldSpec
+
         spec = FieldSpec("p", "DOUBLE", kind="uniform", low=1.0, high=2.0)
         result = spec.generate(self._fake(), 0)
         assert 1.0 <= result <= 2.0
 
     def test_uniform_with_precision(self):
         from sqldim.application.datasets.schema import FieldSpec
-        spec = FieldSpec("p", "DOUBLE", kind="uniform", low=0.0, high=100.0, precision=2)
+
+        spec = FieldSpec(
+            "p", "DOUBLE", kind="uniform", low=0.0, high=100.0, precision=2
+        )
         result = spec.generate(self._fake(), 0)
         assert round(result, 2) == result
 
     def test_randint(self):
         from sqldim.application.datasets.schema import FieldSpec
+
         spec = FieldSpec("n", "INTEGER", kind="randint", low=1, high=10)
         result = spec.generate(self._fake(), 0)
         assert 1 <= result <= 10
 
     def test_const(self):
         from sqldim.application.datasets.schema import FieldSpec
+
         spec = FieldSpec("ts", "TIMESTAMP", kind="const", value="2024-01-01")
         assert spec.generate(self._fake(), 0) == "2024-01-01"
 
     def test_computed(self):
         from sqldim.application.datasets.schema import FieldSpec
+
         spec = FieldSpec("v", "VARCHAR", kind="computed", fn=lambda fake, i: f"row-{i}")
         assert spec.generate(self._fake(), 3) == "row-3"
 
     def test_post_callable(self):
         from sqldim.application.datasets.schema import FieldSpec
+
         spec = FieldSpec(
-            "v", "VARCHAR", kind="const", value="hello",
+            "v",
+            "VARCHAR",
+            kind="const",
+            value="hello",
             post=lambda v, fake, i: v.upper(),
         )
         assert spec.generate(self._fake(), 0) == "HELLO"
 
     def test_unknown_kind_raises(self):
         from sqldim.application.datasets.schema import FieldSpec
+
         spec = FieldSpec("x", "INTEGER", kind="nonexistent")
         with pytest.raises(ValueError, match="Unknown FieldSpec kind"):
             spec.generate(self._fake(), 0)
 
     def test_as_literal_varchar(self):
         from sqldim.application.datasets.schema import FieldSpec
+
         spec = FieldSpec("s", "VARCHAR", kind="const", value="hello")
         assert spec.as_literal("it's") == "'it''s'"
 
     def test_as_literal_integer(self):
         from sqldim.application.datasets.schema import FieldSpec
+
         spec = FieldSpec("n", "INTEGER", kind="seq")
         assert spec.as_literal(42) == "42"
 
     def test_as_literal_none(self):
         from sqldim.application.datasets.schema import FieldSpec
+
         spec = FieldSpec("n", "INTEGER", kind="seq")
         assert spec.as_literal(None) == "NULL"
 
     def test_ddl_col(self):
         from sqldim.application.datasets.schema import FieldSpec
+
         spec = FieldSpec("product_id", "INTEGER", kind="seq")
         col = spec.ddl_col()
         assert "product_id" in col and "INTEGER" in col
 
     def test_sql_export_false_excluded_from_to_sql(self):
         from sqldim.application.datasets.schema import EntitySchema, FieldSpec
-        schema = EntitySchema("t", fields=[
-            FieldSpec("a", "INTEGER", kind="seq"),
-            FieldSpec("b", "TIMESTAMP", kind="const", value="ts", sql_export=False),
-        ])
+
+        schema = EntitySchema(
+            "t",
+            fields=[
+                FieldSpec("a", "INTEGER", kind="seq"),
+                FieldSpec("b", "TIMESTAMP", kind="const", value="ts", sql_export=False),
+            ],
+        )
         rows = schema.generate(1, self._fake())
-        assert "b" in rows[0]            # present in row dict
+        assert "b" in rows[0]  # present in row dict
         sql = schema.to_sql(rows)
-        assert "b" not in sql            # absent from SQL SELECT
+        assert "b" not in sql  # absent from SQL SELECT
 
 
 class TestEntitySchema:
-
     def _fake(self, seed=0):
         from faker import Faker
         import random
-        f = Faker(); Faker.seed(seed); random.seed(seed)
+
+        f = Faker()
+        Faker.seed(seed)
+        random.seed(seed)
         return f
 
     def _simple_schema(self):
         from sqldim.application.datasets.schema import EntitySchema, FieldSpec
-        return EntitySchema("item", fields=[
-            FieldSpec("item_id", "INTEGER", kind="seq"),
-            FieldSpec("name", "VARCHAR", kind="const", value="widget"),
-        ])
+
+        return EntitySchema(
+            "item",
+            fields=[
+                FieldSpec("item_id", "INTEGER", kind="seq"),
+                FieldSpec("name", "VARCHAR", kind="const", value="widget"),
+            ],
+        )
 
     def test_oltp_ddl_contains_fields(self):
         schema = self._simple_schema()
@@ -707,8 +788,10 @@ class TestEntitySchema:
 
     def test_dim_ddl_with_dim_extra(self):
         from sqldim.application.datasets.schema import EntitySchema, FieldSpec
+
         schema = EntitySchema(
-            "cust", fields=[FieldSpec("id", "INTEGER", kind="seq")],
+            "cust",
+            fields=[FieldSpec("id", "INTEGER", kind="seq")],
             dim_extra=[("prev_city", "VARCHAR")],
         )
         ddl = schema.dim_ddl()
@@ -732,10 +815,16 @@ class TestEntitySchema:
 
     def test_to_sql_excludes_sql_export_false(self):
         from sqldim.application.datasets.schema import EntitySchema, FieldSpec
-        schema = EntitySchema("t", fields=[
-            FieldSpec("id", "INTEGER", kind="seq"),
-            FieldSpec("hidden", "TIMESTAMP", kind="const", value="x", sql_export=False),
-        ])
+
+        schema = EntitySchema(
+            "t",
+            fields=[
+                FieldSpec("id", "INTEGER", kind="seq"),
+                FieldSpec(
+                    "hidden", "TIMESTAMP", kind="const", value="x", sql_export=False
+                ),
+            ],
+        )
         rows = schema.generate(1, self._fake())
         sql = schema.to_sql(rows)
         assert "id" in sql
@@ -751,11 +840,13 @@ class TestEntitySchema:
 
 
 class TestEventSpec:
-
     def _fake(self, seed=0):
         from faker import Faker
         import random
-        f = Faker(); Faker.seed(seed); random.seed(seed)
+
+        f = Faker()
+        Faker.seed(seed)
+        random.seed(seed)
         return f
 
     def _rows(self, n=4):
@@ -763,28 +854,42 @@ class TestEventSpec:
 
     def test_apply_mutates_matching_rows(self):
         from sqldim.application.datasets.schema import ChangeRule, EventSpec
-        spec = EventSpec(changes=[
-            ChangeRule("val", condition=lambda i, r: i % 2 == 0,
-                       mutate=lambda v, r, fake: v + 1),
-        ])
+
+        spec = EventSpec(
+            changes=[
+                ChangeRule(
+                    "val",
+                    condition=lambda i, r: i % 2 == 0,
+                    mutate=lambda v, r, fake: v + 1,
+                ),
+            ]
+        )
         result = spec.apply(self._rows(4), self._fake())
         assert len(result) == 2
         assert all(r["val"] % 10 == 1 for r in result)
 
     def test_apply_skips_unchanged(self):
         from sqldim.application.datasets.schema import ChangeRule, EventSpec
-        spec = EventSpec(changes=[
-            ChangeRule("val", condition=lambda i, r: False,
-                       mutate=lambda v, r, fake: v),
-        ])
+
+        spec = EventSpec(
+            changes=[
+                ChangeRule(
+                    "val", condition=lambda i, r: False, mutate=lambda v, r, fake: v
+                ),
+            ]
+        )
         assert spec.apply(self._rows(4), self._fake()) == []
 
     def test_apply_stamps_timestamp(self):
         from sqldim.application.datasets.schema import ChangeRule, EventSpec
+
         spec = EventSpec(
             changes=[
-                ChangeRule("val", condition=lambda i, r: i == 0,
-                           mutate=lambda v, r, fake: v + 1),
+                ChangeRule(
+                    "val",
+                    condition=lambda i, r: i == 0,
+                    mutate=lambda v, r, fake: v + 1,
+                ),
             ],
             timestamp_field="ts",
             event_ts="2024-09-01",
@@ -794,15 +899,22 @@ class TestEventSpec:
 
     def test_apply_no_timestamp_field(self):
         from sqldim.application.datasets.schema import ChangeRule, EventSpec
-        spec = EventSpec(changes=[
-            ChangeRule("val", condition=lambda i, r: i == 0,
-                       mutate=lambda v, r, fake: v + 1),
-        ])
+
+        spec = EventSpec(
+            changes=[
+                ChangeRule(
+                    "val",
+                    condition=lambda i, r: i == 0,
+                    mutate=lambda v, r, fake: v + 1,
+                ),
+            ]
+        )
         result = spec.apply(self._rows(2), self._fake())
-        assert result[0]["ts"] == "old"   # unchanged
+        assert result[0]["ts"] == "old"  # unchanged
 
     def test_apply_new_rows_fn(self):
         from sqldim.application.datasets.schema import EventSpec
+
         spec = EventSpec(
             changes=[],
             new_rows_fn=lambda rows, fake: [{"id": 99, "val": 0, "ts": "new"}],
@@ -812,17 +924,22 @@ class TestEventSpec:
 
     def test_apply_empty_input(self):
         from sqldim.application.datasets.schema import ChangeRule, EventSpec
-        spec = EventSpec(changes=[
-            ChangeRule("val", condition=lambda i, r: True,
-                       mutate=lambda v, r, fake: v + 1),
-        ])
+
+        spec = EventSpec(
+            changes=[
+                ChangeRule(
+                    "val", condition=lambda i, r: True, mutate=lambda v, r, fake: v + 1
+                ),
+            ]
+        )
         assert spec.apply([], self._fake()) == []
 
     def test_stamp_ts_no_field(self):
         from sqldim.application.datasets.schema import EventSpec
+
         spec = EventSpec(changes=[], timestamp_field=None)
         row = {"val": 1}
-        spec._stamp_ts(row)        # should be a no-op
+        spec._stamp_ts(row)  # should be a no-op
         assert row == {"val": 1}
 
 
@@ -830,23 +947,38 @@ class TestEventSpec:
 # DatasetSpec
 # ---------------------------------------------------------------------------
 
-class TestDatasetSpec:
 
+class TestDatasetSpec:
     def _two_schema_spec(self):
-        from sqldim.application.datasets.schema import DatasetSpec, EntitySchema, FieldSpec
-        return DatasetSpec("widget", {
-            "source": EntitySchema("widget", fields=[
-                FieldSpec("id",    "INTEGER"),
-                FieldSpec("label", "VARCHAR"),
-            ]),
-            "target": EntitySchema("widget_dim", fields=[
-                FieldSpec("id",    "INTEGER"),
-                FieldSpec("label", "VARCHAR"),
-            ]),
-        })
+        from sqldim.application.datasets.schema import (
+            DatasetSpec,
+            EntitySchema,
+            FieldSpec,
+        )
+
+        return DatasetSpec(
+            "widget",
+            {
+                "source": EntitySchema(
+                    "widget",
+                    fields=[
+                        FieldSpec("id", "INTEGER"),
+                        FieldSpec("label", "VARCHAR"),
+                    ],
+                ),
+                "target": EntitySchema(
+                    "widget_dim",
+                    fields=[
+                        FieldSpec("id", "INTEGER"),
+                        FieldSpec("label", "VARCHAR"),
+                    ],
+                ),
+            },
+        )
 
     def test_role_access_returns_entity_schema(self):
         from sqldim.application.datasets.schema import EntitySchema
+
         spec = self._two_schema_spec()
         assert isinstance(spec.source, EntitySchema)
         assert isinstance(spec.target, EntitySchema)
@@ -880,37 +1012,51 @@ class TestDatasetSpec:
         assert "id" in ddl
 
     def test_three_role_spec(self):
-        from sqldim.application.datasets.schema import DatasetSpec, EntitySchema, FieldSpec
-        spec = DatasetSpec("film", {
-            "cast":   EntitySchema("cast",   fields=[FieldSpec("actor_id", "INTEGER")]),
-            "edge":   EntitySchema("edge",   fields=[FieldSpec("src", "INTEGER")]),
-            "actors": EntitySchema("actors", fields=[FieldSpec("id", "INTEGER")]),
-        })
-        assert spec.cast.name   == "cast"
-        assert spec.edge.name   == "edge"
+        from sqldim.application.datasets.schema import (
+            DatasetSpec,
+            EntitySchema,
+            FieldSpec,
+        )
+
+        spec = DatasetSpec(
+            "film",
+            {
+                "cast": EntitySchema("cast", fields=[FieldSpec("actor_id", "INTEGER")]),
+                "edge": EntitySchema("edge", fields=[FieldSpec("src", "INTEGER")]),
+                "actors": EntitySchema("actors", fields=[FieldSpec("id", "INTEGER")]),
+            },
+        )
+        assert spec.cast.name == "cast"
+        assert spec.edge.name == "edge"
         assert spec.actors.name == "actors"
 
     def test_orders_spec_source_ddl(self):
         """Smoke-test the real _ORDERS_SPEC used by OrdersSource."""
         from sqldim.application.datasets.domains.ecommerce import _ORDERS_SPEC
+
         ddl = _ORDERS_SPEC.source.oltp_ddl()
         assert "order_id" in ddl
         assert "{table}" in ddl
 
     def test_orders_spec_fact_ddl(self):
         from sqldim.application.datasets.domains.ecommerce import _ORDERS_SPEC
+
         ddl = _ORDERS_SPEC.fact.oltp_ddl()
         assert "placed_at" in ddl
 
     def test_accounts_spec_snapshot_ddl(self):
-        from sqldim.application.datasets.domains.enterprise.sources import _ACCOUNTS_SPEC
+        from sqldim.application.datasets.domains.enterprise.sources import (
+            _ACCOUNTS_SPEC,
+        )
+
         ddl = _ACCOUNTS_SPEC.snapshot.oltp_ddl()
         assert "snapshot_date" in ddl
 
     def test_movies_spec_roles(self):
         from sqldim.application.datasets.domains.media.sources import _MOVIES_SPEC
-        assert _MOVIES_SPEC.cast.name   == "cast"
-        assert _MOVIES_SPEC.edge.name   == "edge"
+
+        assert _MOVIES_SPEC.cast.name == "cast"
+        assert _MOVIES_SPEC.edge.name == "edge"
         assert _MOVIES_SPEC.actors.name == "actors"
 
     def test_events_field_is_none_by_default(self):
@@ -919,30 +1065,59 @@ class TestDatasetSpec:
 
     def test_events_field_holds_event_spec(self):
         from sqldim.application.datasets.schema import (
-            ChangeRule, DatasetSpec, EntitySchema, EventSpec, FieldSpec,
+            ChangeRule,
+            DatasetSpec,
+            EntitySchema,
+            EventSpec,
+            FieldSpec,
         )
-        ev = EventSpec(changes=[
-            ChangeRule("id", condition=lambda i, r: True, mutate=lambda v, r, fake: v + 1),
-        ])
-        spec = DatasetSpec("x", {
-            "source": EntitySchema("x", fields=[FieldSpec("id", "INTEGER")]),
-        }, events=ev)
+
+        ev = EventSpec(
+            changes=[
+                ChangeRule(
+                    "id", condition=lambda i, r: True, mutate=lambda v, r, fake: v + 1
+                ),
+            ]
+        )
+        spec = DatasetSpec(
+            "x",
+            {
+                "source": EntitySchema("x", fields=[FieldSpec("id", "INTEGER")]),
+            },
+            events=ev,
+        )
         assert spec.events is ev
 
     def test_reserved_role_name_raises(self):
-        from sqldim.application.datasets.schema import DatasetSpec, EntitySchema, FieldSpec
+        from sqldim.application.datasets.schema import (
+            DatasetSpec,
+            EntitySchema,
+            FieldSpec,
+        )
+
         with pytest.raises(ValueError, match="'events' is a reserved"):
-            DatasetSpec("bad", {
-                "events": EntitySchema("e", fields=[FieldSpec("id", "INTEGER")]),
-            })
+            DatasetSpec(
+                "bad",
+                {
+                    "events": EntitySchema("e", fields=[FieldSpec("id", "INTEGER")]),
+                },
+            )
 
     def test_repr_shows_events_suffix(self):
         from sqldim.application.datasets.schema import (
-            DatasetSpec, EntitySchema, EventSpec, FieldSpec,
+            DatasetSpec,
+            EntitySchema,
+            EventSpec,
+            FieldSpec,
         )
-        spec = DatasetSpec("x", {
-            "source": EntitySchema("x", fields=[FieldSpec("id", "INTEGER")]),
-        }, events=EventSpec(changes=[]))
+
+        spec = DatasetSpec(
+            "x",
+            {
+                "source": EntitySchema("x", fields=[FieldSpec("id", "INTEGER")]),
+            },
+            events=EventSpec(changes=[]),
+        )
         assert "EventSpec" in repr(spec)
 
     def test_repr_no_events_suffix(self):
@@ -952,25 +1127,32 @@ class TestDatasetSpec:
     def test_products_spec_has_events(self):
         from sqldim.application.datasets.domains.ecommerce.sources import _PRODUCTS_SPEC
         from sqldim.application.datasets.schema import EventSpec
+
         assert isinstance(_PRODUCTS_SPEC.events, EventSpec)
         assert _PRODUCTS_SPEC.source.name == "product"
 
     def test_employees_spec_has_events(self):
-        from sqldim.application.datasets.domains.enterprise.sources import _EMPLOYEES_SPEC
+        from sqldim.application.datasets.domains.enterprise.sources import (
+            _EMPLOYEES_SPEC,
+        )
         from sqldim.application.datasets.schema import EventSpec
+
         assert isinstance(_EMPLOYEES_SPEC.events, EventSpec)
 
     def test_github_spec_has_events(self):
         from sqldim.application.datasets.domains.devops.sources import _GITHUB_SPEC
         from sqldim.application.datasets.schema import EventSpec
+
         assert isinstance(_GITHUB_SPEC.events, EventSpec)
 
     def test_orders_spec_has_no_events(self):
         from sqldim.application.datasets.domains.ecommerce import _ORDERS_SPEC
+
         assert _ORDERS_SPEC.events is None
 
     def test_movies_spec_has_no_events(self):
         from sqldim.application.datasets.domains.media.sources import _MOVIES_SPEC
+
         assert _MOVIES_SPEC.events is None
 
 
@@ -978,24 +1160,43 @@ class TestDatasetSpec:
 # SchematicSource
 # ---------------------------------------------------------------------------
 
+
 class TestSchematicSource:
     """Integration tests for SchematicSource using a minimal concrete subclass."""
 
     def _make_source(self, with_events=True, n=3, seed=0):
         from sqldim.application.datasets.schema import (
-            ChangeRule, DatasetSpec, EntitySchema, EventSpec, FieldSpec,
+            ChangeRule,
+            DatasetSpec,
+            EntitySchema,
+            EventSpec,
+            FieldSpec,
         )
         from sqldim.application.datasets.base import SchematicSource
 
-        schema = EntitySchema("item", fields=[
-            FieldSpec("item_id", "INTEGER", kind="seq"),
-            FieldSpec("value",   "DOUBLE",  kind="uniform", low=1.0, high=10.0, precision=1),
-            FieldSpec("label",   "VARCHAR", kind="const", value="X"),
-        ])
-        ev = EventSpec(
-            changes=[ChangeRule("value", condition=lambda i, r: i == 0,
-                                mutate=lambda v, r, fake: v + 100.0)],
-        ) if with_events else None
+        schema = EntitySchema(
+            "item",
+            fields=[
+                FieldSpec("item_id", "INTEGER", kind="seq"),
+                FieldSpec(
+                    "value", "DOUBLE", kind="uniform", low=1.0, high=10.0, precision=1
+                ),
+                FieldSpec("label", "VARCHAR", kind="const", value="X"),
+            ],
+        )
+        ev = (
+            EventSpec(
+                changes=[
+                    ChangeRule(
+                        "value",
+                        condition=lambda i, r: i == 0,
+                        mutate=lambda v, r, fake: v + 100.0,
+                    )
+                ],
+            )
+            if with_events
+            else None
+        )
 
         spec = DatasetSpec("item", {"source": schema}, events=ev)
 
@@ -1010,7 +1211,7 @@ class TestSchematicSource:
 
     def test_events_populated(self):
         src = self._make_source(n=3)
-        assert len(src.events) == 1    # only row 0 changes
+        assert len(src.events) == 1  # only row 0 changes
 
     def test_no_event_spec_gives_empty_events(self):
         src = self._make_source(with_events=False)
@@ -1018,11 +1219,13 @@ class TestSchematicSource:
 
     def test_snapshot_returns_sql_source(self):
         from sqldim.sources.batch.sql import SQLSource
+
         src = self._make_source()
         assert isinstance(src.snapshot(), SQLSource)
 
     def test_event_batch_returns_sql_source(self):
         from sqldim.sources.batch.sql import SQLSource
+
         src = self._make_source()
         assert isinstance(src.event_batch(1), SQLSource)
 
@@ -1045,6 +1248,7 @@ class TestSchematicSource:
 
     def test_setup_creates_table(self):
         import duckdb
+
         src = self._make_source()
         con = duckdb.connect()
         src.setup(con, "dim_test")
@@ -1053,8 +1257,8 @@ class TestSchematicSource:
 
     def test_snapshot_row_count(self):
         import duckdb
+
         src = self._make_source(n=5)
         con = duckdb.connect()
         rows = con.execute(src.snapshot().as_sql(con)).fetchdf()
         assert len(rows) == 5
-

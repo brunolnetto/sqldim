@@ -307,12 +307,12 @@ class SchematicSource(BaseSource):
         )
 
     # Properties replace the class-level str attributes on BaseSource
-    @property  # type: ignore[override]
-    def DIM_DDL(self) -> str:  # noqa: N802
+    @property
+    def DIM_DDL(self) -> str:  # type: ignore[override]  # noqa: N802
         return getattr(self._spec, self._schema_name).dim_ddl()
 
-    @property  # type: ignore[override]
-    def OLTP_DDL(self) -> str:  # noqa: N802
+    @property
+    def OLTP_DDL(self) -> str:  # type: ignore[override]  # noqa: N802
         return getattr(self._spec, self._schema_name).oltp_ddl()
 
     def snapshot(self):

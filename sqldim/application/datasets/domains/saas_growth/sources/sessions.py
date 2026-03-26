@@ -1,4 +1,5 @@
 """SaaSSessionsSource — saas_growth domain daily activity source."""
+
 from __future__ import annotations
 
 import random

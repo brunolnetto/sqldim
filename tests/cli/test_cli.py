@@ -3,9 +3,11 @@ import os
 from unittest import mock
 from sqldim.cli import main, build_parser
 
+
 def test_no_subcommand_returns_1():
     rc = main([])
     assert rc == 1
+
 
 def test_migrations_init(tmp_path):
     target = str(tmp_path / "migs")
@@ -14,11 +16,13 @@ def test_migrations_init(tmp_path):
     assert os.path.isdir(target)
     assert os.path.isfile(os.path.join(target, "__init__.py"))
 
+
 def test_migrations_init_idempotent(tmp_path):
     target = str(tmp_path / "migs2")
     main(["migrations", "init", "--dir", target])
     rc = main(["migrations", "init", "--dir", target])
     assert rc == 0
+
 
 def test_migrations_generate(capsys):
     rc = main(["migrations", "generate", "add segment column"])
@@ -26,23 +30,28 @@ def test_migrations_generate(capsys):
     out = capsys.readouterr().out
     assert "add segment column" in out
 
+
 def test_migrations_show(capsys):
     rc = main(["migrations", "show"])
     assert rc == 0
     out = capsys.readouterr().out
     assert "sqldim" in out
 
+
 def test_schema_graph(capsys):
     rc = main(["schema", "graph"])
     assert rc == 0
+
 
 def test_build_parser():
     parser = build_parser()
     assert parser.prog == "sqldim"
 
+
 def test_main_as_module(monkeypatch):
     import runpy
     import sys
+
     monkeypatch.setattr(sys, "argv", ["sqldim.cli"])
     with pytest.raises(SystemExit) as exc:
         runpy.run_module("sqldim.cli", run_name="__main__")
@@ -53,6 +62,7 @@ def test_main_as_module(monkeypatch):
 # ---------------------------------------------------------------------------
 # example list / run
 # ---------------------------------------------------------------------------
+
 
 def test_example_list(capsys):
     rc = main(["example", "list"])
@@ -105,7 +115,8 @@ def test_example_run_sync_branch(capsys, monkeypatch):
     def _fake_discover():
         return {
             "sync_test": (
-                "Sync Test", "desc",
+                "Sync Test",
+                "desc",
                 "sqldim.application.examples.real_world.nba_analytics.showcase",
                 "run_showcase",
                 "real_world",
@@ -114,6 +125,7 @@ def test_example_run_sync_branch(capsys, monkeypatch):
 
     monkeypatch.setattr(cli_mod, "_discover_examples", _fake_discover)
     import sqldim.application.examples.real_world.nba_analytics.showcase as nba_mod
+
     monkeypatch.setattr(nba_mod, "run_showcase", _sync_showcase)
     # Temporarily override iscoroutinefunction so the else-branch is taken
     monkeypatch.setattr(asyncio, "iscoroutinefunction", lambda fn: False)
@@ -128,6 +140,7 @@ def test_discover_examples_import_error_skips_pkg(capsys):
     import sqldim.cli as cli_mod
 
     import importlib
+
     real_import = importlib.import_module
 
     def _fake_import(name, *a, **kw):
@@ -175,9 +188,13 @@ def test_example_list_single_kind_skips_empty_group(capsys, monkeypatch):
     """Line 131: when features group is empty it is skipped silently."""
     import sqldim.cli as cli_mod
 
-    monkeypatch.setattr(cli_mod, "_discover_examples", lambda: {
-        "nba": ("NBA", "desc", "mod", "run", "real_world"),
-    })
+    monkeypatch.setattr(
+        cli_mod,
+        "_discover_examples",
+        lambda: {
+            "nba": ("NBA", "desc", "mod", "run", "real_world"),
+        },
+    )
     rc = main(["example", "list"])
     assert rc == 0
     out = capsys.readouterr().out
@@ -223,16 +240,3 @@ def test_discover_examples_none_metadata_skips_module():
     # nba_analytics showcase skipped; other showcases still discovered
     assert "nba" not in result
     assert len(result) > 0
-
-
-# ---------------------------------------------------------------------------
-# bigdata features
-# ---------------------------------------------------------------------------
-
-def test_bigdata_features(capsys):
-    rc = main(["bigdata", "features"])
-    assert rc == 0
-    out = capsys.readouterr().out
-    assert "DuckDB" in out
-    assert "Parquet" in out
-    assert "Layer" in out

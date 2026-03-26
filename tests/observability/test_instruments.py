@@ -1,4 +1,5 @@
 """Tests for metric instrument wrappers — Counter, Gauge, Histogram."""
+
 from sqldim.observability import (
     OTelCollector,
     MetricKind,
@@ -11,6 +12,7 @@ from sqldim.observability import (
 # ---------------------------------------------------------------------------
 # Counter
 # ---------------------------------------------------------------------------
+
 
 class TestCounter:
     def test_increment_default_amount(self):
@@ -47,6 +49,7 @@ class TestCounter:
 # Gauge
 # ---------------------------------------------------------------------------
 
+
 class TestGauge:
     def test_set_value(self):
         col = OTelCollector()
@@ -75,6 +78,7 @@ class TestGauge:
 # ---------------------------------------------------------------------------
 # Histogram
 # ---------------------------------------------------------------------------
+
 
 class TestHistogram:
     def test_record_value(self):
@@ -105,6 +109,7 @@ class TestHistogram:
 # ---------------------------------------------------------------------------
 # Cross-instrument
 # ---------------------------------------------------------------------------
+
 
 class TestCrossInstruments:
     def test_different_instruments_same_collector(self):

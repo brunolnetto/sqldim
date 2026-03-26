@@ -1,4 +1,5 @@
 """Tests for IcebergSink — all external dependencies mocked."""
+
 import sys
 import types
 import pytest
@@ -8,9 +9,11 @@ from unittest.mock import MagicMock, patch
 
 # ── Mock pyiceberg and pyarrow before importing IcebergSink ─────────────────
 
+
 def _make_arrow_table(data: dict):
     """Build a real pyarrow Table for testing."""
     import pyarrow as pa
+
     arrays = {k: pa.array(v) for k, v in data.items()}
     return pa.table(arrays)
 
@@ -44,10 +47,12 @@ def _mock_catalog(tables: dict):
 
 # ── Fixture ──────────────────────────────────────────────────────────────────
 
+
 @pytest.fixture()
 def iceberg_sink():
     """IcebergSink with pyiceberg mocked via patch."""
     from sqldim.sinks.file.iceberg import IcebergSink
+
     sink = IcebergSink(
         catalog_name="test",
         namespace="ns",
@@ -59,8 +64,10 @@ def iceberg_sink():
 
 # ── __init__ ─────────────────────────────────────────────────────────────────
 
+
 def test_init_stores_params():
     from sqldim.sinks.file.iceberg import IcebergSink
+
     sink = IcebergSink("cat", "ns", {"uri": "x"}, "/tmp/base")
     assert sink._catalog_name == "cat"
     assert sink._namespace == "ns"
@@ -70,6 +77,7 @@ def test_init_stores_params():
 
 # ── _table_location ───────────────────────────────────────────────────────────
 
+
 def test_table_location_with_base(iceberg_sink):
     loc = iceberg_sink._table_location("dim_customer")
     assert loc == "/tmp/iceberg/dim_customer"
@@ -78,6 +86,7 @@ def test_table_location_with_base(iceberg_sink):
 def test_table_location_without_base():
     """Falls back to catalog metadata when no base path given."""
     from sqldim.sinks.file.iceberg import IcebergSink
+
     sink = IcebergSink("cat", "ns")
     mock_cat = MagicMock()
     mock_cat.load_table.return_value.location.return_value = "/catalog/loc"
@@ -87,6 +96,7 @@ def test_table_location_without_base():
 
 
 # ── _load_catalog ─────────────────────────────────────────────────────────────
+
 
 def test_load_catalog_raises_importerror_when_pyiceberg_missing(iceberg_sink):
     with patch.dict(sys.modules, {"pyiceberg.catalog": None}):
@@ -105,6 +115,7 @@ def test_load_catalog_calls_load_catalog(iceberg_sink):
 
 # ── context manager ───────────────────────────────────────────────────────────
 
+
 def test_context_manager_sets_catalog_and_con(iceberg_sink):
     mock_lc = MagicMock(return_value=MagicMock())
     fake_module = types.ModuleType("pyiceberg.catalog")
@@ -119,6 +130,7 @@ def test_context_manager_sets_catalog_and_con(iceberg_sink):
 
 # ── current_state_sql ─────────────────────────────────────────────────────────
 
+
 def test_current_state_sql(iceberg_sink):
     iceberg_sink._catalog = MagicMock()
     sql = iceberg_sink.current_state_sql("dim_product")
@@ -127,6 +139,7 @@ def test_current_state_sql(iceberg_sink):
 
 
 # ── write ─────────────────────────────────────────────────────────────────────
+
 
 def test_write_appends_arrow_batch():
     from sqldim.sinks.file.iceberg import IcebergSink
@@ -138,9 +151,7 @@ def test_write_appends_arrow_batch():
     sink._catalog = catalog
     sink._con = duckdb.connect()
 
-    sink._con.execute(
-        "CREATE TABLE dim_t AS SELECT 1 AS id, 'Alice' AS name"
-    )
+    sink._con.execute("CREATE TABLE dim_t AS SELECT 1 AS id, 'Alice' AS name")
 
     count = sink.write(sink._con, "dim_t", "dim_t")
     assert count == 1
@@ -159,16 +170,19 @@ def test_write_raises_on_missing_pyarrow(iceberg_sink):
 
 # ── close_versions ────────────────────────────────────────────────────────────
 
+
 def test_close_versions_updates_is_current():
     import pyarrow as pa
     from sqldim.sinks.file.iceberg import IcebergSink
 
-    arrow_data = _make_arrow_table({
-        "nk": ["NK1", "NK2"],
-        "name": ["Alice", "Bob"],
-        "is_current": [True, True],
-        "valid_to": pa.array([None, None], type=pa.string()),
-    })
+    arrow_data = _make_arrow_table(
+        {
+            "nk": ["NK1", "NK2"],
+            "name": ["Alice", "Bob"],
+            "is_current": [True, True],
+            "valid_to": pa.array([None, None], type=pa.string()),
+        }
+    )
     catalog = _mock_catalog({"dim_t": arrow_data})
 
     sink = IcebergSink("cat", "ns", table_location_base="/tmp")
@@ -186,11 +200,13 @@ def test_close_versions_noop_when_empty():
     import pyarrow as pa
     from sqldim.sinks.file.iceberg import IcebergSink
 
-    arrow_data = _make_arrow_table({
-        "nk": ["NK1"],
-        "is_current": [True],
-        "valid_to": pa.array([None], type=pa.string()),
-    })
+    arrow_data = _make_arrow_table(
+        {
+            "nk": ["NK1"],
+            "is_current": [True],
+            "valid_to": pa.array([None], type=pa.string()),
+        }
+    )
     catalog = _mock_catalog({"dim_t": arrow_data})
     sink = IcebergSink("cat", "ns", table_location_base="/tmp")
     sink._catalog = catalog
@@ -213,14 +229,17 @@ def test_close_versions_raises_on_missing_pyarrow(iceberg_sink):
 
 # ── update_attributes ─────────────────────────────────────────────────────────
 
+
 def test_update_attributes():
     from sqldim.sinks.file.iceberg import IcebergSink
 
-    arrow_data = _make_arrow_table({
-        "nk": ["NK1", "NK2"],
-        "name": ["Old", "Bob"],
-        "score": [10, 20],
-    })
+    arrow_data = _make_arrow_table(
+        {
+            "nk": ["NK1", "NK2"],
+            "name": ["Old", "Bob"],
+            "score": [10, 20],
+        }
+    )
     catalog = _mock_catalog({"dim_t": arrow_data})
     sink = IcebergSink("cat", "ns", table_location_base="/tmp")
     sink._catalog = catalog
@@ -244,15 +263,18 @@ def test_update_attributes_raises_on_missing_pyarrow(iceberg_sink):
 
 # ── rotate_attributes ─────────────────────────────────────────────────────────
 
+
 def test_rotate_attributes():
     import pyarrow as pa
     from sqldim.sinks.file.iceberg import IcebergSink
 
-    arrow_data = _make_arrow_table({
-        "nk": ["NK1"],
-        "city": ["Boston"],
-        "prev_city": pa.array([None], type=pa.string()),
-    })
+    arrow_data = _make_arrow_table(
+        {
+            "nk": ["NK1"],
+            "city": ["Boston"],
+            "prev_city": pa.array([None], type=pa.string()),
+        }
+    )
     catalog = _mock_catalog({"dim_addr": arrow_data})
     sink = IcebergSink("cat", "ns", table_location_base="/tmp")
     sink._catalog = catalog
@@ -278,14 +300,17 @@ def test_rotate_attributes_raises_on_missing_pyarrow(iceberg_sink):
 
 # ── update_milestones ─────────────────────────────────────────────────────────
 
+
 def test_update_milestones():
     import pyarrow as pa
     from sqldim.sinks.file.iceberg import IcebergSink
 
-    arrow_data = _make_arrow_table({
-        "order_id": [1, 2],
-        "shipped_at": pa.array([None, None], type=pa.string()),
-    })
+    arrow_data = _make_arrow_table(
+        {
+            "order_id": [1, 2],
+            "shipped_at": pa.array([None, None], type=pa.string()),
+        }
+    )
     catalog = _mock_catalog({"fact_acc": arrow_data})
     sink = IcebergSink("cat", "ns", table_location_base="/tmp")
     sink._catalog = catalog
@@ -294,9 +319,7 @@ def test_update_milestones():
         "CREATE OR REPLACE VIEW ms AS SELECT 1 AS order_id, '2024-01-05' AS shipped_at"
     )
 
-    count = sink.update_milestones(
-        con, "fact_acc", "order_id", "ms", ["shipped_at"]
-    )
+    count = sink.update_milestones(con, "fact_acc", "order_id", "ms", ["shipped_at"])
     assert count == 1
     mock_table = catalog.load_table("ns.fact_acc")
     mock_table.overwrite.assert_called()
@@ -314,6 +337,7 @@ def test_update_milestones_raises_on_missing_pyarrow(iceberg_sink):
 
 
 # ── __enter__ INSTALL fallback ────────────────────────────────────────────────
+
 
 def test_enter_falls_back_to_install_when_load_fails():
     """If 'LOAD iceberg' raises, __enter__ retries with INSTALL+LOAD."""
@@ -335,6 +359,7 @@ def test_enter_falls_back_to_install_when_load_fails():
 
     class _PatchedCon:
         """Thin wrapper that makes the first LOAD iceberg call fail."""
+
         def __init__(self, real_con):
             self._real = real_con
 

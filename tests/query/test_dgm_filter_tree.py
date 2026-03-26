@@ -15,7 +15,6 @@ from sqldim.core.query.dgm.preds import (
     ScalarPred,
     AND,
     NOT,
-    RawPred,
     SignaturePred,
     SequenceMatch,
     PathPred,
@@ -160,12 +159,22 @@ class TestTemporalModeSQLTemplates:
     def test_once_uses_gt(self):
         pp = _make_path_pred_with_mode(ONCE)
         sql = pp.to_sql()
-        assert "ONCE" in sql or "G^T" in sql or "backward" in sql.lower() or "EXISTS" in sql
+        assert (
+            "ONCE" in sql
+            or "G^T" in sql
+            or "backward" in sql.lower()
+            or "EXISTS" in sql
+        )
 
     def test_previously_uses_gt(self):
         pp = _make_path_pred_with_mode(PREVIOUSLY)
         sql = pp.to_sql()
-        assert "PREVIOUSLY" in sql or "G^T" in sql or "backward" in sql.lower() or "EXISTS" in sql
+        assert (
+            "PREVIOUSLY" in sql
+            or "G^T" in sql
+            or "backward" in sql.lower()
+            or "EXISTS" in sql
+        )
 
     def test_until_mode_renders_recursive(self):
         inner_pred = ScalarPred(PropRef("s", "done"), "=", True)

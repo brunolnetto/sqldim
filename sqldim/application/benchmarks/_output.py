@@ -6,6 +6,7 @@ summary builder, and result persistence.
 
 Extracted from ``runner.py`` to keep that CLI module under 400 lines.
 """
+
 from __future__ import annotations
 
 import json
@@ -13,21 +14,36 @@ import os
 import time
 from pathlib import Path
 
-import psutil
+import psutil  # type: ignore[import-untyped]
 
 from sqldim.application.benchmarks.memory_probe import SAFE_PCT, ABORT_FLOOR_GB
 
 
 # ── ANSI colour helpers ────────────────────────────────────────────────────
 
-def _red(s: str) -> str:    return f"\033[91m{s}\033[0m"
-def _green(s: str) -> str:  return f"\033[92m{s}\033[0m"
-def _yellow(s: str) -> str: return f"\033[93m{s}\033[0m"
-def _bold(s: str) -> str:   return f"\033[1m{s}\033[0m"
-def _dim(s: str) -> str:    return f"\033[2m{s}\033[0m"
+
+def _red(s: str) -> str:
+    return f"\033[91m{s}\033[0m"
+
+
+def _green(s: str) -> str:
+    return f"\033[92m{s}\033[0m"
+
+
+def _yellow(s: str) -> str:
+    return f"\033[93m{s}\033[0m"
+
+
+def _bold(s: str) -> str:
+    return f"\033[1m{s}\033[0m"
+
+
+def _dim(s: str) -> str:
+    return f"\033[2m{s}\033[0m"
 
 
 # ── System-info banner ─────────────────────────────────────────────────────
+
 
 def _check_memory_before_group(group_id: str) -> None:
     """Re-check available RAM before starting a group.
@@ -35,7 +51,6 @@ def _check_memory_before_group(group_id: str) -> None:
     Aborts the whole run if below ABORT_FLOOR_GB; warns if below twice
     that threshold.
     """
-    import sys
 
     available_gb = psutil.virtual_memory().available / 1e9
     if available_gb < ABORT_FLOOR_GB:
@@ -45,36 +60,46 @@ def _check_memory_before_group(group_id: str) -> None:
             f"aborting run to prevent OOM kill."
         )
     if available_gb < ABORT_FLOOR_GB * 2:
-        print(_yellow(
-            f"  ⚠️   Low RAM before Group {group_id}: "
-            f"{available_gb:.1f} GB available — large tiers will be skipped."
-        ))
+        print(
+            _yellow(
+                f"  ⚠️   Low RAM before Group {group_id}: "
+                f"{available_gb:.1f} GB available — large tiers will be skipped."
+            )
+        )
 
 
 def print_system_info() -> None:
     import sys
 
     vm = psutil.virtual_memory()
-    total_gb  = vm.total / 1e9
-    avail_gb  = vm.available / 1e9
-    safe_gb   = total_gb * SAFE_PCT
+    total_gb = vm.total / 1e9
+    avail_gb = vm.available / 1e9
+    safe_gb = total_gb * SAFE_PCT
     cpu_count = os.cpu_count()
 
     print(_bold("\n╔══════════════════════════════════════════════════════╗"))
-    print(_bold(  "║           sqldim Benchmark Suite                     ║"))
-    print(_bold(  "╚══════════════════════════════════════════════════════╝"))
+    print(_bold("║           sqldim Benchmark Suite                     ║"))
+    print(_bold("╚══════════════════════════════════════════════════════╝"))
     print(f"  System RAM   : {total_gb:.1f} GB total  |  {avail_gb:.1f} GB available")
     print(f"  Safety floor : {ABORT_FLOOR_GB:.1f} GB (abort if below)")
-    print(f"  Safe ceiling : {safe_gb:.1f} GB ({SAFE_PCT*100:.0f}% of total)")
+    print(f"  Safe ceiling : {safe_gb:.1f} GB ({SAFE_PCT * 100:.0f}% of total)")
     print(f"  CPU cores    : {cpu_count}")
     print()
 
     if avail_gb < ABORT_FLOOR_GB:
-        print(_red(f"  ⛔  Only {avail_gb:.1f}GB available — below minimum {ABORT_FLOOR_GB}GB floor!"))
+        print(
+            _red(
+                f"  ⛔  Only {avail_gb:.1f}GB available — below minimum {ABORT_FLOOR_GB}GB floor!"
+            )
+        )
         print(_red("      Free memory before running benchmarks."))
         sys.exit(1)
     elif avail_gb < 3.0:
-        print(_yellow(f"  ⚠️   Low available RAM ({avail_gb:.1f}GB). Large tiers will be skipped."))
+        print(
+            _yellow(
+                f"  ⚠️   Low available RAM ({avail_gb:.1f}GB). Large tiers will be skipped."
+            )
+        )
     else:
         print(_green("  ✅  System OK to run benchmarks."))
     print()
@@ -83,32 +108,32 @@ def print_system_info() -> None:
 # ── Result table printer ───────────────────────────────────────────────────
 
 _COL_WIDTHS = {
-    "case_id":      40,
-    "tier":          4,
-    "n_rows":       10,
-    "wall_s":        7,
+    "case_id": 40,
+    "tier": 4,
+    "n_rows": 10,
+    "wall_s": 7,
     "rows_per_sec": 10,
-    "peak_rss_gb":   9,
-    "spill_gb":      8,
-    "scan_ok":       7,
-    "mem_ok":        6,
-    "status":        6,
+    "peak_rss_gb": 9,
+    "spill_gb": 8,
+    "scan_ok": 7,
+    "mem_ok": 6,
+    "status": 6,
 }
 
 
 def _fmt_rows(n: int) -> str:
     if n >= 1_000_000:
-        return f"{n/1_000_000:.1f}M"
+        return f"{n / 1_000_000:.1f}M"
     if n >= 1_000:
-        return f"{n/1_000:.0f}K"
+        return f"{n / 1_000:.0f}K"
     return str(n)
 
 
 def _fmt_rps(rps: float) -> str:
     if rps >= 1_000_000:
-        return f"{rps/1_000_000:.1f}M/s"
+        return f"{rps / 1_000_000:.1f}M/s"
     if rps >= 1_000:
-        return f"{rps/1_000:.0f}K/s"
+        return f"{rps / 1_000:.0f}K/s"
     return f"{rps:.0f}/s"
 
 
@@ -130,8 +155,8 @@ def _with_spill(rs: list) -> list:
 
 def _format_result_row(r) -> tuple[str, bool]:
     scan_ok = "✅" if not r.scan_regression else _red("🔴 REG")
-    mem_ok  = "✅" if not r.safety_breach   else _yellow("⚠️")
-    status  = _green("OK") if r.ok else _red("FAIL")
+    mem_ok = "✅" if not r.safety_breach else _yellow("⚠️")
+    status = _green("OK") if r.ok else _red("FAIL")
     line = (
         f"  {r.case_id:<40} {r.tier:<4} {_fmt_rows(r.n_rows):<8} "
         f"{r.wall_s:>6.1f}s {_fmt_rps(r.rows_per_sec):>10} "
@@ -168,6 +193,7 @@ def print_results_table(results: list, group: str = "") -> None:
 
 # ── Summary ────────────────────────────────────────────────────────────────
 
+
 def _print_regression_section(regressions: list) -> None:
     if regressions:
         print(_red(f"  🔴  SCAN REGRESSIONS DETECTED ({len(regressions)} cases):"))
@@ -175,7 +201,11 @@ def _print_regression_section(regressions: list) -> None:
             print(_red(f"      - {r.case_id}: scan_count={r.scan_count}  (expected 1)"))
         print(_red("  → Fix: change VIEW → TABLE in _register_current_checksums()"))
     else:
-        print(_green("  ✅  No scan regressions — all processors use TABLE materialization"))
+        print(
+            _green(
+                "  ✅  No scan regressions — all processors use TABLE materialization"
+            )
+        )
     print()
 
 
@@ -185,7 +215,11 @@ def _print_breach_section(breaches: list) -> None:
         for r in breaches:
             print(_yellow(f"      - {r.case_id}: {r.breach_detail}"))
     else:
-        print(_green(f"  ✅  All cases within memory safety ceiling ({SAFE_PCT*100:.0f}% of RAM)"))
+        print(
+            _green(
+                f"  ✅  All cases within memory safety ceiling ({SAFE_PCT * 100:.0f}% of RAM)"
+            )
+        )
     print()
 
 
@@ -204,7 +238,7 @@ def _print_throughput_section(all_results: list) -> None:
     throughput_cases = [r for r in all_results if r.ok and r.rows_per_sec > 0]
     if not throughput_cases:
         return
-    best  = max(throughput_cases, key=lambda r: r.rows_per_sec)
+    best = max(throughput_cases, key=lambda r: r.rows_per_sec)
     worst = min(throughput_cases, key=lambda r: r.rows_per_sec)
     print("  ⚡  Throughput range:")
     print(f"      Best  : {_fmt_rps(best.rows_per_sec):<12} [{best.case_id}]")
@@ -213,12 +247,12 @@ def _print_throughput_section(all_results: list) -> None:
 
 
 def print_summary(all_results: list) -> dict:
-    total       = len(all_results)
-    passed      = _ok_count(all_results)
-    failed      = total - passed
+    total = len(all_results)
+    passed = _ok_count(all_results)
+    failed = total - passed
     regressions = _with_regression(all_results)
-    breaches    = _with_breach(all_results)
-    spilled     = _with_spill(all_results)
+    breaches = _with_breach(all_results)
+    spilled = _with_spill(all_results)
 
     print(_bold("══════════════════════════════════════════════════════"))
     print(_bold("  SUMMARY"))
@@ -234,16 +268,17 @@ def print_summary(all_results: list) -> dict:
     _print_throughput_section(all_results)
 
     return {
-        "total":       total,
-        "passed":      passed,
-        "failed":      failed,
+        "total": total,
+        "passed": passed,
+        "failed": failed,
         "regressions": len(regressions),
-        "breaches":    len(breaches),
-        "spilled":     len(spilled),
+        "breaches": len(breaches),
+        "spilled": len(spilled),
     }
 
 
 # ── Persistence ────────────────────────────────────────────────────────────
+
 
 def save_results(results: list, fmt: str, out_dir: str) -> str:
     Path(out_dir).mkdir(parents=True, exist_ok=True)
@@ -256,6 +291,7 @@ def save_results(results: list, fmt: str, out_dir: str) -> str:
             json.dump(rows, f, indent=2)
     elif fmt == "csv":
         import csv
+
         path = os.path.join(out_dir, f"bench_{ts}.csv")
         with open(path, "w", newline="") as f:
             writer = csv.DictWriter(f, fieldnames=rows[0].keys())

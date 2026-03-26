@@ -12,6 +12,7 @@ Re-export shim for the **model** group — implementation split into subgroup mo
 
 CLI: ``model``, ``model.dims``, ``model.drift.saas_users``, …
 """
+
 from sqldim.application.benchmarks.groups.model_dims import (
     group_j_dim_generation,
     group_k_graph_query,

@@ -64,22 +64,22 @@ def _gen_seq(spec: "FieldSpec", fake: Any, i: int) -> Any:
 
 
 def _gen_faker(spec: "FieldSpec", fake: Any, i: int) -> Any:
-    method_fn = getattr(fake, spec.method)
+    method_fn = getattr(fake, spec.method)  # type: ignore[arg-type]
     val = method_fn(spec.pattern) if spec.pattern is not None else method_fn()
-    return getattr(str(val), spec.transform)() if spec.transform else val
+    return getattr(str(val), spec.transform)() if spec.transform else val  # type: ignore[arg-type]
 
 
 def _gen_choices(spec: "FieldSpec", fake: Any, i: int) -> Any:
-    return random.choice(spec.choices)
+    return random.choice(spec.choices)  # type: ignore[arg-type]
 
 
 def _gen_uniform(spec: "FieldSpec", fake: Any, i: int) -> Any:
-    v = random.uniform(float(spec.low), float(spec.high))
+    v = random.uniform(float(spec.low), float(spec.high))  # type: ignore[arg-type]
     return round(v, spec.precision) if spec.precision is not None else v
 
 
 def _gen_randint(spec: "FieldSpec", fake: Any, i: int) -> Any:
-    return random.randint(int(spec.low), int(spec.high))
+    return random.randint(int(spec.low), int(spec.high))  # type: ignore[arg-type]
 
 
 def _gen_const(spec: "FieldSpec", fake: Any, i: int) -> Any:

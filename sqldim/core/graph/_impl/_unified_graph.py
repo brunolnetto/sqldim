@@ -121,11 +121,11 @@ class UnifiedGraph:
            edge without two endpoints).
         """
         for dim_cls in self._schema_graph.vertices:
-            self._register_vertex(dim_cls)
+            self._register_vertex(dim_cls)  # type: ignore[arg-type]
 
         for fact_cls in self._schema_graph.edges:
             if fact_cls not in self.graph._edge_models:
-                self._register_edge(fact_cls)
+                self._register_edge(fact_cls)  # type: ignore[arg-type]
 
     # ------------------------------------------------------------------
     # Schema diffing (Tier 4)

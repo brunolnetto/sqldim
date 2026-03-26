@@ -4,11 +4,11 @@
 2. aload() unified async wrapper on all loaders + SCDHandler
 3. DWSchema dimension-first orchestrator
 """
+
 from __future__ import annotations
 
 import asyncio
-from datetime import date, datetime
-from typing import List, Optional
+from datetime import date
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -23,12 +23,13 @@ from sqldim.core.loaders.fact.cumulative import LazyCumulativeLoader
 from sqldim.core.loaders.dimension.bitmask import LazyBitmaskLoader
 from sqldim.core.loaders.dimension.array_metric import LazyArrayMetricLoader
 from sqldim.core.loaders.dimension.edge_projection import LazyEdgeProjectionLoader
-from sqldim.core.kimball.dimensions.scd.handler import SCDHandler, SCDResult
+from sqldim.core.kimball.dimensions.scd.handler import SCDResult
 
 
 # ---------------------------------------------------------------------------
 # Fixtures
 # ---------------------------------------------------------------------------
+
 
 @pytest.fixture
 def sink():
@@ -43,6 +44,7 @@ def session():
 # ---------------------------------------------------------------------------
 # Models for testing
 # ---------------------------------------------------------------------------
+
 
 class TxFact(FactModel):
     __strategy__ = "bulk"
@@ -82,8 +84,8 @@ class CustomerDim(DimensionModel, SCD2Mixin):
 # 1. snapshot_date at load() call time
 # ===========================================================================
 
-class TestSnapshotDateAtLoadTime:
 
+class TestSnapshotDateAtLoadTime:
     def test_construction_without_date_succeeds(self, sink):
         loader = LazySnapshotLoader(sink)
         assert loader.snapshot_date is None
@@ -147,6 +149,7 @@ class TestSnapshotDateAtLoadTime:
 # 2. aload() unified async wrapper
 # ===========================================================================
 
+
 class TestAloadWrapper:
     """Each lazy loader exposes aload() that mirrors its primary sync method."""
 
@@ -172,8 +175,9 @@ class TestAloadWrapper:
         assert asyncio.iscoroutinefunction(loader.aload)
 
     def test_array_metric_loader_has_aload(self, sink):
-        loader = LazyArrayMetricLoader("tbl", "user_id", "revenue", "monthly_revenue",
-                                       date(2024, 1, 1), sink)
+        loader = LazyArrayMetricLoader(
+            "tbl", "user_id", "revenue", "monthly_revenue", date(2024, 1, 1), sink
+        )
         assert asyncio.iscoroutinefunction(loader.aload)
 
     def test_edge_projection_loader_has_aload(self, sink):
@@ -183,6 +187,7 @@ class TestAloadWrapper:
     def test_scd_handler_has_aload(self, session):
         from sqlalchemy.pool import StaticPool
         from sqlmodel import create_engine, SQLModel as _SQLModel, Session
+
         engine = create_engine(
             "sqlite:///:memory:",
             connect_args={"check_same_thread": False},
@@ -226,6 +231,7 @@ class TestAloadWrapper:
         """SCDHandler.aload() must await the same logic as process()."""
         from sqlalchemy.pool import StaticPool
         from sqlmodel import create_engine, SQLModel as _SQLModel, Session
+
         engine = create_engine(
             "sqlite:///:memory:",
             connect_args={"check_same_thread": False},
@@ -235,9 +241,11 @@ class TestAloadWrapper:
         with Session(engine) as s:
             handler = CustomerDim.as_loader(s)
             expected = SCDResult()
+
             # Patch process() so we don't need real DB state
             async def fake_process(records):
                 return expected
+
             handler.process = fake_process
             result = asyncio.run(handler.aload([{"code": "C1", "city": "Paris"}]))
             assert result is expected
@@ -268,8 +276,12 @@ class TestAloadWrapper:
         """snapshot.py line 210: aload() runs load() via to_thread when table is provided."""
         loader = LazySnapshotLoader(sink)
         loader.load = MagicMock(return_value=5)
-        result = asyncio.run(loader.aload("data.parquet", "my_table", snapshot_date="2024-03-31"))
-        loader.load.assert_called_once_with("data.parquet", "my_table", snapshot_date="2024-03-31")
+        result = asyncio.run(
+            loader.aload("data.parquet", "my_table", snapshot_date="2024-03-31")
+        )
+        loader.load.assert_called_once_with(
+            "data.parquet", "my_table", snapshot_date="2024-03-31"
+        )
         assert result == 5
 
 
@@ -277,8 +289,8 @@ class TestAloadWrapper:
 # 3. DWSchema orchestrator
 # ===========================================================================
 
-class TestDWSchemaConstruction:
 
+class TestDWSchemaConstruction:
     def test_separates_dims_and_facts(self, sink):
         schema = DWSchema([CustomerDim, TxFact], sink)
         assert CustomerDim in schema._dims
@@ -297,7 +309,6 @@ class TestDWSchemaConstruction:
 
 
 class TestDWSchemaLoad:
-
     def test_skips_models_not_in_source_map(self, sink):
         schema = DWSchema([TxFact, EdgeFact], sink)
         # Only TxFact is in the map
@@ -323,10 +334,12 @@ class TestDWSchemaLoad:
             patch.object(CustomerDim, "as_loader", return_value=mock_handler),
             patch.object(TxFact, "as_loader", return_value=mock_fact_loader),
         ):
-            results = schema.load({
-                TxFact: "orders.parquet",
-                CustomerDim: [{"code": "C1"}],
-            })
+            results = schema.load(
+                {
+                    TxFact: "orders.parquet",
+                    CustomerDim: [{"code": "C1"}],
+                }
+            )
 
         assert CustomerDim in results
         assert TxFact in results
@@ -370,7 +383,6 @@ class TestDWSchemaLoad:
 
 
 class TestDWSchemaAload:
-
     @pytest.mark.asyncio
     async def test_aload_runs_fact_via_aload(self, sink):
         schema = DWSchema([AccFact], sink)
@@ -396,10 +408,12 @@ class TestDWSchemaAload:
             patch.object(CustomerDim, "as_loader", return_value=mock_handler),
             patch.object(AccFact, "as_loader", return_value=mock_fact_loader),
         ):
-            results = await schema.aload({
-                CustomerDim: [{"code": "C1"}],
-                AccFact: "orders.parquet",
-            })
+            results = await schema.aload(
+                {
+                    CustomerDim: [{"code": "C1"}],
+                    AccFact: "orders.parquet",
+                }
+            )
 
         assert results[CustomerDim] is scd_result
         assert results[AccFact] == {"inserted": 2, "updated": 0}
@@ -418,9 +432,11 @@ class TestDWSchemaAload:
         mock_loader._model_cls = SnapFact
 
         with patch.object(SnapFact, "as_loader", return_value=mock_loader):
-            await schema.aload({
-                SnapFact: ("balances.parquet", {"snapshot_date": "2024-03-31"}),
-            })
+            await schema.aload(
+                {
+                    SnapFact: ("balances.parquet", {"snapshot_date": "2024-03-31"}),
+                }
+            )
 
         mock_loader.aload.assert_awaited_once_with(
             "balances.parquet", snapshot_date="2024-03-31"
@@ -434,7 +450,9 @@ class TestDWSchemaAload:
         mock_loader.aload = AsyncMock(return_value=10)
 
         with patch.object(TxFact, "as_loader", return_value=mock_loader):
-            results = await schema.aload({TxFact: "data.parquet"})  # EdgeFact absent → continue
+            results = await schema.aload(
+                {TxFact: "data.parquet"}
+            )  # EdgeFact absent → continue
 
         assert TxFact in results
         assert EdgeFact not in results

@@ -10,7 +10,6 @@ Covers:
 
 from __future__ import annotations
 
-import pytest
 
 from sqldim.core.query.dgm.bdd import (
     BDDNode,
@@ -29,7 +28,7 @@ from sqldim.core.query.dgm.preds import (
     SequenceMatch,
     VerbHop,
 )
-from sqldim.core.query.dgm.refs import PropRef, AggRef
+from sqldim.core.query.dgm.refs import PropRef
 
 
 # ---------------------------------------------------------------------------
@@ -169,7 +168,6 @@ class TestDGMPredicateBDD:
 
     def test_compile_tautology_pred_returns_true(self):
         # RawPred("TRUE") or a trivially true BDD
-        from sqldim.core.query.dgm.preds import RawPred
         uid = self.bdd.compile_true()
         assert uid == TRUE_NODE_ID
 
@@ -330,6 +328,7 @@ class TestLogicalOptimizationPipeline:
     def test_forall_pathpred_demorgan(self):
         """FORALL PathPred compiles to NOT(PathPred(EXISTS, NOT(sub_filter)))."""
         from sqldim.core.query.dgm.preds import Quantifier
+
         hop = VerbHop("c", "placed", "s", table="fact_order", on="c.id = s.cid")
         sub = self._scalar("s", "ok", True)
         pp_forall = PathPred("c", hop, sub, quantifier=Quantifier.FORALL)
@@ -429,12 +428,14 @@ class TestBDDTerminalCoverage:
 
     def test_to_sql_large_minterm_set_uses_case(self):
         """When minterms > MINTERM_THRESHOLD, to_sql falls back to _bdd_case_sql CASE expression."""
-        from sqldim.core.query.dgm.bdd import DGMPredicateBDD
         # Build >THRESHOLD distinct atoms to force the CASE path
         threshold = self.bdd.MINTERM_THRESHOLD
-        preds = [ScalarPred(PropRef("t", f"c{i}"), "=", i) for i in range(threshold + 1)]
+        preds = [
+            ScalarPred(PropRef("t", f"c{i}"), "=", i) for i in range(threshold + 1)
+        ]
         # OR all atoms together — each atom is a separate variable → 2^n minterms
         from sqldim.core.query.dgm.preds import OR as ORPred
+
         combined = preds[0]
         for p in preds[1:]:
             combined = ORPred(combined, p)

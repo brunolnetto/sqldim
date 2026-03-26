@@ -7,10 +7,10 @@ Provides ``BenchmarkResult`` (the canonical result dataclass),
 source/sink registries, memory/spill helpers, and the two core
 SCD batch runners used by most groups.
 """
+
 from __future__ import annotations
 
 import os
-import shutil
 import time
 import traceback as _traceback
 from collections.abc import Callable
@@ -18,78 +18,81 @@ from dataclasses import dataclass
 
 import duckdb
 
-from sqldim.application.benchmarks._dataset import BenchmarkDatasetGenerator, DatasetArtifact, SCALE_TIERS
+from sqldim.application.benchmarks._dataset import DatasetArtifact
 from sqldim.application.benchmarks.memory_probe import MemoryProbe
 from sqldim.application.benchmarks.scan_probe import DuckDBObjectTracker
 
 
 # ── Result ────────────────────────────────────────────────────────────────
 
+
 @dataclass
 class BenchmarkResult:
-    case_id:          str
-    group:            str
-    profile:          str
-    tier:             str
-    processor:        str
-    sink:             str
-    phase:            str
-    n_rows:           int
-    n_changed:        int
-    source:           str   = "parquet"
-    ok:               bool  = True
-    error:            str   = ""
-    wall_s:           float = 0.0
-    rows_per_sec:     float = 0.0
-    peak_rss_gb:      float = 0.0
-    peak_duckdb_gb:   float = 0.0
+    case_id: str
+    group: str
+    profile: str
+    tier: str
+    processor: str
+    sink: str
+    phase: str
+    n_rows: int
+    n_changed: int
+    source: str = "parquet"
+    ok: bool = True
+    error: str = ""
+    wall_s: float = 0.0
+    rows_per_sec: float = 0.0
+    peak_rss_gb: float = 0.0
+    peak_duckdb_gb: float = 0.0
     min_sys_avail_gb: float = 0.0
-    total_spill_gb:   float = 0.0
-    safety_breach:    bool  = False
-    breach_detail:    str   = ""
-    scan_count:       int   = 0
-    scan_regression:  bool  = False
+    total_spill_gb: float = 0.0
+    safety_breach: bool = False
+    breach_detail: str = ""
+    scan_count: int = 0
+    scan_regression: bool = False
     current_state_as_table: bool = False
-    inserted:         int   = 0
-    versioned:        int   = 0
-    unchanged:        int   = 0
+    inserted: int = 0
+    versioned: int = 0
+    unchanged: int = 0
 
     def row(self) -> dict:
         return {
-            "case_id":          self.case_id,
-            "group":            self.group,
-            "profile":          self.profile,
-            "tier":             self.tier,
-            "n_rows":           self.n_rows,
-            "processor":        self.processor,
-            "source":           self.source,
-            "sink":             self.sink,
-            "phase":            self.phase,
-            "ok":               self.ok,
-            "wall_s":           round(self.wall_s, 2),
-            "rows_per_sec":     int(self.rows_per_sec),
-            "peak_rss_gb":      round(self.peak_rss_gb, 3),
-            "peak_duckdb_gb":   round(self.peak_duckdb_gb, 3),
+            "case_id": self.case_id,
+            "group": self.group,
+            "profile": self.profile,
+            "tier": self.tier,
+            "n_rows": self.n_rows,
+            "processor": self.processor,
+            "source": self.source,
+            "sink": self.sink,
+            "phase": self.phase,
+            "ok": self.ok,
+            "wall_s": round(self.wall_s, 2),
+            "rows_per_sec": int(self.rows_per_sec),
+            "peak_rss_gb": round(self.peak_rss_gb, 3),
+            "peak_duckdb_gb": round(self.peak_duckdb_gb, 3),
             "min_sys_avail_gb": round(self.min_sys_avail_gb, 3),
-            "total_spill_gb":   round(self.total_spill_gb, 4),
-            "safety_breach":    self.safety_breach,
-            "scan_count":       self.scan_count,
-            "scan_regression":  self.scan_regression,
+            "total_spill_gb": round(self.total_spill_gb, 4),
+            "safety_breach": self.safety_breach,
+            "scan_count": self.scan_count,
+            "scan_regression": self.scan_regression,
             "current_state_as_table": self.current_state_as_table,
-            "inserted":         self.inserted,
-            "versioned":        self.versioned,
-            "unchanged":        self.unchanged,
-            "error":            self.error[:300] if self.error else "",
+            "inserted": self.inserted,
+            "versioned": self.versioned,
+            "unchanged": self.unchanged,
+            "error": self.error[:300] if self.error else "",
         }
 
 
 # ── Source / Sink registries ─────────────────────────────────────────────
 
 SOURCE_NAMES = ["parquet", "csv"]
-SINK_NAMES   = ["duckdb"]
+SINK_NAMES = ["duckdb"]
 
 
-def _make_source(source_name: str, artifact: DatasetArtifact, temp_dir: str, case_id: str):
+def _make_source(
+    source_name: str, artifact: DatasetArtifact, temp_dir: str, case_id: str
+):
     """Instantiate a SourceAdapter from the registry for *source_name*.
 
     CSV sources are produced by exporting the artifact's Parquet snapshot
@@ -98,9 +101,11 @@ def _make_source(source_name: str, artifact: DatasetArtifact, temp_dir: str, cas
     """
     if source_name == "parquet":
         from sqldim.sources.batch.parquet import ParquetSource
+
         return ParquetSource(artifact.snapshot_path)
     elif source_name == "csv":
         from sqldim.sources.batch.csv import CSVSource
+
         csv_path = os.path.join(temp_dir, f"{case_id}_snap.csv")
         if not os.path.exists(csv_path):
             tmp = duckdb.connect()
@@ -111,12 +116,11 @@ def _make_source(source_name: str, artifact: DatasetArtifact, temp_dir: str, cas
             tmp.close()
         return CSVSource(csv_path)
     else:
-        raise ValueError(
-            f"Unknown source: {source_name!r}. Available: {SOURCE_NAMES}"
-        )
+        raise ValueError(f"Unknown source: {source_name!r}. Available: {SOURCE_NAMES}")
 
 
 # ── Helpers ───────────────────────────────────────────────────────────────
+
 
 def _remove_db(db_path: str) -> None:
     for p in [db_path, db_path + ".wal"]:
@@ -127,8 +131,9 @@ def _remove_db(db_path: str) -> None:
             pass
 
 
-def _configure(con: duckdb.DuckDBPyConnection, temp_dir: str,
-               mem_limit_gb: float | None = None) -> None:
+def _configure(
+    con: duckdb.DuckDBPyConnection, temp_dir: str, mem_limit_gb: float | None = None
+) -> None:
     """
     Apply memory/spill settings. Does NOT cap threads — DuckDB defaults to
     all available cores, which is correct for throughput benchmarks.
@@ -136,7 +141,7 @@ def _configure(con: duckdb.DuckDBPyConnection, temp_dir: str,
     """
     limit = mem_limit_gb or MemoryProbe.recommended_memory_limit_gb()
     con.execute(f"SET memory_limit = '{limit:.1f}GB'")
-    con.execute(f"SET temp_directory = '{temp_dir}'"  )
+    con.execute(f"SET temp_directory = '{temp_dir}'")
 
 
 def _select_tiers(
@@ -146,8 +151,11 @@ def _select_tiers(
 ) -> list[str]:
     """Return tiers from tier_order up to and including max_tier, intersected with tier_map keys."""
     _max = max_tier if max_tier in tier_order else tier_order[-1]
-    return [t for t in tier_order
-            if t in tier_map and tier_order.index(t) <= tier_order.index(_max)]
+    return [
+        t
+        for t in tier_order
+        if t in tier_map and tier_order.index(t) <= tier_order.index(_max)
+    ]
 
 
 def run_benchmark_case(
@@ -160,7 +168,8 @@ def run_benchmark_case(
         MemoryProbe.check_safe_to_run(label=result.case_id)
         action(result, temp_dir)
     except RuntimeError as exc:
-        result.ok = False; result.error = f"SKIPPED: {exc}"
+        result.ok = False
+        result.error = f"SKIPPED: {exc}"
     except Exception as exc:
         result.ok = False
         result.error = f"{type(exc).__name__}: {exc}\n" + _traceback.format_exc()[-600:]
@@ -174,6 +183,7 @@ def _extract_scan_count(obj: dict) -> int:
 
 # ── Core runner: LazySCDProcessor ────────────────────────────────────────
 
+
 def _run_scd2_batch(
     artifact: DatasetArtifact,
     case_id: str,
@@ -184,56 +194,75 @@ def _run_scd2_batch(
     source_name: str = "parquet",
 ) -> BenchmarkResult:
     from sqldim.sinks.sql.duckdb import DuckDBSink
-    from sqldim.core.kimball.dimensions.scd.processors.lazy.type2._lazy_type2 import LazySCDProcessor
+    from sqldim.core.kimball.dimensions.scd.processors.lazy.type2._lazy_type2 import (
+        LazySCDProcessor,
+    )
 
-    tname   = table_name or f"dim_{artifact.profile}"
+    tname = table_name or f"dim_{artifact.profile}"
     db_path = os.path.join(temp_dir, f"{case_id}.duckdb")
-    result  = BenchmarkResult(
-        case_id=case_id, group=group, profile=artifact.profile, tier=tier,
-        processor="LazySCDProcessor", sink="DuckDBSink", source=source_name,
-        phase="batch", n_rows=artifact.n_rows, n_changed=artifact.n_changed,
+    result = BenchmarkResult(
+        case_id=case_id,
+        group=group,
+        profile=artifact.profile,
+        tier=tier,
+        processor="LazySCDProcessor",
+        sink="DuckDBSink",
+        source=source_name,
+        phase="batch",
+        n_rows=artifact.n_rows,
+        n_changed=artifact.n_changed,
     )
     try:
         MemoryProbe.check_safe_to_run(label=case_id)
-        s = duckdb.connect(db_path); _configure(s, temp_dir)
-        s.execute(artifact.ddl.format(table=tname)); s.close()
+        s = duckdb.connect(db_path)
+        _configure(s, temp_dir)
+        s.execute(artifact.ddl.format(table=tname))
+        s.close()
 
         with DuckDBSink(db_path) as sink:
-            _configure(sink._con, temp_dir)
-            tracker = DuckDBObjectTracker(sink._con); tracker.wrap()
-            proc  = LazySCDProcessor(
+            _configure(sink._con, temp_dir)  # type: ignore[arg-type]
+            tracker = DuckDBObjectTracker(sink._con)
+            tracker.wrap()
+            proc = LazySCDProcessor(
                 natural_key=artifact.natural_key,
                 track_columns=artifact.track_columns,
-                sink=sink, con=sink._con,
+                sink=sink,
+                con=sink._con,
             )
             probe = MemoryProbe(temp_dir=temp_dir, label=case_id)
             with probe:
-                t0  = time.perf_counter()
+                t0 = time.perf_counter()
                 scd = proc.process(
                     _make_source(source_name, artifact, temp_dir, case_id), tname
                 )
                 result.wall_s = time.perf_counter() - t0
             # Read DuckDB memory from MAIN THREAD after process() — never from bg thread
-            from sqldim.application.benchmarks.memory_probe import read_duckdb_memory_once
-            post_duckdb_gb = read_duckdb_memory_once(sink._con)
-            tracker.snapshot(); tracker.unwrap()
+            from sqldim.application.benchmarks.memory_probe import (
+                read_duckdb_memory_once,
+            )
 
-        m   = probe.report; obj = tracker.report()
-        result.peak_rss_gb          = m.peak_rss_gb
-        result.peak_duckdb_gb       = post_duckdb_gb
-        result.min_sys_avail_gb     = m.min_sys_avail_gb
-        result.total_spill_gb       = m.total_spill_gb
-        result.safety_breach        = m.safety_breach
-        result.breach_detail        = m.breach_detail
-        result.scan_regression      = obj["regression_detected"]
+            post_duckdb_gb = read_duckdb_memory_once(sink._con)
+            tracker.snapshot()
+            tracker.unwrap()
+
+        m = probe.report
+        obj = tracker.report()
+        result.peak_rss_gb = m.peak_rss_gb
+        result.peak_duckdb_gb = post_duckdb_gb
+        result.min_sys_avail_gb = m.min_sys_avail_gb
+        result.total_spill_gb = m.total_spill_gb
+        result.safety_breach = m.safety_breach
+        result.breach_detail = m.breach_detail
+        result.scan_regression = obj["regression_detected"]
         result.current_state_as_table = obj["current_state_as_table"]
-        result.scan_count   = _extract_scan_count(obj)
-        result.inserted     = scd.inserted
-        result.versioned    = scd.versioned
-        result.unchanged    = scd.unchanged
+        result.scan_count = _extract_scan_count(obj)
+        result.inserted = scd.inserted
+        result.versioned = scd.versioned
+        result.unchanged = scd.unchanged
         result.rows_per_sec = artifact.n_rows / max(result.wall_s, 0.001)
     except RuntimeError as exc:
-        result.ok = False; result.error = f"SKIPPED: {exc}"
+        result.ok = False
+        result.error = f"SKIPPED: {exc}"
     except Exception as exc:
         result.ok = False
         result.error = f"{type(exc).__name__}: {exc}\n" + _traceback.format_exc()[-600:]
@@ -243,6 +272,7 @@ def _run_scd2_batch(
 
 
 # ── Core runner: LazySCDMetadataProcessor ────────────────────────────────
+
 
 def _run_metadata_batch(
     artifact: DatasetArtifact,
@@ -256,55 +286,74 @@ def _run_metadata_batch(
     source_name: str = "parquet",
 ) -> BenchmarkResult:
     from sqldim.sinks.sql.duckdb import DuckDBSink
-    from sqldim.core.kimball.dimensions.scd.processors.lazy.metadata._lazy_metadata import LazySCDMetadataProcessor
+    from sqldim.core.kimball.dimensions.scd.processors.lazy.metadata._lazy_metadata import (
+        LazySCDMetadataProcessor,
+    )
 
-    tname     = table_name or f"dim_{artifact.profile}"
-    db_path   = os.path.join(temp_dir, f"{case_id}.duckdb")
+    tname = table_name or f"dim_{artifact.profile}"
+    db_path = os.path.join(temp_dir, f"{case_id}.duckdb")
     eff_spill = spill_dir or temp_dir
-    result    = BenchmarkResult(
-        case_id=case_id, group=group, profile=artifact.profile, tier=tier,
-        processor="LazySCDMetadataProcessor", sink="DuckDBSink", source=source_name,
-        phase="batch", n_rows=artifact.n_rows, n_changed=artifact.n_changed,
+    result = BenchmarkResult(
+        case_id=case_id,
+        group=group,
+        profile=artifact.profile,
+        tier=tier,
+        processor="LazySCDMetadataProcessor",
+        sink="DuckDBSink",
+        source=source_name,
+        phase="batch",
+        n_rows=artifact.n_rows,
+        n_changed=artifact.n_changed,
     )
     try:
         MemoryProbe.check_safe_to_run(label=case_id)
-        s = duckdb.connect(db_path); _configure(s, eff_spill, mem_limit_override_gb)
-        s.execute(artifact.ddl.format(table=tname)); s.close()
+        s = duckdb.connect(db_path)
+        _configure(s, eff_spill, mem_limit_override_gb)
+        s.execute(artifact.ddl.format(table=tname))
+        s.close()
 
         with DuckDBSink(db_path) as sink:
-            _configure(sink._con, eff_spill, mem_limit_override_gb)
-            tracker = DuckDBObjectTracker(sink._con); tracker.wrap()
-            proc  = LazySCDMetadataProcessor(
+            _configure(sink._con, eff_spill, mem_limit_override_gb)  # type: ignore[arg-type]
+            tracker = DuckDBObjectTracker(sink._con)
+            tracker.wrap()
+            proc = LazySCDMetadataProcessor(
                 natural_key=artifact.natural_key,
                 metadata_columns=artifact.metadata_columns,
-                sink=sink, con=sink._con,
+                sink=sink,
+                con=sink._con,
             )
             probe = MemoryProbe(temp_dir=eff_spill, label=case_id)
             with probe:
-                t0  = time.perf_counter()
+                t0 = time.perf_counter()
                 scd = proc.process(
                     _make_source(source_name, artifact, temp_dir, case_id), tname
                 )
                 result.wall_s = time.perf_counter() - t0
-            from sqldim.application.benchmarks.memory_probe import read_duckdb_memory_once
-            post_duckdb_gb = read_duckdb_memory_once(sink._con)
-            tracker.snapshot(); tracker.unwrap()
+            from sqldim.application.benchmarks.memory_probe import (
+                read_duckdb_memory_once,
+            )
 
-        m   = probe.report; obj = tracker.report()
-        result.peak_rss_gb          = m.peak_rss_gb
-        result.peak_duckdb_gb       = post_duckdb_gb
-        result.min_sys_avail_gb     = m.min_sys_avail_gb
-        result.total_spill_gb       = m.total_spill_gb
-        result.safety_breach        = m.safety_breach
-        result.breach_detail        = m.breach_detail
-        result.scan_regression      = obj["regression_detected"]
+            post_duckdb_gb = read_duckdb_memory_once(sink._con)
+            tracker.snapshot()
+            tracker.unwrap()
+
+        m = probe.report
+        obj = tracker.report()
+        result.peak_rss_gb = m.peak_rss_gb
+        result.peak_duckdb_gb = post_duckdb_gb
+        result.min_sys_avail_gb = m.min_sys_avail_gb
+        result.total_spill_gb = m.total_spill_gb
+        result.safety_breach = m.safety_breach
+        result.breach_detail = m.breach_detail
+        result.scan_regression = obj["regression_detected"]
         result.current_state_as_table = obj["current_state_as_table"]
-        result.inserted     = scd.inserted
-        result.versioned    = scd.versioned
-        result.unchanged    = scd.unchanged
+        result.inserted = scd.inserted
+        result.versioned = scd.versioned
+        result.unchanged = scd.unchanged
         result.rows_per_sec = artifact.n_rows / max(result.wall_s, 0.001)
     except RuntimeError as exc:
-        result.ok = False; result.error = f"SKIPPED: {exc}"
+        result.ok = False
+        result.error = f"SKIPPED: {exc}"
     except Exception as exc:
         result.ok = False
         result.error = f"{type(exc).__name__}: {exc}\n" + _traceback.format_exc()[-600:]
@@ -314,4 +363,3 @@ def _run_metadata_batch(
 
 
 # ── Group A — VIEW vs TABLE regression ───────────────────────────────────
-

@@ -85,7 +85,7 @@ class MoviesSource(BaseSource):
     )
 
     @property
-    def OLTP_DDL(self) -> str:  # noqa: N802
+    def OLTP_DDL(self) -> str:  # type: ignore[override]  # noqa: N802
         return _MOVIES_SPEC.cast.oltp_ddl()
 
     @property

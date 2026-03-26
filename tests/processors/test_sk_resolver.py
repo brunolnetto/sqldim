@@ -1,5 +1,6 @@
 """Tests for NarwhalsSKResolver — covers lines 68-71, 93-100, 112-118, 138,
 153-158, 162-164, 168 in sqldim/processors/sk_resolver.py."""
+
 import sys
 import pytest
 from datetime import date
@@ -17,6 +18,7 @@ from sqldim.core.kimball.dimensions.scd.processors.sk_resolver import NarwhalsSK
 # ---------------------------------------------------------------------------
 # Models
 # ---------------------------------------------------------------------------
+
 
 class SkResDim(DimensionModel, table=True):
     __tablename__ = "sk_res_dim"
@@ -37,13 +39,14 @@ class SkResSCD2Dim(DimensionModel, SCD2Mixin, table=True):
     __natural_key__ = ["code"]
     id: Optional[int] = Field(default=None, primary_key=True)
     code: str
-    valid_from: date = Field(default=date(2020, 1, 1))
-    valid_to: Optional[date] = Field(default=None, nullable=True)
+    valid_from: date = Field(default=date(2020, 1, 1))  # type: ignore[assignment]
+    valid_to: Optional[date] = Field(default=None, nullable=True)  # type: ignore[assignment]
 
 
 # ---------------------------------------------------------------------------
 # Fixtures
 # ---------------------------------------------------------------------------
+
 
 @pytest.fixture(scope="module")
 def sk_engine():
@@ -68,6 +71,7 @@ def sk_session(sk_engine):
 # ---------------------------------------------------------------------------
 # Tests: resolve() — lines 68-71
 # ---------------------------------------------------------------------------
+
 
 def test_resolve_joins_and_returns_sk(sk_session):
     """resolve() left-joins frame with dimension lookup and returns SK column."""
@@ -105,6 +109,7 @@ def test_resolve_empty_dimension(sk_session):
 # Tests: resolve_all() — lines 93-100
 # ---------------------------------------------------------------------------
 
+
 def test_resolve_all_resolves_multiple_fks(sk_session):
     """resolve_all() resolves each FK in key_map in a single pass."""
     d1 = SkResDim(code="A")
@@ -124,6 +129,7 @@ def test_resolve_all_resolves_multiple_fks(sk_session):
 # ---------------------------------------------------------------------------
 # Tests: _get_lookup() cache — lines 112-118
 # ---------------------------------------------------------------------------
+
 
 def test_get_lookup_caches_result(sk_session):
     """_get_lookup() returns the same object on repeated calls (cache hit)."""
@@ -160,6 +166,7 @@ def test_resolve_with_is_current_model(sk_session):
 # Tests: _load_lookup as_of branch — line 138
 # ---------------------------------------------------------------------------
 
+
 def test_load_lookup_as_of_filters_by_date(sk_session):
     """_load_lookup with as_of filters with valid_from/valid_to (line 138)."""
     d1 = SkResSCD2Dim(
@@ -173,12 +180,16 @@ def test_load_lookup_as_of_filters_by_date(sk_session):
 
     resolver = NarwhalsSKResolver(sk_session)
     # as_of within [2020-01-01, 2021-12-31] → code must appear in lookup
-    lookup_in = resolver._load_lookup(SkResSCD2Dim, as_of=date(2021, 6, 1), natural_key_col="code")
+    lookup_in = resolver._load_lookup(
+        SkResSCD2Dim, as_of=date(2021, 6, 1), natural_key_col="code"
+    )
     codes_in = nw.to_native(lookup_in)["code"].to_list()
     assert "AS_OF_RANGE" in codes_in
 
     # as_of after valid_to → code must NOT appear in lookup
-    lookup_out = resolver._load_lookup(SkResSCD2Dim, as_of=date(2023, 1, 1), natural_key_col="code")
+    lookup_out = resolver._load_lookup(
+        SkResSCD2Dim, as_of=date(2023, 1, 1), natural_key_col="code"
+    )
     codes_out = nw.to_native(lookup_out)["code"].to_list() if len(lookup_out) else []
     assert "AS_OF_RANGE" not in codes_out
 
@@ -186,6 +197,7 @@ def test_load_lookup_as_of_filters_by_date(sk_session):
 # ---------------------------------------------------------------------------
 # Tests: _df_from_records static method — lines 153-158, 162-164
 # ---------------------------------------------------------------------------
+
 
 def test_df_from_records_empty_returns_polars_frame():
     """_df_from_records([]) returns a polars-backed narwhals frame (lines 153-158)."""
@@ -224,6 +236,7 @@ def test_df_from_records_nonempty_no_polars(monkeypatch):
 # ---------------------------------------------------------------------------
 # Tests: invalidate_cache() — line 168
 # ---------------------------------------------------------------------------
+
 
 def test_invalidate_cache_clears_all_entries(sk_session):
     """invalidate_cache() empties the lookup cache (line 168)."""

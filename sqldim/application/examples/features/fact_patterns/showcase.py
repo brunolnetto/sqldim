@@ -104,8 +104,8 @@ def example_05_ecommerce_orders() -> None:
     os.unlink(path)
 
     print("  Final pipeline state:")
-    for r in rows:
-        _print_order_state(r)
+    for row in rows:
+        _print_order_state(row)
 
 
 # ── Example 6 ─────────────────────────────────────────────────────────────────
@@ -137,7 +137,9 @@ def example_06_daily_account_balances() -> None:
             print(f"  {snap_date} → {n} rows loaded")
 
     con = duckdb.connect(path)
-    total = con.execute("SELECT COUNT(*) FROM fact_account_balance").fetchone()[0]
+    total = (
+        con.execute("SELECT COUNT(*) FROM fact_account_balance").fetchone() or (0,)
+    )[0]
     sample = con.execute(
         "SELECT account_id, account_type, balance, snapshot_date "
         "FROM fact_account_balance WHERE snapshot_date = '2024-03-31' ORDER BY account_id"

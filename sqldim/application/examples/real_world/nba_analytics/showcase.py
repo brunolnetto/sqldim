@@ -36,7 +36,7 @@ from sqldim.application.datasets.domains.nba_analytics.sources import (
     PlayerSeasonsSource,
     TeamsSource,
 )
-from sqldim import DGMQuery, AggRef, WinRef, ScalarPred, PropRef
+from sqldim import DGMQuery
 from sqldim.core.loaders.dimension.edge_projection import LazyEdgeProjectionLoader
 from sqldim.core.loaders.fact.cumulative import LazyCumulativeLoader
 from sqldim.application.examples.utils import section, banner
@@ -57,12 +57,13 @@ class _InMemorySink:
         table_name: str,
         batch_size: int = 100_000,
     ) -> int:
-        n = con.execute(f"SELECT count(*) FROM {view_name}").fetchone()[0]
+        n = (con.execute(f"SELECT count(*) FROM {view_name}").fetchone() or (0,))[0]
         try:
             con.execute(f"INSERT INTO {table_name} BY NAME SELECT * FROM {view_name}")
         except Exception:
             con.execute(f"CREATE TABLE {table_name} AS SELECT * FROM {view_name}")
         return n
+
 
 # ── helpers ────────────────────────────────────────────────────────────────────
 
@@ -96,22 +97,24 @@ def _print_table(headers: list[str], rows: list[tuple], max_rows: int = 10) -> N
 def demo_staging_layer(con: duckdb.DuckDBPyConnection) -> None:
     """Load all four sources and report row counts."""
     with section("1. Loading the NBA Staging Layer"):
-        games_src   = GamesSource(n=200, seed=42)
+        games_src = GamesSource(n=200, seed=42)
         details_src = GameDetailsSource(games_src, seed=42)
-        ps_src      = PlayerSeasonsSource(n=50, seed=42)
+        ps_src = PlayerSeasonsSource(n=50, seed=42)
 
         # TeamsSource.setup() creates AND populates (static dimension)
         TeamsSource().setup(con, "teams")
 
         # PlayerSeasonsSource uses DIM_DDL (SCD-augmented); for staging use CREATE AS SELECT
-        con.execute(f"CREATE TABLE player_seasons AS SELECT * FROM ({ps_src.snapshot().as_sql(con)})")
+        con.execute(
+            f"CREATE TABLE player_seasons AS SELECT * FROM ({ps_src.snapshot().as_sql(con)})"
+        )
 
         # GamesSource / GameDetailsSource also self-populate in setup()
         games_src.setup(con, "games")
         details_src.setup(con, "game_details")
 
         for tbl in ("teams", "player_seasons", "games", "game_details"):
-            n = con.execute(f"SELECT COUNT(*) FROM {tbl}").fetchone()[0]
+            n = (con.execute(f"SELECT COUNT(*) FROM {tbl}").fetchone() or (0,))[0]
             print(f"  {tbl:<16}  {n:>6} rows")
 
 
@@ -348,8 +351,14 @@ def demo_coaching_changes(con: duckdb.DuckDBPyConnection) -> None:
     with section("7. Coaching Changes (SCD-2 event batch)"):
         src = TeamsSource()
 
-        original = {row[4]: row[12] for row in con.execute(src.snapshot().as_sql(con)).fetchall()}
-        updated  = {row[4]: row[12] for row in con.execute(src.event_batch().as_sql(con)).fetchall()}
+        original = {
+            row[4]: row[12]
+            for row in con.execute(src.snapshot().as_sql(con)).fetchall()
+        }
+        updated = {
+            row[4]: row[12]
+            for row in con.execute(src.event_batch().as_sql(con)).fetchall()
+        }
 
         changed = [
             (abbr, original[abbr], updated[abbr])
@@ -400,4 +409,5 @@ async def run_showcase() -> None:
 
 if __name__ == "__main__":  # pragma: no cover
     import asyncio
+
     asyncio.run(run_showcase())

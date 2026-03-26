@@ -148,9 +148,7 @@ class DomainEvent(ABC):
     name: str  # set per subclass
 
     @abstractmethod
-    def apply(
-        self, state: AggregateState, **kwargs: Any
-    ) -> dict[str, list[dict]]:
+    def apply(self, state: AggregateState, **kwargs: Any) -> dict[str, list[dict]]:
         """
         Apply business rules to the aggregate state.
 

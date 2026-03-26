@@ -20,6 +20,7 @@ Analytical demonstrations
 4. Retention cohort  — DGMQuery B2: % active by days-since-first-active
 5. Rolling WAU       — DGMQuery B3: 7-day rolling + week-over-week QUALIFY
 """
+
 from __future__ import annotations
 
 import duckdb
@@ -50,7 +51,7 @@ class _InMemorySink:
         table_name: str,
         batch_size: int = 100_000,
     ) -> int:
-        n = con.execute(f"SELECT count(*) FROM {view_name}").fetchone()[0]
+        n = (con.execute(f"SELECT count(*) FROM {view_name}").fetchone() or (0,))[0]
         try:
             con.execute(f"INSERT INTO {table_name} BY NAME SELECT * FROM {view_name}")
         except Exception:
@@ -94,7 +95,7 @@ def demo_staging_layer(con: duckdb.DuckDBPyConnection) -> None:
         )
 
         for tbl in ("devices", "page_events"):
-            n = con.execute(f"SELECT COUNT(*) FROM {tbl}").fetchone()[0]
+            n = (con.execute(f"SELECT COUNT(*) FROM {tbl}").fetchone() or (0,))[0]
             print(f"  {tbl:<14}  {n:>7} rows")
 
 
@@ -125,9 +126,10 @@ def demo_bitmask_retention(con: duckdb.DuckDBPyConnection) -> None:
             GROUP BY user_id
         """)
 
-        ref_date = con.execute(
-            "SELECT MAX(event_time::DATE) FROM page_events"
-        ).fetchone()[0]
+        ref_date = (
+            con.execute("SELECT MAX(event_time::DATE) FROM page_events").fetchone()
+            or (0,)
+        )[0]
 
         sink = _InMemorySink()
         loader = LazyBitmaskLoader(
@@ -152,7 +154,9 @@ def demo_bitmask_retention(con: duckdb.DuckDBPyConnection) -> None:
             LIMIT 8
         """).fetchall()
         _print_table(["user_id", "bitmask_int", "l7_days", "l32_days"], sample)
-        print("\n  l7_days = active days in last 7  ·  l32_days = active days in last 32")
+        print(
+            "\n  l7_days = active days in last 7  ·  l32_days = active days in last 32"
+        )
 
 
 # ── Stage 3: growth accounting ────────────────────────────────────────────────
@@ -364,4 +368,5 @@ async def run_showcase() -> None:
 
 if __name__ == "__main__":  # pragma: no cover
     import asyncio
+
     asyncio.run(run_showcase())

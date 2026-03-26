@@ -17,6 +17,7 @@ sqldim/processors/_lazy_metadata.py  →  ~100%
   • _write_new()       — inserts brand-new rows
   • _write_changed()   — expires old + inserts with metadata_diff
 """
+
 from __future__ import annotations
 
 import json
@@ -35,6 +36,7 @@ from sqldim.core.kimball.dimensions.scd.handler import SCDResult
 # InMemorySink — supports write_named, current_state_sql, close_versions
 # ---------------------------------------------------------------------------
 
+
 class InMemorySink:
     """DuckDB in-memory sink for tests — all state lives in *con*."""
 
@@ -51,9 +53,7 @@ class InMemorySink:
                 f"INSERT INTO {table_name} ({cols}) SELECT {cols} FROM {view_name}"
             )
         except Exception:
-            con.execute(
-                f"CREATE TABLE {table_name} AS SELECT {cols} FROM {view_name}"
-            )
+            con.execute(f"CREATE TABLE {table_name} AS SELECT {cols} FROM {view_name}")
         return n
 
     def close_versions(self, con, table_name, nk_cols, nk_view, valid_to):
@@ -73,6 +73,7 @@ class InMemorySink:
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
+
 
 def _make_dim_table(con, table_name: str, nk_cols: list[str]) -> None:
     """Create a SCD-2 metadata-bag dimension table in *con*."""
@@ -103,7 +104,8 @@ def _make_proc(con, nk_cols, meta_cols) -> LazySCDMetadataProcessor:
 def _register_source_view(con, view_name: str, rows: list[dict]) -> None:
     """Register *rows* as a DuckDB VIEW for use as the streaming source."""
     select_rows = " UNION ALL ".join(
-        "SELECT " + ", ".join(
+        "SELECT "
+        + ", ".join(
             f"'{v}' AS {k}" if isinstance(v, str) else f"{v} AS {k}"
             for k, v in row.items()
         )
@@ -115,6 +117,7 @@ def _register_source_view(con, view_name: str, rows: list[dict]) -> None:
 # ---------------------------------------------------------------------------
 # _safe() — identifier validation
 # ---------------------------------------------------------------------------
+
 
 class TestSafeIdentifier:
     def test_valid_lowercase_name(self):
@@ -158,6 +161,7 @@ class TestSafeIdentifier:
 # _as_subquery() helper
 # ---------------------------------------------------------------------------
 
+
 class TestAsSubquery:
     def test_select_is_wrapped(self):
         result = _as_subquery("SELECT 1 AS x")
@@ -178,6 +182,7 @@ class TestAsSubquery:
 # ---------------------------------------------------------------------------
 # __init__ — constructor behaviour
 # ---------------------------------------------------------------------------
+
 
 class TestConstructor:
     def test_single_string_nk(self):
@@ -237,13 +242,16 @@ class TestConstructor:
 # process() — full cycle
 # ---------------------------------------------------------------------------
 
+
 class TestProcessAllNew:
     """All incoming rows are new (empty table)."""
 
     def test_single_new_row_inserted(self):
         con = duckdb.connect()
         _make_dim_table(con, "dim_emp", ["emp_id"])
-        _register_source_view(con, "src", [{"emp_id": "E1", "dept": "RD", "grade": "L4"}])
+        _register_source_view(
+            con, "src", [{"emp_id": "E1", "dept": "RD", "grade": "L4"}]
+        )
         proc = _make_proc(con, "emp_id", ["dept", "grade"])
         result = proc.process("src", "dim_emp")
         assert result.inserted == 1
@@ -253,11 +261,15 @@ class TestProcessAllNew:
     def test_multiple_new_rows_inserted(self):
         con = duckdb.connect()
         _make_dim_table(con, "dim_emp", ["emp_id"])
-        _register_source_view(con, "src", [
-            {"emp_id": "E1", "dept": "Eng", "grade": "L4"},
-            {"emp_id": "E2", "dept": "Mkt", "grade": "L3"},
-            {"emp_id": "E3", "dept": "Fin", "grade": "L5"},
-        ])
+        _register_source_view(
+            con,
+            "src",
+            [
+                {"emp_id": "E1", "dept": "Eng", "grade": "L4"},
+                {"emp_id": "E2", "dept": "Mkt", "grade": "L3"},
+                {"emp_id": "E3", "dept": "Fin", "grade": "L5"},
+            ],
+        )
         proc = _make_proc(con, "emp_id", ["dept", "grade"])
         result = proc.process("src", "dim_emp")
         assert result.inserted == 3
@@ -266,25 +278,35 @@ class TestProcessAllNew:
     def test_metadata_diff_is_null_for_new_rows(self):
         con = duckdb.connect()
         _make_dim_table(con, "dim_emp", ["emp_id"])
-        _register_source_view(con, "src", [{"emp_id": "E1", "dept": "Eng", "grade": "L4"}])
+        _register_source_view(
+            con, "src", [{"emp_id": "E1", "dept": "Eng", "grade": "L4"}]
+        )
         proc = _make_proc(con, "emp_id", ["dept", "grade"])
         proc.process("src", "dim_emp")
-        row = con.execute("SELECT metadata_diff FROM dim_emp WHERE emp_id = 'E1'").fetchone()
+        row = con.execute(
+            "SELECT metadata_diff FROM dim_emp WHERE emp_id = 'E1'"
+        ).fetchone()
         assert row[0] is None
 
     def test_is_current_true_for_new_rows(self):
         con = duckdb.connect()
         _make_dim_table(con, "dim_emp", ["emp_id"])
-        _register_source_view(con, "src", [{"emp_id": "E1", "dept": "Eng", "grade": "L4"}])
+        _register_source_view(
+            con, "src", [{"emp_id": "E1", "dept": "Eng", "grade": "L4"}]
+        )
         proc = _make_proc(con, "emp_id", ["dept", "grade"])
         proc.process("src", "dim_emp")
-        row = con.execute("SELECT is_current FROM dim_emp WHERE emp_id = 'E1'").fetchone()
+        row = con.execute(
+            "SELECT is_current FROM dim_emp WHERE emp_id = 'E1'"
+        ).fetchone()
         assert row[0] is True
 
     def test_row_hash_populated(self):
         con = duckdb.connect()
         _make_dim_table(con, "dim_emp", ["emp_id"])
-        _register_source_view(con, "src", [{"emp_id": "E1", "dept": "Eng", "grade": "L4"}])
+        _register_source_view(
+            con, "src", [{"emp_id": "E1", "dept": "Eng", "grade": "L4"}]
+        )
         proc = _make_proc(con, "emp_id", ["dept", "grade"])
         proc.process("src", "dim_emp")
         row = con.execute("SELECT row_hash FROM dim_emp WHERE emp_id = 'E1'").fetchone()
@@ -294,7 +316,9 @@ class TestProcessAllNew:
     def test_returns_scd_result(self):
         con = duckdb.connect()
         _make_dim_table(con, "dim_emp", ["emp_id"])
-        _register_source_view(con, "src", [{"emp_id": "E1", "dept": "Eng", "grade": "L4"}])
+        _register_source_view(
+            con, "src", [{"emp_id": "E1", "dept": "Eng", "grade": "L4"}]
+        )
         proc = _make_proc(con, "emp_id", ["dept", "grade"])
         result = proc.process("src", "dim_emp")
         assert isinstance(result, SCDResult)
@@ -313,11 +337,18 @@ class TestProcessChanged:
     def test_changed_row_creates_new_version(self):
         con = duckdb.connect()
         _make_dim_table(con, "dim_emp", ["emp_id"])
-        self._seed_initial(con, "dim_emp", "emp_id", ["dept", "grade"],
-                           {"emp_id": "E1"}, {"dept": "Eng", "grade": "L4"})
+        self._seed_initial(
+            con,
+            "dim_emp",
+            "emp_id",
+            ["dept", "grade"],
+            {"emp_id": "E1"},
+            {"dept": "Eng", "grade": "L4"},
+        )
 
-        _register_source_view(con, "update_src",
-                              [{"emp_id": "E1", "dept": "Research", "grade": "L4"}])
+        _register_source_view(
+            con, "update_src", [{"emp_id": "E1", "dept": "Research", "grade": "L4"}]
+        )
         proc = _make_proc(con, "emp_id", ["dept", "grade"])
         result = proc.process("update_src", "dim_emp")
         assert result.versioned == 1
@@ -326,11 +357,18 @@ class TestProcessChanged:
     def test_old_version_marked_not_current(self):
         con = duckdb.connect()
         _make_dim_table(con, "dim_emp", ["emp_id"])
-        self._seed_initial(con, "dim_emp", "emp_id", ["dept", "grade"],
-                           {"emp_id": "E1"}, {"dept": "Eng", "grade": "L4"})
+        self._seed_initial(
+            con,
+            "dim_emp",
+            "emp_id",
+            ["dept", "grade"],
+            {"emp_id": "E1"},
+            {"dept": "Eng", "grade": "L4"},
+        )
 
-        _register_source_view(con, "update_src",
-                              [{"emp_id": "E1", "dept": "Research", "grade": "L4"}])
+        _register_source_view(
+            con, "update_src", [{"emp_id": "E1", "dept": "Research", "grade": "L4"}]
+        )
         proc = _make_proc(con, "emp_id", ["dept", "grade"])
         proc.process("update_src", "dim_emp")
 
@@ -339,16 +377,23 @@ class TestProcessChanged:
         ).fetchall()
         assert len(rows) == 2
         assert rows[0][0] is False  # old version expired
-        assert rows[1][0] is True   # new version current
+        assert rows[1][0] is True  # new version current
 
     def test_metadata_diff_captures_old_metadata(self):
         con = duckdb.connect()
         _make_dim_table(con, "dim_emp", ["emp_id"])
-        self._seed_initial(con, "dim_emp", "emp_id", ["dept", "grade"],
-                           {"emp_id": "E1"}, {"dept": "Eng", "grade": "L4"})
+        self._seed_initial(
+            con,
+            "dim_emp",
+            "emp_id",
+            ["dept", "grade"],
+            {"emp_id": "E1"},
+            {"dept": "Eng", "grade": "L4"},
+        )
 
-        _register_source_view(con, "update_src",
-                              [{"emp_id": "E1", "dept": "Research", "grade": "L5"}])
+        _register_source_view(
+            con, "update_src", [{"emp_id": "E1", "dept": "Research", "grade": "L5"}]
+        )
         proc = _make_proc(con, "emp_id", ["dept", "grade"])
         proc.process("update_src", "dim_emp")
 
@@ -363,17 +408,22 @@ class TestProcessChanged:
         con = duckdb.connect()
         _make_dim_table(con, "dim_emp", ["emp_id"])
         for eid, dept in [("E1", "Eng"), ("E2", "Mkt"), ("E3", "Fin")]:
-            _register_source_view(con, f"src_{eid}",
-                                  [{"emp_id": eid, "dept": dept, "grade": "L4"}])
+            _register_source_view(
+                con, f"src_{eid}", [{"emp_id": eid, "dept": dept, "grade": "L4"}]
+            )
             proc = _make_proc(con, "emp_id", ["dept", "grade"])
             proc.process(f"src_{eid}", "dim_emp")
 
         # Change all three
-        _register_source_view(con, "update_all", [
-            {"emp_id": "E1", "dept": "X", "grade": "L4"},
-            {"emp_id": "E2", "dept": "Y", "grade": "L4"},
-            {"emp_id": "E3", "dept": "Z", "grade": "L4"},
-        ])
+        _register_source_view(
+            con,
+            "update_all",
+            [
+                {"emp_id": "E1", "dept": "X", "grade": "L4"},
+                {"emp_id": "E2", "dept": "Y", "grade": "L4"},
+                {"emp_id": "E3", "dept": "Z", "grade": "L4"},
+            ],
+        )
         proc = _make_proc(con, "emp_id", ["dept", "grade"])
         result = proc.process("update_all", "dim_emp")
         assert result.versioned == 3
@@ -385,8 +435,9 @@ class TestProcessUnchanged:
     def test_unchanged_row_counted(self):
         con = duckdb.connect()
         _make_dim_table(con, "dim_emp", ["emp_id"])
-        _register_source_view(con, "src",
-                              [{"emp_id": "E1", "dept": "Eng", "grade": "L4"}])
+        _register_source_view(
+            con, "src", [{"emp_id": "E1", "dept": "Eng", "grade": "L4"}]
+        )
         proc = _make_proc(con, "emp_id", ["dept", "grade"])
         proc.process("src", "dim_emp")
         result = proc.process("src", "dim_emp")
@@ -397,8 +448,9 @@ class TestProcessUnchanged:
     def test_unchanged_does_not_create_duplicate(self):
         con = duckdb.connect()
         _make_dim_table(con, "dim_emp", ["emp_id"])
-        _register_source_view(con, "src",
-                              [{"emp_id": "E1", "dept": "Eng", "grade": "L4"}])
+        _register_source_view(
+            con, "src", [{"emp_id": "E1", "dept": "Eng", "grade": "L4"}]
+        )
         proc = _make_proc(con, "emp_id", ["dept", "grade"])
         proc.process("src", "dim_emp")
         proc.process("src", "dim_emp")
@@ -410,18 +462,26 @@ class TestProcessUnchanged:
     def test_mixed_new_changed_unchanged(self):
         con = duckdb.connect()
         _make_dim_table(con, "dim_emp", ["emp_id"])
-        _register_source_view(con, "initial", [
-            {"emp_id": "E1", "dept": "Eng", "grade": "L4"},
-            {"emp_id": "E2", "dept": "Mkt", "grade": "L3"},
-        ])
+        _register_source_view(
+            con,
+            "initial",
+            [
+                {"emp_id": "E1", "dept": "Eng", "grade": "L4"},
+                {"emp_id": "E2", "dept": "Mkt", "grade": "L3"},
+            ],
+        )
         proc = _make_proc(con, "emp_id", ["dept", "grade"])
         proc.process("initial", "dim_emp")
 
-        _register_source_view(con, "update", [
-            {"emp_id": "E1", "dept": "Eng",       "grade": "L4"},   # unchanged
-            {"emp_id": "E2", "dept": "Finance",    "grade": "L3"},   # changed
-            {"emp_id": "E3", "dept": "Operations", "grade": "L2"},   # new
-        ])
+        _register_source_view(
+            con,
+            "update",
+            [
+                {"emp_id": "E1", "dept": "Eng", "grade": "L4"},  # unchanged
+                {"emp_id": "E2", "dept": "Finance", "grade": "L3"},  # changed
+                {"emp_id": "E3", "dept": "Operations", "grade": "L2"},  # new
+            ],
+        )
         result = proc.process("update", "dim_emp")
         assert result.unchanged == 1
         assert result.versioned == 1
@@ -448,8 +508,9 @@ class TestProcessNullNk:
 class TestProcessInvalidTableName:
     def test_bad_table_name_raises(self):
         con = duckdb.connect()
-        _register_source_view(con, "src",
-                              [{"emp_id": "E1", "dept": "Eng", "grade": "L4"}])
+        _register_source_view(
+            con, "src", [{"emp_id": "E1", "dept": "Eng", "grade": "L4"}]
+        )
         proc = _make_proc(con, "emp_id", ["dept", "grade"])
         with pytest.raises(ValueError):
             proc.process("src", "bad-table!")
@@ -461,10 +522,14 @@ class TestProcessCompositeKey:
     def test_composite_nk_new_rows(self):
         con = duckdb.connect()
         _make_dim_table(con, "dim_order_line", ["order_id", "line_no"])
-        _register_source_view(con, "src_ol", [
-            {"order_id": "O1", "line_no": "1", "product": "Widget", "qty": "5"},
-            {"order_id": "O1", "line_no": "2", "product": "Gadget", "qty": "3"},
-        ])
+        _register_source_view(
+            con,
+            "src_ol",
+            [
+                {"order_id": "O1", "line_no": "1", "product": "Widget", "qty": "5"},
+                {"order_id": "O1", "line_no": "2", "product": "Gadget", "qty": "3"},
+            ],
+        )
         proc = _make_proc(con, ["order_id", "line_no"], ["product", "qty"])
         result = proc.process("src_ol", "dim_order_line")
         assert result.inserted == 2
@@ -472,15 +537,23 @@ class TestProcessCompositeKey:
     def test_composite_nk_changed_row_versioned(self):
         con = duckdb.connect()
         _make_dim_table(con, "dim_order_line", ["order_id", "line_no"])
-        _register_source_view(con, "src_ol", [
-            {"order_id": "O1", "line_no": "1", "product": "Widget", "qty": "5"},
-        ])
+        _register_source_view(
+            con,
+            "src_ol",
+            [
+                {"order_id": "O1", "line_no": "1", "product": "Widget", "qty": "5"},
+            ],
+        )
         proc = _make_proc(con, ["order_id", "line_no"], ["product", "qty"])
         proc.process("src_ol", "dim_order_line")
 
-        _register_source_view(con, "src_ol_upd", [
-            {"order_id": "O1", "line_no": "1", "product": "Widget", "qty": "10"},
-        ])
+        _register_source_view(
+            con,
+            "src_ol_upd",
+            [
+                {"order_id": "O1", "line_no": "1", "product": "Widget", "qty": "10"},
+            ],
+        )
         proc2 = _make_proc(con, ["order_id", "line_no"], ["product", "qty"])
         result = proc2.process("src_ol_upd", "dim_order_line")
         assert result.versioned == 1
@@ -488,9 +561,13 @@ class TestProcessCompositeKey:
     def test_composite_nk_unchanged_row_counted(self):
         con = duckdb.connect()
         _make_dim_table(con, "dim_order_line", ["order_id", "line_no"])
-        _register_source_view(con, "src_ol", [
-            {"order_id": "O1", "line_no": "1", "product": "Widget", "qty": "5"},
-        ])
+        _register_source_view(
+            con,
+            "src_ol",
+            [
+                {"order_id": "O1", "line_no": "1", "product": "Widget", "qty": "5"},
+            ],
+        )
         proc = _make_proc(con, ["order_id", "line_no"], ["product", "qty"])
         proc.process("src_ol", "dim_order_line")
         result = proc.process("src_ol", "dim_order_line")
@@ -531,8 +608,9 @@ class TestProcessNowParameter:
     def test_explicit_now_used_for_valid_from(self):
         con = duckdb.connect()
         _make_dim_table(con, "dim_emp", ["emp_id"])
-        _register_source_view(con, "src",
-                              [{"emp_id": "E1", "dept": "Eng", "grade": "L4"}])
+        _register_source_view(
+            con, "src", [{"emp_id": "E1", "dept": "Eng", "grade": "L4"}]
+        )
         proc = _make_proc(con, "emp_id", ["dept", "grade"])
         proc.process("src", "dim_emp", now="2023-06-15T12:00:00+00:00")
         row = con.execute("SELECT valid_from FROM dim_emp WHERE emp_id='E1'").fetchone()
@@ -541,8 +619,9 @@ class TestProcessNowParameter:
     def test_none_now_uses_current_time(self):
         con = duckdb.connect()
         _make_dim_table(con, "dim_emp", ["emp_id"])
-        _register_source_view(con, "src",
-                              [{"emp_id": "E1", "dept": "Eng", "grade": "L4"}])
+        _register_source_view(
+            con, "src", [{"emp_id": "E1", "dept": "Eng", "grade": "L4"}]
+        )
         proc = _make_proc(con, "emp_id", ["dept", "grade"])
         result = proc.process("src", "dim_emp")  # now=None
         assert result.inserted == 1

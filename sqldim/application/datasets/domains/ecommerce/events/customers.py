@@ -1,6 +1,6 @@
 """Customer domain events for the ecommerce domain."""
+
 from __future__ import annotations
-from typing import Any
 from sqldim.application.datasets.events import AggregateState, DomainEvent
 
 
@@ -17,7 +17,13 @@ def _is_cancellable(o: dict) -> bool:
 def _build_cancelled_order(o: dict) -> dict:
     if "status" in o:
         return {**o, "status": "cancelled"}
-    return {**o, "paid_at": None, "shipped_at": None, "delivered_at": None, "_cancelled": True}
+    return {
+        **o,
+        "paid_at": None,
+        "shipped_at": None,
+        "delivered_at": None,
+        "_cancelled": True,
+    }
 
 
 def _cancel_placed_orders_for_customer(
@@ -76,7 +82,6 @@ def _apply_address_to_row(
     }
 
 
-
 class CustomerBulkCancelEvent(DomainEvent):
     """
     Customer requests bulk cancellation of all their pending orders.
@@ -99,7 +104,7 @@ class CustomerBulkCancelEvent(DomainEvent):
 
     name = "customer_bulk_cancel"
 
-    def apply(
+    def apply(  # type: ignore[override]
         self,
         state: AggregateState,
         *,
@@ -108,7 +113,8 @@ class CustomerBulkCancelEvent(DomainEvent):
     ) -> dict[str, list[dict]]:
         result: dict[str, list[dict]] = {}
         updated_orders, changed_orders = _cancel_placed_orders_for_customer(
-            state.get("orders"), customer_id,
+            state.get("orders"),
+            customer_id,
         )
         if changed_orders:
             state.update("orders", updated_orders)
@@ -140,7 +146,7 @@ class CustomerAddressChangedEvent(DomainEvent):
 
     name = "customer_address_changed"
 
-    def apply(
+    def apply(  # type: ignore[override]
         self,
         state: AggregateState,
         *,
@@ -150,7 +156,10 @@ class CustomerAddressChangedEvent(DomainEvent):
         event_ts: str = "2024-06-01 09:00:00",
     ) -> dict[str, list[dict]]:
         customers = state.get("customers")
-        updated = [_apply_address_to_row(c, customer_id, new_address, new_city, event_ts) for c in customers]
+        updated = [
+            _apply_address_to_row(c, customer_id, new_address, new_city, event_ts)
+            for c in customers
+        ]
         changed = _changed_rows(customers, updated)
         if changed:
             state.update("customers", updated)

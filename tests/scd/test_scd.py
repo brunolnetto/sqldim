@@ -2,16 +2,21 @@ import pytest
 from typing import Optional
 from unittest.mock import MagicMock
 from sqlalchemy.pool import StaticPool
-from sqlmodel import Field, Session, SQLModel, create_engine, select, text
+from sqlmodel import Session, SQLModel, create_engine, select, text
 from sqldim import DimensionModel, Field, SCD2Mixin
 from sqldim.core.kimball.dimensions.scd.handler import SCDHandler
-from sqldim.core.kimball.dimensions.scd.backfill import backfill_scd2, backfill_cumulative
+from sqldim.core.kimball.dimensions.scd.backfill import (
+    backfill_scd2,
+    backfill_cumulative,
+)
+
 
 class UserDim(DimensionModel, SCD2Mixin, table=True):
     __natural_key__ = ["user_code"]
     id: int = Field(primary_key=True, surrogate_key=True)
     user_code: str
     email: str
+
 
 @pytest.fixture
 def session():
@@ -25,30 +30,34 @@ def session():
         yield session
     engine.dispose()
 
+
 @pytest.mark.asyncio
 async def test_scd_lifecycle(session):
     handler = SCDHandler(model=UserDim, session=session, track_columns=["email"])
-    
+
     # 1. Initial Insert
     records = [{"user_code": "U1", "email": "a@b.com"}]
     res1 = await handler.process(records)
     assert res1.inserted == 1
-    
+
     # 2. No-op (Same data)
     res2 = await handler.process(records)
     assert res2.unchanged == 1
-    
+
     # 3. Version Change (Email changed)
     updated_records = [{"user_code": "U1", "email": "new@b.com"}]
     res3 = await handler.process(updated_records)
     assert res3.versioned == 1
-    
+
     # Verify DB state
     from sqlmodel import select
+
     all_versions = session.exec(select(UserDim).where(UserDim.user_code == "U1")).all()
     assert len(all_versions) == 2
-    
-    current = session.exec(select(UserDim).where(UserDim.user_code == "U1", UserDim.is_current)).one()
+
+    current = session.exec(
+        select(UserDim).where(UserDim.user_code == "U1", UserDim.is_current)
+    ).one()
     assert current.email == "new@b.com"
     assert current.valid_to is None
 
@@ -56,6 +65,7 @@ async def test_scd_lifecycle(session):
 # ---------------------------------------------------------------------------
 # Migrated from test_coverage_100.py Section J
 # ---------------------------------------------------------------------------
+
 
 class Cov100SCD1Dim(DimensionModel, SCD2Mixin, table=True):
     __tablename__ = "cov100_scd1"
@@ -83,7 +93,9 @@ def handler_session():
         connect_args={"check_same_thread": False},
         poolclass=StaticPool,
     )
-    SQLModel.metadata.create_all(engine, tables=[Cov100SCD1Dim.__table__, Cov100SCD6Dim.__table__])
+    SQLModel.metadata.create_all(
+        engine, tables=[Cov100SCD1Dim.__table__, Cov100SCD6Dim.__table__]
+    )
     with Session(engine) as s:
         yield s
     engine.dispose()
@@ -159,7 +171,8 @@ class TestSCDHandlerMissingLines:
         await handler.process([{"code": "S6", "city": "Portland"}])
 
         new_rows = [
-            obj for obj in added_objects
+            obj
+            for obj in added_objects
             if getattr(obj, "code", None) == "S6"
             and getattr(obj, "city", None) == "Portland"
         ]
@@ -171,15 +184,18 @@ class TestSCDHandlerMissingLines:
 # Tests for sqldim/scd/backfill.py
 # ---------------------------------------------------------------------------
 
+
 def test_backfill_scd2_non_dry_run(handler_session):
     """backfill_scd2 with dry_run=False executes SQL and returns rowcount (line 51)."""
-    handler_session.execute(text(
-        "CREATE TABLE snap_bf (code TEXT, city TEXT, dt TEXT)"
-    ))
-    handler_session.execute(text(
-        "INSERT INTO snap_bf VALUES "
-        "('A', 'NY', '2020-01-01'), ('A', 'LA', '2021-01-01')"
-    ))
+    handler_session.execute(
+        text("CREATE TABLE snap_bf (code TEXT, city TEXT, dt TEXT)")
+    )
+    handler_session.execute(
+        text(
+            "INSERT INTO snap_bf VALUES "
+            "('A', 'NY', '2020-01-01'), ('A', 'LA', '2021-01-01')"
+        )
+    )
     handler_session.commit()
 
     result = backfill_scd2(
@@ -196,9 +212,9 @@ def test_backfill_scd2_non_dry_run(handler_session):
 
 def test_backfill_scd2_dry_run(handler_session):
     """backfill_scd2 with dry_run=True returns the SQL string (line 51)."""
-    handler_session.execute(text(
-        "CREATE TABLE snap_bf2 (code TEXT, city TEXT, dt TEXT)"
-    ))
+    handler_session.execute(
+        text("CREATE TABLE snap_bf2 (code TEXT, city TEXT, dt TEXT)")
+    )
     handler_session.commit()
 
     sql = backfill_scd2(
@@ -245,6 +261,7 @@ def test_backfill_cumulative_mock():
 
 class ScdHandlerCoverageHelper(DimensionModel, SCD2Mixin, table=True):
     """Minimal SCD-2 model used only by the handler coverage tests."""
+
     __tablename__ = "scd_handler_coverage"
     __natural_key__ = ["code"]
     id: int = Field(primary_key=True, surrogate_key=True)
@@ -259,9 +276,7 @@ def scd_session():
         connect_args={"check_same_thread": False},
         poolclass=StaticPool,
     )
-    SQLModel.metadata.create_all(
-        engine, tables=[ScdHandlerCoverageHelper.__table__]
-    )
+    SQLModel.metadata.create_all(engine, tables=[ScdHandlerCoverageHelper.__table__])
     with Session(engine) as s:
         yield s
     engine.dispose()
@@ -296,10 +311,11 @@ async def test_process_mixed_batch_calls_handle_new_record(scd_session):
     # Second batch: existing key (CX1) + brand-new key (CX2)
     # existing_map will contain CX1 so the fast path is skipped;
     # CX2 is not in existing_map → _handle_new_record is called
-    r2 = await handler.process([
-        {"code": "CX1", "city": "Paris"},   # unchanged
-        {"code": "CX2", "city": "Berlin"},  # new — triggers lines 105-107 and 300
-    ])
+    r2 = await handler.process(
+        [
+            {"code": "CX1", "city": "Paris"},  # unchanged
+            {"code": "CX2", "city": "Berlin"},  # new — triggers lines 105-107 and 300
+        ]
+    )
     assert r2.inserted == 1
     assert r2.unchanged == 1
-

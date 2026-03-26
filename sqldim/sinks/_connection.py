@@ -16,7 +16,7 @@ import duckdb
 def _default_memory_limit() -> str:
     """Return 70 % of system RAM as a DuckDB-style string, or ``'4GB'`` as fallback."""
     try:
-        import psutil
+        import psutil  # type: ignore[import-untyped]
 
         total_gb = psutil.virtual_memory().total / (1024**3)
         return f"{total_gb * 0.70:.0f}GB"

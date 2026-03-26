@@ -87,7 +87,7 @@ class HierarchyRoller:
         """
         if strategy is None:
             if dim_cls is not None:
-                strategy = dim_cls.hierarchy_strategy()  # type: ignore[union-attr]
+                strategy = dim_cls.hierarchy_strategy()  # type: ignore[union-attr, attr-defined]
             else:
                 strategy = AdjacencyListStrategy()
 

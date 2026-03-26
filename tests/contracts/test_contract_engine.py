@@ -4,6 +4,7 @@ Covers: Severity, ContractViolation, ContractReport, ContractViolationError,
 Rule ABC, all built-in column/table rules, ContractEngine,
 SourceContract / StateContract / OutputContract, and SCD2 rules.
 """
+
 from __future__ import annotations
 
 import duckdb
@@ -46,6 +47,7 @@ from sqldim.contracts.validation.freshness import Freshness, RowCountDelta
 # Helpers
 # ---------------------------------------------------------------------------
 
+
 def _con_with(sql: str) -> duckdb.DuckDBPyConnection:
     """Return a fresh DuckDB connection with the given CREATE/INSERT SQL."""
     con = duckdb.connect()
@@ -61,6 +63,7 @@ def _view(con, view_sql: str, name: str = "v") -> str:
 # ---------------------------------------------------------------------------
 # Severity
 # ---------------------------------------------------------------------------
+
 
 class TestSeverity:
     def test_error_and_warning_and_info_exist(self):
@@ -78,9 +81,12 @@ class TestSeverity:
 # ContractViolation
 # ---------------------------------------------------------------------------
 
+
 class TestContractViolation:
     def test_fields(self):
-        v = ContractViolation(rule="NOT_NULL", severity="error", count=5, detail="col=x")
+        v = ContractViolation(
+            rule="NOT_NULL", severity="error", count=5, detail="col=x"
+        )
         assert v.rule == "NOT_NULL"
         assert v.severity == "error"
         assert v.count == 5
@@ -90,6 +96,7 @@ class TestContractViolation:
 # ---------------------------------------------------------------------------
 # ContractReport
 # ---------------------------------------------------------------------------
+
 
 class TestContractReport:
     def test_empty_factory(self):
@@ -130,6 +137,7 @@ class TestContractReport:
 
     def test_to_dict_round_trips(self):
         import json
+
         r = ContractReport(
             violations=[ContractViolation("NOT_NULL", "error", 3, "detail")],
             view="v",
@@ -155,6 +163,7 @@ class TestContractReport:
 # ---------------------------------------------------------------------------
 # ContractViolationError
 # ---------------------------------------------------------------------------
+
 
 class TestContractViolationError:
     def test_carries_report(self):
@@ -182,6 +191,7 @@ class TestContractViolationError:
 # ---------------------------------------------------------------------------
 # Rule ABC
 # ---------------------------------------------------------------------------
+
 
 class TestRuleABC:
     def test_cannot_instantiate(self):
@@ -214,12 +224,14 @@ class TestRuleABC:
 # NotNull rule
 # ---------------------------------------------------------------------------
 
+
 class TestNotNull:
     def test_passes_on_no_nulls(self):
         con = _con_with("CREATE TABLE t AS SELECT 1 AS nk UNION ALL SELECT 2 AS nk")
         v = _view(con, "SELECT * FROM t")
         engine = ContractEngine()
         from sqldim.contracts.reporting.composite import SourceContract
+
         sc = SourceContract(rules=[NotNull("nk")])
         report = engine.validate(con, v, sc)
         assert not report.has_errors()
@@ -242,17 +254,22 @@ class TestNotNull:
 # NoDuplicates rule
 # ---------------------------------------------------------------------------
 
+
 class TestNoDuplicates:
     def test_passes_unique(self):
         con = _con_with("CREATE TABLE t AS SELECT 'a' AS nk UNION ALL SELECT 'b' AS nk")
         v = _view(con, "SELECT * FROM t")
-        report = ContractEngine().validate(con, v, SourceContract(rules=[NoDuplicates("nk")]))
+        report = ContractEngine().validate(
+            con, v, SourceContract(rules=[NoDuplicates("nk")])
+        )
         assert not report.has_errors()
 
     def test_fails_duplicate(self):
         con = _con_with("CREATE TABLE t AS SELECT 'a' AS nk UNION ALL SELECT 'a' AS nk")
         v = _view(con, "SELECT * FROM t")
-        report = ContractEngine().validate(con, v, SourceContract(rules=[NoDuplicates("nk")]))
+        report = ContractEngine().validate(
+            con, v, SourceContract(rules=[NoDuplicates("nk")])
+        )
         assert report.has_errors()
         assert any(r.rule == "NO_DUPLICATES" for r in report.violations)
 
@@ -264,13 +281,16 @@ class TestNoDuplicates:
 # NullRate rule
 # ---------------------------------------------------------------------------
 
+
 class TestNullRate:
     def test_passes_under_threshold(self):
         con = _con_with(
             "CREATE TABLE t AS SELECT * FROM (VALUES ('a'), ('b'), (NULL)) AS x(col)"
         )
         v = _view(con, "SELECT * FROM t")
-        report = ContractEngine().validate(con, v, SourceContract(rules=[NullRate("col", max_pct=0.5)]))
+        report = ContractEngine().validate(
+            con, v, SourceContract(rules=[NullRate("col", max_pct=0.5)])
+        )
         assert not report.has_errors()
 
     def test_fails_over_threshold(self):
@@ -278,7 +298,9 @@ class TestNullRate:
             "CREATE TABLE t AS SELECT * FROM (VALUES ('a'), (NULL), (NULL)) AS x(col)"
         )
         v = _view(con, "SELECT * FROM t")
-        report = ContractEngine().validate(con, v, SourceContract(rules=[NullRate("col", max_pct=0.1)]))
+        report = ContractEngine().validate(
+            con, v, SourceContract(rules=[NullRate("col", max_pct=0.1)])
+        )
         assert report.has_warnings()
 
     def test_default_severity_warning(self):
@@ -289,17 +311,22 @@ class TestNullRate:
 # ColumnExists rule
 # ---------------------------------------------------------------------------
 
+
 class TestColumnExists:
     def test_passes_when_column_present(self):
         con = _con_with("CREATE TABLE t AS SELECT 1 AS id, 'x' AS name")
         v = _view(con, "SELECT * FROM t")
-        report = ContractEngine().validate(con, v, SourceContract(rules=[ColumnExists("id")]))
+        report = ContractEngine().validate(
+            con, v, SourceContract(rules=[ColumnExists("id")])
+        )
         assert not report.has_errors()
 
     def test_fails_when_column_missing(self):
         con = _con_with("CREATE TABLE t AS SELECT 1 AS id")
         v = _view(con, "SELECT * FROM t")
-        report = ContractEngine().validate(con, v, SourceContract(rules=[ColumnExists("foobar")]))
+        report = ContractEngine().validate(
+            con, v, SourceContract(rules=[ColumnExists("foobar")])
+        )
         assert report.has_errors()
 
     def test_default_severity_error(self):
@@ -310,23 +337,30 @@ class TestColumnExists:
 # RowCount rule
 # ---------------------------------------------------------------------------
 
+
 class TestRowCount:
     def test_passes_within_range(self):
         con = _con_with("CREATE TABLE t AS SELECT unnest(range(100)) AS x")
         v = _view(con, "SELECT * FROM t")
-        report = ContractEngine().validate(con, v, SourceContract(rules=[RowCount(min_rows=50, max_rows=200)]))
+        report = ContractEngine().validate(
+            con, v, SourceContract(rules=[RowCount(min_rows=50, max_rows=200)])
+        )
         assert not report.has_errors()
 
     def test_fails_below_min(self):
         con = _con_with("CREATE TABLE t AS SELECT 1 AS x")
         v = _view(con, "SELECT * FROM t")
-        report = ContractEngine().validate(con, v, SourceContract(rules=[RowCount(min_rows=100)]))
+        report = ContractEngine().validate(
+            con, v, SourceContract(rules=[RowCount(min_rows=100)])
+        )
         assert report.has_warnings() or report.has_errors()
 
     def test_fails_above_max(self):
         con = _con_with("CREATE TABLE t AS SELECT unnest(range(1000)) AS x")
         v = _view(con, "SELECT * FROM t")
-        report = ContractEngine().validate(con, v, SourceContract(rules=[RowCount(max_rows=5)]))
+        report = ContractEngine().validate(
+            con, v, SourceContract(rules=[RowCount(max_rows=5)])
+        )
         assert report.has_warnings() or report.has_errors()
 
     def test_default_severity_warning(self):
@@ -337,17 +371,22 @@ class TestRowCount:
 # ValueRange rule
 # ---------------------------------------------------------------------------
 
+
 class TestValueRange:
     def test_passes_within_range(self):
         con = _con_with("CREATE TABLE t AS SELECT 50 AS v")
         v = _view(con, "SELECT * FROM t")
-        report = ContractEngine().validate(con, v, SourceContract(rules=[ValueRange("v", min_val=0, max_val=100)]))
+        report = ContractEngine().validate(
+            con, v, SourceContract(rules=[ValueRange("v", min_val=0, max_val=100)])
+        )
         assert not report.has_errors()
 
     def test_fails_below_min(self):
         con = _con_with("CREATE TABLE t AS SELECT -5 AS v")
         v = _view(con, "SELECT * FROM t")
-        report = ContractEngine().validate(con, v, SourceContract(rules=[ValueRange("v", min_val=0)]))
+        report = ContractEngine().validate(
+            con, v, SourceContract(rules=[ValueRange("v", min_val=0)])
+        )
         assert report.has_warnings()
 
     def test_default_severity_warning(self):
@@ -357,6 +396,7 @@ class TestValueRange:
 # ---------------------------------------------------------------------------
 # RegexMatch rule
 # ---------------------------------------------------------------------------
+
 
 class TestRegexMatch:
     def test_passes_matching(self):
@@ -383,6 +423,7 @@ class TestRegexMatch:
 # TypeMatch rule
 # ---------------------------------------------------------------------------
 
+
 class TestTypeMatch:
     def test_passes_correct_type(self):
         con = _con_with("CREATE TABLE t AS SELECT 42 AS amount")
@@ -407,6 +448,7 @@ class TestTypeMatch:
 # ---------------------------------------------------------------------------
 # ContractEngine
 # ---------------------------------------------------------------------------
+
 
 class TestContractEngine:
     def test_empty_contract_returns_ok(self):
@@ -435,13 +477,16 @@ class TestContractEngine:
     def test_elapsed_s_populated(self):
         con = _con_with("CREATE TABLE t AS SELECT 1 AS nk")
         v = _view(con, "SELECT * FROM t")
-        report = ContractEngine().validate(con, v, SourceContract(rules=[NotNull("nk")]))
+        report = ContractEngine().validate(
+            con, v, SourceContract(rules=[NotNull("nk")])
+        )
         assert report.elapsed_s >= 0.0
 
 
 # ---------------------------------------------------------------------------
 # Composite contracts (SourceContract / StateContract / OutputContract)
 # ---------------------------------------------------------------------------
+
 
 class TestCompositeContracts:
     def test_source_contract_label(self):
@@ -466,6 +511,7 @@ class TestCompositeContracts:
 # SCD2 rules
 # ---------------------------------------------------------------------------
 
+
 def _scd2_view(con, rows: list[dict], name: str = "dim") -> str:
     """Seed a DuckDB view with SCD2-shaped rows for rule tests."""
     cols = ["nk", "name", "is_current", "valid_from", "valid_to"]
@@ -487,10 +533,25 @@ def _scd2_view(con, rows: list[dict], name: str = "dim") -> str:
 class TestSCD2Invariants:
     def test_passes_valid_dimension(self):
         con = duckdb.connect()
-        _scd2_view(con, [
-            {"nk": "NK1", "name": "Alice", "is_current": True, "valid_from": "2024-01-01", "valid_to": "NULL"},
-            {"nk": "NK2", "name": "Bob", "is_current": True, "valid_from": "2024-01-01", "valid_to": "NULL"},
-        ])
+        _scd2_view(
+            con,
+            [
+                {
+                    "nk": "NK1",
+                    "name": "Alice",
+                    "is_current": True,
+                    "valid_from": "2024-01-01",
+                    "valid_to": "NULL",
+                },
+                {
+                    "nk": "NK2",
+                    "name": "Bob",
+                    "is_current": True,
+                    "valid_from": "2024-01-01",
+                    "valid_to": "NULL",
+                },
+            ],
+        )
         report = ContractEngine().validate(
             con, "dim", StateContract(rules=[SCD2Invariants("nk")])
         )
@@ -498,10 +559,25 @@ class TestSCD2Invariants:
 
     def test_fails_duplicate_current(self):
         con = duckdb.connect()
-        _scd2_view(con, [
-            {"nk": "NK1", "name": "Alice", "is_current": True, "valid_from": "2024-01-01", "valid_to": "NULL"},
-            {"nk": "NK1", "name": "Alice2", "is_current": True, "valid_from": "2024-06-01", "valid_to": "NULL"},
-        ])
+        _scd2_view(
+            con,
+            [
+                {
+                    "nk": "NK1",
+                    "name": "Alice",
+                    "is_current": True,
+                    "valid_from": "2024-01-01",
+                    "valid_to": "NULL",
+                },
+                {
+                    "nk": "NK1",
+                    "name": "Alice2",
+                    "is_current": True,
+                    "valid_from": "2024-06-01",
+                    "valid_to": "NULL",
+                },
+            ],
+        )
         report = ContractEngine().validate(
             con, "dim", StateContract(rules=[SCD2Invariants("nk")])
         )
@@ -526,10 +602,25 @@ class TestSCD2Invariants:
 class TestNoOrphanVersions:
     def test_passes_with_successor(self):
         con = duckdb.connect()
-        _scd2_view(con, [
-            {"nk": "NK1", "name": "Old", "is_current": False, "valid_from": "2024-01-01", "valid_to": "2024-06-01"},
-            {"nk": "NK1", "name": "New", "is_current": True, "valid_from": "2024-06-01", "valid_to": "NULL"},
-        ])
+        _scd2_view(
+            con,
+            [
+                {
+                    "nk": "NK1",
+                    "name": "Old",
+                    "is_current": False,
+                    "valid_from": "2024-01-01",
+                    "valid_to": "2024-06-01",
+                },
+                {
+                    "nk": "NK1",
+                    "name": "New",
+                    "is_current": True,
+                    "valid_from": "2024-06-01",
+                    "valid_to": "NULL",
+                },
+            ],
+        )
         report = ContractEngine().validate(
             con, "dim", StateContract(rules=[NoOrphanVersions("nk")])
         )
@@ -538,10 +629,25 @@ class TestNoOrphanVersions:
     def test_fails_orphan_historical(self):
         con = duckdb.connect()
         # Historical row for NK1 but no current row for NK1
-        _scd2_view(con, [
-            {"nk": "NK1", "name": "Old", "is_current": False, "valid_from": "2024-01-01", "valid_to": "2024-06-01"},
-            {"nk": "NK2", "name": "Bob", "is_current": True, "valid_from": "2024-01-01", "valid_to": "NULL"},
-        ])
+        _scd2_view(
+            con,
+            [
+                {
+                    "nk": "NK1",
+                    "name": "Old",
+                    "is_current": False,
+                    "valid_from": "2024-01-01",
+                    "valid_to": "2024-06-01",
+                },
+                {
+                    "nk": "NK2",
+                    "name": "Bob",
+                    "is_current": True,
+                    "valid_from": "2024-01-01",
+                    "valid_to": "NULL",
+                },
+            ],
+        )
         report = ContractEngine().validate(
             con, "dim", StateContract(rules=[NoOrphanVersions("nk")])
         )
@@ -554,10 +660,25 @@ class TestNoOrphanVersions:
 class TestMonotonicValidFrom:
     def test_passes_strictly_increasing(self):
         con = duckdb.connect()
-        _scd2_view(con, [
-            {"nk": "NK1", "name": "v1", "is_current": False, "valid_from": "2024-01-01", "valid_to": "2024-06-01"},
-            {"nk": "NK1", "name": "v2", "is_current": True, "valid_from": "2024-06-01", "valid_to": "NULL"},
-        ])
+        _scd2_view(
+            con,
+            [
+                {
+                    "nk": "NK1",
+                    "name": "v1",
+                    "is_current": False,
+                    "valid_from": "2024-01-01",
+                    "valid_to": "2024-06-01",
+                },
+                {
+                    "nk": "NK1",
+                    "name": "v2",
+                    "is_current": True,
+                    "valid_from": "2024-06-01",
+                    "valid_to": "NULL",
+                },
+            ],
+        )
         report = ContractEngine().validate(
             con, "dim", StateContract(rules=[MonotonicValidFrom("nk")])
         )
@@ -566,10 +687,25 @@ class TestMonotonicValidFrom:
     def test_fails_non_monotonic(self):
         con = duckdb.connect()
         # v2 has earlier valid_from than v1 — wrong order
-        _scd2_view(con, [
-            {"nk": "NK1", "name": "v1", "is_current": False, "valid_from": "2024-06-01", "valid_to": "2024-12-01"},
-            {"nk": "NK1", "name": "v2", "is_current": True, "valid_from": "2024-01-01", "valid_to": "NULL"},
-        ])
+        _scd2_view(
+            con,
+            [
+                {
+                    "nk": "NK1",
+                    "name": "v1",
+                    "is_current": False,
+                    "valid_from": "2024-06-01",
+                    "valid_to": "2024-12-01",
+                },
+                {
+                    "nk": "NK1",
+                    "name": "v2",
+                    "is_current": True,
+                    "valid_from": "2024-01-01",
+                    "valid_to": "NULL",
+                },
+            ],
+        )
         report = ContractEngine().validate(
             con, "dim", StateContract(rules=[MonotonicValidFrom("nk")])
         )
@@ -582,10 +718,25 @@ class TestMonotonicValidFrom:
 class TestNoGapPeriods:
     def test_passes_contiguous(self):
         con = duckdb.connect()
-        _scd2_view(con, [
-            {"nk": "NK1", "name": "v1", "is_current": False, "valid_from": "2024-01-01", "valid_to": "2024-06-01"},
-            {"nk": "NK1", "name": "v2", "is_current": True, "valid_from": "2024-06-01", "valid_to": "NULL"},
-        ])
+        _scd2_view(
+            con,
+            [
+                {
+                    "nk": "NK1",
+                    "name": "v1",
+                    "is_current": False,
+                    "valid_from": "2024-01-01",
+                    "valid_to": "2024-06-01",
+                },
+                {
+                    "nk": "NK1",
+                    "name": "v2",
+                    "is_current": True,
+                    "valid_from": "2024-06-01",
+                    "valid_to": "NULL",
+                },
+            ],
+        )
         report = ContractEngine().validate(
             con, "dim", StateContract(rules=[NoGapPeriods("nk")])
         )
@@ -593,11 +744,26 @@ class TestNoGapPeriods:
 
     def test_fails_gap(self):
         con = duckdb.connect()
-        _scd2_view(con, [
-            {"nk": "NK1", "name": "v1", "is_current": False, "valid_from": "2024-01-01", "valid_to": "2024-06-01"},
-            # Gap: valid_from is 2024-07-01, but valid_to of prev was 2024-06-01
-            {"nk": "NK1", "name": "v2", "is_current": True, "valid_from": "2024-07-01", "valid_to": "NULL"},
-        ])
+        _scd2_view(
+            con,
+            [
+                {
+                    "nk": "NK1",
+                    "name": "v1",
+                    "is_current": False,
+                    "valid_from": "2024-01-01",
+                    "valid_to": "2024-06-01",
+                },
+                # Gap: valid_from is 2024-07-01, but valid_to of prev was 2024-06-01
+                {
+                    "nk": "NK1",
+                    "name": "v2",
+                    "is_current": True,
+                    "valid_from": "2024-07-01",
+                    "valid_to": "NULL",
+                },
+            ],
+        )
         report = ContractEngine().validate(
             con, "dim", StateContract(rules=[NoGapPeriods("nk")])
         )
@@ -611,9 +777,11 @@ class TestNoGapPeriods:
 # Freshness rule
 # ---------------------------------------------------------------------------
 
+
 class TestFreshness:
     def test_passes_recent_timestamp(self):
         import datetime
+
         now = datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%d %H:%M:%S")
         con = duckdb.connect()
         con.execute(f"CREATE TABLE t AS SELECT TIMESTAMP '{now}' AS loaded_at")
@@ -673,7 +841,9 @@ class TestHashConsistency:
         )
         v = _view(con, "SELECT * FROM t")
         report = ContractEngine().validate(
-            con, v, StateContract(rules=[HashConsistency("row_hash", ["name", "score"])])
+            con,
+            v,
+            StateContract(rules=[HashConsistency("row_hash", ["name", "score"])]),
         )
         assert not report.has_errors() and not report.has_warnings()
 
@@ -684,7 +854,9 @@ class TestHashConsistency:
         )
         v = _view(con, "SELECT * FROM t")
         report = ContractEngine().validate(
-            con, v, StateContract(rules=[HashConsistency("row_hash", ["name", "score"])])
+            con,
+            v,
+            StateContract(rules=[HashConsistency("row_hash", ["name", "score"])]),
         )
         assert report.has_warnings() or report.has_errors()
 

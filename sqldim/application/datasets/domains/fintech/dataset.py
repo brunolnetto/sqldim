@@ -14,9 +14,12 @@ Instantiate and use with a DuckDB connection:
 
     fintech_dataset.teardown(con)
 """
+
 from sqldim.application.datasets.dataset import Dataset
 from sqldim.application.datasets.domains.fintech.sources import (
-    AccountsSource, CounterpartiesSource, TransactionsSource,
+    AccountsSource,
+    CounterpartiesSource,
+    TransactionsSource,
 )
 
 fintech_dataset = Dataset(
@@ -28,4 +31,11 @@ fintech_dataset = Dataset(
     ],
 )
 
-__all__ = ["fintech_dataset"]
+DATASET_METADATA = {
+    "name": "fintech",
+    "title": "Fintech transactions",
+    "description": "Bank accounts, consumers, merchants, and payment transactions",
+    "dataset_attr": "fintech_dataset",
+}
+
+__all__ = ["fintech_dataset", "DATASET_METADATA"]

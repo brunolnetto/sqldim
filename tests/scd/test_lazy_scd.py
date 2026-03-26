@@ -6,6 +6,7 @@ Coverage targets
 sqldim/narwhals/scd_engine.py   44% → ~75%
 sqldim/narwhals/sk_resolver.py  63% → ~85%
 """
+
 from __future__ import annotations
 import duckdb
 
@@ -22,6 +23,7 @@ from sqldim.core.kimball.dimensions.scd.processors.sk_resolver import LazySKReso
 # Shared in-memory sink  (same helper as test_lazy_loaders.py, duplicated to
 # keep tests self-contained)
 # ---------------------------------------------------------------------------
+
 
 class InMemorySink:
     def current_state_sql(self, table_name: str) -> str:
@@ -75,35 +77,46 @@ class InMemorySink:
 # Helpers
 # ---------------------------------------------------------------------------
 
-def _empty_scd_table(con: duckdb.DuckDBPyConnection, name: str,
-                     nk: str, track_cols: list[str]) -> None:
+
+def _empty_scd_table(
+    con: duckdb.DuckDBPyConnection, name: str, nk: str, track_cols: list[str]
+) -> None:
     """Create an empty SCD2-style table in *con*."""
-    cols = ", ".join([f"{nk} VARCHAR"] +
-                     [f"{c} VARCHAR" for c in track_cols] +
-                     ["checksum VARCHAR", "is_current BOOLEAN",
-                      "valid_from VARCHAR", "valid_to VARCHAR"])
+    cols = ", ".join(
+        [f"{nk} VARCHAR"]
+        + [f"{c} VARCHAR" for c in track_cols]
+        + [
+            "checksum VARCHAR",
+            "is_current BOOLEAN",
+            "valid_from VARCHAR",
+            "valid_to VARCHAR",
+        ]
+    )
     con.execute(f"CREATE TABLE IF NOT EXISTS {name} ({cols})")
 
 
-def _seed_scd_row(con, table, nk_val, nk_col, track_vals: dict,
-                  checksum="oldhash") -> None:
-    col_names = [nk_col] + list(track_vals.keys()) + [
-        "checksum", "is_current", "valid_from", "valid_to"
-    ]
+def _seed_scd_row(
+    con, table, nk_val, nk_col, track_vals: dict, checksum="oldhash"
+) -> None:
+    col_names = (
+        [nk_col]
+        + list(track_vals.keys())
+        + ["checksum", "is_current", "valid_from", "valid_to"]
+    )
     col_vals = (
-        [f"'{nk_val}'"] +
-        [f"'{v}'" if v is not None else "NULL" for v in track_vals.values()] +
-        [f"'{checksum}'", "TRUE", "'2024-01-01'", "NULL"]
+        [f"'{nk_val}'"]
+        + [f"'{v}'" if v is not None else "NULL" for v in track_vals.values()]
+        + [f"'{checksum}'", "TRUE", "'2024-01-01'", "NULL"]
     )
     con.execute(
-        f"INSERT INTO {table} ({', '.join(col_names)}) "
-        f"VALUES ({', '.join(col_vals)})"
+        f"INSERT INTO {table} ({', '.join(col_names)}) VALUES ({', '.join(col_vals)})"
     )
 
 
 # ---------------------------------------------------------------------------
 # LazySCDProcessor  (SCD Type 2)
 # ---------------------------------------------------------------------------
+
 
 class TestLazySCDProcessor:
     def _make_processor(self, con):
@@ -139,8 +152,14 @@ class TestLazySCDProcessor:
             "SELECT md5(coalesce(cast('Widget' as varchar),'')"
             " || '|' || coalesce(cast('9.99' as varchar),''))"
         ).fetchone()[0]
-        _seed_scd_row(con, "dim_product", "SKU1", "sku",
-                      {"name": "Widget", "price": "9.99"}, checksum=checksum)
+        _seed_scd_row(
+            con,
+            "dim_product",
+            "SKU1",
+            "sku",
+            {"name": "Widget", "price": "9.99"},
+            checksum=checksum,
+        )
 
         con.execute("""
             CREATE OR REPLACE VIEW incoming_src AS
@@ -154,8 +173,14 @@ class TestLazySCDProcessor:
     def test_changed_rows_versioned(self):
         con = duckdb.connect()
         _empty_scd_table(con, "dim_product", "sku", ["name", "price"])
-        _seed_scd_row(con, "dim_product", "SKU1", "sku",
-                      {"name": "OldWidget", "price": "9.99"}, checksum="xxx")
+        _seed_scd_row(
+            con,
+            "dim_product",
+            "SKU1",
+            "sku",
+            {"name": "OldWidget", "price": "9.99"},
+            checksum="xxx",
+        )
 
         con.execute("""
             CREATE OR REPLACE VIEW incoming_src AS
@@ -193,6 +218,7 @@ class TestLazySCDProcessor:
 # LazyType1Processor  (SCD Type 1 — overwrite)
 # ---------------------------------------------------------------------------
 
+
 class TestLazyType1Processor:
     def _make_processor(self, con):
         sink = InMemorySink()
@@ -217,8 +243,14 @@ class TestLazyType1Processor:
     def test_changed_rows_updated_in_place(self):
         con = duckdb.connect()
         _empty_scd_table(con, "dim_t1", "sku", ["name", "price"])
-        _seed_scd_row(con, "dim_t1", "A", "sku",
-                      {"name": "OldName", "price": "5.00"}, checksum="old")
+        _seed_scd_row(
+            con,
+            "dim_t1",
+            "A",
+            "sku",
+            {"name": "OldName", "price": "5.00"},
+            checksum="old",
+        )
 
         con.execute("""
             CREATE OR REPLACE VIEW src AS
@@ -241,8 +273,14 @@ class TestLazyType1Processor:
         checksum = con.execute(
             "SELECT md5(coalesce('Beta','')||'|'||coalesce('7.00',''))"
         ).fetchone()[0]
-        _seed_scd_row(con, "dim_t1", "B", "sku",
-                      {"name": "Beta", "price": "7.00"}, checksum=checksum)
+        _seed_scd_row(
+            con,
+            "dim_t1",
+            "B",
+            "sku",
+            {"name": "Beta", "price": "7.00"},
+            checksum=checksum,
+        )
         con.execute("""
             CREATE OR REPLACE VIEW src AS
             SELECT 'B' AS sku, 'Beta' AS name, '7.00' AS price
@@ -255,6 +293,7 @@ class TestLazyType1Processor:
 # ---------------------------------------------------------------------------
 # LazyType3Processor  (SCD Type 3 — current + previous)
 # ---------------------------------------------------------------------------
+
 
 class TestLazyType3Processor:
     def _make_scd3_table(self, con, name):
@@ -296,10 +335,14 @@ class TestLazyType3Processor:
         self._make_scd3_table(con, "dim_scd3")
         # Build checksum for 'East'
         checksum = con.execute("SELECT md5('East')").fetchone()[0]
-        con.execute("""
+        con.execute(
+            """
             INSERT INTO dim_scd3
-            VALUES ('E1', 'East', NULL, '""" + checksum + """', TRUE, '2024-01-01', NULL)
-        """)
+            VALUES ('E1', 'East', NULL, '"""
+            + checksum
+            + """', TRUE, '2024-01-01', NULL)
+        """
+        )
         con.execute("""
             CREATE OR REPLACE VIEW src AS
             SELECT 'E1' AS emp_id, 'West' AS region
@@ -345,6 +388,7 @@ class TestLazyType3Processor:
 # ---------------------------------------------------------------------------
 # LazyType6Processor  (hybrid Type 1 + Type 2)
 # ---------------------------------------------------------------------------
+
 
 class TestLazyType6Processor:
     def _make_scd6_table(self, con, name):
@@ -451,6 +495,7 @@ class TestLazyType6Processor:
 # LazySKResolver
 # ---------------------------------------------------------------------------
 
+
 class TestLazySKResolver:
     def _setup(self, con: duckdb.DuckDBPyConnection) -> None:
         """Create dim_customer table with id surrogate key."""
@@ -554,14 +599,12 @@ class TestLazySKResolver:
             fact_view="raw_facts",
             key_map={
                 "customer_id": ("dim_customer", "customer_code", "customer_id"),
-                "product_id":  ("dim_product",  "product_code",  "product_id"),
+                "product_id": ("dim_product", "product_code", "product_id"),
             },
             output_view="final_facts",
         )
         assert out == "final_facts"
-        row = con.execute(
-            "SELECT customer_id, product_id FROM final_facts"
-        ).fetchone()
+        row = con.execute("SELECT customer_id, product_id FROM final_facts").fetchone()
         assert row[0] == 1
         assert row[1] == 10
 
@@ -591,6 +634,7 @@ class TestLazySKResolver:
 # ---------------------------------------------------------------------------
 # LazySCDProcessor — is_inferred and reconnect branches
 # ---------------------------------------------------------------------------
+
 
 class TestLazySCDInferredPaths:
     """Coverage for lines 152, 157, 212, 244-250 in _lazy_type2.py."""
@@ -726,9 +770,11 @@ class TestLazySCDInferredPaths:
 
         # Now call _write_changed to trigger lineage
         from datetime import datetime, timezone
+
         now = datetime.now(timezone.utc).isoformat()
         proc._write_changed("dim_prod_reconnect", now)
 
         assert len(emitted) >= 1
         from sqldim.lineage.events import InferredMemberEventType
+
         assert emitted[0].event_type == InferredMemberEventType.RECONNECTED

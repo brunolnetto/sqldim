@@ -6,7 +6,7 @@ aggregate per-record outcomes (inserted / versioned / unchanged).
 
 import hashlib
 from datetime import datetime, timezone
-from typing import Generic, TypeVar
+from typing import Any, Generic, TypeVar
 from sqlmodel import Session, select
 from sqldim.core.kimball.models import DimensionModel
 from sqldim.core.kimball.dimensions.scd.detection import ChangeRecord
@@ -21,6 +21,8 @@ class SCDResult:
         self.inserted: int = 0
         self.versioned: int = 0
         self.unchanged: int = 0
+        self.to_close: Any = None
+        self.to_insert: Any = None
 
 
 class SCDHandler(Generic[T]):
@@ -76,7 +78,7 @@ class SCDHandler(Generic[T]):
 
     def _get_dim_meta(self, col_name: str) -> dict[str, object]:
         """Extract dimensional metadata directly from the field's sa_column_kwargs."""
-        field = self.model.model_fields.get(col_name)
+        field = self.model.model_fields.get(col_name)  # type: ignore[attr-defined]
         if not field:
             return {}
 
@@ -112,7 +114,7 @@ class SCDHandler(Generic[T]):
         """SCD Type 1: overwrite all tracked columns on the existing row."""
         for col, val in record.items():
             setattr(existing, col, val)
-        existing.checksum = checksum
+        existing.checksum = checksum  # type: ignore[attr-defined]
         self.session.add(existing)
         result.versioned += 1
 
@@ -125,14 +127,14 @@ class SCDHandler(Generic[T]):
         moved to the paired *previous* column and the new value is written in its
         place.  Bumps *result.versioned*.
         """
-        for col_name in self.model.model_fields:
+        for col_name in self.model.model_fields:  # type: ignore[attr-defined]
             meta = self._get_dim_meta(col_name)
             if meta.get("scd") == 3:
                 prev_col = meta.get("previous_column")
-                if prev_col:
+                if isinstance(prev_col, str):
                     setattr(existing, prev_col, getattr(existing, col_name))
-                    setattr(existing, col_name, record.get(col_name))
-        existing.checksum = checksum
+                    setattr(existing, col_name, record.get(col_name))  # type: ignore[arg-type]
+        existing.checksum = checksum  # type: ignore[attr-defined]
         self.session.add(existing)
         result.versioned += 1
 
@@ -140,7 +142,7 @@ class SCDHandler(Generic[T]):
         """Return the list of column names that carry SCD2 (or default) tracking."""
         return [
             col_name
-            for col_name in self.model.model_fields
+            for col_name in self.model.model_fields  # type: ignore[attr-defined]
             if self._get_dim_meta(col_name).get("scd") in (2, None)
         ]
 
@@ -159,7 +161,7 @@ class SCDHandler(Generic[T]):
         """
         for col in diff.changed_columns:
             setattr(existing, col, record.get(col))
-        existing.checksum = checksum
+        existing.checksum = checksum  # type: ignore[attr-defined]
         self.session.add(existing)
         result.versioned += 1
 
@@ -233,10 +235,7 @@ class SCDHandler(Generic[T]):
         stmt = select(self.model).where(getattr(self.model, nk_field).in_(nk_values))
         if hasattr(self.model, "is_current"):
             stmt = stmt.where(getattr(self.model, "is_current"))
-        return {
-            getattr(row, nk_field): row
-            for row in self.session.exec(stmt).all()
-        }
+        return {getattr(row, nk_field): row for row in self.session.exec(stmt).all()}
 
     def _bulk_insert_new(self, records: list[dict], result: SCDResult) -> None:
         """Fast-path bulk INSERT for an all-new batch (no existing rows)."""
@@ -265,7 +264,7 @@ class SCDHandler(Generic[T]):
         existing = existing_map.get(nk_value)
         if not existing:
             self._handle_new_record(record, checksum, result)
-        elif existing.checksum != checksum:
+        elif existing.checksum != checksum:  # type: ignore[attr-defined]
             self._handle_changed_record(existing, record, checksum, result, nk_value)
         else:
             result.unchanged += 1

@@ -6,9 +6,7 @@ Reproduces array_metrics_analysis.sql and generate_monthly_array_metrics.sql.
 from __future__ import annotations
 
 import asyncio
-from datetime import date
 from sqldim.core.loaders._utils import _resolve_table, _assert_not_dimension
-
 
 
 # ---------------------------------------------------------------------------
@@ -59,6 +57,9 @@ class LazyArrayMetricLoader:
         self.sink = sink
         self.batch_size = batch_size
         self._con = con or _duckdb.connect()
+        self._model_cls: type | None = (
+            None  # set by factory when created via as_loader()
+        )
 
     def process(self, source, target_date) -> int:
         """

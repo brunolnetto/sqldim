@@ -25,14 +25,13 @@ Usage
 from __future__ import annotations
 
 
-
-def _order_clause(zorder_by: list[str | None]) -> str:
+def _order_clause(zorder_by: list[str] | None) -> str:
     if not zorder_by:
         return ""
     return " ORDER BY " + ", ".join(zorder_by)
 
 
-def _partition_clause(partition_by: list[str | None]) -> str:
+def _partition_clause(partition_by: list[str] | None) -> str:
     if not partition_by:
         return ""
     cols = ", ".join(partition_by)
@@ -59,8 +58,8 @@ class Compactor:
         con,
         path: str,
         *,
-        partition_by: list[str | None] = None,
-        zorder_by: list[str | None] = None,
+        partition_by: list[str] | None = None,
+        zorder_by: list[str] | None = None,
         target_file_size_mb: int = 256,
         overwrite: bool = True,
     ) -> int:

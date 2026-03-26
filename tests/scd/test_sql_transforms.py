@@ -3,15 +3,18 @@ Tests for SQLTransform and SQLTransformPipeline.
 
 Coverage target: sqldim/processors/sql_transforms.py — 100%
 """
+
 from __future__ import annotations
 
 import duckdb
 
-from sqldim.core.kimball.dimensions.scd.processors.sql_transforms import SQLTransform, SQLTransformPipeline
+from sqldim.core.kimball.dimensions.scd.processors.sql_transforms import (
+    SQLTransform,
+    SQLTransformPipeline,
+)
 
 
 class TestSQLTransform:
-
     def test_as_select_expr_simple(self):
         t = SQLTransform("name", "upper(trim(name))")
         assert t.as_select_expr() == "upper(trim(name)) AS name"
@@ -36,7 +39,6 @@ def _make_view(con: duckdb.DuckDBPyConnection) -> None:
 
 
 class TestSQLTransformPipeline:
-
     def test_empty_pipeline_is_noop(self):
         con = duckdb.connect()
         _make_view(con)
@@ -48,9 +50,11 @@ class TestSQLTransformPipeline:
     def test_single_transform_rewrites_column(self):
         con = duckdb.connect()
         _make_view(con)
-        pipeline = SQLTransformPipeline([
-            SQLTransform("name", "upper(name)"),
-        ])
+        pipeline = SQLTransformPipeline(
+            [
+                SQLTransform("name", "upper(name)"),
+            ]
+        )
         pipeline.apply(con, "incoming")
         row = con.execute("SELECT name, city FROM incoming").fetchone()
         assert row[0] == "ALICE"
@@ -59,10 +63,12 @@ class TestSQLTransformPipeline:
     def test_multiple_transforms_applied_in_order(self):
         con = duckdb.connect()
         _make_view(con)
-        pipeline = SQLTransformPipeline([
-            SQLTransform("name", "upper(name)"),
-            SQLTransform("city", "trim(city)"),
-        ])
+        pipeline = SQLTransformPipeline(
+            [
+                SQLTransform("name", "upper(name)"),
+                SQLTransform("city", "trim(city)"),
+            ]
+        )
         pipeline.apply(con, "incoming")
         row = con.execute("SELECT name, city FROM incoming").fetchone()
         assert row[0] == "ALICE"
@@ -71,9 +77,11 @@ class TestSQLTransformPipeline:
     def test_column_order_preserved(self):
         con = duckdb.connect()
         _make_view(con)
-        pipeline = SQLTransformPipeline([
-            SQLTransform("score", "score * 2"),
-        ])
+        pipeline = SQLTransformPipeline(
+            [
+                SQLTransform("score", "score * 2"),
+            ]
+        )
         pipeline.apply(con, "incoming")
         cols = [desc[0] for desc in con.execute("DESCRIBE incoming").fetchall()]
         assert cols == ["name", "city", "score"]
@@ -81,9 +89,11 @@ class TestSQLTransformPipeline:
     def test_untransformed_columns_unchanged(self):
         con = duckdb.connect()
         _make_view(con)
-        pipeline = SQLTransformPipeline([
-            SQLTransform("name", "lower(name)"),
-        ])
+        pipeline = SQLTransformPipeline(
+            [
+                SQLTransform("name", "lower(name)"),
+            ]
+        )
         pipeline.apply(con, "incoming")
         row = con.execute("SELECT score FROM incoming").fetchone()
         assert row[0] == 99
@@ -102,9 +112,11 @@ class TestSQLTransformPipeline:
             CREATE OR REPLACE VIEW incoming AS
             SELECT 100 AS score, 'x' AS tag
         """)
-        pipeline = SQLTransformPipeline([
-            SQLTransform("score", "score + 5"),
-        ])
+        pipeline = SQLTransformPipeline(
+            [
+                SQLTransform("score", "score + 5"),
+            ]
+        )
         pipeline.apply(con, "incoming")
         row = con.execute("SELECT score FROM incoming").fetchone()
         assert row[0] == 105

@@ -40,15 +40,15 @@ async def _ft_pillar1_scd_accounts(engine) -> None:
         handler = SCDHandler(
             Account, session, track_columns=["risk_tier", "account_type"]
         )
-        await handler.process([_strip(r, _ACCOUNT_FACTORY_KEYS) for r in src.initial])
-        await handler.process([_strip(r, _ACCOUNT_FACTORY_KEYS) for r in src.events])
+        await handler.process([_strip(r, _ACCOUNT_FACTORY_KEYS) for r in src.initial])  # type: ignore[attr-defined]
+        await handler.process([_strip(r, _ACCOUNT_FACTORY_KEYS) for r in src.events])  # type: ignore[attr-defined]
         versions = session.exec(
-            select(Account).order_by(Account.account_number, Account.valid_from)
+            select(Account).order_by(Account.account_number, Account.valid_from)  # type: ignore[arg-type]
         ).all()
 
     upgraded = sum(not v.is_current for v in versions)
     print("✅ Pillar 1: SCD Type 2 — Account Risk-Tier History")
-    print(f"   Loaded {len(src.initial)} accounts via AccountsSource factory.")
+    print(f"   Loaded {len(src.initial)} accounts via AccountsSource factory.")  # type: ignore[attr-defined]
     print(
         f"   Total version rows in dim_account: {len(versions)} "
         f"({upgraded} expired / escalated)."
@@ -67,7 +67,7 @@ async def _ft_pillar2_payment_graph(engine) -> tuple:
         current_accts = session.exec(
             select(Account)
             .where(Account.is_current == True)  # noqa: E712
-            .order_by(Account.id)
+            .order_by(Account.id)  # type: ignore[arg-type]
             .limit(3)
         ).all()
         while len(current_accts) < 3:  # pragma: no cover
@@ -100,17 +100,17 @@ async def _ft_pillar2_payment_graph(engine) -> tuple:
         session.add_all(transfers)
         session.commit()
         graph = GraphModel(Account, TransferEdge, session=session)
-        a_vertex = await graph.get_vertex(Account, acct_a.id)
-        first_hop = await graph.neighbors(a_vertex, edge_type=TransferEdge)
+        a_vertex = await graph.get_vertex(Account, acct_a.id)  # type: ignore[arg-type]
+        first_hop = await graph.neighbors(a_vertex, edge_type=TransferEdge)  # type: ignore[arg-type]
         total_outflow = sum(
             t.amount_usd for t in transfers if t.subject_id == acct_a.id
         )
         acct_a_id, acct_b_id, acct_c_id = acct_a.id, acct_b.id, acct_c.id
-        a_name, b_name = acct_a.owner_name, acct_b.owner_name
+        a_name, b_name = acct_a.owner_name, acct_b.owner_name  # type: ignore[attr-defined]
 
     print("✅ Pillar 2: Payment Graph — Money-Movement Traversal")
     print(f"   Circular chain: {a_name} → {b_name} → … → {a_name}")
-    print(f"   {a_name}'s first-hop neighbours: {[v.owner_name for v in first_hop]}")
+    print(f"   {a_name}'s first-hop neighbours: {[v.owner_name for v in first_hop]}")  # type: ignore[attr-defined]
     print(f"   {a_name}'s total outflow: ${total_outflow:,.2f}")
     print()
     return acct_a_id, acct_b_id, acct_c_id

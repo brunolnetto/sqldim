@@ -20,6 +20,7 @@ Run:
 from __future__ import annotations
 
 import os
+from typing import Any
 
 import duckdb
 
@@ -37,6 +38,58 @@ def _tmp_db() -> str:
 
 
 # ── Example 14 ────────────────────────────────────────────────────────────────
+
+
+def _fetch_warehouse_summary(con) -> tuple[int, int, int, list]:  # type: ignore[type-arg]
+    """Return ``(total, current, hist, rows)`` from the dim_github_issue table."""
+    total = (con.execute("SELECT COUNT(*) FROM dim_github_issue").fetchone() or (0,))[0]
+    current = (
+        con.execute("SELECT COUNT(*) FROM dim_github_issue WHERE is_current").fetchone()
+        or (0,)
+    )[0]
+    hist = (
+        con.execute(
+            "SELECT COUNT(*) FROM dim_github_issue WHERE NOT is_current"
+        ).fetchone()
+        or (0,)
+    )[0]
+    rows = con.execute(
+        "SELECT issue_id, title, state, is_current FROM dim_github_issue ORDER BY issue_id, valid_from"
+    ).fetchall()
+    return total, current, hist, rows
+
+
+def _report_and_teardown(
+    src: GitHubIssuesSource,
+    warehouse_db: str,
+    staging_db: str,
+    update_db: str,
+) -> None:
+    """Print warehouse summary and clean up all temp files."""
+    con = duckdb.connect(warehouse_db)
+    total, current, hist, rows = _fetch_warehouse_summary(con)
+    src.teardown(con, "dim_github_issue")
+    con.close()
+    for path in (staging_db, warehouse_db, update_db):
+        os.unlink(path)
+
+    print(f"  Warehouse: {total} rows  ({current} current, {hist} historical)")
+    print("  Full history:")
+    for r in rows:
+        flag = "✓" if r[3] else "H"
+        print(f"    [{flag}] #{r[0]}  {r[1]:<42}  [{r[2]}]")
+
+
+def _run_scd2_load(
+    staging_db: str, warehouse_db: str, src: GitHubIssuesSource
+) -> Any:
+    """Run one SCD2 load batch; returns the :class:`SCDResult`."""
+    source = _DatasetSource(staging_db, "issues", "github_staging")
+    with DuckDBSink(warehouse_db) as sink:
+        proc = LazySCDProcessor(
+            "issue_id", ["title", "state", "labels"], sink, con=sink._con
+        )
+        return proc.process(source, "dim_github_issue")
 
 
 def example_14_dlt_github_to_sqldim() -> None:
@@ -64,53 +117,19 @@ def example_14_dlt_github_to_sqldim() -> None:
     setup_con.close()
 
     # ── Initial load ──────────────────────────────────────────────────────
-    source = _DatasetSource(staging_db, "issues", "github_staging")
-    with DuckDBSink(warehouse_db) as sink:
-        proc = LazySCDProcessor(
-            "issue_id", ["title", "state", "labels"], sink, con=sink._con
-        )
-        r1 = proc.process(source, "dim_github_issue")
-    print(f"  T0 initial load → inserted={r1.inserted}")
+    r1 = _run_scd2_load(staging_db, warehouse_db, src)
+    print(f"  T0 initial load → inserted={r1.inserted}")  # type: ignore[attr-defined]
 
     # ── Event batch: issues change state; new issue opened ────────────────
     update_db = _tmp_db()
     src.seed_staging(update_db, batch="updated")  # simulate dlt T1 run
 
-    source2 = _DatasetSource(update_db, "issues", "github_staging")
-    with DuckDBSink(warehouse_db) as sink:
-        proc = LazySCDProcessor(
-            "issue_id", ["title", "state", "labels"], sink, con=sink._con
-        )
-        r2 = proc.process(source2, "dim_github_issue")
+    r2 = _run_scd2_load(update_db, warehouse_db, src)
     print(
-        f"  T1 event batch  → inserted={r2.inserted}, versioned={r2.versioned}, unchanged={r2.unchanged}"
+        f"  T1 event batch  → inserted={r2.inserted}, versioned={r2.versioned}, unchanged={r2.unchanged}"  # type: ignore[attr-defined]
     )
 
-    # ── Report ────────────────────────────────────────────────────────────
-    con = duckdb.connect(warehouse_db)
-    total = con.execute("SELECT COUNT(*) FROM dim_github_issue").fetchone()[0]
-    current = con.execute(
-        "SELECT COUNT(*) FROM dim_github_issue WHERE is_current"
-    ).fetchone()[0]
-    hist = con.execute(
-        "SELECT COUNT(*) FROM dim_github_issue WHERE NOT is_current"
-    ).fetchone()[0]
-    rows = con.execute(
-        "SELECT issue_id, title, state, is_current FROM dim_github_issue ORDER BY issue_id, valid_from"
-    ).fetchall()
-
-    # ── Teardown ──────────────────────────────────────────────────────────
-    src.teardown(con, "dim_github_issue")
-    con.close()
-    os.unlink(staging_db)
-    os.unlink(warehouse_db)
-    os.unlink(update_db)
-
-    print(f"  Warehouse: {total} rows  ({current} current, {hist} historical)")
-    print("  Full history:")
-    for r in rows:
-        flag = "✓" if r[3] else "H"
-        print(f"    [{flag}] #{r[0]}  {r[1]:<42}  [{r[2]}]")
+    _report_and_teardown(src, warehouse_db, staging_db, update_db)
 
 
 def example_15_custom_sink_motherduck() -> None:

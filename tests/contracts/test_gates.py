@@ -1,4 +1,5 @@
 """Tests for Quality Gates — checked in RED, implemented to GREEN."""
+
 import io
 import json
 
@@ -15,6 +16,7 @@ from sqldim.contracts.validation.gates import (
 # ---------------------------------------------------------------------------
 # CheckResult
 # ---------------------------------------------------------------------------
+
 
 class TestCheckResult:
     def test_passed_check(self):
@@ -37,6 +39,7 @@ class TestCheckResult:
 # ---------------------------------------------------------------------------
 # GateResult
 # ---------------------------------------------------------------------------
+
 
 class TestGateResult:
     def _make(self, checks):
@@ -77,6 +80,7 @@ class TestGateResult:
 # ---------------------------------------------------------------------------
 # QualityGate
 # ---------------------------------------------------------------------------
+
 
 class TestQualityGate:
     def test_basic_attributes(self):
@@ -161,9 +165,11 @@ class TestQualityGate:
 # QualityGate — lineage integration
 # ---------------------------------------------------------------------------
 
+
 class TestQualityGateLineage:
     def _make_emitter(self):
         from sqldim.lineage import ConsoleLineageEmitter
+
         buf = io.StringIO()
         emitter = ConsoleLineageEmitter(stream=buf)
         return emitter, buf
@@ -176,11 +182,13 @@ class TestQualityGateLineage:
 
     def test_emits_start_and_complete_on_pass(self):
         emitter, buf = self._make_emitter()
-        gate = QualityGate("bronze_to_silver", Layer.BRONZE, Layer.SILVER, lineage_emitter=emitter)
+        gate = QualityGate(
+            "bronze_to_silver", Layer.BRONZE, Layer.SILVER, lineage_emitter=emitter
+        )
         gate.add_check(lambda: CheckResult("schema", True))
         gate.run()
 
-        lines = [json.loads(l) for l in buf.getvalue().strip().split("\n")]
+        lines = [json.loads(line) for line in buf.getvalue().strip().split("\n")]
         assert len(lines) == 2
         assert lines[0]["eventType"] == "START"
         assert lines[1]["eventType"] == "COMPLETE"
@@ -193,13 +201,15 @@ class TestQualityGateLineage:
         gate.add_check(lambda: CheckResult("freshness", False, "stale"))
         gate.run()
 
-        lines = [json.loads(l) for l in buf.getvalue().strip().split("\n")]
+        lines = [json.loads(line) for line in buf.getvalue().strip().split("\n")]
         assert lines[0]["eventType"] == "START"
         assert lines[1]["eventType"] == "FAIL"
 
     def test_lineage_job_name_includes_gate_name(self):
         emitter, buf = self._make_emitter()
-        gate = QualityGate("my_gate", Layer.BRONZE, Layer.SILVER, lineage_emitter=emitter)
+        gate = QualityGate(
+            "my_gate", Layer.BRONZE, Layer.SILVER, lineage_emitter=emitter
+        )
         gate.run()
 
         data = json.loads(buf.getvalue().strip().split("\n")[0])
@@ -221,7 +231,7 @@ class TestQualityGateLineage:
         gate.add_check(lambda: CheckResult("b", False, "oops"))
         gate.run()
 
-        lines = [json.loads(l) for l in buf.getvalue().strip().split("\n")]
+        lines = [json.loads(line) for line in buf.getvalue().strip().split("\n")]
         facets = lines[1]["run"]["facets"]
         assert facets["check_count"] == 2
         assert facets["pass_count"] == 1
@@ -235,7 +245,7 @@ class TestQualityGateLineage:
         gate.add_check(lambda: CheckResult("a", True))
         gate.run()
 
-        lines = [json.loads(l) for l in buf.getvalue().strip().split("\n")]
+        lines = [json.loads(line) for line in buf.getvalue().strip().split("\n")]
         facets = lines[1]["run"]["facets"]
         assert "failing_checks" not in facets
         assert facets["pass_count"] == 1

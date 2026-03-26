@@ -5,6 +5,7 @@ from sqldim.sinks.sql.motherduck import MotherDuckSink
 
 # ── Helpers ──────────────────────────────────────────────────────────────────
 
+
 def _make_db(tmp_path) -> str:
     """Return a temp .duckdb path that doesn't exist yet."""
     p = str(tmp_path / "md_test.duckdb")
@@ -13,6 +14,7 @@ def _make_db(tmp_path) -> str:
 
 def _create_scd_table(sink: MotherDuckSink, table_name: str) -> None:
     """Create a minimal SCD2 table inside the attached alias."""
+    assert sink._con is not None
     sink._con.execute(f"""
         CREATE TABLE IF NOT EXISTS {sink._alias}.{sink._schema}.{table_name} (
             id           INTEGER PRIMARY KEY,
@@ -28,6 +30,7 @@ def _create_scd_table(sink: MotherDuckSink, table_name: str) -> None:
 
 def _create_mini_dim_table(sink: MotherDuckSink, table_name: str) -> None:
     """Create a minimal mini-dimension table inside the attached alias."""
+    assert sink._con is not None
     sink._con.execute(f"""
         CREATE TABLE IF NOT EXISTS {sink._alias}.{sink._schema}.{table_name} (
             id     INTEGER PRIMARY KEY,
@@ -38,6 +41,7 @@ def _create_mini_dim_table(sink: MotherDuckSink, table_name: str) -> None:
 
 
 # ── __init__ / path construction ─────────────────────────────────────────────
+
 
 def test_local_path_is_used_as_is(tmp_path):
     path = _make_db(tmp_path)
@@ -65,6 +69,7 @@ def test_cloud_name_uses_env_token(monkeypatch):
 
 # ── Context manager ───────────────────────────────────────────────────────────
 
+
 def test_context_manager_opens_and_closes(tmp_path):
     path = _make_db(tmp_path)
     with MotherDuckSink(db=path) as sink:
@@ -81,6 +86,7 @@ def test_context_manager_attached_schema(tmp_path):
 
 # ── current_state_sql ─────────────────────────────────────────────────────────
 
+
 def test_current_state_sql(tmp_path):
     path = _make_db(tmp_path)
     with MotherDuckSink(db=path) as sink:
@@ -90,6 +96,7 @@ def test_current_state_sql(tmp_path):
 
 
 # ── write ─────────────────────────────────────────────────────────────────────
+
 
 def test_write_inserts_rows(tmp_path):
     path = _make_db(tmp_path)
@@ -111,6 +118,7 @@ def test_write_inserts_rows(tmp_path):
 
 
 # ── close_versions ────────────────────────────────────────────────────────────
+
 
 def test_close_versions(tmp_path):
     path = _make_db(tmp_path)
@@ -135,6 +143,7 @@ def test_close_versions(tmp_path):
 
 # ── update_attributes ─────────────────────────────────────────────────────────
 
+
 def test_update_attributes(tmp_path):
     path = _make_db(tmp_path)
     with MotherDuckSink(db=path) as sink:
@@ -146,8 +155,7 @@ def test_update_attributes(tmp_path):
             (1, 'NK1', 'Old Name', 'abc', TRUE, '2024-01-01', NULL)
         """)
         con.execute(
-            "CREATE OR REPLACE VIEW upd_view AS "
-            "SELECT 'NK1' AS nk, 'New Name' AS name"
+            "CREATE OR REPLACE VIEW upd_view AS SELECT 'NK1' AS nk, 'New Name' AS name"
         )
         count = sink.update_attributes(con, "dim_t", "nk", "upd_view", ["name"])
         assert count == 1
@@ -156,6 +164,7 @@ def test_update_attributes(tmp_path):
 
 
 # ── rotate_attributes ─────────────────────────────────────────────────────────
+
 
 def test_rotate_attributes(tmp_path):
     path = _make_db(tmp_path)
@@ -177,19 +186,21 @@ def test_rotate_attributes(tmp_path):
             (1, 'NK1', 'Boston', NULL, TRUE)
         """)
         con.execute(
-            "CREATE OR REPLACE VIEW rot_view AS "
-            "SELECT 'NK1' AS nk, 'NYC' AS city"
+            "CREATE OR REPLACE VIEW rot_view AS SELECT 'NK1' AS nk, 'NYC' AS city"
         )
         count = sink.rotate_attributes(
             con, "dim_addr", "nk", "rot_view", [("city", "prev_city")]
         )
         assert count == 1
-        row = con.execute(f"SELECT city, prev_city FROM {tbl} WHERE nk = 'NK1'").fetchone()
+        row = con.execute(
+            f"SELECT city, prev_city FROM {tbl} WHERE nk = 'NK1'"
+        ).fetchone()
         assert row[0] == "NYC"
         assert row[1] == "Boston"
 
 
 # ── update_milestones ─────────────────────────────────────────────────────────
+
 
 def test_update_milestones(tmp_path):
     path = _make_db(tmp_path)
@@ -217,6 +228,7 @@ def test_update_milestones(tmp_path):
 
 
 # ── upsert ────────────────────────────────────────────────────────────────────
+
 
 def test_upsert_inserts_new_combinations(tmp_path):
     path = _make_db(tmp_path)
@@ -268,6 +280,7 @@ def test_upsert_skips_existing_combinations(tmp_path):
 
 
 # ── __exit__ DETACH exception silenced ───────────────────────────────────────
+
 
 def test_exit_silences_detach_exception(tmp_path):
     """DETACH failure in __exit__ should be silenced, not raised."""

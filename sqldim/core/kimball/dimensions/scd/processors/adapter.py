@@ -40,7 +40,7 @@ def _dicts_to_native(records: list[dict]) -> Any:
 
             return pl.DataFrame()
         except ImportError:
-            import pandas as pd
+            import pandas as pd  # type: ignore[import-untyped]
 
             return pd.DataFrame()
 
@@ -51,7 +51,7 @@ def _dicts_to_native(records: list[dict]) -> Any:
     except ImportError:
         pass
 
-    import pandas as pd
+    import pandas as pd  # type: ignore[import-untyped]
 
     return pd.DataFrame(records)
 

@@ -28,7 +28,10 @@ from sqldim.core.kimball.dimensions.scd.processors.scd_engine import (
 )
 from sqldim.core.query.dgm import DGMQuery
 
-from sqldim.application.datasets.domains.ecommerce import ProductsSource, CustomersSource
+from sqldim.application.datasets.domains.ecommerce import (
+    ProductsSource,
+    CustomersSource,
+)
 
 
 # ── Star-schema builder ───────────────────────────────────────────────────────
@@ -55,7 +58,7 @@ def _read_nw(table: str, con: duckdb.DuckDBPyConnection):
 def _to_pandas(df):
     """Coerce a Narwhals or DuckDB frame to a plain pandas DataFrame."""
     import narwhals as nw
-    import pandas as pd
+    import pandas as pd  # type: ignore[import-untyped]
 
     if isinstance(df, pd.DataFrame):
         return df

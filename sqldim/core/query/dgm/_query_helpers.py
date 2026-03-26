@@ -141,9 +141,7 @@ def _check_having_pred(pred: object) -> None:
                 "Use Where (B1) for PropRef or Qualify (B3) for WinRef."
             )
         if isinstance(ref, SignatureRef):
-            raise SemanticError(
-                "SignatureRef is B1-only; not allowed in Having (B2)."
-            )
+            raise SemanticError("SignatureRef is B1-only; not allowed in Having (B2).")
 
 
 def _check_qualify_pred(pred: object) -> None:
@@ -155,9 +153,7 @@ def _check_qualify_pred(pred: object) -> None:
                 "Use Where (B1) for PropRef or Having (B2) for AggRef."
             )
         if isinstance(ref, SignatureRef):
-            raise SemanticError(
-                "SignatureRef is B1-only; not allowed in Qualify (B3)."
-            )
+            raise SemanticError("SignatureRef is B1-only; not allowed in Qualify (B3).")
 
 
 # ---------------------------------------------------------------------------
@@ -242,14 +238,19 @@ def _dim_join_clause(
     return f"LEFT JOIN {dim_table} {alias} ON {base} AND {alias}.is_current = TRUE"
 
 
+def _scd2_join_lines(q: "DGMQuery", anchor_alias: str) -> list[str]:
+    """Build LEFT JOIN clauses for all SCD2 dimension joins in *q*."""
+    return [
+        _dim_join_clause(anchor_alias, dim_table, alias, fact_fk, dim_pk, q._as_of)
+        for dim_table, alias, fact_fk, dim_pk in q._scd2_joins
+    ]
+
+
 def _build_from_joins(q: "DGMQuery") -> str:
-    anchor_alias = q._anchor_alias or q._anchor_table
+    anchor_alias: str = q._anchor_alias or q._anchor_table or ""
     lines = [f"FROM {q._anchor_table} {anchor_alias}"]
     for table, alias, on in q._joins:
         on_full = _augment_on_with_scd2(on, alias, q._as_of) if q._as_of else on
         lines.append(f"LEFT JOIN {table} {alias} ON {on_full}")
-    for dim_table, alias, fact_fk, dim_pk in q._scd2_joins:
-        lines.append(
-            _dim_join_clause(anchor_alias, dim_table, alias, fact_fk, dim_pk, q._as_of)
-        )
+    lines.extend(_scd2_join_lines(q, anchor_alias))
     return "\n".join(lines)

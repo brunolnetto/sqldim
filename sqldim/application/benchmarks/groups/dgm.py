@@ -10,6 +10,7 @@ Re-export shim for the **dgm** group — implementation split into subgroup modu
 
 CLI: ``dgm``, ``dgm.query``, ``dgm.model.planner``, …
 """
+
 from sqldim.application.benchmarks.groups.dgm_query import (
     group_o_dgm_query,
     group_p_bdd_predicate,

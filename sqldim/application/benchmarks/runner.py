@@ -3,6 +3,7 @@
 Groups: scd (A-I), model (J-N), dgm (O-T).  Output helpers → _output.py;
 critical analysis → _analysis.py.  Usage: python -m sqldim...benchmarks.runner
 """
+
 from __future__ import annotations
 
 import argparse
@@ -11,11 +12,16 @@ import tempfile
 import time
 from typing import Callable
 
-import psutil
+import psutil  # type: ignore[import-untyped]
 
-from sqldim.application.benchmarks._dataset import BenchmarkDatasetGenerator, SCALE_TIERS
+from sqldim.application.benchmarks._dataset import (
+    BenchmarkDatasetGenerator,
+    SCALE_TIERS,
+)
 from sqldim.application.benchmarks._output import (
-    _red, _green, _yellow, _bold, _dim,
+    _red,
+    _yellow,
+    _bold,
     _check_memory_before_group,
     print_system_info,
     print_results_table,
@@ -27,7 +33,8 @@ from sqldim.application.benchmarks._analysis import (
     _compare_with_last_run,
 )
 from sqldim.application.benchmarks.memory_probe import (
-    ABORT_FLOOR_GB, auto_max_tier, MemoryProbe,
+    auto_max_tier,
+    MemoryProbe,
 )
 from sqldim.application.benchmarks.suite import (
     BenchmarkResult,
@@ -60,17 +67,17 @@ from sqldim.application.benchmarks.suite import (
 BENCH_HIERARCHY: dict[str, dict[str, list[str]]] = {
     "scd": {
         "regression": ["A", "B", "C"],
-        "stream":     ["D", "E", "F", "G", "H"],
-        "types":      ["I"],
+        "stream": ["D", "E", "F", "G", "H"],
+        "types": ["I"],
     },
     "model": {
-        "dims":    ["J", "K"],
+        "dims": ["J", "K"],
         "loaders": ["L", "M"],
-        "drift":   ["N"],
+        "drift": ["N"],
     },
     "dgm": {
-        "query":   ["O", "P"],
-        "model":   ["Q", "R", "S"],
+        "query": ["O", "P"],
+        "model": ["Q", "R", "S"],
         "algebra": ["T"],
     },
 }
@@ -107,13 +114,13 @@ _LETTER_FN_MAP: dict[str, Callable] = {
 
 SUBGROUP_DESCRIPTIONS: dict[str, str] = {
     "scd.regression": "SCD regression: scan count, memory safety, throughput scaling",
-    "scd.stream":     "SCD streaming: batch vs stream, change rate, processor, spill, source/sink",
-    "scd.types":      "SCD type variety: Type3, Type4 processor throughput",
-    "model.dims":     "Dimensional model: prebuilt dims (Date/Time) and graph query",
-    "model.loaders":  "Model loaders: Narwhals SCD2 backfill and ORM/Medallion loaders",
-    "model.drift":    "Model drift: schema/quality drift observability (DriftObservatory star schema)",
-    "dgm.query":   "DGM query algebra: three-band query builder and BDD predicate compiler",
-    "dgm.model":   "DGM model: recommender annotation, planner rule cycles, multi-target exporter",
+    "scd.stream": "SCD streaming: batch vs stream, change rate, processor, spill, source/sink",
+    "scd.types": "SCD type variety: Type3, Type4 processor throughput",
+    "model.dims": "Dimensional model: prebuilt dims (Date/Time) and graph query",
+    "model.loaders": "Model loaders: Narwhals SCD2 backfill and ORM/Medallion loaders",
+    "model.drift": "Model drift: schema/quality drift observability (DriftObservatory star schema)",
+    "dgm.query": "DGM query algebra: three-band query builder and BDD predicate compiler",
+    "dgm.model": "DGM model: recommender annotation, planner rule cycles, multi-target exporter",
     "dgm.algebra": "DGM algebra: QuestionAlgebra build/emit, Cross-CTE CSE, CORRELATE suggestions",
 }
 
@@ -143,6 +150,7 @@ _LETTER_DESCRIPTIONS: dict[str, str] = {
 
 # ── Cascade-spec parsing ───────────────────────────────────────────────────
 
+
 def _valid_specs_hint() -> str:
     specs = [f"{g}.{s}" for g, subs in BENCH_HIERARCHY.items() for s in subs]
     return ", ".join([*BENCH_HIERARCHY.keys(), *specs])
@@ -158,7 +166,9 @@ def _validate_spec(grp: str, sub: "str | None", original: str) -> None:
     if grp not in BENCH_HIERARCHY:
         raise ValueError(f"Unknown group {grp!r}. Valid: {_valid_specs_hint()}")
     if sub is not None and sub not in BENCH_HIERARCHY[grp]:
-        raise ValueError(f"Unknown subgroup {grp}.{sub!r}. Valid: {_valid_specs_hint()}")
+        raise ValueError(
+            f"Unknown subgroup {grp}.{sub!r}. Valid: {_valid_specs_hint()}"
+        )
 
 
 def _resolve_spec(spec: str) -> "list[tuple[str, str | None]]":
@@ -201,6 +211,7 @@ def _apply_element_filter(
 
 # ── CLI help ───────────────────────────────────────────────────────────────
 
+
 def _build_groups_epilog() -> str:
     lines = [
         "benchmark groups  (group → subgroup → profile filter):",
@@ -235,7 +246,8 @@ def build_parser() -> argparse.ArgumentParser:
         epilog=_build_groups_epilog(),
     )
     p.add_argument(
-        "cases", nargs="*",
+        "cases",
+        nargs="*",
         metavar="CASE",
         help=(
             "Cascade specs to run: group, group.subgroup, or group.subgroup.profile. "
@@ -243,31 +255,41 @@ def build_parser() -> argparse.ArgumentParser:
         ),
     )
     p.add_argument(
-        "--max-tier", choices=[*SCALE_TIERS.keys(), "auto"], default="auto",
+        "--max-tier",
+        choices=[*SCALE_TIERS.keys(), "auto"],
+        default="auto",
         help="Maximum scale tier (default: auto — selected from available RAM).",
     )
     p.add_argument(
-        "--report", choices=["none", "json", "csv"], default="json",
+        "--report",
+        choices=["none", "json", "csv"],
+        default="json",
         help="Output format for results file",
     )
     p.add_argument(
-        "--out-dir", default="sqldim/benchmarks/results",
+        "--out-dir",
+        default="sqldim/benchmarks/results",
         help="Directory to write result files",
     )
     p.add_argument(
-        "--fail-on-regression", action="store_true",
+        "--fail-on-regression",
+        action="store_true",
         help="Exit with code 1 if any scan regression is detected",
     )
     p.add_argument(
-        "--fail-on-breach", action="store_true",
+        "--fail-on-breach",
+        action="store_true",
         help="Exit with code 1 if any memory safety breach is detected",
     )
     p.add_argument(
-        "--source", choices=SOURCE_NAMES, default="parquet",
+        "--source",
+        choices=SOURCE_NAMES,
+        default="parquet",
         help="Source adapter used for all benchmark groups (default: parquet).",
     )
     p.add_argument(
-        "--compare-last", action="store_true",
+        "--compare-last",
+        action="store_true",
         help="Compare throughput with the most recent saved result file.",
     )
     return p
@@ -289,20 +311,30 @@ def _print_run_header(args, groups_to_run: list, effective_max_tier: str) -> Non
         print(f"  Effective max tier: {effective_max_tier}")
     if args.cases:
         lines = [
-            f"{gid}.{{{','.join(ef)}}}" if ef else gid
-            for gid, ef in groups_to_run
+            f"{gid}.{{{','.join(ef)}}}" if ef else gid for gid, ef in groups_to_run
         ]
         print(f"  Running: {' '.join(lines)}")
     print()
 
 
-def _filter_results(results: list[BenchmarkResult], element_filter: "list[str] | None", group_id: str) -> list[BenchmarkResult]:
+def _filter_results(
+    results: list[BenchmarkResult], element_filter: "list[str] | None", group_id: str
+) -> list[BenchmarkResult]:
     if element_filter is None:
         return results
     return _apply_element_filter(results, element_filter, group_id)
 
 
-def _run_one_group(gen, tmp_dir: str, group_id: str, element_filter: "list[str] | None", fn, desc: str, effective_max_tier: str, args) -> "list[BenchmarkResult] | None":
+def _run_one_group(
+    gen,
+    tmp_dir: str,
+    group_id: str,
+    element_filter: "list[str] | None",
+    fn,
+    desc: str,
+    effective_max_tier: str,
+    args,
+) -> "list[BenchmarkResult] | None":
     """Run a single benchmark group; apply element filter; return results or None to skip."""
     MemoryProbe.reset_hard_abort()
     try:
@@ -320,16 +352,25 @@ def _run_one_group(gen, tmp_dir: str, group_id: str, element_filter: "list[str] 
         results = fn(gen, tmp_dir, max_tier=effective_max_tier, source_name=args.source)
     except Exception as exc:
         import traceback as _tb
+
         print(_red(f"\n  ❌  Group {group_id} crashed unexpectedly:"))
         print(_red(f"     {type(exc).__name__}: {exc}"))
         print(_red(_tb.format_exc()))
-        results = [BenchmarkResult(
-            case_id=f"{group_id}_group_crash",
-            group=group_id, profile="n/a", tier="n/a",
-            processor="n/a", sink="n/a", phase="n/a",
-            n_rows=0, n_changed=0, ok=False,
-            error=f"Group crash: {type(exc).__name__}: {exc}",
-        )]
+        results = [
+            BenchmarkResult(
+                case_id=f"{group_id}_group_crash",
+                group=group_id,
+                profile="n/a",
+                tier="n/a",
+                processor="n/a",
+                sink="n/a",
+                phase="n/a",
+                n_rows=0,
+                n_changed=0,
+                ok=False,
+                error=f"Group crash: {type(exc).__name__}: {exc}",
+            )
+        ]
 
     results = _filter_results(results, element_filter, group_id)
     if not results:
@@ -337,7 +378,9 @@ def _run_one_group(gen, tmp_dir: str, group_id: str, element_filter: "list[str] 
 
     elapsed = time.perf_counter() - t0
     path = _LETTER_TO_PATH.get(group_id, group_id)
-    print(f"     {path} [{group_id}] completed in {elapsed:.1f}s ({len(results)} cases)")
+    print(
+        f"     {path} [{group_id}] completed in {elapsed:.1f}s ({len(results)} cases)"
+    )
     print_results_table(results, group=f"{path} [{group_id}] — {desc}")
     return results
 
@@ -349,10 +392,12 @@ def _update_auto_tier(args, effective_max_tier: str, group_id: str) -> str:
     new_tier = auto_max_tier(new_avail)
     if _TIER_ORDER.index(new_tier) < _TIER_ORDER.index(effective_max_tier):
         path = _LETTER_TO_PATH.get(group_id, group_id)
-        print(_yellow(
-            f"  ⚠️  RAM dropped to {new_avail:.1f} GB after {path} [{group_id}]. "
-            f"Auto-capping remaining groups at tier '{new_tier}'."
-        ))
+        print(
+            _yellow(
+                f"  ⚠️  RAM dropped to {new_avail:.1f} GB after {path} [{group_id}]. "
+                f"Auto-capping remaining groups at tier '{new_tier}'."
+            )
+        )
         return new_tier
     return effective_max_tier
 
@@ -379,28 +424,44 @@ def _compute_exit_code(args, summary: dict) -> int:
 
 
 def _record_low_ram_abort(all_results: list[BenchmarkResult], group_id: str) -> None:
-    all_results.append(BenchmarkResult(
-        case_id=f"{group_id}_skipped_low_ram",
-        group=group_id, profile="n/a", tier="n/a",
-        processor="n/a", sink="n/a", phase="n/a",
-        n_rows=0, n_changed=0, ok=False,
-        error="Insufficient RAM before group",
-    ))
+    all_results.append(
+        BenchmarkResult(
+            case_id=f"{group_id}_skipped_low_ram",
+            group=group_id,
+            profile="n/a",
+            tier="n/a",
+            processor="n/a",
+            sink="n/a",
+            phase="n/a",
+            n_rows=0,
+            n_changed=0,
+            ok=False,
+            error="Insufficient RAM before group",
+        )
+    )
 
 
-def _run_all_groups(groups_to_run: list, args, initial_tier: str) -> list[BenchmarkResult]:
+def _run_all_groups(
+    groups_to_run: list, args, initial_tier: str
+) -> list[BenchmarkResult]:
     all_results: list[BenchmarkResult] = []
     effective_max_tier = initial_tier
 
     with tempfile.TemporaryDirectory(prefix="sqldim_bench_") as tmp_dir:
         with BenchmarkDatasetGenerator(tmp_root=tmp_dir) as gen:
             for group_id, element_filter in groups_to_run:
-                fn   = _LETTER_FN_MAP[group_id]
+                fn = _LETTER_FN_MAP[group_id]
                 path = _LETTER_TO_PATH.get(group_id, group_id)
                 desc = _LETTER_DESCRIPTIONS.get(group_id, path)
                 results = _run_one_group(
-                    gen, tmp_dir, group_id, element_filter,
-                    fn, desc, effective_max_tier, args,
+                    gen,
+                    tmp_dir,
+                    group_id,
+                    element_filter,
+                    fn,
+                    desc,
+                    effective_max_tier,
+                    args,
                 )
                 if results is None:
                     _record_low_ram_abort(all_results, group_id)
@@ -409,7 +470,9 @@ def _run_all_groups(groups_to_run: list, args, initial_tier: str) -> list[Benchm
                     all_results.extend(results)
                 gc.collect()
                 time.sleep(2)
-                effective_max_tier = _update_auto_tier(args, effective_max_tier, group_id)
+                effective_max_tier = _update_auto_tier(
+                    args, effective_max_tier, group_id
+                )
 
     return all_results
 
@@ -424,6 +487,7 @@ def _post_run(args, all_results: list[BenchmarkResult], summary: dict) -> None:
 
 # ── Entry point ────────────────────────────────────────────────────────────
 
+
 def main(argv=None) -> int:
     args = build_parser().parse_args(argv)
 
@@ -434,7 +498,8 @@ def main(argv=None) -> int:
         return 2
 
     groups_to_run: list[tuple[str, "list[str] | None"]] = (
-        list(case_selection.items()) if case_selection is not None
+        list(case_selection.items())
+        if case_selection is not None
         else [(g, None) for g in _LETTER_FN_MAP]
     )
     effective_max_tier = _resolve_effective_tier(args)
@@ -451,4 +516,5 @@ def main(argv=None) -> int:
 
 if __name__ == "__main__":  # pragma: no cover
     import sys
+
     sys.exit(main())

@@ -3,6 +3,7 @@ Tests for sqldim.sinks — DuckDBSink (all 6 operations) and ParquetSink
 (SQL-generation methods only, since file I/O paths need real storage).
 Target: bring sinks/ from 0 % to ~70 % coverage.
 """
+
 import pytest
 import duckdb
 
@@ -12,6 +13,7 @@ from sqldim.sinks import DuckDBSink, ParquetSink, SinkAdapter
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
+
 
 def _setup_ddb_file(path: str) -> None:
     """Create a DuckDB file with the tables needed for the test suite."""
@@ -42,6 +44,7 @@ def _setup_ddb_file(path: str) -> None:
 # SinkAdapter protocol
 # ---------------------------------------------------------------------------
 
+
 class TestSinkAdapterProtocol:
     def test_duckdb_sink_is_sink_adapter(self, tmp_path):
         assert isinstance(DuckDBSink(str(tmp_path / "x.duckdb")), SinkAdapter)
@@ -53,6 +56,7 @@ class TestSinkAdapterProtocol:
 # ---------------------------------------------------------------------------
 # DuckDBSink — current_state_sql
 # ---------------------------------------------------------------------------
+
 
 class TestDuckDBSinkCurrentStateSql:
     def test_returns_alias_qualified_reference(self, tmp_path):
@@ -70,6 +74,7 @@ class TestDuckDBSinkCurrentStateSql:
 # ---------------------------------------------------------------------------
 # DuckDBSink — context manager
 # ---------------------------------------------------------------------------
+
 
 class TestDuckDBSinkContextManager:
     def test_enter_returns_sink(self, tmp_path):
@@ -101,6 +106,7 @@ class TestDuckDBSinkContextManager:
 # ---------------------------------------------------------------------------
 # DuckDBSink — write
 # ---------------------------------------------------------------------------
+
 
 class TestDuckDBSinkWrite:
     def test_write_inserts_rows(self, tmp_path):
@@ -144,6 +150,7 @@ class TestDuckDBSinkWrite:
 # DuckDBSink — write_named
 # ---------------------------------------------------------------------------
 
+
 class TestDuckDBSinkWriteNamed:
     def test_write_named_inserts_only_listed_columns(self, tmp_path):
         """write_named() must insert a subset of columns from a view."""
@@ -160,8 +167,18 @@ class TestDuckDBSinkWriteNamed:
                        42 AS sk
             """)
             n = sink.write_named(
-                con, "pending_named", "dim_product",
-                ["sku", "name", "price", "checksum", "is_current", "valid_from", "valid_to"],
+                con,
+                "pending_named",
+                "dim_product",
+                [
+                    "sku",
+                    "name",
+                    "price",
+                    "checksum",
+                    "is_current",
+                    "valid_from",
+                    "valid_to",
+                ],
             )
             assert n == 1
             count = con.execute(
@@ -182,8 +199,18 @@ class TestDuckDBSinkWriteNamed:
                 WHERE 1 = 0
             """)
             n = sink.write_named(
-                con, "empty_v", "dim_product",
-                ["sku", "name", "price", "checksum", "is_current", "valid_from", "valid_to"],
+                con,
+                "empty_v",
+                "dim_product",
+                [
+                    "sku",
+                    "name",
+                    "price",
+                    "checksum",
+                    "is_current",
+                    "valid_from",
+                    "valid_to",
+                ],
             )
             assert n == 0
 
@@ -201,8 +228,18 @@ class TestDuckDBSinkWriteNamed:
                 SELECT 'S2', 'B', 2.0, 'h2', TRUE, '2024-01-01', NULL
             """)
             n = sink.write_named(
-                con, "pending_multi", "dim_product",
-                ["sku", "name", "price", "checksum", "is_current", "valid_from", "valid_to"],
+                con,
+                "pending_multi",
+                "dim_product",
+                [
+                    "sku",
+                    "name",
+                    "price",
+                    "checksum",
+                    "is_current",
+                    "valid_from",
+                    "valid_to",
+                ],
             )
             assert n == 2
 
@@ -210,6 +247,7 @@ class TestDuckDBSinkWriteNamed:
 # ---------------------------------------------------------------------------
 # DuckDBSink — close_versions
 # ---------------------------------------------------------------------------
+
 
 class TestDuckDBSinkCloseVersions:
     def test_marks_matching_rows_not_current(self, tmp_path):
@@ -257,6 +295,7 @@ class TestDuckDBSinkCloseVersions:
 # DuckDBSink — update_attributes
 # ---------------------------------------------------------------------------
 
+
 class TestDuckDBSinkUpdateAttributes:
     def test_updates_tracked_column(self, tmp_path):
         db = str(tmp_path / "test.duckdb")
@@ -272,9 +311,13 @@ class TestDuckDBSinkUpdateAttributes:
                 CREATE OR REPLACE VIEW changed_updates AS
                 SELECT 'SKU1' AS sku, 'NewName' AS name, 12.50 AS price
             """)
-            sink.update_attributes(con, "dim_product", "sku", "changed_updates", ["name", "price"])
+            sink.update_attributes(
+                con, "dim_product", "sku", "changed_updates", ["name", "price"]
+            )
 
-            row = con.execute(f"SELECT name, price FROM {tbl} WHERE sku = 'SKU1'").fetchone()
+            row = con.execute(
+                f"SELECT name, price FROM {tbl} WHERE sku = 'SKU1'"
+            ).fetchone()
             assert row[0] == "NewName"
             assert row[1] == 12.50
 
@@ -282,6 +325,7 @@ class TestDuckDBSinkUpdateAttributes:
 # ---------------------------------------------------------------------------
 # DuckDBSink — update_milestones
 # ---------------------------------------------------------------------------
+
 
 class TestDuckDBSinkUpdateMilestones:
     def test_patches_non_null_milestones(self, tmp_path):
@@ -300,8 +344,11 @@ class TestDuckDBSinkUpdateMilestones:
                 SELECT 1 AS order_id, '2024-01-03' AS approved_at, NULL AS shipped_at
             """)
             sink.update_milestones(
-                con, "fact_orders", "order_id", "update_rows",
-                ["approved_at", "shipped_at"]
+                con,
+                "fact_orders",
+                "order_id",
+                "update_rows",
+                ["approved_at", "shipped_at"],
             )
             row = con.execute(
                 f"SELECT approved_at FROM {tbl} WHERE order_id = 1"
@@ -321,19 +368,23 @@ class TestDuckDBSinkUpdateMilestones:
                 SELECT 2 AS order_id, NULL AS approved_at, '2024-01-05' AS shipped_at
             """)
             sink.update_milestones(
-                con, "fact_orders", "order_id", "update_rows",
-                ["approved_at", "shipped_at"]
+                con,
+                "fact_orders",
+                "order_id",
+                "update_rows",
+                ["approved_at", "shipped_at"],
             )
             row = con.execute(
                 f"SELECT approved_at, shipped_at FROM {tbl} WHERE order_id = 2"
             ).fetchone()
-            assert row[0] == "2024-01-02"   # preserved
-            assert row[1] == "2024-01-05"   # patched
+            assert row[0] == "2024-01-02"  # preserved
+            assert row[1] == "2024-01-05"  # patched
 
 
 # ---------------------------------------------------------------------------
 # DuckDBSink — rotate_attributes
 # ---------------------------------------------------------------------------
+
 
 class TestDuckDBSinkRotateAttributes:
     def test_rotates_current_to_previous(self, tmp_path):
@@ -365,8 +416,11 @@ class TestDuckDBSinkRotateAttributes:
                 SELECT 1 AS region_id, 'West' AS region
             """)
             sink.rotate_attributes(
-                con, "dim_region", "region_id",
-                "changed_rotations", [("region", "prev_region")]
+                con,
+                "dim_region",
+                "region_id",
+                "changed_rotations",
+                [("region", "prev_region")],
             )
             row = con.execute(
                 f"SELECT region, prev_region FROM {tbl} WHERE region_id = 1"
@@ -378,6 +432,7 @@ class TestDuckDBSinkRotateAttributes:
 # ---------------------------------------------------------------------------
 # ParquetSink — SQL generation (.current_state_sql)
 # ---------------------------------------------------------------------------
+
 
 class TestParquetSinkCurrentStateSql:
     def test_returns_read_parquet_expression(self):

@@ -17,7 +17,9 @@ SQLAlchemy MetaData resolution errors in tests and removes enforcement overhead
 for analytical workloads (DuckDB, Parquet, etc. don't support FK constraints).
 Use Field(foreign_key=..., constraint=True) to explicitly opt-in.
 """
+
 import pytest
+from typing import Any
 
 from sqldim import DimensionModel, FactModel, BridgeModel, Field, VertexModel
 from sqldim.core.kimball.fields import _UNSET
@@ -26,25 +28,26 @@ from sqldim.core.kimball.mixins import SCD2Mixin
 
 # ── Helpers ────────────────────────────────────────────────────────────────────
 
-def _get_indexes(model_class: type) -> set[str]:
+
+def _get_indexes(model_class: Any) -> set[str]:
     """Return set of index names from a SQLModel's mapped table."""
     return {idx.name for idx in model_class.__table__.indexes}
 
 
-def _has_column_index(model_class: type, col_name: str) -> bool:
+def _has_column_index(model_class: Any, col_name: str) -> bool:
     """Return True if a single-column index exists on the given column."""
     col = model_class.__table__.c[col_name]
     # _UNSET sentinel may leak through from Field factory when index was not specified
     return bool(col.index) and col.index is not _UNSET
 
 
-def _has_fk_constraint(model_class: type, col_name: str) -> bool:
+def _has_fk_constraint(model_class: Any, col_name: str) -> bool:
     """Return True if *col_name* has a real SA ForeignKey constraint."""
     col = model_class.__table__.c[col_name]
     return bool(col.foreign_keys)
 
 
-def _fk_target(model_class: type, col_name: str) -> str | None:
+def _fk_target(model_class: Any, col_name: str) -> str | None:
     """Return the FK target string from column.info, or None."""
     col = model_class.__table__.c[col_name]
     return col.info.get("foreign_key_target")
@@ -53,6 +56,7 @@ def _fk_target(model_class: type, col_name: str) -> str | None:
 # ── Concern 1 & 2: FK auto-index (covers facts and graph edges) ───────────────
 # No referenced dimension tables are defined here — this confirms that FK-like
 # columns are indexed without requiring the target table to exist.
+
 
 class OrderFact(FactModel, table=True):
     __tablename__ = "order_fact"
@@ -77,8 +81,10 @@ class ExplicitOptOut(FactModel, table=True):
 
 # ── Concern 6: opt-in FK constraint (target table must exist in same MetaData) ─
 
+
 class ConstraintDim(DimensionModel, table=True):
     """Referenced table for the constraint=True test."""
+
     __tablename__ = "constraint_dim"
     id: int = Field(primary_key=True)
     code: str
@@ -91,6 +97,7 @@ class ConstraintFact(FactModel, table=True):
 
 
 # ── Tests: auto-index on FK columns ──────────────────────────────────────────
+
 
 def test_fk_auto_indexed_on_fact():
     """FK columns on fact tables are auto-indexed."""
@@ -113,6 +120,7 @@ def test_non_fk_not_auto_indexed():
 
 # ── Concern 5: FK metadata in column.info — no DB constraint by default ──────
 
+
 def test_fk_target_stored_in_column_info():
     """FK target string is stored in column.info, not as an SA constraint."""
     assert _fk_target(OrderFact, "customer_id") == "customer.id"
@@ -134,6 +142,7 @@ def test_fk_opt_out_no_constraint_and_no_index():
 
 # ── Concern 6: constraint=True opt-in ────────────────────────────────────────
 
+
 def test_constraint_true_creates_fk_constraint():
     """constraint=True passes the FK through to SQLModel, creating a real constraint."""
     assert _has_fk_constraint(ConstraintFact, "dim_id")
@@ -150,6 +159,7 @@ def test_constraint_true_target_in_info():
 
 
 # ── Concern 3: Bridge composite key unique index ──────────────────────────────
+
 
 class SimpleBridge(BridgeModel, table=True):
     __tablename__ = "simple_bridge"
@@ -213,6 +223,7 @@ def test_bridge_keys_dict_only_table_args_raises():
 
 # ── Concern 4: SCD2Mixin valid_from indexing ─────────────────────────────────
 
+
 class SCD2Dim(DimensionModel, SCD2Mixin, table=True):
     __tablename__ = "scd2_dim"
     id: int = Field(primary_key=True)
@@ -236,6 +247,7 @@ def test_checksum_indexed():
 
 
 # ── Concern 7: DimensionModel __natural_key__ auto-index ─────────────────────
+
 
 class SingleNKDim(DimensionModel, table=True):
     __tablename__ = "single_nk_dim"
@@ -268,6 +280,7 @@ class NKVertex(VertexModel, table=True):
 
 class NKDimWithOpts(DimensionModel, table=True):
     """Dimension with __natural_key__ and an existing trailing-dict __table_args__."""
+
     __tablename__ = "nk_dim_with_opts"
     __natural_key__ = ["ref"]
     id: int = Field(primary_key=True)
@@ -282,7 +295,9 @@ def test_natural_key_single_column_creates_named_index():
 
 def test_natural_key_single_column_is_non_unique():
     """Natural key index is NOT unique — SCD2 has multiple rows per NK."""
-    idx = next(i for i in SingleNKDim.__table__.indexes if i.name == "ix_single_nk_dim_nk")
+    idx = next(
+        i for i in SingleNKDim.__table__.indexes if i.name == "ix_single_nk_dim_nk"
+    )
     assert not idx.unique
 
 
@@ -290,7 +305,9 @@ def test_natural_key_multi_column_creates_composite_index():
     """Multi-column __natural_key__ gets a composite index over all NK columns."""
     indexes = _get_indexes(MultiNKDim)
     assert "ix_multi_nk_dim_nk" in indexes
-    idx = next(i for i in MultiNKDim.__table__.indexes if i.name == "ix_multi_nk_dim_nk")
+    idx = next(
+        i for i in MultiNKDim.__table__.indexes if i.name == "ix_multi_nk_dim_nk"
+    )
     assert len(idx.columns) == 2
     assert not idx.unique
 
@@ -317,6 +334,7 @@ def test_nk_merges_with_existing_table_args_dict():
 def test_nk_dict_table_args_raises():
     """DimensionModel with a plain-dict __table_args__ and __natural_key__ raises TypeError."""
     with pytest.raises(TypeError, match="__table_args__ is a dict"):
+
         class BadNKDim(DimensionModel, table=True):
             __tablename__ = "bad_nk_dim_for_test"
             __natural_key__ = ["code"]

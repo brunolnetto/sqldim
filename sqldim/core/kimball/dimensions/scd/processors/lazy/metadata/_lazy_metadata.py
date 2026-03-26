@@ -196,7 +196,7 @@ class LazySCDMetadataProcessor(_MetadataWriteMixin, _MetadataStreamMixin):
                    countif(_scd_class = 'unchanged') AS n_unchanged
             FROM classified
         """).fetchone()
-        n_new, n_changed, n_unchanged = stats[0], stats[1], stats[2]
+        n_new, n_changed, n_unchanged = stats if stats is not None else (0, 0, 0)
         _log.info(
             f"[sqldim] {table_name}: classified — "
             f"{n_new:,} new, {n_changed:,} changed, {n_unchanged:,} unchanged"

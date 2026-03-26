@@ -64,7 +64,7 @@ def backfill_scd2(
 
     result = session.execute(text(sql))
     session.commit()
-    return result.rowcount or 0
+    return result.rowcount or 0  # type: ignore[attr-defined]
 
 
 def backfill_cumulative(
@@ -97,4 +97,4 @@ def backfill_cumulative(
     """
     result = session.execute(text(sql))
     session.commit()
-    return result.rowcount or 0
+    return result.rowcount or 0  # type: ignore[attr-defined]

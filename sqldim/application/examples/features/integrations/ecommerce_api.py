@@ -15,7 +15,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from flask import Flask, jsonify, request
+from flask import Flask, jsonify, request  # type: ignore[import-not-found]
 
 _app = Flask(__name__)
 _store: dict[int, dict[str, Any]] = {}  # customer_id -> row dict

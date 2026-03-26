@@ -11,7 +11,6 @@ Covers:
 
 from __future__ import annotations
 
-import pytest
 
 from sqldim.core.query.dgm.temporal import (
     # TemporalMode
@@ -164,9 +163,17 @@ class TestPointOrdering:
 
 
 _ALLEN_CLASSES = [
-    MEETS, MET_BY, OVERLAPS, OVERLAPPED_BY,
-    STARTS, STARTED_BY, DURING, CONTAINS,
-    FINISHES, FINISHED_BY, EQUALS,
+    MEETS,
+    MET_BY,
+    OVERLAPS,
+    OVERLAPPED_BY,
+    STARTS,
+    STARTED_BY,
+    DURING,
+    CONTAINS,
+    FINISHES,
+    FINISHED_BY,
+    EQUALS,
 ]
 
 

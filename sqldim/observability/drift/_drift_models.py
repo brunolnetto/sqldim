@@ -94,9 +94,7 @@ class ObsSchemaEvolutionFact(TransactionFact, table=True):
     __grain__ = "one row per column-level schema change per pipeline run"
     __strategy__ = "bulk"
 
-    evo_fact_id: int | None = Field(
-        default=None, primary_key=True, surrogate_key=True
-    )
+    evo_fact_id: int | None = Field(default=None, primary_key=True, surrogate_key=True)
     run_id: int = Field(foreign_key="obs_pipeline_run_dim.run_id", measure=False)
     dataset_id: int = Field(foreign_key="obs_dataset_dim.dataset_id", measure=False)
     evo_type_id: int | None = Field(

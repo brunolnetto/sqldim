@@ -1,4 +1,5 @@
 """Tests for sqldim.io — clustering strategies and Compactor."""
+
 from __future__ import annotations
 
 import os
@@ -15,6 +16,7 @@ from sqldim.io.clustering import NoOpClustering
 # ClusteringStrategy protocol
 # ---------------------------------------------------------------------------
 
+
 class TestClusteringStrategyProtocol:
     def test_sort_based_satisfies_protocol(self):
         assert isinstance(SortBasedClustering(), ClusteringStrategy)
@@ -26,6 +28,7 @@ class TestClusteringStrategyProtocol:
 # ---------------------------------------------------------------------------
 # SortBasedClustering
 # ---------------------------------------------------------------------------
+
 
 class TestSortBasedClustering:
     def setup_method(self):
@@ -49,6 +52,7 @@ class TestSortBasedClustering:
 # NoOpClustering
 # ---------------------------------------------------------------------------
 
+
 class TestNoOpClustering:
     def setup_method(self):
         self.s = NoOpClustering()
@@ -65,6 +69,7 @@ class TestNoOpClustering:
 # ---------------------------------------------------------------------------
 # Compactor
 # ---------------------------------------------------------------------------
+
 
 class TestCompactor:
     """Exercises Compactor.compact() — SQL generation and real round-trips."""
@@ -102,7 +107,9 @@ class TestCompactor:
 
     def test_compact_zorder_by_generates_order_clause(self):
         con = self._mock_con()
-        Compactor.compact(con, "/data/my_table", zorder_by=["customer_id", "product_id"])
+        Compactor.compact(
+            con, "/data/my_table", zorder_by=["customer_id", "product_id"]
+        )
         copy_sql = con.execute.call_args_list[0][0][0]
         assert "ORDER BY customer_id, product_id" in copy_sql
 

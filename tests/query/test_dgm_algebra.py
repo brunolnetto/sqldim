@@ -18,13 +18,14 @@ from sqldim.core.query.dgm.algebra import (
     ComposeOp,
 )
 from sqldim.core.query.dgm.core import DGMQuery
-from sqldim.core.query.dgm.preds import ScalarPred, AND
-from sqldim.core.query.dgm.refs import PropRef, AggRef
+from sqldim.core.query.dgm.preds import ScalarPred
+from sqldim.core.query.dgm.refs import PropRef
 
 
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
+
 
 def _simple_q(anchor: str = "o_fact", alias: str = "f") -> DGMQuery:
     """Return a minimal single-anchor DGMQuery for test use."""
@@ -200,14 +201,16 @@ class TestQuestionAlgebraCompose:
 
     def test_join_with_key_succeeds(self):
         qa = self._qa_two()
-        result = qa.compose("q1", ComposeOp.JOIN, "q2",
-                             name="q_join", on="q1.id = q2.id")
+        result = qa.compose(
+            "q1", ComposeOp.JOIN, "q2", name="q_join", on="q1.id = q2.id"
+        )
         assert isinstance(result, ComposedQuery)
 
     def test_join_sql_contains_join_keyword(self):
         qa = self._qa_two()
-        result = qa.compose("q1", ComposeOp.JOIN, "q2",
-                             name="q_join", on="q1.id = q2.id")
+        result = qa.compose(
+            "q1", ComposeOp.JOIN, "q2", name="q_join", on="q1.id = q2.id"
+        )
         sql = result.to_cte_sql()
         assert "JOIN" in sql.upper()
 

@@ -14,9 +14,11 @@ Instantiate and use with a DuckDB connection:
 
     user_activity_dataset.teardown(con)
 """
+
 from sqldim.application.datasets.dataset import Dataset
 from sqldim.application.datasets.domains.user_activity.sources import (
-    DevicesSource, EventsSource,
+    DevicesSource,
+    EventsSource,
 )
 
 user_activity_dataset = Dataset(
@@ -27,4 +29,11 @@ user_activity_dataset = Dataset(
     ],
 )
 
-__all__ = ["user_activity_dataset"]
+DATASET_METADATA = {
+    "name": "user_activity",
+    "title": "User activity stream",
+    "description": "Users, devices, sessions, events, and engagement metrics",
+    "dataset_attr": "user_activity_dataset",
+}
+
+__all__ = ["user_activity_dataset", "DATASET_METADATA"]

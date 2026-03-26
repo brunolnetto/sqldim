@@ -1,4 +1,5 @@
 """DGM showcase — algebra demos (QuestionAlgebra, CSE, CORRELATE)."""
+
 from __future__ import annotations
 
 from sqldim import DGMQuery, PropRef, ScalarPred
@@ -39,16 +40,20 @@ def demo_question_algebra() -> None:
     qa.compose("q_retail", ComposeOp.UNION, "q_wholesale", name="q_all_segments")
     print(f"  Registered CTEs: {qa.names}")
 
-    qa.compose("q_wholesale", ComposeOp.INTERSECT, "q_highval", name="q_wholesale_highval")
-    qa.compose("q_retail", ComposeOp.JOIN, "q_highval", name="q_cross", on="l.id = r.id")
+    qa.compose(
+        "q_wholesale", ComposeOp.INTERSECT, "q_highval", name="q_wholesale_highval"
+    )
+    qa.compose(
+        "q_retail", ComposeOp.JOIN, "q_highval", name="q_cross", on="l.id = r.id"
+    )
 
     sql_union = qa.to_sql("q_all_segments")
-    print(f"\n  UNION query ({sql_union.count(chr(10))+1} lines):\n")
+    print(f"\n  UNION query ({sql_union.count(chr(10)) + 1} lines):\n")
     for line in sql_union.splitlines():
         print(f"    {line}")
 
     sql_cross = qa.to_sql("q_cross")
-    print(f"\n  JOIN query ({sql_cross.count(chr(10))+1} lines):\n")
+    print(f"\n  JOIN query ({sql_cross.count(chr(10)) + 1} lines):\n")
     for line in sql_cross.splitlines():
         print(f"    {line}")
 
@@ -85,14 +90,16 @@ def demo_cse() -> None:
     shared_pred = ScalarPred(PropRef("f", "region"), "=", "US")
     q1 = DGMQuery().anchor("o_fact", "f").where(shared_pred)
     q2 = DGMQuery().anchor("o_fact", "f").where(shared_pred)
-    q3 = DGMQuery().anchor("o_fact", "f").where(
-        ScalarPred(PropRef("f", "revenue"), ">", 200)
+    q3 = (
+        DGMQuery()
+        .anchor("o_fact", "f")
+        .where(ScalarPred(PropRef("f", "revenue"), ">", 200))
     )
 
     qa = QuestionAlgebra()
-    qa.add("us_sales",       q1)
-    qa.add("us_sales_copy",  q2)
-    qa.add("highval_sales",  q3)
+    qa.add("us_sales", q1)
+    qa.add("us_sales_copy", q2)
+    qa.add("highval_sales", q3)
 
     bdd = DGMPredicateBDD(BDDManager())
     shared = find_shared_predicates(qa, bdd)
@@ -111,17 +118,33 @@ def demo_correlate() -> None:
 
     _section("Example 9 — §7.2 CORRELATE recommendations")
 
-    q_us   = DGMQuery().anchor("o_fact", "f").where(ScalarPred(PropRef("f", "region"), "=", "US"))
-    q_eu   = DGMQuery().anchor("o_fact", "f").where(ScalarPred(PropRef("f", "region"), "=", "EU"))
-    q_apac = DGMQuery().anchor("o_fact", "f").where(ScalarPred(PropRef("f", "region"), "=", "APAC"))
-    q_events = DGMQuery().anchor("o_events", "e").where(ScalarPred(PropRef("e", "type"), "=", "click"))
+    q_us = (
+        DGMQuery()
+        .anchor("o_fact", "f")
+        .where(ScalarPred(PropRef("f", "region"), "=", "US"))
+    )
+    q_eu = (
+        DGMQuery()
+        .anchor("o_fact", "f")
+        .where(ScalarPred(PropRef("f", "region"), "=", "EU"))
+    )
+    q_apac = (
+        DGMQuery()
+        .anchor("o_fact", "f")
+        .where(ScalarPred(PropRef("f", "region"), "=", "APAC"))
+    )
+    q_events = (
+        DGMQuery()
+        .anchor("o_events", "e")
+        .where(ScalarPred(PropRef("e", "type"), "=", "click"))
+    )
 
     qa = (
         QuestionAlgebra()
-        .add("us_sales",   q_us)
-        .add("eu_sales",   q_eu)
+        .add("us_sales", q_us)
+        .add("eu_sales", q_eu)
         .add("apac_sales", q_apac)
-        .add("clickevts",  q_events)
+        .add("clickevts", q_events)
     )
 
     rec = DGMRecommender(AnnotationSigma([]))

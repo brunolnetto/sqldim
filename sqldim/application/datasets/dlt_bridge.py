@@ -45,7 +45,7 @@ import tempfile  # pragma: no cover
 from collections.abc import Callable  # pragma: no cover
 from typing import Any  # pragma: no cover
 
-import dlt  # pragma: no cover
+import dlt  # pragma: no cover  # type: ignore[import-not-found]
 
 from sqldim.sources import SQLSource  # pragma: no cover
 

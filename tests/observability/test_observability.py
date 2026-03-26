@@ -1,4 +1,5 @@
 """Tests for Observability — PipelineSpan, MetricSample, OTelCollector."""
+
 import time
 import pytest
 
@@ -15,6 +16,7 @@ from sqldim.observability import (
 # SpanStatus
 # ---------------------------------------------------------------------------
 
+
 class TestSpanStatus:
     def test_ok_and_error_exist(self):
         assert SpanStatus.OK
@@ -27,6 +29,7 @@ class TestSpanStatus:
 # ---------------------------------------------------------------------------
 # PipelineSpan
 # ---------------------------------------------------------------------------
+
 
 class TestPipelineSpan:
     def test_has_required_fields(self):
@@ -54,6 +57,7 @@ class TestPipelineSpan:
 # MetricKind
 # ---------------------------------------------------------------------------
 
+
 class TestMetricKind:
     def test_all_kinds_exist(self):
         assert MetricKind.GAUGE
@@ -68,6 +72,7 @@ class TestMetricKind:
 # ---------------------------------------------------------------------------
 # MetricSample
 # ---------------------------------------------------------------------------
+
 
 class TestMetricSample:
     def test_basic_fields(self):
@@ -89,6 +94,7 @@ class TestMetricSample:
 
     def test_timestamp_is_recent(self):
         from datetime import datetime, timezone
+
         before = datetime.now(timezone.utc)
         s = MetricSample(name="x", value=1.0, kind=MetricKind.GAUGE)
         after = datetime.now(timezone.utc)
@@ -98,6 +104,7 @@ class TestMetricSample:
 # ---------------------------------------------------------------------------
 # OTelCollector — span context manager
 # ---------------------------------------------------------------------------
+
 
 class TestOTelCollectorSpans:
     def test_span_context_manager_records_span(self):
@@ -158,6 +165,7 @@ class TestOTelCollectorSpans:
 # OTelCollector — metrics
 # ---------------------------------------------------------------------------
 
+
 class TestOTelCollectorMetrics:
     def test_record_metric(self):
         col = OTelCollector()
@@ -186,10 +194,14 @@ class TestOTelCollectorMetrics:
 # _print_fallback — observability showcase helper
 # ---------------------------------------------------------------------------
 
+
 class TestPrintFallback:
     def test_fetchall_success_prints_rows(self, capsys):
-        from sqldim.application.examples.features.observability.showcase import _print_fallback
+        from sqldim.application.examples.features.observability.showcase import (
+            _print_fallback,
+        )
         from unittest.mock import MagicMock
+
         rel = MagicMock()
         rel.fetchall.return_value = [("row1",), ("row2",)]
         _print_fallback(rel, Exception("ignored"))
@@ -198,8 +210,11 @@ class TestPrintFallback:
         assert "row2" in out
 
     def test_fetchall_raises_prints_query_error(self, capsys):
-        from sqldim.application.examples.features.observability.showcase import _print_fallback
+        from sqldim.application.examples.features.observability.showcase import (
+            _print_fallback,
+        )
         from unittest.mock import MagicMock
+
         rel = MagicMock()
         rel.fetchall.side_effect = RuntimeError("db gone")
         _print_fallback(rel, Exception("original error"))

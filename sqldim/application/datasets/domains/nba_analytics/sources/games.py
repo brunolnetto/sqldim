@@ -91,7 +91,7 @@ def _game_row(
 ) -> str:
     pts_h = round(random.uniform(95, 130), 1)
     pts_a = round(random.uniform(95, 130), 1)
-    wins  = 1 if pts_h > pts_a else 0
+    wins = 1 if pts_h > pts_a else 0
     row = (
         f"DATE '{game_date}', "
         f"{game_id}, "
@@ -164,16 +164,16 @@ class GamesSource(BaseSource):
         random.seed(seed)
         self._rows: list[str] = []
         self._game_ids: list[int] = []
-        self._team_pairs: list[tuple[int, int]] = []   # (home_id, away_id) per game
+        self._team_pairs: list[tuple[int, int]] = []  # (home_id, away_id) per game
 
         start_date = date(2020, 10, 20)
-        team_ids   = list(NBA_TEAM_IDS)
+        team_ids = list(NBA_TEAM_IDS)
 
         for i in range(n):
             home, away = random.sample(team_ids, 2)
-            season     = random.choice(_SEASONS)
-            game_date  = start_date + timedelta(days=random.randint(0, 730))
-            game_id    = 22200001 + i
+            season = random.choice(_SEASONS)
+            game_date = start_date + timedelta(days=random.randint(0, 730))
+            game_id = 22200001 + i
             self._rows.append(_game_row(game_id, game_date, home, away, season))
             self._game_ids.append(game_id)
             self._team_pairs.append((home, away))
@@ -186,7 +186,9 @@ class GamesSource(BaseSource):
 
     def setup(self, con: duckdb.DuckDBPyConnection, table: str) -> None:
         con.execute(_GAMES_DDL.format(table=table))
-        con.execute(f"INSERT INTO {table} SELECT * FROM ({self.snapshot().as_sql(con)})")
+        con.execute(
+            f"INSERT INTO {table} SELECT * FROM ({self.snapshot().as_sql(con)})"
+        )
 
     @property
     def game_ids(self) -> list[int]:

@@ -5,10 +5,12 @@ from sqlmodel import Session, create_engine, SQLModel, select
 from sqldim import DimensionModel, FactModel, Field, SCD2Mixin
 from sqldim.core.loaders.fact.snapshot import SnapshotLoader
 
+
 class AccountDim(DimensionModel, SCD2Mixin, table=True):
     __natural_key__ = ["account_code"]
     id: int = Field(primary_key=True, surrogate_key=True)
     account_code: str
+
 
 class BalanceFact(FactModel, table=True):
     __grain__ = "one row per account per day"
@@ -17,6 +19,7 @@ class BalanceFact(FactModel, table=True):
     balance: float
     snapshot_date: str  # stored as ISO date string for SQLite compatibility
 
+
 @pytest.fixture
 def session():
     engine = create_engine(
@@ -24,10 +27,13 @@ def session():
         connect_args={"check_same_thread": False},
         poolclass=StaticPool,
     )
-    SQLModel.metadata.create_all(engine, tables=[AccountDim.__table__, BalanceFact.__table__])
+    SQLModel.metadata.create_all(
+        engine, tables=[AccountDim.__table__, BalanceFact.__table__]
+    )
     with Session(engine) as s:
         yield s
     engine.dispose()
+
 
 def test_snapshot_load_inserts_rows(session):
     loader = SnapshotLoader(
@@ -47,6 +53,7 @@ def test_snapshot_load_inserts_rows(session):
     assert len(rows) == 2
     assert all(r.snapshot_date == "2024-06-01" for r in rows)
 
+
 def test_snapshot_date_injected(session):
     snap_date = date(2024, 12, 31)
     loader = SnapshotLoader(
@@ -59,6 +66,7 @@ def test_snapshot_date_injected(session):
     row = session.exec(select(BalanceFact)).one()
     assert row.snapshot_date == "2024-12-31"
 
+
 def test_snapshot_custom_date_field(session):
     # SnapshotLoader supports a custom date_field name
     loader = SnapshotLoader(
@@ -70,6 +78,7 @@ def test_snapshot_custom_date_field(session):
     )
     count = loader.load([{"account_id": 4, "balance": 750.0}])
     assert count == 1
+
 
 def test_snapshot_empty_records(session):
     loader = SnapshotLoader(

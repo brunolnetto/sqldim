@@ -1,4 +1,5 @@
 """Tests for DriftObservatory and its helper functions."""
+
 from __future__ import annotations
 
 import os
@@ -15,6 +16,7 @@ from sqldim.observability.drift import (
 # ---------------------------------------------------------------------------
 # Helpers / minimal report stubs
 # ---------------------------------------------------------------------------
+
 
 @dataclass
 class _Change:
@@ -48,6 +50,7 @@ class _ContractReport:
 # DriftObservatory.from_path — lines 343-344
 # ---------------------------------------------------------------------------
 
+
 class TestDriftObservatoryFromPath:
     def test_from_path_creates_file_backed_observatory(self, tmp_path):
         """from_path() opens/creates a file-backed DuckDB connection (lines 343-344)."""
@@ -71,13 +74,16 @@ class TestDriftObservatoryFromPath:
 # ingest_evolution empty report (line 462 — early return 0)
 # ---------------------------------------------------------------------------
 
+
 class TestIngestEvolutionEarlyReturn:
     def test_ingest_evolution_empty_report_returns_zero(self):
         """EvolutionReport with no changes → ingest_evolution returns 0 (line 462)."""
         obs = DriftObservatory.in_memory()
         report = _EvolutionReport()  # no changes
         result = obs.ingest_evolution(
-            report, dataset="ds", run_id="r1",
+            report,
+            dataset="ds",
+            run_id="r1",
         )
         assert result == 0
 
@@ -94,6 +100,7 @@ class TestIngestEvolutionEarlyReturn:
 # ---------------------------------------------------------------------------
 # ingest_quality empty violations (line 503 — early return 0)
 # ---------------------------------------------------------------------------
+
 
 class TestIngestQualityEarlyReturn:
     def test_ingest_quality_no_violations_returns_zero(self):
@@ -114,6 +121,7 @@ class TestIngestQualityEarlyReturn:
 # ---------------------------------------------------------------------------
 # Gold-layer analytical query methods (lines 577, 652 etc.)
 # ---------------------------------------------------------------------------
+
 
 def _seeded_observatory():
     """Return an observatory with pre-ingested evolution and quality data."""
@@ -187,6 +195,7 @@ class TestGoldLayerQueries:
 # transaction() context manager (drift/__init__.py lines 177-183)
 # ---------------------------------------------------------------------------
 
+
 class TestTransaction:
     def test_transaction_commits_on_success(self):
         """transaction() wraps ingest calls in a single BEGIN/COMMIT block."""
@@ -213,6 +222,7 @@ class TestTransaction:
 # ---------------------------------------------------------------------------
 # _upsert_* DB-cache-hit branches (lines 211-212, 231-232, 254-255)
 # ---------------------------------------------------------------------------
+
 
 class TestUpsertDbCacheHit:
     def test_dataset_db_cache_hit(self):

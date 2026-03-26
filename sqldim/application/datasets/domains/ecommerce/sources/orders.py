@@ -94,11 +94,11 @@ class OrdersSource(BaseSource):
     )
 
     @property
-    def OLTP_DDL(self) -> str:  # noqa: N802
+    def OLTP_DDL(self) -> str:  # type: ignore[override]  # noqa: N802
         return _ORDERS_SPEC.source.oltp_ddl()
 
     @property
-    def DIM_DDL(self) -> str:  # noqa: N802
+    def DIM_DDL(self) -> str:  # type: ignore[override]  # noqa: N802
         """Fact target DDL for LazyAccumulatingLoader (no SCD audit columns)."""
         return _ORDERS_SPEC.fact.oltp_ddl()
 

@@ -4,6 +4,7 @@ Tests for sqldim/sinks/postgresql.py — PostgreSQLSink.
 Uses pytest-postgresql to spin up a real PostgreSQL 16 process via pg_ctl.
 DuckDB's postgres extension (no psycopg2 in the hot path) writes through to PG.
 """
+
 from __future__ import annotations
 import duckdb
 from pytest_postgresql import factories
@@ -14,7 +15,7 @@ from sqldim.sinks.sql.postgresql import PostgreSQLSink
 # Infrastructure
 # ---------------------------------------------------------------------------
 
-PG_EXE  = "/usr/lib/postgresql/16/bin/pg_ctl"
+PG_EXE = "/usr/lib/postgresql/16/bin/pg_ctl"
 PG_PORT = 15437  # unique port — avoid collisions with other fixtures
 
 postgresql_proc = factories.postgresql_proc(
@@ -75,15 +76,17 @@ class TestPostgreSQLSinkUnit:
         assert dsn in sql
 
     def test_current_state_sql_custom_schema(self):
-        sink = PostgreSQLSink("host=127.0.0.1 port=5432 user=postgres dbname=tests", schema="analytics")
+        sink = PostgreSQLSink(
+            "host=127.0.0.1 port=5432 user=postgres dbname=tests", schema="analytics"
+        )
         sql = sink.current_state_sql("players")
         assert "analytics" in sql
 
     def test_init_defaults(self):
         sink = PostgreSQLSink("host=127.0.0.1 port=5432 user=postgres dbname=tests")
         assert sink._schema == "public"
-        assert sink._alias  == "sqldim_pg"
-        assert sink._con    is None
+        assert sink._alias == "sqldim_pg"
+        assert sink._con is None
 
 
 # ---------------------------------------------------------------------------
@@ -158,7 +161,9 @@ class TestPostgreSQLSinkCloseVersions:
                 SELECT 'a' AS player_id
             """)
             sink = PostgreSQLSink(dsn)
-            count = sink.close_versions(con, "dim_cv", "player_id", "to_close", "2024-12-31")
+            count = sink.close_versions(
+                con, "dim_cv", "player_id", "to_close", "2024-12-31"
+            )
         finally:
             con.close()
 
@@ -190,7 +195,9 @@ class TestPostgreSQLSinkUpdateAttributes:
                 SELECT 'x' AS player_id, 99 AS rating
             """)
             sink = PostgreSQLSink(dsn)
-            count = sink.update_attributes(con, "dim_ua", "player_id", "attr_updates", ["rating"])
+            count = sink.update_attributes(
+                con, "dim_ua", "player_id", "attr_updates", ["rating"]
+            )
         finally:
             con.close()
 
@@ -235,7 +242,10 @@ class TestPostgreSQLSinkRotateAttributes:
             """)
             sink = PostgreSQLSink(dsn)
             count = sink.rotate_attributes(
-                con, "dim_ra", "player_id", "rot_data",
+                con,
+                "dim_ra",
+                "player_id",
+                "rot_data",
                 column_pairs=[("rating", "prev_rating")],
             )
         finally:
@@ -286,7 +296,10 @@ class TestPostgreSQLSinkUpdateMilestones:
             """)
             sink = PostgreSQLSink(dsn)
             count = sink.update_milestones(
-                con, "dim_ms", "player_id", "ms_updates",
+                con,
+                "dim_ms",
+                "player_id",
+                "ms_updates",
                 milestone_cols=["first_game", "last_game"],
             )
         finally:
@@ -295,7 +308,9 @@ class TestPostgreSQLSinkUpdateMilestones:
         assert count == 1
 
         with postgresql.cursor() as cur:
-            cur.execute("SELECT first_game, last_game FROM dim_ms WHERE player_id = 'z'")
+            cur.execute(
+                "SELECT first_game, last_game FROM dim_ms WHERE player_id = 'z'"
+            )
             row = cur.fetchone()
         assert str(row[0]) == "2020-01-15"
         assert str(row[1]) == "2024-06-30"

@@ -2,14 +2,12 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from enum import Enum
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
-    from sqldim.core.query.dgm.bdd import DGMPredicateBDD
-    from sqldim.core.query.dgm.graph import GraphStatistics
-    from sqldim.core.query.dgm.annotations import AnnotationSigma
+    pass
 
 __all__ = [
     "SuggestionKind",
@@ -35,6 +33,7 @@ ENTROPY_THRESHOLD: float = 0.5
 
 class SuggestionKind(Enum):
     """Categorises the type of analytic suggestion produced by the recommender."""
+
     # Band 1 — Context
     SCALAR_PRED = "SCALAR_PRED"
     PATH_PRED = "PATH_PRED"

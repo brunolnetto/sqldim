@@ -14,6 +14,7 @@ Instantiate and use with a DuckDB connection:
 
     dgm_dataset.teardown(con)
 """
+
 from sqldim.application.datasets.dataset import Dataset
 from sqldim.application.datasets.domains.dgm.sources import (
     DGMShowcaseSource,
@@ -26,4 +27,11 @@ dgm_dataset = Dataset(
     ],
 )
 
-__all__ = ["dgm_dataset"]
+DATASET_METADATA = {
+    "name": "dgm",
+    "title": "DGM showcase",
+    "description": "Dimensional graph model demonstration dataset with formal graph structures",
+    "dataset_attr": "dgm_dataset",
+}
+
+__all__ = ["dgm_dataset", "DATASET_METADATA"]

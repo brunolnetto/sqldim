@@ -176,11 +176,11 @@ class DWSchema:
 
         if issubclass(model, DimensionModel):
             self._require_session(model.__name__)
-            handler = model.as_loader(self.session)
+            handler = model.as_loader(self.session)  # type: ignore[attr-defined]
             records = source if isinstance(source, list) else [source]
             return asyncio_mod.run(handler.process(records))
 
-        loader = model.as_loader(self.sink)
+        loader = model.as_loader(self.sink)  # type: ignore[attr-defined]
         # Route all fact loaders through aload() — unified entry point.
         # Transaction/snapshot loaders pick up _model_cls as the table;
         # model-bound loaders wrap process() via asyncio.to_thread.
@@ -193,9 +193,9 @@ class DWSchema:
 
         if issubclass(model, DimensionModel):
             self._require_session(model.__name__)
-            handler = model.as_loader(self.session)
+            handler = model.as_loader(self.session)  # type: ignore[attr-defined]
             records = source if isinstance(source, list) else [source]
             return await handler.aload(records)
 
-        loader = model.as_loader(self.sink)
+        loader = model.as_loader(self.sink)  # type: ignore[attr-defined]
         return await loader.aload(source, *args, **kwargs)

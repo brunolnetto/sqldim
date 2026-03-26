@@ -1,4 +1,5 @@
 """Tests for DimensionalLoader lineage integration — mocked DB, real lineage."""
+
 import io
 import json
 from unittest.mock import AsyncMock, MagicMock, patch
@@ -11,6 +12,7 @@ from sqldim.core.kimball.models import DimensionModel, FactModel
 # ---------------------------------------------------------------------------
 # Minimal stub models (no real DB)
 # ---------------------------------------------------------------------------
+
 
 class StubDim(DimensionModel):
     __tablename__ = "stub_dim"
@@ -44,6 +46,7 @@ def _make_loader(*, emitter=None):
 
 def _make_emitter():
     from sqldim.lineage import ConsoleLineageEmitter
+
     buf = io.StringIO()
     return ConsoleLineageEmitter(stream=buf), buf
 
@@ -51,6 +54,7 @@ def _make_emitter():
 # ---------------------------------------------------------------------------
 # No lineage emitter → no events
 # ---------------------------------------------------------------------------
+
 
 class TestNoLineage:
     @pytest.mark.asyncio
@@ -67,6 +71,7 @@ class TestNoLineage:
 # Lineage emission — successful load
 # ---------------------------------------------------------------------------
 
+
 class TestLineageSuccessfulLoad:
     @pytest.mark.asyncio
     async def test_pipeline_start_and_complete(self):
@@ -77,7 +82,7 @@ class TestLineageSuccessfulLoad:
         with patch.object(loader, "_load_dimension", new_callable=AsyncMock):
             await loader.run()
 
-        events = [json.loads(l) for l in buf.getvalue().strip().split("\n")]
+        events = [json.loads(line) for line in buf.getvalue().strip().split("\n")]
         job_names = [e["job"]["name"] for e in events]
         assert "load.pipeline" in job_names
         pipeline_events = [e for e in events if e["job"]["name"] == "load.pipeline"]
@@ -94,11 +99,13 @@ class TestLineageSuccessfulLoad:
         loader.register(StubDim, [{"name": "a"}])
         loader.register(StubFact, [{"dim_id": 1, "amount": 10.0}], key_map={})
 
-        with patch.object(loader, "_load_dimension", new_callable=AsyncMock), \
-             patch.object(loader, "_execute_fact_strategy", new_callable=AsyncMock):
+        with (
+            patch.object(loader, "_load_dimension", new_callable=AsyncMock),
+            patch.object(loader, "_execute_fact_strategy", new_callable=AsyncMock),
+        ):
             await loader.run()
 
-        events = [json.loads(l) for l in buf.getvalue().strip().split("\n")]
+        events = [json.loads(line) for line in buf.getvalue().strip().split("\n")]
         model_events = [e for e in events if e["job"]["name"].startswith("load.Stub")]
         # Each model gets START + COMPLETE = 2 events
         assert len(model_events) == 4
@@ -117,8 +124,12 @@ class TestLineageSuccessfulLoad:
         with patch.object(loader, "_load_dimension", new_callable=AsyncMock):
             await loader.run()
 
-        events = [json.loads(l) for l in buf.getvalue().strip().split("\n")]
-        dim_start = next(e for e in events if e["job"]["name"] == "load.StubDim" and e["eventType"] == "START")
+        events = [json.loads(line) for line in buf.getvalue().strip().split("\n")]
+        dim_start = next(
+            e
+            for e in events
+            if e["job"]["name"] == "load.StubDim" and e["eventType"] == "START"
+        )
         assert dim_start["run"]["facets"]["model_type"] == "dimension"
         assert dim_start["run"]["facets"]["rows"] == 1
 
@@ -131,9 +142,10 @@ class TestLineageSuccessfulLoad:
         with patch.object(loader, "_load_dimension", new_callable=AsyncMock):
             await loader.run()
 
-        events = [json.loads(l) for l in buf.getvalue().strip().split("\n")]
+        events = [json.loads(line) for line in buf.getvalue().strip().split("\n")]
         pipeline_complete = next(
-            e for e in events
+            e
+            for e in events
             if e["job"]["name"] == "load.pipeline" and e["eventType"] == "COMPLETE"
         )
         assert "StubDim" in pipeline_complete["run"]["facets"]["loaded_models"]
@@ -145,6 +157,7 @@ class TestLineageSuccessfulLoad:
 # Lineage emission — failed load
 # ---------------------------------------------------------------------------
 
+
 class TestLineageFailedLoad:
     @pytest.mark.asyncio
     async def test_model_fail_emits_fail_event(self):
@@ -152,11 +165,16 @@ class TestLineageFailedLoad:
         loader, session = _make_loader(emitter=emitter)
         loader.register(StubDim, [{"name": "a"}])
 
-        with patch.object(loader, "_load_dimension", new_callable=AsyncMock, side_effect=RuntimeError("DB down")):
+        with patch.object(
+            loader,
+            "_load_dimension",
+            new_callable=AsyncMock,
+            side_effect=RuntimeError("DB down"),
+        ):
             with pytest.raises(RuntimeError, match="DB down"):
                 await loader.run()
 
-        events = [json.loads(l) for l in buf.getvalue().strip().split("\n")]
+        events = [json.loads(line) for line in buf.getvalue().strip().split("\n")]
         dim_events = [e for e in events if e["job"]["name"] == "load.StubDim"]
         assert any(e["eventType"] == "FAIL" for e in dim_events)
 
@@ -166,11 +184,16 @@ class TestLineageFailedLoad:
         loader, session = _make_loader(emitter=emitter)
         loader.register(StubDim, [{"name": "a"}])
 
-        with patch.object(loader, "_load_dimension", new_callable=AsyncMock, side_effect=RuntimeError("DB down")):
+        with patch.object(
+            loader,
+            "_load_dimension",
+            new_callable=AsyncMock,
+            side_effect=RuntimeError("DB down"),
+        ):
             with pytest.raises(RuntimeError):
                 await loader.run()
 
-        events = [json.loads(l) for l in buf.getvalue().strip().split("\n")]
+        events = [json.loads(line) for line in buf.getvalue().strip().split("\n")]
         pipeline_events = [e for e in events if e["job"]["name"] == "load.pipeline"]
         assert pipeline_events[-1]["eventType"] == "FAIL"
 
@@ -180,13 +203,19 @@ class TestLineageFailedLoad:
         loader, session = _make_loader(emitter=emitter)
         loader.register(StubDim, [{"name": "a"}])
 
-        with patch.object(loader, "_load_dimension", new_callable=AsyncMock, side_effect=RuntimeError("boom")):
+        with patch.object(
+            loader,
+            "_load_dimension",
+            new_callable=AsyncMock,
+            side_effect=RuntimeError("boom"),
+        ):
             with pytest.raises(RuntimeError):
                 await loader.run()
 
-        events = [json.loads(l) for l in buf.getvalue().strip().split("\n")]
+        events = [json.loads(line) for line in buf.getvalue().strip().split("\n")]
         pipeline_fail = next(
-            e for e in events
+            e
+            for e in events
             if e["job"]["name"] == "load.pipeline" and e["eventType"] == "FAIL"
         )
         assert "StubDim" not in pipeline_fail["run"]["facets"]["loaded_models"]

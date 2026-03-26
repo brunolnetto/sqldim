@@ -3,6 +3,7 @@ Tests for CSVStreamSource and ParquetStreamSource.
 
 Coverage target: sqldim/sources/csv_stream.py and parquet_stream.py — ~90%
 """
+
 from __future__ import annotations
 import csv
 
@@ -16,6 +17,7 @@ from sqldim.sources.streaming.parquet_stream import ParquetStreamSource
 # Helpers
 # ---------------------------------------------------------------------------
 
+
 def _write_csv(path: str, rows: list[dict]) -> None:
     with open(path, "w", newline="") as f:
         writer = csv.DictWriter(f, fieldnames=list(rows[0].keys()))
@@ -26,7 +28,8 @@ def _write_csv(path: str, rows: list[dict]) -> None:
 def _write_parquet(con: duckdb.DuckDBPyConnection, path: str, rows: list[dict]) -> None:
     """Write rows to a Parquet file via DuckDB."""
     rows_sql = " UNION ALL ".join(
-        "SELECT " + ", ".join(
+        "SELECT "
+        + ", ".join(
             f"'{v}' AS {k}" if isinstance(v, str) else f"{v} AS {k}"
             for k, v in row.items()
         )
@@ -39,8 +42,8 @@ def _write_parquet(con: duckdb.DuckDBPyConnection, path: str, rows: list[dict]) 
 # CSVStreamSource tests
 # ---------------------------------------------------------------------------
 
-class TestCSVStreamSourceConstructor:
 
+class TestCSVStreamSourceConstructor:
     def test_defaults(self, tmp_path):
         src = CSVStreamSource(str(tmp_path / "data.csv"))
         assert src._delimiter == ","
@@ -63,7 +66,6 @@ class TestCSVStreamSourceConstructor:
 
 
 class TestCSVStreamSourceStream:
-
     def test_yields_correct_number_of_batches(self, tmp_path):
         path = str(tmp_path / "data.csv")
         rows = [{"id": str(i), "val": str(i * 10)} for i in range(5)]
@@ -134,7 +136,6 @@ class TestCSVStreamSourceStream:
 
 
 class TestCSVStreamSourceCheckpointCommitReset:
-
     def test_checkpoint_returns_current_offset(self, tmp_path):
         src = CSVStreamSource(str(tmp_path / "d.csv"))
         src._offset = 42
@@ -174,8 +175,8 @@ class TestCSVStreamSourceCheckpointCommitReset:
 # ParquetStreamSource tests
 # ---------------------------------------------------------------------------
 
-class TestParquetStreamSourceConstructor:
 
+class TestParquetStreamSourceConstructor:
     def test_defaults(self, tmp_path):
         src = ParquetStreamSource(str(tmp_path / "data.parquet"))
         assert src._hive is False
@@ -193,7 +194,6 @@ class TestParquetStreamSourceConstructor:
 
 
 class TestParquetStreamSourceStream:
-
     def test_yields_correct_number_of_batches(self, tmp_path):
         path = str(tmp_path / "data.parquet")
         rows = [{"id": i, "val": i * 2} for i in range(5)]
@@ -256,7 +256,12 @@ class TestParquetStreamSourceStream:
         src = ParquetStreamSource(path, order_by="id")
         results = []
         for fragment in src.stream(con, batch_size=10):
-            ids = [r[0] for r in con.execute(f"SELECT id FROM ({fragment}) ORDER BY id").fetchall()]
+            ids = [
+                r[0]
+                for r in con.execute(
+                    f"SELECT id FROM ({fragment}) ORDER BY id"
+                ).fetchall()
+            ]
             results.extend(ids)
         assert results == sorted(results)
 
@@ -273,7 +278,6 @@ class TestParquetStreamSourceStream:
 
 
 class TestParquetStreamSourceCheckpointCommitReset:
-
     def test_checkpoint_returns_offset(self, tmp_path):
         src = ParquetStreamSource(str(tmp_path / "d.parquet"))
         src._offset = 77

@@ -21,7 +21,10 @@ determines diagram size.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Sequence
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from sqldim.core.query.dgm.preds import AND, OR, PathPred
 
 __all__ = [
     "BDDNode",
@@ -55,8 +58,8 @@ class BDDNode:
     """
 
     id: int
-    var: int   # -1 for terminal nodes
-    low: int   # branch taken when var=False
+    var: int  # -1 for terminal nodes
+    low: int  # branch taken when var=False
     high: int  # branch taken when var=True
 
 
@@ -237,6 +240,7 @@ class DGMPredicateBDD:
 
     def _compile_forall(self, pred: "PathPred") -> int:
         from sqldim.core.query.dgm.preds import NOT, PathPred, Quantifier
+
         inner = NOT(pred.sub_filter)
         exists_pred = PathPred(
             pred.anchor,
@@ -251,14 +255,16 @@ class DGMPredicateBDD:
 
     def _compile(self, pred: object) -> int:
         from sqldim.core.query.dgm.preds import AND, OR
+
         _dispatch = {AND: self._compile_and, OR: self._compile_or}
         handler = _dispatch.get(type(pred))
         if handler is not None:
-            return handler(pred)
+            return handler(pred)  # type: ignore[operator]
         return self._compile_structural(pred)
 
     def _compile_structural(self, pred: object) -> int:
         from sqldim.core.query.dgm.preds import NOT, PathPred, Quantifier
+
         if isinstance(pred, NOT):
             return self.manager.negate(self._compile(pred.pred))
         if isinstance(pred, PathPred) and pred.quantifier is Quantifier.FORALL:
@@ -375,8 +381,7 @@ class DGMPredicateBDD:
         if not term:
             return "TRUE"
         return " AND ".join(
-            f"var_{v} = {str(b).upper()}"
-            for v, b in sorted(term.items())
+            f"var_{v} = {str(b).upper()}" for v, b in sorted(term.items())
         )
 
     def _terms_to_union_all(self, terms: "list[dict[int, bool]]") -> str:

@@ -56,7 +56,7 @@ def _coerce_placed_at(val: object) -> datetime:
             return datetime.fromisoformat(val)
         except ValueError:
             return datetime(2024, 6, 1)
-    return val if val is not None else datetime(2024, 6, 1)
+    return val if val is not None else datetime(2024, 6, 1)  # type: ignore[return-value]
 
 
 async def _pillar1_scd_customers(engine) -> None:
@@ -66,16 +66,16 @@ async def _pillar1_scd_customers(engine) -> None:
         handler = SCDHandler(
             Customer, session, track_columns=["loyalty_tier", "country_code"]
         )
-        await handler.process([_strip(r, _CUSTOMER_FACTORY_KEYS) for r in src.initial])
+        await handler.process([_strip(r, _CUSTOMER_FACTORY_KEYS) for r in src.initial])  # type: ignore[attr-defined]
         # Event batch simulates loyalty-tier upgrades
-        await handler.process([_strip(r, _CUSTOMER_FACTORY_KEYS) for r in src.events])
+        await handler.process([_strip(r, _CUSTOMER_FACTORY_KEYS) for r in src.events])  # type: ignore[attr-defined]
         all_versions = session.exec(
-            select(Customer).order_by(Customer.email, Customer.valid_from)
+            select(Customer).order_by(Customer.email, Customer.valid_from)  # type: ignore[arg-type]
         ).all()
 
     upgraded = sum(not v.is_current for v in all_versions)
     print("✅ Pillar 1: SCD Type 2 — Customer Loyalty Tier History")
-    print(f"   Loaded {src.initial.__len__()} customers via CustomersSource factory.")
+    print(f"   Loaded {src.initial.__len__()} customers via CustomersSource factory.")  # type: ignore[attr-defined]
     print(
         f"   Total version rows in dim_customer: {len(all_versions)} "
         f"({upgraded} expired / upgraded)."
@@ -91,7 +91,7 @@ async def _pillar2_bridge_attribution(engine) -> None:
     """Bridge Table — Multi-Campaign Product Attribution (dataset factory)."""
     src = ecommerce_dataset["products"]
     with Session(engine) as session:
-        products = [Product(**_strip(r, _PRODUCT_FACTORY_KEYS)) for r in src.initial]
+        products = [Product(**_strip(r, _PRODUCT_FACTORY_KEYS)) for r in src.initial]  # type: ignore[attr-defined]
         session.add_all(products)
         # Campaigns stay inline — no factory for campaigns
         c1 = Campaign(
@@ -146,7 +146,7 @@ async def _pillar3_order_lifecycle(engine) -> None:
     src = ecommerce_dataset["orders"]
     with Session(engine) as session:
         orders = []
-        for raw in src.initial:
+        for raw in src.initial:  # type: ignore[attr-defined]
             placed = _coerce_placed_at(raw.get("placed_at"))
             o = OrderFact(
                 order_id=raw["order_id"],

@@ -14,6 +14,7 @@ Instantiate and use with a DuckDB connection:
 
     hierarchy_dataset.teardown(con)
 """
+
 from sqldim.application.datasets.dataset import Dataset
 from sqldim.application.datasets.domains.hierarchy.sources import (
     OrgChartSource,
@@ -26,4 +27,11 @@ hierarchy_dataset = Dataset(
     ],
 )
 
-__all__ = ["hierarchy_dataset"]
+DATASET_METADATA = {
+    "name": "hierarchy",
+    "title": "Hierarchy patterns",
+    "description": "Organisations and employees with adjacency-list, closure-table, and materialised-path hierarchies",
+    "dataset_attr": "hierarchy_dataset",
+}
+
+__all__ = ["hierarchy_dataset", "DATASET_METADATA"]

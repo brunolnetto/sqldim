@@ -38,6 +38,7 @@ Every profile within a subgroup follows the canonical pattern::
 
 :mod:`benchmarks.runner` imports directly from this module.
 """
+
 from sqldim.application.benchmarks.infra import (  # noqa: F401
     BenchmarkResult,
     SOURCE_NAMES,

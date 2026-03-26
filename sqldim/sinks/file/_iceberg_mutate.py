@@ -6,12 +6,18 @@ These methods are mixed into :class:`IcebergSink` via inheritance.
 
 from __future__ import annotations
 
+from typing import TYPE_CHECKING, Any
 
 import duckdb
 
 
 class _IcebergMutateMixin:
     """Column-rotation and milestone update helpers for IcebergSink."""
+
+    if TYPE_CHECKING:
+        _catalog: Any
+        _namespace: Any
+        _check_table_row_count: Any
 
     def rotate_attributes(
         self,
@@ -23,8 +29,8 @@ class _IcebergMutateMixin:
     ) -> int:
         """Rotate SCD3 current/previous column pairs via Iceberg overwrite."""
         try:
-            import pyarrow as pa
-            import pyarrow.compute as pc
+            import pyarrow as pa  # type: ignore[import-not-found]
+            import pyarrow.compute as pc  # type: ignore[import-not-found]
         except ImportError as exc:
             raise ImportError("IcebergSink requires pyarrow") from exc
 
@@ -57,7 +63,7 @@ class _IcebergMutateMixin:
         For each row keyed by *nk_list*, the new value comes from *rot_map* if
         present; otherwise the existing value from *to_rot* is preserved.
         """
-        import pyarrow as pa
+        import pyarrow as pa  # type: ignore[import-not-found]
 
         return pa.array(
             [
@@ -108,8 +114,8 @@ class _IcebergMutateMixin:
     ) -> int:
         """Fill NULL milestone timestamps for accumulating snapshots."""
         try:
-            import pyarrow as pa
-            import pyarrow.compute as pc
+            import pyarrow as pa  # type: ignore[import-not-found]
+            import pyarrow.compute as pc  # type: ignore[import-not-found]
         except ImportError as exc:
             raise ImportError("IcebergSink requires pyarrow") from exc
 
@@ -145,7 +151,7 @@ class _IcebergMutateMixin:
         value from *upd_map* only when the existing value is ``None``; already-
         stamped columns and non-milestone columns are passed through intact.
         """
-        import pyarrow as pa
+        import pyarrow as pa  # type: ignore[import-not-found]
 
         mk_list = to_upd.column(match_col).to_pylist()
         updated: dict = {}

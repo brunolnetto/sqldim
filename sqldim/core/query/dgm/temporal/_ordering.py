@@ -3,6 +3,8 @@ UntilOrdering, SinceOrdering (DGM v0.16 §3.2)."""
 
 from __future__ import annotations
 
+from sqldim.core.query.dgm.refs import _SQLExpr
+
 __all__ = [
     "TemporalOrdering",
     "BEFORE",
@@ -194,24 +196,20 @@ class EQUALS(_AllenBase):
 class UntilOrdering(TemporalOrdering):
     """φ holds at every intermediate hop until ψ first becomes true."""
 
-    def __init__(self, hold_pred: object, trigger_pred: object) -> None:
+    def __init__(self, hold_pred: _SQLExpr, trigger_pred: _SQLExpr) -> None:
         self.hold_pred = hold_pred
         self.trigger_pred = trigger_pred
 
     def to_sql(self) -> str:
-        return (
-            f"path_until({self.hold_pred.to_sql()}, {self.trigger_pred.to_sql()})"
-        )
+        return f"path_until({self.hold_pred.to_sql()}, {self.trigger_pred.to_sql()})"
 
 
 class SinceOrdering(TemporalOrdering):
     """Past dual of UNTIL: φ has held at every hop since ψ last became true."""
 
-    def __init__(self, hold_pred: object, trigger_pred: object) -> None:
+    def __init__(self, hold_pred: _SQLExpr, trigger_pred: _SQLExpr) -> None:
         self.hold_pred = hold_pred
         self.trigger_pred = trigger_pred
 
     def to_sql(self) -> str:
-        return (
-            f"path_since({self.hold_pred.to_sql()}, {self.trigger_pred.to_sql()})"
-        )
+        return f"path_since({self.hold_pred.to_sql()}, {self.trigger_pred.to_sql()})"

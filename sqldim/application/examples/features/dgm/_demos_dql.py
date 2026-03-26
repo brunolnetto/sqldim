@@ -1,4 +1,5 @@
 """DGM showcase — DQL demos (B1/B2/B3 queries, edge-kind, bridge path)."""
+
 from __future__ import annotations
 
 import duckdb
@@ -10,7 +11,6 @@ from sqldim import (
     WinRef,
     ScalarPred,
     PathPred,
-    AND,
     NOT,
     VerbHop,
     BridgeHop,

@@ -12,14 +12,11 @@ Covers:
 
 from __future__ import annotations
 
-import pytest
 
 from sqldim.core.query.dgm.preds import (
     VerbHopInverse,
     _HopBase,
     PathPred,
-    Quantifier,
-    ALL as StratALL,
     SHORTEST,
     SAFETY,
     LIVENESS,
@@ -46,11 +43,15 @@ from sqldim.core.query.dgm import DGMQuery, TemporalContext
 
 class TestVerbHopInverse:
     def test_is_hop_base(self):
-        hop = VerbHopInverse("f", "placed", "c", table="fact_order", on="f.cust_fk = c.id")
+        hop = VerbHopInverse(
+            "f", "placed", "c", table="fact_order", on="f.cust_fk = c.id"
+        )
         assert isinstance(hop, _HopBase)
 
     def test_kind(self):
-        hop = VerbHopInverse("f", "placed", "c", table="fact_order", on="f.cust_fk = c.id")
+        hop = VerbHopInverse(
+            "f", "placed", "c", table="fact_order", on="f.cust_fk = c.id"
+        )
         assert hop.kind == "verb_inverse"
 
     def test_stores_fields(self):
@@ -61,6 +62,7 @@ class TestVerbHopInverse:
 
     def test_different_kind_from_verb_hop(self):
         from sqldim.core.query.dgm.preds import VerbHop
+
         inverse = VerbHopInverse("f", "placed", "c", table="t", on="x.y = y.x")
         forward = VerbHop("c", "placed", "f", table="t", on="x.y = y.x")
         assert inverse.kind != forward.kind
@@ -184,6 +186,7 @@ class TestTemporalProperty:
     def test_recurrence_construction(self):
         good = PropRef("c", "visited")
         from sqldim.core.query.dgm.temporal import ROLLING
+
         win = ROLLING("7 DAYS")
         r = RECURRENCE(good, win)
         assert r.good is good
@@ -192,6 +195,7 @@ class TestTemporalProperty:
     def test_recurrence_to_sql_string(self):
         good = PropRef("c", "visited")
         from sqldim.core.query.dgm.temporal import ROLLING
+
         win = ROLLING("7 DAYS")
         sql = RECURRENCE(good, win).to_sql()
         assert isinstance(sql, str)

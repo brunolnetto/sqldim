@@ -15,7 +15,6 @@ identity detection requires no deep comparison — just an int equality.
 
 from __future__ import annotations
 
-import pytest
 
 from sqldim.core.query.dgm.algebra import ComposedQuery, QuestionAlgebra
 from sqldim.core.query.dgm.bdd import BDDManager, DGMPredicateBDD
@@ -28,6 +27,7 @@ from sqldim.core.query.dgm._cse import find_shared_predicates, apply_cse
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
+
 
 def _bdd() -> DGMPredicateBDD:
     return DGMPredicateBDD(BDDManager())
@@ -136,9 +136,14 @@ class TestFindSharedPredicates:
         qa = QuestionAlgebra()
         qa.add("q1", q1)
         # Add a compose CTE
-        qa.compose("q1", __import__(
-            "sqldim.core.query.dgm.algebra", fromlist=["ComposeOp"]
-        ).ComposeOp.UNION, "q1", name="q_self_union")
+        qa.compose(
+            "q1",
+            __import__(
+                "sqldim.core.query.dgm.algebra", fromlist=["ComposeOp"]
+            ).ComposeOp.UNION,
+            "q1",
+            name="q_self_union",
+        )
         bdd = _bdd()
         result = find_shared_predicates(qa, bdd)
         # Composed CTE is skipped; q1 appears only once as a leaf → no sharing

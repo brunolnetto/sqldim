@@ -8,6 +8,7 @@ errors surface with a focused failure message.  The suite also validates
 result cardinalities and key properties against the known static fixture
 (3 customers, 3 products, 2 segments, 6 sales, 1 bridge table with 2 rows).
 """
+
 from __future__ import annotations
 
 import duckdb
@@ -46,6 +47,7 @@ def con():
 # Schema helpers
 # ---------------------------------------------------------------------------
 
+
 class TestEdgeKindClassification:
     def test_runs_without_error(self, capsys):
         demo_edge_kind_classification()
@@ -62,15 +64,20 @@ class TestEdgeKindClassification:
 # B1 — Context filter
 # ---------------------------------------------------------------------------
 
+
 class TestB1Filter:
     def test_runs_without_error(self, con, capsys):
         demo_b1_filter(con)
 
     def test_retail_customer_count(self, con):
         from sqldim import DGMQuery, ScalarPred, PropRef, VerbHop
+
         hop_c = VerbHop(
-            "s", "placed_by", "c",
-            table="dgm_showcase_customer", on="c.id = s.customer_id",
+            "s",
+            "placed_by",
+            "c",
+            table="dgm_showcase_customer",
+            on="c.id = s.customer_id",
         )
         rows = (
             DGMQuery()
@@ -84,9 +91,13 @@ class TestB1Filter:
 
     def test_wholesale_customer_count(self, con):
         from sqldim import DGMQuery, ScalarPred, PropRef, VerbHop
+
         hop_c = VerbHop(
-            "s", "placed_by", "c",
-            table="dgm_showcase_customer", on="c.id = s.customer_id",
+            "s",
+            "placed_by",
+            "c",
+            table="dgm_showcase_customer",
+            on="c.id = s.customer_id",
         )
         rows = (
             DGMQuery()
@@ -103,17 +114,22 @@ class TestB1Filter:
 # B1 — PathPred EXISTS
 # ---------------------------------------------------------------------------
 
+
 class TestB1PathPred:
     def test_runs_without_error(self, con, capsys):
         demo_b1_path_pred(con)
 
     def test_electronics_sales_count(self, con):
-        from sqldim import DGMQuery, ScalarPred, PropRef, VerbHop, PathPred
+        from sqldim import ScalarPred, PropRef, VerbHop, PathPred
+
         hop = VerbHop(
-            "s", "includes", "d",
-            table="dgm_showcase_product", on="d.id = s.customer_id",
+            "s",
+            "includes",
+            "d",
+            table="dgm_showcase_product",
+            on="d.id = s.customer_id",
         )
-        pp = PathPred(
+        PathPred(
             anchor="s",
             path=hop,
             sub_filter=ScalarPred(PropRef("d", "category"), "=", "electronics"),
@@ -129,15 +145,20 @@ class TestB1PathPred:
 # B1 — NOT predicate
 # ---------------------------------------------------------------------------
 
+
 class TestB1Not:
     def test_runs_without_error(self, con, capsys):
         demo_b1_not(con)
 
     def test_exclude_clearance_result_count(self, con):
         from sqldim import DGMQuery, ScalarPred, PropRef, VerbHop, NOT
+
         hop_d = VerbHop(
-            "s", "includes", "d",
-            table="dgm_showcase_product", on="d.id = s.product_id",
+            "s",
+            "includes",
+            "d",
+            table="dgm_showcase_product",
+            on="d.id = s.product_id",
         )
         rows = (
             DGMQuery()
@@ -154,15 +175,20 @@ class TestB1Not:
 # B1 ∘ B2 — Aggregation + HAVING
 # ---------------------------------------------------------------------------
 
+
 class TestB1B2Having:
     def test_runs_without_error(self, con, capsys):
         demo_b1_b2_having(con)
 
     def test_having_revenue_gt_4000(self, con):
-        from sqldim import DGMQuery, ScalarPred, PropRef, AggRef, VerbHop
+        from sqldim import DGMQuery, ScalarPred, AggRef, VerbHop
+
         hop = VerbHop(
-            "s", "placed_by", "c",
-            table="dgm_showcase_customer", on="c.id = s.customer_id",
+            "s",
+            "placed_by",
+            "c",
+            table="dgm_showcase_customer",
+            on="c.id = s.customer_id",
         )
         rows = (
             DGMQuery()
@@ -178,10 +204,14 @@ class TestB1B2Having:
         assert rows[0][1] == "alice@x"
 
     def test_having_revenue_gte_4000_includes_bob(self, con):
-        from sqldim import DGMQuery, ScalarPred, PropRef, AggRef, VerbHop
+        from sqldim import DGMQuery, ScalarPred, AggRef, VerbHop
+
         hop = VerbHop(
-            "s", "placed_by", "c",
-            table="dgm_showcase_customer", on="c.id = s.customer_id",
+            "s",
+            "placed_by",
+            "c",
+            table="dgm_showcase_customer",
+            on="c.id = s.customer_id",
         )
         rows = (
             DGMQuery()
@@ -199,12 +229,14 @@ class TestB1B2Having:
 # B1 ∘ B3 — Window ranking (QUALIFY)
 # ---------------------------------------------------------------------------
 
+
 class TestB1B3Qualify:
     def test_runs_without_error(self, con, capsys):
         demo_b1_b3_qualify(con)
 
     def test_one_top_sale_per_customer(self, con):
         from sqldim import DGMQuery, ScalarPred, WinRef
+
         rows = (
             DGMQuery()
             .anchor("dgm_showcase_sale", "s")
@@ -234,15 +266,20 @@ class TestB1B3Qualify:
 # B1 ∘ B2 ∘ B3 — Full pipeline
 # ---------------------------------------------------------------------------
 
+
 class TestFullPipeline:
     def test_runs_without_error(self, con, capsys):
         demo_full_pipeline(con)
 
     def test_alice_wins_retail_rank(self, con):
         from sqldim import DGMQuery, ScalarPred, PropRef, AggRef, WinRef, VerbHop
+
         hop = VerbHop(
-            "s", "placed_by", "c",
-            table="dgm_showcase_customer", on="c.id = s.customer_id",
+            "s",
+            "placed_by",
+            "c",
+            table="dgm_showcase_customer",
+            on="c.id = s.customer_id",
         )
         rows = (
             DGMQuery()
@@ -264,6 +301,7 @@ class TestFullPipeline:
 # Bridge path traversal
 # ---------------------------------------------------------------------------
 
+
 class TestBridgePath:
     def test_runs_without_error(self, con, capsys):
         demo_bridge_path(con)
@@ -280,6 +318,7 @@ class TestBridgePath:
 # BDD predicate compilation
 # ---------------------------------------------------------------------------
 
+
 class TestBDDPredicate:
     def test_runs_without_error(self, capsys):
         demo_bdd_predicate()
@@ -287,6 +326,7 @@ class TestBDDPredicate:
     def test_bdd_and_is_satisfiable(self, capsys):
         from sqldim.core.query.dgm.bdd import BDDManager, DGMPredicateBDD
         from sqldim import ScalarPred, PropRef, AND
+
         mgr = BDDManager()
         bdd = DGMPredicateBDD(mgr)
         p1 = ScalarPred(PropRef("s", "revenue"), ">", 1000)
@@ -297,18 +337,20 @@ class TestBDDPredicate:
     def test_bdd_implication_one_way(self, capsys):
         from sqldim.core.query.dgm.bdd import BDDManager, DGMPredicateBDD
         from sqldim import ScalarPred, PropRef, AND
+
         mgr = BDDManager()
         bdd = DGMPredicateBDD(mgr)
         p1 = ScalarPred(PropRef("s", "revenue"), ">", 1000)
         p2 = ScalarPred(PropRef("s", "sale_year"), "=", 2024)
         uid_and = bdd.compile(AND(p1, p2))
         uid_p1 = bdd.compile(p1)
-        assert bdd.implies(uid_and, uid_p1)     # (p1 AND p2) ⊨ p1
-        assert not bdd.implies(uid_p1, uid_and) # p1 ⊭ (p1 AND p2)
+        assert bdd.implies(uid_and, uid_p1)  # (p1 AND p2) ⊨ p1
+        assert not bdd.implies(uid_p1, uid_and)  # p1 ⊭ (p1 AND p2)
 
     def test_bdd_to_sql_is_non_empty(self, capsys):
         from sqldim.core.query.dgm.bdd import BDDManager, DGMPredicateBDD
         from sqldim import ScalarPred, PropRef, AND
+
         mgr = BDDManager()
         bdd = DGMPredicateBDD(mgr)
         p1 = ScalarPred(PropRef("s", "revenue"), ">", 1000)
@@ -323,30 +365,42 @@ class TestBDDPredicate:
 # Schema annotation layer (Σ) + recommender
 # ---------------------------------------------------------------------------
 
+
 class TestAnnotationSigma:
     def test_runs_without_error(self, capsys):
         demo_annotation_sigma()
 
     def test_sigma_annotations_loaded(self):
         from sqldim.core.query.dgm.annotations import (
-            AnnotationSigma, Grain, GrainKind, SCDType, SCDKind,
-            Conformed, BridgeSemantics, BridgeSemanticsKind,
+            AnnotationSigma,
+            Grain,
+            GrainKind,
+            SCDType,
+            SCDKind,
+            Conformed,
+            BridgeSemantics,
+            BridgeSemanticsKind,
         )
+
         sigma = AnnotationSigma(
             annotations=[
                 Grain(fact="dgm_showcase_sale", grain=GrainKind.PERIOD),
                 SCDType(dim="dgm_showcase_customer", scd=SCDKind.SCD2),
                 Conformed(dim="dgm_showcase_customer", fact_types=frozenset({"Sale"})),
-                BridgeSemantics(bridge="dgm_showcase_prod_seg", sem=BridgeSemanticsKind.STRUCTURAL),
+                BridgeSemantics(
+                    bridge="dgm_showcase_prod_seg", sem=BridgeSemanticsKind.STRUCTURAL
+                ),
             ]
         )
         assert len(sigma) == 4
 
     def test_sigma_scd_lookup(self):
         from sqldim.core.query.dgm.annotations import (
-            AnnotationSigma, SCDType, SCDKind,
+            AnnotationSigma,
+            SCDType,
+            SCDKind,
         )
-        from sqldim.core.query.dgm.annotations import SCDKind
+
         sigma = AnnotationSigma(
             annotations=[SCDType(dim="dgm_showcase_customer", scd=SCDKind.SCD2)]
         )
@@ -354,24 +408,36 @@ class TestAnnotationSigma:
 
     def test_sigma_conformed_check(self):
         from sqldim.core.query.dgm.annotations import AnnotationSigma, Conformed
+
         sigma = AnnotationSigma(
-            annotations=[Conformed(dim="dgm_showcase_customer", fact_types=frozenset({"Sale"}))]
+            annotations=[
+                Conformed(dim="dgm_showcase_customer", fact_types=frozenset({"Sale"}))
+            ]
         )
         assert sigma.is_conformed("dgm_showcase_customer", "Sale")
         assert not sigma.is_conformed("dgm_showcase_customer", "Unknown")
 
     def test_recommender_produces_suggestions(self):
         from sqldim.core.query.dgm.annotations import (
-            AnnotationSigma, Grain, GrainKind, SCDType, SCDKind,
-            Conformed, BridgeSemantics, BridgeSemanticsKind,
+            AnnotationSigma,
+            Grain,
+            GrainKind,
+            SCDType,
+            SCDKind,
+            Conformed,
+            BridgeSemantics,
+            BridgeSemanticsKind,
         )
         from sqldim.core.query.dgm.recommender import DGMRecommender
+
         sigma = AnnotationSigma(
             annotations=[
                 Grain(fact="dgm_showcase_sale", grain=GrainKind.PERIOD),
                 SCDType(dim="dgm_showcase_customer", scd=SCDKind.SCD2),
                 Conformed(dim="dgm_showcase_customer", fact_types=frozenset({"Sale"})),
-                BridgeSemantics(bridge="dgm_showcase_prod_seg", sem=BridgeSemanticsKind.STRUCTURAL),
+                BridgeSemantics(
+                    bridge="dgm_showcase_prod_seg", sem=BridgeSemanticsKind.STRUCTURAL
+                ),
             ]
         )
         rec = DGMRecommender(sigma)
@@ -381,6 +447,7 @@ class TestAnnotationSigma:
     def test_recommender_routing(self):
         from sqldim.core.query.dgm.annotations import AnnotationSigma
         from sqldim.core.query.dgm.recommender import DGMRecommender
+
         sigma = AnnotationSigma(annotations=[])
         rec = DGMRecommender(sigma)
         high = rec.route(entropy=0.9)
@@ -392,6 +459,7 @@ class TestAnnotationSigma:
 # DGM planner + exporters
 # ---------------------------------------------------------------------------
 
+
 class TestPlanner:
     def test_runs_without_error(self, capsys):
         demo_planner()
@@ -401,6 +469,7 @@ class TestPlanner:
         from sqldim.core.query.dgm.planner import DGMPlanner, QueryTarget, SinkTarget
         from sqldim.core.query.dgm.graph import GraphStatistics
         from sqldim import DGMQuery, ScalarPred, PropRef
+
         sigma = AnnotationSigma(annotations=[])
         stats = GraphStatistics(node_count=3, edge_count=6)
         planner = DGMPlanner(
@@ -425,7 +494,8 @@ class TestPlanner:
         from sqldim.core.query.dgm.planner import DGMPlanner, QueryTarget, SinkTarget
         from sqldim.core.query.dgm.graph import GraphStatistics
         from sqldim.core.query.dgm.exporters import DGMJSONExporter
-        from sqldim import DGMQuery, ScalarPred, PropRef
+        from sqldim import DGMQuery
+
         planner = DGMPlanner(
             cost_model=None,
             statistics=GraphStatistics(node_count=2, edge_count=4),
@@ -445,6 +515,7 @@ class TestPlanner:
         from sqldim.core.query.dgm.graph import GraphStatistics
         from sqldim.core.query.dgm.exporters import DGMYAMLExporter
         from sqldim import DGMQuery
+
         planner = DGMPlanner(
             cost_model=None,
             statistics=GraphStatistics(node_count=2, edge_count=4),
@@ -461,6 +532,7 @@ class TestPlanner:
 # ---------------------------------------------------------------------------
 # §8.13 QuestionAlgebra — Example 7
 # ---------------------------------------------------------------------------
+
 
 class TestDemoQuestionAlgebra:
     def test_runs_without_error(self, capsys):
@@ -496,11 +568,16 @@ class TestDemoQuestionAlgebra:
         """Verify to_sql() output directly, independent of print output."""
         from sqldim.core.query.dgm.algebra import ComposeOp, QuestionAlgebra
         from sqldim import DGMQuery, ScalarPred, PropRef
+
         qa = QuestionAlgebra()
-        qa.add("q1", DGMQuery().anchor("t", "x").where(
-            ScalarPred(PropRef("x", "a"), "=", 1)))
-        qa.add("q2", DGMQuery().anchor("t", "x").where(
-            ScalarPred(PropRef("x", "a"), "=", 2)))
+        qa.add(
+            "q1",
+            DGMQuery().anchor("t", "x").where(ScalarPred(PropRef("x", "a"), "=", 1)),
+        )
+        qa.add(
+            "q2",
+            DGMQuery().anchor("t", "x").where(ScalarPred(PropRef("x", "a"), "=", 2)),
+        )
         qa.compose("q1", ComposeOp.UNION, "q2", name="q_union")
         sql = qa.to_sql("q_union")
         assert sql.startswith("WITH")
@@ -511,6 +588,7 @@ class TestDemoQuestionAlgebra:
 # ---------------------------------------------------------------------------
 # §6.2 Rule 11 CSE — Example 8
 # ---------------------------------------------------------------------------
+
 
 class TestDemoCSE:
     def test_runs_without_error(self, capsys):
@@ -535,7 +613,9 @@ class TestDemoCSE:
         demo_cse()
         out = capsys.readouterr().out
         # Optimised order line: __cse_... appears before us_sales
-        opt_line = next(l for l in out.splitlines() if "Optimised CTE order" in l)
+        opt_line = next(
+            line for line in out.splitlines() if "Optimised CTE order" in line
+        )
         assert opt_line.index("__cse_") < opt_line.index("us_sales")
 
     def test_programmatic_cse_detection(self):
@@ -562,6 +642,7 @@ class TestDemoCSE:
 # §7.2 CORRELATE — Example 9
 # ---------------------------------------------------------------------------
 
+
 class TestDemoCorrelate:
     def test_runs_without_error(self, capsys):
         demo_correlate()
@@ -581,7 +662,7 @@ class TestDemoCorrelate:
         out = capsys.readouterr().out
         # Suggestion lines start with [algebra]; clickevts / o_events anchor
         # should not appear on any suggestion line.
-        suggestion_lines = [l for l in out.splitlines() if "[algebra]" in l]
+        suggestion_lines = [line for line in out.splitlines() if "[algebra]" in line]
         assert all("o_events" not in line for line in suggestion_lines)
 
     def test_all_three_pairs_present(self, capsys):
@@ -610,6 +691,7 @@ class TestDemoCorrelate:
 # ---------------------------------------------------------------------------
 # run_all smoke test
 # ---------------------------------------------------------------------------
+
 
 class TestRunAll:
     def test_run_all_completes(self, capsys):

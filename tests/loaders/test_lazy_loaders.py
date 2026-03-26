@@ -15,22 +15,24 @@ sqldim/loaders/array_metric.py    20% → ~80%
 sqldim/loaders/edge_projection.py 26% → ~80%
 sqldim/narwhals/backfill.py       63% → ~90%
 """
+
 from __future__ import annotations
 from datetime import date
 import duckdb
 
-from sqldim.core.loaders.fact.snapshot       import LazyTransactionLoader, LazySnapshotLoader
-from sqldim.core.loaders.fact.accumulating   import LazyAccumulatingLoader
-from sqldim.core.loaders.fact.cumulative     import LazyCumulativeLoader
-from sqldim.core.loaders.dimension.bitmask        import LazyBitmaskLoader
-from sqldim.core.loaders.dimension.array_metric   import LazyArrayMetricLoader
+from sqldim.core.loaders.fact.snapshot import LazyTransactionLoader, LazySnapshotLoader
+from sqldim.core.loaders.fact.accumulating import LazyAccumulatingLoader
+from sqldim.core.loaders.fact.cumulative import LazyCumulativeLoader
+from sqldim.core.loaders.dimension.bitmask import LazyBitmaskLoader
+from sqldim.core.loaders.dimension.array_metric import LazyArrayMetricLoader
 from sqldim.core.loaders.dimension.edge_projection import LazyEdgeProjectionLoader
-from sqldim.core.kimball.dimensions.scd.processors.backfill      import lazy_backfill_scd2
+from sqldim.core.kimball.dimensions.scd.processors.backfill import lazy_backfill_scd2
 
 
 # ---------------------------------------------------------------------------
 # Shared in-memory sink
 # ---------------------------------------------------------------------------
+
 
 class InMemorySink:
     """
@@ -44,8 +46,9 @@ class InMemorySink:
     def current_state_sql(self, table_name: str) -> str:
         return f"SELECT * FROM {table_name}"
 
-    def write(self, con, view_name: str, table_name: str,
-              batch_size: int = 100_000) -> int:
+    def write(
+        self, con, view_name: str, table_name: str, batch_size: int = 100_000
+    ) -> int:
         n = con.execute(f"SELECT count(*) FROM {view_name}").fetchone()[0]
         try:
             con.execute(f"INSERT INTO {table_name} BY NAME SELECT * FROM {view_name}")
@@ -53,8 +56,9 @@ class InMemorySink:
             con.execute(f"CREATE TABLE {table_name} AS SELECT * FROM {view_name}")
         return n
 
-    def close_versions(self, con, table_name: str, nk_col: str,
-                       nk_view: str, valid_to: str) -> int:
+    def close_versions(
+        self, con, table_name: str, nk_col: str, nk_view: str, valid_to: str
+    ) -> int:
         con.execute(f"""
             UPDATE {table_name}
                SET is_current = FALSE, valid_to = '{valid_to}'
@@ -63,8 +67,14 @@ class InMemorySink:
         """)
         return con.execute(f"SELECT count(*) FROM {nk_view}").fetchone()[0]
 
-    def update_milestones(self, con, table_name: str, match_col: str,
-                          updates_view: str, milestone_cols: list[str]) -> int:
+    def update_milestones(
+        self,
+        con,
+        table_name: str,
+        match_col: str,
+        updates_view: str,
+        milestone_cols: list[str],
+    ) -> int:
         for col in milestone_cols:
             con.execute(f"""
                 UPDATE {table_name}
@@ -78,8 +88,7 @@ class InMemorySink:
             """)
         return con.execute(f"SELECT count(*) FROM {updates_view}").fetchone()[0]
 
-    def update_attributes(self, con, table_name, nk_col, updates_view,
-                          update_cols):
+    def update_attributes(self, con, table_name, nk_col, updates_view, update_cols):
         for col in update_cols:
             con.execute(f"""
                 UPDATE {table_name}
@@ -93,8 +102,7 @@ class InMemorySink:
             """)
         return con.execute(f"SELECT count(*) FROM {updates_view}").fetchone()[0]
 
-    def rotate_attributes(self, con, table_name, nk_col, rotations_view,
-                          column_pairs):
+    def rotate_attributes(self, con, table_name, nk_col, rotations_view, column_pairs):
         for curr, prev in column_pairs:
             con.execute(f"""
                 UPDATE {table_name}
@@ -111,17 +119,23 @@ class InMemorySink:
 # Helpers
 # ---------------------------------------------------------------------------
 
-def _make_source_view(con: duckdb.DuckDBPyConnection,
-                      view_name: str, rows: list[dict]) -> None:
+
+def _make_source_view(
+    con: duckdb.DuckDBPyConnection, view_name: str, rows: list[dict]
+) -> None:
     """Register a DuckDB view from a list of dicts (uniform schema)."""
     if not rows:
         return
     list(rows[0].keys())
     select_rows = " UNION ALL ".join(
-        "SELECT " + ", ".join(
-            f"'{v}'" if isinstance(v, str) else (
+        "SELECT "
+        + ", ".join(
+            f"'{v}'"
+            if isinstance(v, str)
+            else (
                 f"[{', '.join(repr(x) for x in v)}]" if isinstance(v, list) else str(v)
-            ) + f" AS {k}"
+            )
+            + f" AS {k}"
             for k, v in row.items()
         )
         for row in rows
@@ -132,6 +146,7 @@ def _make_source_view(con: duckdb.DuckDBPyConnection,
 # ---------------------------------------------------------------------------
 # LazyTransactionLoader
 # ---------------------------------------------------------------------------
+
 
 class TestLazyTransactionLoader:
     def _con_with_source(self):
@@ -170,6 +185,7 @@ class TestLazyTransactionLoader:
 
     def test_load_accepts_source_adapter(self):
         from sqldim.sources import SQLSource
+
         con = duckdb.connect()
         sink = InMemorySink()
         loader = LazyTransactionLoader(sink, con=con)
@@ -181,6 +197,7 @@ class TestLazyTransactionLoader:
 # ---------------------------------------------------------------------------
 # LazySnapshotLoader
 # ---------------------------------------------------------------------------
+
 
 class TestLazySnapshotLoader:
     def test_injects_snapshot_date(self):
@@ -201,8 +218,9 @@ class TestLazySnapshotLoader:
         con = duckdb.connect()
         con.execute("CREATE OR REPLACE VIEW src AS SELECT 'X' AS id, 5 AS val")
         sink = InMemorySink()
-        loader = LazySnapshotLoader(sink, snapshot_date="2024-01-15",
-                                    date_field="period_date", con=con)
+        loader = LazySnapshotLoader(
+            sink, snapshot_date="2024-01-15", date_field="period_date", con=con
+        )
         loader.load("src", "fact_snap")
         row = con.execute("SELECT period_date FROM fact_snap").fetchone()
         assert str(row[0]) == "2024-01-15"
@@ -222,6 +240,7 @@ class TestLazySnapshotLoader:
 # ---------------------------------------------------------------------------
 # LazyAccumulatingLoader
 # ---------------------------------------------------------------------------
+
 
 class TestLazyAccumulatingLoader:
     def _setup(self):
@@ -304,6 +323,7 @@ class TestLazyAccumulatingLoader:
 # LazyCumulativeLoader
 # ---------------------------------------------------------------------------
 
+
 class TestLazyCumulativeLoader:
     def _setup(self):
         """Prepare a DuckDB connection with an empty seasons table."""
@@ -366,6 +386,7 @@ class TestLazyCumulativeLoader:
 # ---------------------------------------------------------------------------
 # LazyBitmaskLoader
 # ---------------------------------------------------------------------------
+
 
 class TestLazyBitmaskLoader:
     def _make_user_activity_view(self, con: duckdb.DuckDBPyConnection) -> None:
@@ -458,6 +479,7 @@ class TestLazyBitmaskLoader:
     def test_aload_delegates_to_process(self):
         """bitmask.py line 113: aload() runs process in a thread pool executor."""
         import asyncio as _asyncio
+
         con = duckdb.connect()
         self._make_user_activity_view(con)
         sink = InMemorySink()
@@ -477,6 +499,7 @@ class TestLazyBitmaskLoader:
 # ---------------------------------------------------------------------------
 # LazyArrayMetricLoader
 # ---------------------------------------------------------------------------
+
 
 class TestLazyArrayMetricLoader:
     def test_builds_31_element_array(self):
@@ -510,7 +533,7 @@ class TestLazyArrayMetricLoader:
         """)
         sink = InMemorySink()
         month_start = date(2024, 1, 1)
-        target_date = date(2024, 1, 10)   # offset = 9
+        target_date = date(2024, 1, 10)  # offset = 9
         loader = LazyArrayMetricLoader(
             table="metrics",
             partition_key="user_id",
@@ -548,7 +571,9 @@ class TestLazyArrayMetricLoader:
     def test_load_alias_delegates_to_process(self):
         """array_metric.py line 107: load = process alias runs same code as process."""
         con = duckdb.connect()
-        con.execute("CREATE OR REPLACE VIEW src AS SELECT 'u1' AS user_id, 5.0 AS revenue")
+        con.execute(
+            "CREATE OR REPLACE VIEW src AS SELECT 'u1' AS user_id, 5.0 AS revenue"
+        )
         sink = InMemorySink()
         loader = LazyArrayMetricLoader(
             table="metrics_load_alias",
@@ -565,8 +590,11 @@ class TestLazyArrayMetricLoader:
     def test_aload_delegates_to_process(self):
         """array_metric.py line 104: aload() runs process in a thread pool executor."""
         import asyncio as _asyncio
+
         con = duckdb.connect()
-        con.execute("CREATE OR REPLACE VIEW src AS SELECT 'u1' AS user_id, 7.0 AS revenue")
+        con.execute(
+            "CREATE OR REPLACE VIEW src AS SELECT 'u1' AS user_id, 7.0 AS revenue"
+        )
         sink = InMemorySink()
         loader = LazyArrayMetricLoader(
             table="metrics_aload",
@@ -584,6 +612,7 @@ class TestLazyArrayMetricLoader:
 # ---------------------------------------------------------------------------
 # LazyEdgeProjectionLoader
 # ---------------------------------------------------------------------------
+
 
 class TestLazyEdgeProjectionLoader:
     def _player_game_view(self, con: duckdb.DuckDBPyConnection) -> None:
@@ -608,9 +637,7 @@ class TestLazyEdgeProjectionLoader:
             con=con,
         )
         loader.process("player_game_facts")
-        count = con.execute(
-            "SELECT count(*) FROM graph_player_game"
-        ).fetchone()[0]
+        count = con.execute("SELECT count(*) FROM graph_player_game").fetchone()[0]
         assert count == 3
 
     def test_direct_projection_edge_columns(self):
@@ -625,9 +652,12 @@ class TestLazyEdgeProjectionLoader:
             con=con,
         )
         loader.process("player_game_facts")
-        cols = [row[0] for row in con.execute(
-            "SELECT column_name FROM information_schema.columns WHERE table_name = 'g'"
-        ).fetchall()]
+        cols = [
+            row[0]
+            for row in con.execute(
+                "SELECT column_name FROM information_schema.columns WHERE table_name = 'g'"
+            ).fetchall()
+        ]
         assert "subject_id" in cols
         assert "object_id" in cols
 
@@ -644,9 +674,12 @@ class TestLazyEdgeProjectionLoader:
             con=con,
         )
         loader.process("player_game_facts")
-        cols = [row[0] for row in con.execute(
-            "SELECT column_name FROM information_schema.columns WHERE table_name = 'g'"
-        ).fetchall()]
+        cols = [
+            row[0]
+            for row in con.execute(
+                "SELECT column_name FROM information_schema.columns WHERE table_name = 'g'"
+            ).fetchall()
+        ]
         assert "edge_pts" in cols
 
     def test_self_join_generates_player_player_edges(self):
@@ -664,9 +697,7 @@ class TestLazyEdgeProjectionLoader:
         )
         loader.process("player_game_facts")
         # Players 1 and 2 share game 101 → 1 edge pair (1,2) only
-        count = con.execute(
-            "SELECT count(*) FROM graph_player_player"
-        ).fetchone()[0]
+        count = con.execute("SELECT count(*) FROM graph_player_player").fetchone()[0]
         assert count == 1
 
     def test_self_join_with_property_map(self):
@@ -684,15 +715,19 @@ class TestLazyEdgeProjectionLoader:
             con=con,
         )
         loader.process("player_game_facts")
-        cols = [r[0] for r in con.execute(
-            "SELECT column_name FROM information_schema.columns WHERE table_name = 'pp_edges'"
-        ).fetchall()]
+        cols = [
+            r[0]
+            for r in con.execute(
+                "SELECT column_name FROM information_schema.columns WHERE table_name = 'pp_edges'"
+            ).fetchall()
+        ]
         assert "combined_pts" in cols
 
 
 # ---------------------------------------------------------------------------
 # lazy_backfill_scd2
 # ---------------------------------------------------------------------------
+
 
 class TestLazyBackfillScd2:
     def _make_history_view(self, con: duckdb.DuckDBPyConnection) -> None:
@@ -747,6 +782,7 @@ class TestLazyBackfillScd2:
 
     def test_accepts_source_adapter(self):
         from sqldim.sources import SQLSource
+
         con = duckdb.connect()
         sink = InMemorySink()
         src = SQLSource("""
@@ -778,10 +814,13 @@ class TestLazyBackfillScd2:
             sink=sink,
             con=con,
         )
-        cols = [r[0] for r in con.execute(
-            "SELECT column_name FROM information_schema.columns "
-            "WHERE table_name = 'dim_emp_scd2'"
-        ).fetchall()]
+        cols = [
+            r[0]
+            for r in con.execute(
+                "SELECT column_name FROM information_schema.columns "
+                "WHERE table_name = 'dim_emp_scd2'"
+            ).fetchall()
+        ]
         assert "valid_from" in cols
         assert "valid_to" in cols
 
@@ -795,6 +834,7 @@ class TestLazyBackfillScd2:
         """)
         # We can't pass the view across connections, so use SQLSource
         from sqldim.sources import SQLSource
+
         sink = InMemorySink()
         # con=None → function creates its own — we need to verify it doesn't crash
         # We pass a real connection here to avoid cross-connection issues
@@ -814,6 +854,3 @@ class TestLazyBackfillScd2:
 # ---------------------------------------------------------------------------
 # Classic narwhals-based loaders  (pandas path)
 # ---------------------------------------------------------------------------
-
-import pandas as pd
-import narwhals as nw

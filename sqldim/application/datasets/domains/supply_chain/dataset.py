@@ -14,9 +14,13 @@ Instantiate and use with a DuckDB connection:
 
     supply_chain_dataset.teardown(con)
 """
+
 from sqldim.application.datasets.dataset import Dataset
 from sqldim.application.datasets.domains.supply_chain.sources import (
-    SuppliersSource, WarehousesSource, SKUsSource, ReceiptsSource,
+    SuppliersSource,
+    WarehousesSource,
+    SKUsSource,
+    ReceiptsSource,
 )
 
 supply_chain_dataset = Dataset(
@@ -29,4 +33,11 @@ supply_chain_dataset = Dataset(
     ],
 )
 
-__all__ = ["supply_chain_dataset"]
+DATASET_METADATA = {
+    "name": "supply_chain",
+    "title": "Supply-chain operations",
+    "description": "Suppliers, warehouses, products, inventory, and shipments",
+    "dataset_attr": "supply_chain_dataset",
+}
+
+__all__ = ["supply_chain_dataset", "DATASET_METADATA"]

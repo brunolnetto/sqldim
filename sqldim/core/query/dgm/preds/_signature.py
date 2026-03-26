@@ -6,6 +6,9 @@ SAFETY, LIVENESS, RESPONSE, PERSISTENCE, RECURRENCE, SequenceMatch, SignaturePre
 from __future__ import annotations
 
 import enum
+from typing import Any
+
+from sqldim.core.query.dgm.refs import _SQLExpr
 
 
 # ---------------------------------------------------------------------------
@@ -16,7 +19,7 @@ import enum
 class SAFETY:
     """AG(¬bad) — the bad state is globally unreachable on all paths."""
 
-    def __init__(self, bad: object) -> None:
+    def __init__(self, bad: _SQLExpr) -> None:
         self.bad = bad
 
     def to_sql(self) -> str:
@@ -26,7 +29,7 @@ class SAFETY:
 class LIVENESS:
     """AF(good) — the good state is eventually reached on all paths."""
 
-    def __init__(self, good: object) -> None:
+    def __init__(self, good: _SQLExpr) -> None:
         self.good = good
 
     def to_sql(self) -> str:
@@ -36,7 +39,7 @@ class LIVENESS:
 class RESPONSE:
     """AG(trigger → AF(response)) — every trigger is eventually followed by a response."""
 
-    def __init__(self, trigger: object, response: object) -> None:
+    def __init__(self, trigger: _SQLExpr, response: _SQLExpr) -> None:
         self.trigger = trigger
         self.response = response
 
@@ -47,7 +50,7 @@ class RESPONSE:
 class PERSISTENCE:
     """AF(AG(good)) — the good state is eventually and permanently reached."""
 
-    def __init__(self, good: object) -> None:
+    def __init__(self, good: _SQLExpr) -> None:
         self.good = good
 
     def to_sql(self) -> str:
@@ -57,12 +60,14 @@ class PERSISTENCE:
 class RECURRENCE:
     """good occurs in every window period (liveness within a bounded window)."""
 
-    def __init__(self, good: object, window: object) -> None:
+    def __init__(self, good: _SQLExpr, window: Any) -> None:
         self.good = good
         self.window = window
 
     def to_sql(self) -> str:
-        win_sql = self.window.to_sql() if hasattr(self.window, "to_sql") else str(self.window)
+        win_sql = (
+            self.window.to_sql() if hasattr(self.window, "to_sql") else str(self.window)
+        )
         return f"G_win({self.good.to_sql()}, {win_sql})"
 
 
@@ -105,6 +110,4 @@ class SignaturePred:
 
     def to_sql(self) -> str:
         seq_repr = repr(self.sequence)
-        return (
-            f"signature_match({self.path_alias}, {seq_repr}, {self.match.value!r})"
-        )
+        return f"signature_match({self.path_alias}, {seq_repr}, {self.match.value!r})"

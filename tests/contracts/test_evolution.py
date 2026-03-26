@@ -1,4 +1,5 @@
 """Tests for ContractEngine.check_evolution_safety and related helpers."""
+
 from __future__ import annotations
 
 
@@ -16,6 +17,7 @@ from sqldim.contracts.validation.schema import ColumnSpec
 # EvolutionChange
 # ---------------------------------------------------------------------------
 
+
 class TestEvolutionChange:
     def test_fields(self):
         ec = EvolutionChange("added", "my_col", "detail text")
@@ -31,6 +33,7 @@ class TestEvolutionChange:
 # ---------------------------------------------------------------------------
 # EvolutionReport
 # ---------------------------------------------------------------------------
+
 
 class TestEvolutionReport:
     def test_is_safe_empty(self):
@@ -83,6 +86,7 @@ class TestEvolutionReport:
 # _is_widening
 # ---------------------------------------------------------------------------
 
+
 class TestIsWidening:
     def test_int_widening(self):
         assert _is_widening("int", "bigint") is True
@@ -120,6 +124,7 @@ class TestIsWidening:
 # _classify_type_change
 # ---------------------------------------------------------------------------
 
+
 class TestClassifyTypeChange:
     def test_widening_classified_as_widened(self):
         old = ColumnSpec(name="qty", dtype="int", nullable=True)
@@ -146,8 +151,8 @@ class TestClassifyTypeChange:
 # ContractEngine.check_evolution_safety
 # ---------------------------------------------------------------------------
 
-class TestCheckEvolutionSafety:
 
+class TestCheckEvolutionSafety:
     # -- Nullable column added ----------------------------------------
 
     def test_nullable_add_on_parquet_is_safe(self):
@@ -283,7 +288,9 @@ class TestCheckEvolutionSafety:
         new = [
             ColumnSpec(name="id", dtype="int", nullable=False),
             ColumnSpec(name="amount", dtype="bigint", nullable=True),  # widened
-            ColumnSpec(name="new_nullable", dtype="varchar", nullable=True),  # added safe
+            ColumnSpec(
+                name="new_nullable", dtype="varchar", nullable=True
+            ),  # added safe
         ]
         report = ContractEngine.check_evolution_safety(old, new, backend="parquet")
         # legacy_col removed → breaking

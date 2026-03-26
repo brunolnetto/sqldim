@@ -1,16 +1,22 @@
 """Tests for NarwhalsAdapter — Task 7.1."""
+
 import sys
 import pytest
-import pandas as pd
+import pandas as pd  # type: ignore[import-untyped]
 import polars as pl
 
-from sqldim.core.kimball.dimensions.scd.processors.adapter import NarwhalsAdapter, _is_dataframe, _dicts_to_native
+from sqldim.core.kimball.dimensions.scd.processors.adapter import (
+    NarwhalsAdapter,
+    _is_dataframe,
+    _dicts_to_native,
+)
 from sqldim.exceptions import LoadError
 
 
 # ---------------------------------------------------------------------------
 # _is_dataframe helper
 # ---------------------------------------------------------------------------
+
 
 def test_is_dataframe_pandas():
     df = pd.DataFrame({"a": [1]})
@@ -38,6 +44,7 @@ def test_is_dataframe_rejects_string():
 # _dicts_to_native helper
 # ---------------------------------------------------------------------------
 
+
 def test_dicts_to_native_nonempty():
     native = _dicts_to_native([{"x": 1, "y": "a"}])
     assert native is not None
@@ -51,6 +58,7 @@ def test_dicts_to_native_empty_returns_frame():
 # ---------------------------------------------------------------------------
 # NarwhalsAdapter construction
 # ---------------------------------------------------------------------------
+
 
 def test_adapter_wraps_pandas():
     df = pd.DataFrame({"id": [1, 2], "name": ["Alice", "Bob"]})
@@ -86,6 +94,7 @@ def test_adapter_rejects_none():
 # ---------------------------------------------------------------------------
 # NarwhalsAdapter accessors
 # ---------------------------------------------------------------------------
+
 
 def test_adapter_to_dicts_pandas():
     df = pd.DataFrame({"id": [1], "name": ["Alice"]})
@@ -134,6 +143,7 @@ def test_adapter_schema_returns_dict():
 
 def test_adapter_frame_returns_narwhals():
     import narwhals as nw
+
     df = pl.DataFrame({"id": [1]})
     adapter = NarwhalsAdapter(df)
     assert isinstance(adapter.frame(), nw.DataFrame)
@@ -158,6 +168,7 @@ def test_adapter_list_to_dicts_roundtrip():
 # ---------------------------------------------------------------------------
 # Migrated from test_coverage_100.py and test_coverage_final.py
 # ---------------------------------------------------------------------------
+
 
 def test_adapter_empty_list():
     """NarwhalsAdapter([]) has length 0."""

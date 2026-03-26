@@ -42,11 +42,12 @@ from sqldim.core.query.dgm._dag import (
 # Helpers
 # ---------------------------------------------------------------------------
 
+
 def _make_bdd() -> DGMPredicateBDD:
     return DGMPredicateBDD(BDDManager())
 
 
-def _leaf_query(table: str, pred: object | None = None) -> DGMQuery:
+def _leaf_query(table: str, pred: ScalarPred | None = None) -> DGMQuery:
     """Create a minimal DGMQuery anchored on *table* with optional WHERE pred."""
     q = DGMQuery().anchor(table, "t")
     if pred is not None:
@@ -84,6 +85,7 @@ class TestQueryDAGManagerExists:
 
     def test_dag_node_is_dataclass(self):
         from dataclasses import fields
+
         field_names = {f.name for f in fields(QueryDAGNode)}
         assert "node_id" in field_names
         assert "op" in field_names
@@ -220,7 +222,7 @@ class TestIdentityLaws:
         alg = QuestionAlgebra()
         alg.add("q1", _leaf_query("orders"))
         alg.add("empty", DGMQuery().anchor("empty_q"))
-        # Mark as empty via sql override is not straightforward; 
+        # Mark as empty via sql override is not straightforward;
         # instead compose with EMPTY sentinel SQL
         alg.compose("q1", ComposeOp.UNION, "q1", name="union_idem")
 
@@ -246,7 +248,7 @@ class TestContainmentLaws:
 
     def test_containment_absorption_union(self):
         """apply_semiring union: q1 ⊆ q2 → q1 ∪ q2 = q2.
-        
+
         When q1's predicate implies q2's predicate (q1 is stricter), the union
         is dominated by q2 (the broader query).
         """
@@ -273,7 +275,7 @@ class TestContainmentLaws:
 
     def test_containment_selection_intersect(self):
         """apply_semiring intersect: q1 ⊆ q2 → q1 ∩ q2 = q1.
-        
+
         When q1's predicate implies q2's predicate, their intersection is just q1.
         """
         bdd = _make_bdd()
@@ -308,7 +310,7 @@ class TestContainmentLaws:
         bdd = _make_bdd()
         p_strict = ScalarPred(PropRef("t", "x"), "=", "only_match")
         alg = QuestionAlgebra()
-        alg.add("q_wide", _leaf_query("orders"))   # no predicate → TRUE
+        alg.add("q_wide", _leaf_query("orders"))  # no predicate → TRUE
         alg.add("q_strict", _leaf_query("orders", p_strict))
         alg.compose("q_wide", ComposeOp.UNION, "q_strict", name="union_rev")
 
@@ -328,7 +330,7 @@ class TestDistributivity:
 
     def test_distributivity_reduces_node_count_via_idempotence(self):
         """Q ∩ (Q ∪ Q) = (Q ∩ Q) ∪ (Q ∩ Q) = Q ∪ Q = Q.
-        
+
         Distributivity + idempotence collapses a 3-CTE chain to 1.
         All three input CTEs are the same node → maximum collapse.
         """
@@ -344,7 +346,7 @@ class TestDistributivity:
 
     def test_distributivity_expanded_when_reduces_dag_size(self):
         """Q₁ ∩ (Q₂ ∪ Q₃) expanded when left operand is in both terms.
-        
+
         The expanded form enables further idempotence elimination when, e.g.,
         Q₁ == Q₂, giving (Q₁ ∩ Q₁) ∪ (Q₁ ∩ Q₃) = Q₁ ∪ (Q₁ ∩ Q₃).
         """
@@ -358,7 +360,7 @@ class TestDistributivity:
 
         result = apply_semiring_minimisation(alg, bdd)
         # After distributivity: (q1 ∩ q1) ∪ (q1 ∩ q3) = q1 ∪ (q1 ∩ q3)
-        # q1 ∪ (sth where q1⊆everything-that-q1-is-a-subset-of) 
+        # q1 ∪ (sth where q1⊆everything-that-q1-is-a-subset-of)
         # Minimum: the result has fewer CTEs than the original 4
         assert len(result) < len(alg)
 
@@ -612,7 +614,6 @@ class TestQueryDAGManagerMake:
 
 from sqldim.core.query.dgm._dag import (
     _leaf_bdd_id,
-    _build_bdd_ids,
     _try_eliminate,
     _resolve,
     _union_survivor,
@@ -674,8 +675,8 @@ class TestUnionSurvivorRightSubsetLeft:
         # p2: (a=x) AND (b=y)  — same a=x object reused so BDD var matches
         p_a = ScalarPred(PropRef("t", "a"), "=", "x")
         p_b = ScalarPred(PropRef("t", "b"), "=", "y")
-        p1 = p_a                       # broader: just a=x
-        p2 = AND(p_a, p_b)             # stricter: a=x AND b=y (reuses p_a)
+        p1 = p_a  # broader: just a=x
+        p2 = AND(p_a, p_b)  # stricter: a=x AND b=y (reuses p_a)
 
         id1 = bdd.compile(p1)
         id2 = bdd.compile(p2)
@@ -691,8 +692,8 @@ class TestUnionSurvivorRightSubsetLeft:
         bdd = _make_bdd()
         p_a = ScalarPred(PropRef("t", "a"), "=", "x")
         p_b = ScalarPred(PropRef("t", "b"), "=", "y")
-        p1 = p_a                    # broader
-        p2 = AND(p_a, p_b)         # stricter — reuses p_a atom
+        p1 = p_a  # broader
+        p2 = AND(p_a, p_b)  # stricter — reuses p_a atom
 
         alg = QuestionAlgebra()
         alg.add("q1", _leaf_query("t1", p1))
@@ -773,8 +774,8 @@ class TestIntersectSurvivorRightSubsetLeft:
         # Share the same atom object so BDD detects containment
         p_a = ScalarPred(PropRef("t", "a"), "=", "x")
         p_b = ScalarPred(PropRef("t", "b"), "=", "y")
-        p1 = p_a                    # broader
-        p2 = AND(p_a, p_b)         # stricter — reuses p_a
+        p1 = p_a  # broader
+        p2 = AND(p_a, p_b)  # stricter — reuses p_a
 
         id1 = bdd.compile(p1)
         id2 = bdd.compile(p2)
@@ -790,8 +791,8 @@ class TestIntersectSurvivorRightSubsetLeft:
         bdd = _make_bdd()
         p_a = ScalarPred(PropRef("t", "a"), "=", "x")
         p_b = ScalarPred(PropRef("t", "b"), "=", "y")
-        p1 = p_a                    # broader
-        p2 = AND(p_a, p_b)         # stricter — reuses p_a
+        p1 = p_a  # broader
+        p2 = AND(p_a, p_b)  # stricter — reuses p_a
 
         alg = QuestionAlgebra()
         alg.add("q1", _leaf_query("t1", p1))

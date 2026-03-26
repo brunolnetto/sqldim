@@ -81,13 +81,13 @@ class OTLPSpanExporter:
 
     def __init__(self, endpoint: str = "http://localhost:4317") -> None:
         try:
-            from opentelemetry import trace  # noqa: F401
-            from opentelemetry.sdk.trace import TracerProvider
-            from opentelemetry.sdk.trace.export import (
+            from opentelemetry import trace  # noqa: F401  # type: ignore[import-not-found]
+            from opentelemetry.sdk.trace import TracerProvider  # type: ignore[import-not-found]
+            from opentelemetry.sdk.trace.export import (  # type: ignore[import-not-found, attr-defined]
                 BatchSpanProcessor,
                 OTLPSpanExporter as _OTLPSpanExporter,
             )
-            from opentelemetry.sdk.resources import Resource
+            from opentelemetry.sdk.resources import Resource  # type: ignore[import-not-found]
         except ImportError:
             raise ImportError(
                 "The [otel] optional dependency group is required for OTLP "
@@ -120,13 +120,13 @@ class OTLPMetricExporter:
 
     def __init__(self, endpoint: str = "http://localhost:4317") -> None:
         try:
-            from opentelemetry import metrics  # noqa: F401
-            from opentelemetry.sdk.metrics import MeterProvider
-            from opentelemetry.sdk.metrics.export import (
+            from opentelemetry import metrics  # noqa: F401  # type: ignore[import-not-found]
+            from opentelemetry.sdk.metrics import MeterProvider  # type: ignore[import-not-found]
+            from opentelemetry.sdk.metrics.export import (  # type: ignore[import-not-found, attr-defined]
                 PeriodicExportingMetricReader,
                 OTLPMetricExporter as _OTLPMetricExporter,
             )
-            from opentelemetry.sdk.resources import Resource
+            from opentelemetry.sdk.resources import Resource  # type: ignore[import-not-found]
         except ImportError:
             raise ImportError(
                 "The [otel] optional dependency group is required for OTLP "
@@ -145,7 +145,7 @@ class OTLPMetricExporter:
         if key not in self._instruments:
             self._instruments[key] = self._create_instrument(sample)
         instrument = self._instruments[key]
-        instrument.record(sample.value, attributes=sample.labels)
+        instrument.record(sample.value, attributes=sample.labels)  # type: ignore[attr-defined]
 
     def _create_instrument(self, sample: MetricSample) -> object:
         if sample.kind.value == "counter":

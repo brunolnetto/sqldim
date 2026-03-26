@@ -11,6 +11,7 @@ Covers:
 - ProductStockOutEvent
 - UserPlanUpgradedEvent, UserChurnedEvent
 """
+
 from __future__ import annotations
 
 import pytest
@@ -31,6 +32,7 @@ class _FakeSource:
 
     def __init__(self, rows: list[dict]):
         from sqldim.sources import SQLSource
+
         self._sql = SQLSource(rows_to_sql(rows))
 
     def snapshot(self):
@@ -136,9 +138,8 @@ class TestEventRepository:
                 state.update("items", bumped)
                 return {"items": bumped}
 
-        return (
-            EventRepository({"items": _FakeSource([{"v": 10}, {"v": 20}])})
-            .register(BumpEvent())
+        return EventRepository({"items": _FakeSource([{"v": 10}, {"v": 20}])}).register(
+            BumpEvent()
         )
 
     def test_init_materialises_tables(self):
@@ -192,14 +193,17 @@ class TestCustomerBulkCancelEvent:
         from sqldim.application.datasets.domains.ecommerce.events.customers import (
             CustomerBulkCancelEvent,
         )
+
         return CustomerBulkCancelEvent()
 
     def test_cancels_placed_orders_with_status_field(self):
-        state = self._make_state([
-            {"order_id": 1, "customer_id": 42, "status": "placed"},
-            {"order_id": 2, "customer_id": 42, "status": "shipped"},
-            {"order_id": 3, "customer_id": 99, "status": "placed"},
-        ])
+        state = self._make_state(
+            [
+                {"order_id": 1, "customer_id": 42, "status": "placed"},
+                {"order_id": 2, "customer_id": 42, "status": "shipped"},
+                {"order_id": 3, "customer_id": 99, "status": "placed"},
+            ]
+        )
         changes = self._event().apply(state, customer_id=42)
         assert len(changes["orders"]) == 1
         assert changes["orders"][0]["status"] == "cancelled"
@@ -210,18 +214,32 @@ class TestCustomerBulkCancelEvent:
 
     def test_cancels_placed_orders_accumulating_model(self):
         """Handles order model without status field (placed_at with null paid_at)."""
-        state = self._make_state([
-            {"order_id": 1, "customer_id": 5, "placed_at": "2024-01-01", "paid_at": None},
-            {"order_id": 2, "customer_id": 5, "placed_at": "2024-01-02", "paid_at": "2024-01-03"},
-        ])
+        state = self._make_state(
+            [
+                {
+                    "order_id": 1,
+                    "customer_id": 5,
+                    "placed_at": "2024-01-01",
+                    "paid_at": None,
+                },
+                {
+                    "order_id": 2,
+                    "customer_id": 5,
+                    "placed_at": "2024-01-02",
+                    "paid_at": "2024-01-03",
+                },
+            ]
+        )
         changes = self._event().apply(state, customer_id=5)
         assert len(changes["orders"]) == 1
         assert changes["orders"][0]["_cancelled"] is True
 
     def test_no_changes_when_no_matching_orders(self):
-        state = self._make_state([
-            {"order_id": 1, "customer_id": 99, "status": "placed"},
-        ])
+        state = self._make_state(
+            [
+                {"order_id": 1, "customer_id": 99, "status": "placed"},
+            ]
+        )
         changes = self._event().apply(state, customer_id=42)
         assert "orders" not in changes
 
@@ -230,7 +248,9 @@ class TestCustomerBulkCancelEvent:
             orders=[{"order_id": 1, "customer_id": 1, "status": "placed"}],
             customers=[{"customer_id": 1, "updated_at": "2024-01-01"}],
         )
-        changes = self._event().apply(state, customer_id=1, event_ts="2024-06-01 09:00:00")
+        changes = self._event().apply(
+            state, customer_id=1, event_ts="2024-06-01 09:00:00"
+        )
         assert "customers" in changes
         assert changes["customers"][0]["updated_at"] == "2024-06-01 09:00:00"
 
@@ -239,6 +259,7 @@ class TestCustomerBulkCancelEvent:
         from sqldim.application.datasets.domains.ecommerce.events.customers import (
             _stamp_ts_row,
         )
+
         row = {"customer_id": 99, "updated_at": "2024-01-01"}
         result = _stamp_ts_row(row, customer_id=1, event_ts="2024-06-01")
         assert result is row  # unchanged — different customer
@@ -252,15 +273,28 @@ class TestCustomerAddressChangedEvent:
         from sqldim.application.datasets.domains.ecommerce.events.customers import (
             CustomerAddressChangedEvent,
         )
+
         return CustomerAddressChangedEvent()
 
     def test_updates_address_fields(self):
-        state = AggregateState({
-            "customers": [
-                {"customer_id": 1, "address": "Old St", "city": "Old City", "updated_at": "2024-01-01"},
-                {"customer_id": 2, "address": "Other St", "city": "Other City", "updated_at": "2024-01-01"},
-            ]
-        })
+        state = AggregateState(
+            {
+                "customers": [
+                    {
+                        "customer_id": 1,
+                        "address": "Old St",
+                        "city": "Old City",
+                        "updated_at": "2024-01-01",
+                    },
+                    {
+                        "customer_id": 2,
+                        "address": "Other St",
+                        "city": "Other City",
+                        "updated_at": "2024-01-01",
+                    },
+                ]
+            }
+        )
         changes = self._event().apply(
             state, customer_id=1, new_address="New St", new_city="New City"
         )
@@ -272,10 +306,12 @@ class TestCustomerAddressChangedEvent:
         assert other["address"] == "Other St"
 
     def test_no_changes_for_unknown_customer(self):
-        state = AggregateState({
-            "customers": [{"customer_id": 1, "address": "A", "city": "B"}]
-        })
-        changes = self._event().apply(state, customer_id=99, new_address="X", new_city="Y")
+        state = AggregateState(
+            {"customers": [{"customer_id": 1, "address": "A", "city": "B"}]}
+        )
+        changes = self._event().apply(
+            state, customer_id=99, new_address="X", new_city="Y"
+        )
         assert changes["customers"] == []
 
 
@@ -287,44 +323,58 @@ class TestProductStockOutEvent:
         from sqldim.application.datasets.domains.ecommerce.events.products import (
             ProductStockOutEvent,
         )
+
         return ProductStockOutEvent()
 
     def test_marks_product_inactive(self):
-        state = AggregateState({
-            "products": [
-                {"product_id": 7, "stock_qty": 100, "is_active": True, "updated_at": "2024-01-01"},
-            ]
-        })
+        state = AggregateState(
+            {
+                "products": [
+                    {
+                        "product_id": 7,
+                        "stock_qty": 100,
+                        "is_active": True,
+                        "updated_at": "2024-01-01",
+                    },
+                ]
+            }
+        )
         changes = self._event().apply(state, product_id=7)
         assert changes["products"][0]["stock_qty"] == 0
         assert changes["products"][0]["is_active"] is False
 
     def test_cancels_placed_orders_for_product(self):
-        state = AggregateState({
-            "products": [{"product_id": 3, "stock_qty": 5, "is_active": True}],
-            "orders": [
-                {"order_id": 1, "product_id": 3, "status": "placed"},
-                {"order_id": 2, "product_id": 3, "status": "shipped"},
-                {"order_id": 3, "product_id": 99, "status": "placed"},
-            ],
-        })
+        state = AggregateState(
+            {
+                "products": [{"product_id": 3, "stock_qty": 5, "is_active": True}],
+                "orders": [
+                    {"order_id": 1, "product_id": 3, "status": "placed"},
+                    {"order_id": 2, "product_id": 3, "status": "shipped"},
+                    {"order_id": 3, "product_id": 99, "status": "placed"},
+                ],
+            }
+        )
         changes = self._event().apply(state, product_id=3)
         assert len(changes["orders"]) == 1
         assert changes["orders"][0]["status"] == "cancelled"
 
     def test_no_order_changes_when_no_orders_table(self):
-        state = AggregateState({
-            "products": [{"product_id": 1, "stock_qty": 5, "is_active": True}],
-        })
+        state = AggregateState(
+            {
+                "products": [{"product_id": 1, "stock_qty": 5, "is_active": True}],
+            }
+        )
         changes = self._event().apply(state, product_id=1)
         assert "orders" not in changes
 
     def test_no_order_changes_when_orders_have_no_product_id(self):
         """Orders without product_id field are skipped."""
-        state = AggregateState({
-            "products": [{"product_id": 1, "stock_qty": 5, "is_active": True}],
-            "orders": [{"order_id": 1, "status": "placed"}],
-        })
+        state = AggregateState(
+            {
+                "products": [{"product_id": 1, "stock_qty": 5, "is_active": True}],
+                "orders": [{"order_id": 1, "status": "placed"}],
+            }
+        )
         changes = self._event().apply(state, product_id=1)
         assert "orders" not in changes
 
@@ -333,6 +383,7 @@ class TestProductStockOutEvent:
         from sqldim.application.datasets.domains.ecommerce.events.products import (
             _apply_stock_out_to_product,
         )
+
         other = {"product_id": 99, "stock_qty": 50, "is_active": True}
         result = _apply_stock_out_to_product(other, product_id=1, event_ts="2024-01-01")
         assert result is other  # exact same object returned unchanged
@@ -346,39 +397,46 @@ class TestUserPlanUpgradedEvent:
         from sqldim.application.datasets.domains.saas_growth.events.users import (
             UserPlanUpgradedEvent,
         )
+
         return UserPlanUpgradedEvent()
 
     def test_upgrades_plan_tier(self):
-        state = AggregateState({
-            "saas_users": [
-                {"user_id": 1, "plan_tier": "free"},
-                {"user_id": 2, "plan_tier": "free"},
-            ]
-        })
+        state = AggregateState(
+            {
+                "saas_users": [
+                    {"user_id": 1, "plan_tier": "free"},
+                    {"user_id": 2, "plan_tier": "free"},
+                ]
+            }
+        )
         changes = self._event().apply(state, user_id=1, new_tier="pro")
         assert changes["saas_users"][0]["plan_tier"] == "pro"
         # user 2 untouched
         assert state.get("saas_users")[1]["plan_tier"] == "free"
 
     def test_enterprise_referral_adds_referral_log_row(self):
-        state = AggregateState({
-            "saas_users": [
-                {"user_id": 5, "plan_tier": "pro", "acq_source": "referral"},
-            ],
-            "referral_log": [],
-        })
+        state = AggregateState(
+            {
+                "saas_users": [
+                    {"user_id": 5, "plan_tier": "pro", "acq_source": "referral"},
+                ],
+                "referral_log": [],
+            }
+        )
         changes = self._event().apply(state, user_id=5, new_tier="enterprise")
         assert "referral_log" in changes
         assert changes["referral_log"][0]["event"] == "enterprise_upgrade_bonus"
         assert changes["referral_log"][0]["credit"] == 50
 
     def test_enterprise_non_referral_no_log_row(self):
-        state = AggregateState({
-            "saas_users": [
-                {"user_id": 5, "plan_tier": "pro", "acq_source": "organic"},
-            ],
-            "referral_log": [],
-        })
+        state = AggregateState(
+            {
+                "saas_users": [
+                    {"user_id": 5, "plan_tier": "pro", "acq_source": "organic"},
+                ],
+                "referral_log": [],
+            }
+        )
         changes = self._event().apply(state, user_id=5, new_tier="enterprise")
         assert "referral_log" not in changes
 
@@ -396,20 +454,21 @@ class TestUserChurnedEvent:
         from sqldim.application.datasets.domains.saas_growth.events.users import (
             UserChurnedEvent,
         )
+
         return UserChurnedEvent()
 
     def test_sets_plan_tier_to_churned(self):
-        state = AggregateState({
-            "saas_users": [{"user_id": 3, "plan_tier": "pro"}]
-        })
+        state = AggregateState({"saas_users": [{"user_id": 3, "plan_tier": "pro"}]})
         changes = self._event().apply(state, user_id=3)
         assert changes["saas_users"][0]["plan_tier"] == "churned"
 
     def test_appends_to_churn_log_when_present(self):
-        state = AggregateState({
-            "saas_users": [{"user_id": 3, "plan_tier": "pro"}],
-            "churn_log": [],
-        })
+        state = AggregateState(
+            {
+                "saas_users": [{"user_id": 3, "plan_tier": "pro"}],
+                "churn_log": [],
+            }
+        )
         changes = self._event().apply(state, user_id=3, reason="price")
         assert "churn_log" in changes
         assert changes["churn_log"][0]["reason"] == "price"

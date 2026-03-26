@@ -120,7 +120,7 @@ class SchemaGraph:
         A role-playing dimension is when the same physical dimension is joined
         multiple times under different logical roles (e.g. departure_date, arrival_date).
         """
-        refs = []
+        refs: list[RolePlayingRef] = []
         if not hasattr(fact_model, "__table__"):
             return refs
         for col in fact_model.__table__.columns:

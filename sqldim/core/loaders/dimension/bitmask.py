@@ -9,7 +9,6 @@ import asyncio
 from sqldim.core.loaders._utils import _resolve_table, _assert_not_dimension
 
 
-
 # ---------------------------------------------------------------------------
 # Lazy (DuckDB-first) loader — no Python data, no OOM risk
 # ---------------------------------------------------------------------------
@@ -60,6 +59,9 @@ class LazyBitmaskLoader:
         self.window_days = window_days
         self.batch_size = batch_size
         self._con = con or _duckdb.connect()
+        self._model_cls: type | None = (
+            None  # set by factory when created via as_loader()
+        )
 
     def process(self, source) -> int:
         """

@@ -1,4 +1,5 @@
 """User domain events for the saas_growth domain."""
+
 from __future__ import annotations
 from typing import Any
 from sqldim.application.datasets.events import AggregateState, DomainEvent
@@ -30,7 +31,11 @@ def _log_enterprise_referral_bonus(
     result: dict[str, list[dict]],
 ) -> None:
     """Append a referral bonus row when an enterprise upgrade came from a referral."""
-    if new_tier != "enterprise" or "referral_log" not in state.table_names or not changed:
+    if (
+        new_tier != "enterprise"
+        or "referral_log" not in state.table_names
+        or not changed
+    ):
         return
     if changed[0].get("acq_source") != "referral":
         return
@@ -94,7 +99,7 @@ class UserPlanUpgradedEvent(DomainEvent):
 
     name = "user_plan_upgraded"
 
-    def apply(
+    def apply(  # type: ignore[override]
         self,
         state: AggregateState,
         *,
@@ -108,7 +113,9 @@ class UserPlanUpgradedEvent(DomainEvent):
         if changed:
             state.update("saas_users", updated_users)
         result: dict[str, list[dict]] = {"saas_users": changed}
-        _log_enterprise_referral_bonus(state, user_id, new_tier, changed, event_ts, result)
+        _log_enterprise_referral_bonus(
+            state, user_id, new_tier, changed, event_ts, result
+        )
         return result
 
 
@@ -136,7 +143,7 @@ class UserChurnedEvent(DomainEvent):
 
     name = "user_churned"
 
-    def apply(
+    def apply(  # type: ignore[override]
         self,
         state: AggregateState,
         *,

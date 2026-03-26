@@ -59,7 +59,7 @@ class DuckDBSink:
             WHERE {where}
         """)
         self._hash_cache[table_name] = local
-        return con.execute(f"SELECT count(*) FROM {local}").fetchone()[0]
+        return (con.execute(f"SELECT count(*) FROM {local}").fetchone() or (0,))[0]
 
     def write(
         self,
@@ -88,7 +88,7 @@ class DuckDBSink:
         _log = logging.getLogger(__name__)
 
         target = f"{self._alias}.{self._schema}.{table_name}"
-        total = con.execute(f"SELECT count(*) FROM {view_name}").fetchone()[0]
+        total = (con.execute(f"SELECT count(*) FROM {view_name}").fetchone() or (0,))[0]
         if total == 0:
             return 0
         _log.info(f"[sqldim] {table_name}: inserting {total:,} rows …")
@@ -123,7 +123,7 @@ class DuckDBSink:
 
         cols = ", ".join(columns)
         target = f"{self._alias}.{self._schema}.{table_name}"
-        total = con.execute(f"SELECT count(*) FROM {view_name}").fetchone()[0]
+        total = (con.execute(f"SELECT count(*) FROM {view_name}").fetchone() or (0,))[0]
         if total == 0:
             return 0
         _log.info(f"[sqldim] {table_name}: inserting {total:,} rows …")
@@ -159,7 +159,7 @@ class DuckDBSink:
              WHERE {where_clause}
                AND is_current = TRUE
         """)
-        return con.execute(f"SELECT count(*) FROM {nk_view}").fetchone()[0]
+        return (con.execute(f"SELECT count(*) FROM {nk_view}").fetchone() or (0,))[0]
 
     # ── SinkAdapter extended ──────────────────────────────────────────────
 
@@ -182,7 +182,9 @@ class DuckDBSink:
              WHERE {nk_col} IN (SELECT {nk_col} FROM {updates_view})
                AND is_current = TRUE
         """)
-        return con.execute(f"SELECT count(*) FROM {updates_view}").fetchone()[0]
+        return (con.execute(f"SELECT count(*) FROM {updates_view}").fetchone() or (0,))[
+            0
+        ]
 
     def rotate_attributes(
         self,
@@ -214,7 +216,9 @@ class DuckDBSink:
                AND {tbl}.is_current = TRUE
                AND t_old.is_current = TRUE
         """)
-        return con.execute(f"SELECT count(*) FROM {rotations_view}").fetchone()[0]
+        return (
+            con.execute(f"SELECT count(*) FROM {rotations_view}").fetchone() or (0,)
+        )[0]
 
     def update_milestones(
         self,
@@ -239,7 +243,9 @@ class DuckDBSink:
                SET {set_clause}
              WHERE {match_col} IN (SELECT {match_col} FROM {updates_view})
         """)
-        return con.execute(f"SELECT count(*) FROM {updates_view}").fetchone()[0]
+        return (con.execute(f"SELECT count(*) FROM {updates_view}").fetchone() or (0,))[
+            0
+        ]
 
     def _upsert_sql(
         self,
@@ -300,7 +306,9 @@ class DuckDBSink:
         )
         con.execute(insert_sql)
         con.execute(view_sql)
-        return con.execute(f"SELECT count(*) FROM {output_view}").fetchone()[0]
+        return (con.execute(f"SELECT count(*) FROM {output_view}").fetchone() or (0,))[
+            0
+        ]
 
     # ── Context manager ───────────────────────────────────────────────────
 

@@ -3,11 +3,13 @@
 from __future__ import annotations
 
 import enum
+from typing import Callable
 
 from sqldim.core.query.dgm.refs import (
     PropRef,
     AggRef,
     WinRef,
+    _SQLExpr,
     _format_value,
     _paren_if_compound,
 )
@@ -59,7 +61,7 @@ __all__ = [
 class ScalarPred:
     """Scalar comparison: ref op value."""
 
-    def __init__(self, ref: object, op: str, value: object) -> None:
+    def __init__(self, ref: _SQLExpr, op: str, value: object) -> None:
         self.ref = ref
         self.op = op
         self.value = value
@@ -73,7 +75,7 @@ class ScalarPred:
 class AND:
     """Conjunction of predicates; single predicate short-circuits to itself."""
 
-    def __init__(self, *preds: object) -> None:
+    def __init__(self, *preds: _SQLExpr) -> None:
         self.preds = preds
 
     def to_sql(self) -> str:
@@ -83,7 +85,7 @@ class AND:
 class OR:
     """Disjunction of predicates; single predicate short-circuits to itself."""
 
-    def __init__(self, *preds: object) -> None:
+    def __init__(self, *preds: _SQLExpr) -> None:
         self.preds = preds
 
     def to_sql(self) -> str:
@@ -93,13 +95,13 @@ class OR:
 class NOT:
     """Negation; NOT(NOT(T)) ≡ T via __new__ double-negation folding."""
 
-    def __new__(cls, pred: object) -> object:
+    def __new__(cls, pred: _SQLExpr) -> object:  # type: ignore[misc]
         if isinstance(pred, NOT):
             return pred.pred  # double-negation fold
         obj = super().__new__(cls)
         return obj
 
-    def __init__(self, pred: object) -> None:
+    def __init__(self, pred: _SQLExpr) -> None:
         if not isinstance(pred, NOT):
             self.pred = pred
 
@@ -236,24 +238,34 @@ def _flatten_path(path: object) -> list:
 # ---------------------------------------------------------------------------
 
 # Deferred import to avoid circularity — accessed via _TEMPORAL_MODE_WRAPPERS
-_TEMPORAL_MODE_WRAPPERS: dict[object, str] = {}
+_TEMPORAL_MODE_WRAPPERS: dict[object, Callable[[str], str]] = {}
 
 
-def _build_temporal_dispatch() -> "dict[object, object]":
+def _build_temporal_dispatch() -> dict[object, Callable[[str], str]]:
     """Build singleton-mode dispatch table (deferred to avoid circular import)."""
-    from sqldim.core.query.dgm.temporal import EVENTUALLY, GLOBALLY, NEXT, ONCE, PREVIOUSLY
+    from sqldim.core.query.dgm.temporal import (
+        EVENTUALLY,
+        GLOBALLY,
+        NEXT,
+        ONCE,
+        PREVIOUSLY,
+    )
+
     return {
         EVENTUALLY: lambda s: s,
         GLOBALLY: lambda s: f"NOT EXISTS (SELECT 1 FROM (SELECT 1 WHERE NOT ({s})))",
         NEXT: lambda s: s,
         ONCE: lambda s: f"/* G^T */ {s}",
-        PREVIOUSLY: lambda s: f"/* G^T */ NOT EXISTS (SELECT 1 FROM (SELECT 1 WHERE NOT ({s})))",
+        PREVIOUSLY: lambda s: (
+            f"/* G^T */ NOT EXISTS (SELECT 1 FROM (SELECT 1 WHERE NOT ({s})))"
+        ),
     }
 
 
 def _temporal_mode_sql_wrapper(mode: object, base_exists: str) -> str:
     """Wrap *base_exists* in the appropriate CTL temporal SQL template."""
     from sqldim.core.query.dgm.temporal import UntilMode, SinceMode
+
     dispatch = _build_temporal_dispatch()
     fn = dispatch.get(mode)
     if fn is not None:
@@ -318,7 +330,7 @@ class PathPred:
         self,
         anchor: str,
         path: object,
-        sub_filter: object,
+        sub_filter: _SQLExpr,
         *,
         quantifier: "Quantifier | None" = None,
         strategy: "Strategy | None" = None,
@@ -368,6 +380,12 @@ class PathAgg:
 # TemporalProperty sugar + SignaturePred (DGM §4.1)
 # ---------------------------------------------------------------------------
 
-from sqldim.core.query.dgm.preds._signature import (  # noqa: F401
-    SAFETY, LIVENESS, RESPONSE, PERSISTENCE, RECURRENCE, SequenceMatch, SignaturePred,
+from sqldim.core.query.dgm.preds._signature import (  # noqa: E402, F401
+    SAFETY,
+    LIVENESS,
+    RESPONSE,
+    PERSISTENCE,
+    RECURRENCE,
+    SequenceMatch,
+    SignaturePred,
 )

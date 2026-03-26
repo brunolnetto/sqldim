@@ -2,6 +2,14 @@
 
 from __future__ import annotations
 
+from typing import Protocol
+
+
+class _SQLExpr(Protocol):
+    """Protocol for any object that can render itself as a SQL fragment."""
+
+    def to_sql(self) -> str: ...
+
 
 class PropRef:
     """Reference to a table property: alias.prop."""
@@ -112,7 +120,7 @@ class ArithExpr:
         Right-hand operand — any object with a ``to_sql()`` method.
     """
 
-    def __init__(self, left: object, op: str, right: object) -> None:
+    def __init__(self, left: _SQLExpr, op: str, right: _SQLExpr) -> None:
         self.left = left
         self.op = op
         self.right = right

@@ -7,11 +7,13 @@ from sqldim import DimensionModel, FactModel, Field, SCD2Mixin
 from sqldim.core.query.builder import DimensionalQuery, SemanticError
 from sqldim.core.query.dgm import DGMQuery
 
+
 class RegionDim(DimensionModel, SCD2Mixin, table=True):
     __natural_key__ = ["region_code"]
     id: int = Field(primary_key=True, surrogate_key=True)
     region_code: str
     country: str
+
 
 class RevenueFact(FactModel, table=True):
     __grain__ = "one row per sale"
@@ -19,6 +21,7 @@ class RevenueFact(FactModel, table=True):
     region_id: int = Field(foreign_key="regiondim.id", dimension=RegionDim)
     revenue: float = Field(measure=True, additive=True)
     unit_price: float = Field(measure=True, additive=False)
+
 
 @pytest.fixture(scope="module")
 def session():
@@ -30,8 +33,12 @@ def session():
     SQLModel.metadata.create_all(engine)
     with Session(engine) as s:
         # Setup dimension rows
-        r1 = RegionDim(region_code="US", country="United States", is_current=True,
-                       valid_from=datetime(2020, 1, 1, tzinfo=timezone.utc))
+        r1 = RegionDim(
+            region_code="US",
+            country="United States",
+            is_current=True,
+            valid_from=datetime(2020, 1, 1, tzinfo=timezone.utc),
+        )
         s.add(r1)
         s.commit()
         s.refresh(r1)
@@ -41,6 +48,7 @@ def session():
         s.commit()
         yield s
     engine.dispose()
+
 
 @pytest.mark.asyncio
 async def test_query_sum_by_dimension(session):
@@ -53,15 +61,14 @@ async def test_query_sum_by_dimension(session):
     assert len(results) == 1
     assert results[0][1] == 100.0
 
+
 @pytest.mark.asyncio
 async def test_query_count(session):
     results = await (
-        DimensionalQuery(RevenueFact)
-        .by(RegionDim.country)
-        .count()
-        .execute(session)
+        DimensionalQuery(RevenueFact).by(RegionDim.country).count().execute(session)
     )
     assert results[0][1] == 1
+
 
 @pytest.mark.asyncio
 async def test_query_avg(session):
@@ -72,6 +79,7 @@ async def test_query_avg(session):
         .execute(session)
     )
     assert results[0][1] == 100.0
+
 
 @pytest.mark.asyncio
 async def test_query_where_filter(session):
@@ -84,6 +92,7 @@ async def test_query_where_filter(session):
     )
     assert len(results) == 1
 
+
 @pytest.mark.asyncio
 async def test_query_where_filter_no_match(session):
     results = await (
@@ -94,6 +103,7 @@ async def test_query_where_filter_no_match(session):
         .execute(session)
     )
     assert len(results) == 0
+
 
 @pytest.mark.asyncio
 async def test_query_as_of(session):
@@ -106,13 +116,16 @@ async def test_query_as_of(session):
     )
     assert len(results) == 1
 
+
 def test_semantic_error_non_additive_sum():
     with pytest.raises(SemanticError):
         DimensionalQuery(RevenueFact).sum(RevenueFact.unit_price)
 
+
 def test_semantic_error_empty_query():
     with pytest.raises(SemanticError):
         DimensionalQuery(RevenueFact)._build()
+
 
 def test_get_column_info_no_info_attr():
     # Cover the AttributeError fallback branch in _get_column_info
@@ -127,6 +140,7 @@ def test_get_column_info_no_info_attr():
 # ---------------------------------------------------------------------------
 # DGMQuery — SQL-string fluent builder (replaces DuckDBDimensionalQuery)
 # ---------------------------------------------------------------------------
+
 
 class TestDGMQueryLegacyAPI:
     def _con(self):
@@ -159,12 +173,7 @@ class TestDGMQueryLegacyAPI:
 
     def test_by_and_sum(self):
         con = self._con()
-        rows = (
-            DGMQuery("fact_sales")
-            .by("f.product_id")
-            .sum("f.revenue")
-            .execute(con)
-        )
+        rows = DGMQuery("fact_sales").by("f.product_id").sum("f.revenue").execute(con)
         assert len(rows) == 2
         totals = {r[0]: r[1] for r in rows}
         assert totals[10] == 300.0
@@ -176,12 +185,7 @@ class TestDGMQueryLegacyAPI:
 
     def test_where(self):
         con = self._con()
-        rows = (
-            DGMQuery("fact_sales")
-            .where("f.revenue > 100")
-            .count()
-            .execute(con)
-        )
+        rows = DGMQuery("fact_sales").where("f.revenue > 100").count().execute(con)
         assert rows[0][0] == 1
 
     def test_join_dim_is_current(self):
@@ -299,7 +303,9 @@ class TestDGMQueryLegacyAPI:
         sql = (
             DGMQuery("fact_bal")
             .by("f.date_id")
-            .semi_additive_sum("f.balance", fallback="last", forbidden_dimensions=["f.date_id"])
+            .semi_additive_sum(
+                "f.balance", fallback="last", forbidden_dimensions=["f.date_id"]
+            )
             .to_sql()
         )
         assert "LAST_VALUE" in sql
@@ -308,7 +314,9 @@ class TestDGMQueryLegacyAPI:
         sql = (
             DGMQuery("fact_bal")
             .by("f.date_id")
-            .semi_additive_sum("f.balance", fallback="avg", forbidden_dimensions=["f.date_id"])
+            .semi_additive_sum(
+                "f.balance", fallback="avg", forbidden_dimensions=["f.date_id"]
+            )
             .to_sql()
         )
         assert "AVG(f.balance)" in sql
@@ -317,7 +325,9 @@ class TestDGMQueryLegacyAPI:
         sql = (
             DGMQuery("fact_bal")
             .by("f.date_id")
-            .semi_additive_sum("f.balance", fallback="max", forbidden_dimensions=["f.date_id"])
+            .semi_additive_sum(
+                "f.balance", fallback="max", forbidden_dimensions=["f.date_id"]
+            )
             .to_sql()
         )
         assert "MAX(f.balance)" in sql
@@ -326,7 +336,9 @@ class TestDGMQueryLegacyAPI:
         sql = (
             DGMQuery("fact_bal")
             .by("f.date_id")
-            .semi_additive_sum("f.balance", fallback="geomean", forbidden_dimensions=["f.date_id"])
+            .semi_additive_sum(
+                "f.balance", fallback="geomean", forbidden_dimensions=["f.date_id"]
+            )
             .to_sql()
         )
         assert "SUM(f.balance)" in sql
@@ -344,6 +356,7 @@ def test_find_fk_col_returns_none_for_unlinked():
 def test_auto_join_dim_short_circuits_when_already_joined():
     # Line 254: _auto_join_dim returns stmt unchanged when dim already in joined_dims
     from sqlalchemy import select as sa_select
+
     q = DimensionalQuery(RevenueFact)
     stmt = sa_select(RevenueFact)
 
@@ -353,4 +366,3 @@ def test_auto_join_dim_short_circuits_when_already_joined():
     joined = {RegionDim}
     result = q._auto_join_dim(stmt, MockAttr(), joined)
     assert result is stmt
-

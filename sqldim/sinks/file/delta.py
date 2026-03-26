@@ -65,7 +65,7 @@ class DeltaLakeSink:
             WHEN NOT MATCHED BY TARGET THEN
                 INSERT *
         """)
-        return con.execute(f"SELECT count(*) FROM {view_name}").fetchone()[0]
+        return (con.execute(f"SELECT count(*) FROM {view_name}").fetchone() or (0,))[0]
 
     def close_versions(
         self,
@@ -107,7 +107,9 @@ class DeltaLakeSink:
             WHEN MATCHED THEN
                 UPDATE SET {set_clause}
         """)
-        return con.execute(f"SELECT count(*) FROM {updates_view}").fetchone()[0]
+        return (con.execute(f"SELECT count(*) FROM {updates_view}").fetchone() or (0,))[
+            0
+        ]
 
     def rotate_attributes(
         self,
@@ -136,7 +138,9 @@ class DeltaLakeSink:
             WHEN MATCHED THEN
                 UPDATE SET {set_clause}
         """)
-        return con.execute(f"SELECT count(*) FROM {rotations_view}").fetchone()[0]
+        return (
+            con.execute(f"SELECT count(*) FROM {rotations_view}").fetchone() or (0,)
+        )[0]
 
     def update_milestones(
         self,
@@ -156,7 +160,9 @@ class DeltaLakeSink:
             WHEN MATCHED THEN
                 UPDATE SET {set_clause}
         """)
-        return con.execute(f"SELECT count(*) FROM {updates_view}").fetchone()[0]
+        return (con.execute(f"SELECT count(*) FROM {updates_view}").fetchone() or (0,))[
+            0
+        ]
 
     # ── Context manager ───────────────────────────────────────────────────
 

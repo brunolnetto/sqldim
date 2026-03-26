@@ -1,9 +1,11 @@
 """Tests for sqldim.medallion — Layer enum and MedallionRegistry."""
+
 import pytest
 from sqldim.medallion import Layer, MedallionRegistry
 
 
 # ── Layer enum ────────────────────────────────────────────────────────────────
+
 
 class TestLayer:
     def test_has_three_tiers(self):
@@ -12,12 +14,12 @@ class TestLayer:
     def test_string_values(self):
         assert Layer.BRONZE.value == "bronze"
         assert Layer.SILVER.value == "silver"
-        assert Layer.GOLD.value   == "gold"
+        assert Layer.GOLD.value == "gold"
 
     def test_from_string(self):
         assert Layer("bronze") is Layer.BRONZE
         assert Layer("silver") is Layer.SILVER
-        assert Layer("gold")   is Layer.GOLD
+        assert Layer("gold") is Layer.GOLD
 
     def test_invalid_string_raises(self):
         with pytest.raises(ValueError):
@@ -52,6 +54,7 @@ class TestLayer:
 
 # ── MedallionRegistry ─────────────────────────────────────────────────────────
 
+
 class TestMedallionRegistry:
     def setup_method(self):
         self.reg = MedallionRegistry()
@@ -64,11 +67,11 @@ class TestMedallionRegistry:
         assert self.reg.get_layer("raw_orders") is Layer.BRONZE
 
     def test_register_multiple_datasets(self):
-        self.reg.register("raw_orders",    Layer.BRONZE)
-        self.reg.register("clean_orders",  Layer.SILVER)
+        self.reg.register("raw_orders", Layer.BRONZE)
+        self.reg.register("clean_orders", Layer.SILVER)
         self.reg.register("daily_revenue", Layer.GOLD)
-        assert self.reg.get_layer("raw_orders")    is Layer.BRONZE
-        assert self.reg.get_layer("clean_orders")  is Layer.SILVER
+        assert self.reg.get_layer("raw_orders") is Layer.BRONZE
+        assert self.reg.get_layer("clean_orders") is Layer.SILVER
         assert self.reg.get_layer("daily_revenue") is Layer.GOLD
 
     def test_datasets_in_layer(self):
@@ -78,7 +81,7 @@ class TestMedallionRegistry:
         bronze = self.reg.datasets_in(Layer.BRONZE)
         assert sorted(bronze) == ["a", "b"]
         assert self.reg.datasets_in(Layer.SILVER) == ["c"]
-        assert self.reg.datasets_in(Layer.GOLD)   == []
+        assert self.reg.datasets_in(Layer.GOLD) == []
 
     def test_is_registered_true(self):
         self.reg.register("x", Layer.GOLD)

@@ -1,32 +1,22 @@
 """Model drift benchmarks (group N): schema drift and type coercion."""
+
 from __future__ import annotations
 
 import datetime as _dt
-import os
 import time
 import traceback as _traceback
 
-import duckdb
-from sqlalchemy.pool import StaticPool
 
 from sqldim.application.benchmarks._dataset import (
     BenchmarkDatasetGenerator,
-    DatasetArtifact,
-    SCALE_TIERS,
 )
 from sqldim.application.benchmarks.infra import (
     BenchmarkResult,
-    SOURCE_NAMES,
-    _make_source,
-    _remove_db,
-    _configure,
-    _run_scd2_batch,
-    _run_metadata_batch,
     _select_tiers,
 )
 from sqldim.application.benchmarks.memory_probe import MemoryProbe
-from sqldim.application.benchmarks.scan_probe import DuckDBObjectTracker
 from sqldim.contracts.engine import EvolutionChange, EvolutionReport
+
 try:
     from sqldim.contracts.reporting.report import ContractReport, ContractViolation
 except ImportError:  # module not yet released; benchmark will skip at runtime
@@ -47,12 +37,12 @@ from sqldim.observability.drift import DriftObservatory
 # These tiers reflect realistic operational ingest volumes, not bulk-load scale.
 _DRIFT_TIERS = {"xs": 100, "s": 500, "m": 2_000}
 
-_N_DATASETS     = [f"dim_{i}" for i in range(20)]
+_N_DATASETS = [f"dim_{i}" for i in range(20)]
 _N_CHANGE_TYPES = ["added", "widened", "narrowed", "type_changed", "renamed", "removed"]
-_N_SEVERITIES   = ["error", "warning", "info"]
-_N_RULES        = ["not_null", "unique", "range_check", "freshness", "regex_match"]
-_N_BASE_TS      = _dt.datetime(2026, 1, 1, tzinfo=_dt.timezone.utc)
-_N_BATCH        = 100
+_N_SEVERITIES = ["error", "warning", "info"]
+_N_RULES = ["not_null", "unique", "range_check", "freshness", "regex_match"]
+_N_BASE_TS = _dt.datetime(2026, 1, 1, tzinfo=_dt.timezone.utc)
+_N_BATCH = 100
 
 
 def _n_classify_change(ct: str, rep: EvolutionReport, ch: EvolutionChange) -> None:
@@ -67,13 +57,20 @@ def _n_classify_change(ct: str, rep: EvolutionReport, ch: EvolutionChange) -> No
 def _n1_drift_ingest_tier(tier: str, n: int, temp_dir: str) -> BenchmarkResult:
     cid = f"N-drift-ingest-{tier}"
     result = BenchmarkResult(
-        case_id=cid, group="N", profile="drift-ingest", tier=tier,
-        processor="DriftObservatory", sink="duckdb-memory",
-        source="synthetic", phase="bulk-insert", n_rows=n, n_changed=0,
+        case_id=cid,
+        group="N",
+        profile="drift-ingest",
+        tier=tier,
+        processor="DriftObservatory",
+        sink="duckdb-memory",
+        source="synthetic",
+        phase="bulk-insert",
+        n_rows=n,
+        n_changed=0,
     )
     try:
         MemoryProbe.check_safe_to_run(label=cid)
-        obs   = DriftObservatory.in_memory()
+        obs = DriftObservatory.in_memory()
         probe = MemoryProbe(temp_dir=temp_dir, label=cid)
         with probe:
             t0 = time.perf_counter()
@@ -93,29 +90,36 @@ def _n1_drift_ingest_tier(tier: str, n: int, temp_dir: str) -> BenchmarkResult:
                     )
             result.wall_s = time.perf_counter() - t0
         m = probe.report
-        result.peak_rss_gb      = m.peak_rss_gb
+        result.peak_rss_gb = m.peak_rss_gb
         result.min_sys_avail_gb = m.min_sys_avail_gb
-        result.rows_per_sec     = n / max(result.wall_s, 0.001)
-        result.inserted         = n
+        result.rows_per_sec = n / max(result.wall_s, 0.001)
+        result.inserted = n
     except RuntimeError as exc:
-        result.ok = False; result.error = f"SKIPPED: {exc}"
+        result.ok = False
+        result.error = f"SKIPPED: {exc}"
     except Exception as exc:
-        result.ok    = False
-        result.error = (f"{type(exc).__name__}: {exc}\n"
-                        + _traceback.format_exc()[-600:])
+        result.ok = False
+        result.error = f"{type(exc).__name__}: {exc}\n" + _traceback.format_exc()[-600:]
     return result
 
 
 def _n2_quality_ingest_tier(tier: str, n: int, temp_dir: str) -> BenchmarkResult:
     cid = f"N-quality-ingest-{tier}"
     result = BenchmarkResult(
-        case_id=cid, group="N", profile="quality-ingest", tier=tier,
-        processor="DriftObservatory", sink="duckdb-memory",
-        source="synthetic", phase="bulk-insert", n_rows=n, n_changed=0,
+        case_id=cid,
+        group="N",
+        profile="quality-ingest",
+        tier=tier,
+        processor="DriftObservatory",
+        sink="duckdb-memory",
+        source="synthetic",
+        phase="bulk-insert",
+        n_rows=n,
+        n_changed=0,
     )
     try:
         MemoryProbe.check_safe_to_run(label=cid)
-        obs   = DriftObservatory.in_memory()
+        obs = DriftObservatory.in_memory()
         probe = MemoryProbe(temp_dir=temp_dir, label=cid)
         with probe:
             t0 = time.perf_counter()
@@ -144,16 +148,16 @@ def _n2_quality_ingest_tier(tier: str, n: int, temp_dir: str) -> BenchmarkResult
                     )
             result.wall_s = time.perf_counter() - t0
         m = probe.report
-        result.peak_rss_gb      = m.peak_rss_gb
+        result.peak_rss_gb = m.peak_rss_gb
         result.min_sys_avail_gb = m.min_sys_avail_gb
-        result.rows_per_sec     = n / max(result.wall_s, 0.001)
-        result.inserted         = n
+        result.rows_per_sec = n / max(result.wall_s, 0.001)
+        result.inserted = n
     except RuntimeError as exc:
-        result.ok = False; result.error = f"SKIPPED: {exc}"
+        result.ok = False
+        result.error = f"SKIPPED: {exc}"
     except Exception as exc:
-        result.ok    = False
-        result.error = (f"{type(exc).__name__}: {exc}\n"
-                        + _traceback.format_exc()[-600:])
+        result.ok = False
+        result.error = f"{type(exc).__name__}: {exc}\n" + _traceback.format_exc()[-600:]
     return result
 
 
@@ -168,7 +172,8 @@ def _n3_setup_evolution_data(obs: DriftObservatory) -> None:
             obs.ingest_evolution(
                 rep,
                 dataset=_N_DATASETS[run_seq % len(_N_DATASETS)],
-                run_id=f"run-{run_seq // _N_BATCH:04d}", layer="silver",
+                run_id=f"run-{run_seq // _N_BATCH:04d}",
+                layer="silver",
                 detected_at=_N_BASE_TS + _dt.timedelta(hours=run_seq),
             )
 
@@ -180,7 +185,9 @@ def _n3_setup_quality_data(obs: DriftObservatory) -> None:
                 ContractViolation(
                     rule=_N_RULES[j % len(_N_RULES)],
                     severity=_N_SEVERITIES[j % len(_N_SEVERITIES)],
-                    count=j % 200, detail="")
+                    count=j % 200,
+                    detail="",
+                )
                 for j in range(run_seq, run_seq + _N_BATCH)
             ]
             rpt = ContractReport(
@@ -190,7 +197,8 @@ def _n3_setup_quality_data(obs: DriftObservatory) -> None:
             obs.ingest_quality(
                 rpt,
                 dataset=_N_DATASETS[run_seq % len(_N_DATASETS)],
-                run_id=f"run-{run_seq // _N_BATCH:04d}", layer="silver",
+                run_id=f"run-{run_seq // _N_BATCH:04d}",
+                layer="silver",
                 checked_at=_N_BASE_TS + _dt.timedelta(hours=run_seq),
             )
 
@@ -198,16 +206,23 @@ def _n3_setup_quality_data(obs: DriftObservatory) -> None:
 def _n3_gold_queries(temp_dir: str) -> BenchmarkResult:
     cid = "N-drift-gold-queries"
     result = BenchmarkResult(
-        case_id=cid, group="N", profile="drift-gold", tier="n/a",
-        processor="DriftObservatory", sink="duckdb-memory",
-        source="synthetic", phase="query", n_rows=0, n_changed=0,
+        case_id=cid,
+        group="N",
+        profile="drift-gold",
+        tier="n/a",
+        processor="DriftObservatory",
+        sink="duckdb-memory",
+        source="synthetic",
+        phase="query",
+        n_rows=0,
+        n_changed=0,
     )
     try:
         MemoryProbe.check_safe_to_run(label=cid)
         obs = DriftObservatory.in_memory()
         _n3_setup_evolution_data(obs)
         _n3_setup_quality_data(obs)
-        repeats   = 100
+        repeats = 100
         n_queries = repeats * 5
         probe = MemoryProbe(temp_dir=temp_dir, label=cid)
         with probe:
@@ -220,15 +235,16 @@ def _n3_gold_queries(temp_dir: str) -> BenchmarkResult:
                 obs.rule_failure_heatmap().fetchall()
             result.wall_s = time.perf_counter() - t0
         m = probe.report
-        result.n_rows           = n_queries
-        result.peak_rss_gb      = m.peak_rss_gb
+        result.n_rows = n_queries
+        result.peak_rss_gb = m.peak_rss_gb
         result.min_sys_avail_gb = m.min_sys_avail_gb
-        result.rows_per_sec     = n_queries / max(result.wall_s, 0.001)
+        result.rows_per_sec = n_queries / max(result.wall_s, 0.001)
     except RuntimeError as exc:
-        result.ok = False; result.error = f"SKIPPED: {exc}"
+        result.ok = False
+        result.error = f"SKIPPED: {exc}"
     except Exception as exc:
-        result.ok    = False
-        result.error = (f"{type(exc).__name__}: {exc}\n" + _traceback.format_exc()[-600:])
+        result.ok = False
+        result.error = f"{type(exc).__name__}: {exc}\n" + _traceback.format_exc()[-600:]
     return result
 
 
@@ -239,7 +255,7 @@ def group_n_drift_observatory(
     **_,
 ) -> list[BenchmarkResult]:
     """Group N — Schema/quality drift observability pipeline throughput."""
-    tier_order   = ["xs", "s", "m"]
+    tier_order = ["xs", "s", "m"]
     active_tiers = _select_tiers(tier_order, _DRIFT_TIERS, max_tier)
     results: list[BenchmarkResult] = []
 
@@ -253,5 +269,3 @@ def group_n_drift_observatory(
 
     results.append(_n3_gold_queries(temp_dir))
     return results
-
-

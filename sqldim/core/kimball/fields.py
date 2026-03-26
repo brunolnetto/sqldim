@@ -33,6 +33,61 @@ from sqlmodel import Field as SQLModelField
 _UNSET = object()
 
 
+def _make_dim_meta(
+    *,
+    surrogate_key: bool,
+    natural_key: bool,
+    measure: bool,
+    additive: bool | Literal["semi_additive"],
+    dimension: type | None,
+    role: str | None,
+    scd: int | None,
+    previous_column: str | None,
+    foreign_key: str | None,
+    source_column: str | None,
+    source_columns: list | None,
+    transform_description: str | None,
+    bucket_count: int | None,
+    bucket_strategy: str | None,
+    bucket_bounds: tuple | None,
+    bucket_grain: str | None,
+    semi_additive_fallback: str | None,
+    semi_additive_forbidden: list | None,
+) -> dict[str, Any]:
+    """Assemble the dimensional metadata dict stored in ``column.info``."""
+    return {
+        "surrogate_key": surrogate_key,
+        "natural_key": natural_key,
+        "measure": measure,
+        "additive": additive,
+        "dimension": dimension,
+        "role": role,
+        "scd": scd,
+        "previous_column": previous_column,
+        "foreign_key_target": foreign_key,
+        # Column-level lineage
+        "source_column": source_column,
+        "source_columns": source_columns,
+        "transform_description": transform_description,
+        # Semantic bucketing
+        "bucket_count": bucket_count,
+        "bucket_strategy": bucket_strategy,
+        "bucket_bounds": bucket_bounds,
+        "bucket_grain": bucket_grain,
+        "semi_additive_fallback": semi_additive_fallback,
+        "semi_additive_forbidden": semi_additive_forbidden,
+    }
+
+
+def _apply_dim_meta_to_kwargs(kwargs: dict[str, Any], dim_meta: dict[str, Any]) -> None:
+    """Merge *dim_meta* into the ``sa_column_kwargs["info"]`` entry in-place."""
+    sa_column_kwargs = kwargs.get("sa_column_kwargs", {})
+    if "info" not in sa_column_kwargs:
+        sa_column_kwargs["info"] = {}
+    sa_column_kwargs["info"].update(dim_meta)
+    kwargs["sa_column_kwargs"] = sa_column_kwargs
+
+
 def Field(
     default: Any = ...,
     *,
@@ -85,28 +140,26 @@ def Field(
         explicitly required (e.g. PostgreSQL OLTP side-tables).
     """
     # Collect dimensional metadata — FK target stored for schema introspection
-    dim_meta = {
-        "surrogate_key": surrogate_key,
-        "natural_key": natural_key,
-        "measure": measure,
-        "additive": additive,
-        "dimension": dimension,
-        "role": role,
-        "scd": scd,
-        "previous_column": previous_column,
-        "foreign_key_target": foreign_key,
-        # Column-level lineage
-        "source_column": source_column,
-        "source_columns": source_columns,
-        "transform_description": transform_description,
-        # Semantic bucketing
-        "bucket_count": bucket_count,
-        "bucket_strategy": bucket_strategy,
-        "bucket_bounds": bucket_bounds,
-        "bucket_grain": bucket_grain,
-        "semi_additive_fallback": semi_additive_fallback,
-        "semi_additive_forbidden": semi_additive_forbidden,
-    }
+    dim_meta = _make_dim_meta(
+        surrogate_key=surrogate_key,
+        natural_key=natural_key,
+        measure=measure,
+        additive=additive,
+        dimension=dimension,
+        role=role,
+        scd=scd,
+        previous_column=previous_column,
+        foreign_key=foreign_key,
+        source_column=source_column,
+        source_columns=source_columns,
+        transform_description=transform_description,
+        bucket_count=bucket_count,
+        bucket_strategy=bucket_strategy,
+        bucket_bounds=bucket_bounds,
+        bucket_grain=bucket_grain,
+        semi_additive_fallback=semi_additive_fallback,
+        semi_additive_forbidden=semi_additive_forbidden,
+    )
 
     # Auto-index FK-like columns (whether or not a DB constraint is created).
     # Using _UNSET sentinel distinguishes "not specified" from explicit False.
@@ -118,19 +171,14 @@ def Field(
     # resolution errors and unnecessary DB enforcement overhead.
     sa_fk = foreign_key if constraint else None
 
-    # Store in sa_column_kwargs so metadata persists to the SQLAlchemy Column info
-    sa_column_kwargs = kwargs.get("sa_column_kwargs", {})
-    if "info" not in sa_column_kwargs:
-        sa_column_kwargs["info"] = {}
-    sa_column_kwargs["info"].update(dim_meta)
-    kwargs["sa_column_kwargs"] = sa_column_kwargs
+    _apply_dim_meta_to_kwargs(kwargs, dim_meta)
 
-    return SQLModelField(
+    return SQLModelField(  # type: ignore[call-overload]
         default,
         default_factory=default_factory,
         primary_key=primary_key,
         foreign_key=sa_fk,
         index=index,
-        nullable=nullable,
+        **({"nullable": nullable} if nullable is not None else {}),
         **kwargs,
     )

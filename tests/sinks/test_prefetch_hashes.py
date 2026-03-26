@@ -10,6 +10,7 @@ sqldim/sinks/duckdb.py         → prefetch_hashes(), hash-cache branch of curre
 sqldim/sinks/motherduck.py     → prefetch_hashes(), hash-cache branch of current_state_sql()
 sqldim/sinks/postgresql.py     → prefetch_hashes() (both con paths), hash-cache branch
 """
+
 from __future__ import annotations
 
 import duckdb
@@ -23,8 +24,10 @@ from sqldim.sinks.sql.postgresql import PostgreSQLSink
 # Helpers
 # ---------------------------------------------------------------------------
 
-def _make_dim_table(con_or_path, table_name: str = "dim_product",
-                    rows: list[dict] | None = None):
+
+def _make_dim_table(
+    con_or_path, table_name: str = "dim_product", rows: list[dict] | None = None
+):
     """Insert a few rows into a DuckDB dim table."""
     if isinstance(con_or_path, str):
         con = duckdb.connect(con_or_path)
@@ -53,14 +56,17 @@ def _make_dim_table(con_or_path, table_name: str = "dim_product",
 # DuckDBSink.prefetch_hashes()
 # ---------------------------------------------------------------------------
 
-class TestDuckDBSinkPrefetchHashes:
 
+class TestDuckDBSinkPrefetchHashes:
     def test_returns_count_of_rows(self, tmp_path):
         db = str(tmp_path / "test.duckdb")
-        _make_dim_table(db, rows=[
-            {"sku": "A", "checksum": "h1"},
-            {"sku": "B", "checksum": "h2"},
-        ])
+        _make_dim_table(
+            db,
+            rows=[
+                {"sku": "A", "checksum": "h1"},
+                {"sku": "B", "checksum": "h2"},
+            ],
+        )
         with DuckDBSink(db) as sink:
             n = sink.prefetch_hashes(sink._con, "dim_product", ["sku"])
         assert n == 2
@@ -135,15 +141,18 @@ class TestDuckDBSinkPrefetchHashes:
 # MotherDuckSink.prefetch_hashes()  (local .duckdb file as stand-in)
 # ---------------------------------------------------------------------------
 
-class TestMotherDuckSinkPrefetchHashes:
 
+class TestMotherDuckSinkPrefetchHashes:
     def test_returns_count_of_rows(self, tmp_path):
         db = str(tmp_path / "md.duckdb")
-        _make_dim_table(db, rows=[
-            {"sku": "P1", "checksum": "hA"},
-            {"sku": "P2", "checksum": "hB"},
-            {"sku": "P3", "checksum": "hC"},
-        ])
+        _make_dim_table(
+            db,
+            rows=[
+                {"sku": "P1", "checksum": "hA"},
+                {"sku": "P2", "checksum": "hB"},
+                {"sku": "P3", "checksum": "hC"},
+            ],
+        )
         with MotherDuckSink(db=db) as sink:
             n = sink.prefetch_hashes(sink._con, "dim_product", ["sku"])
         assert n == 3
@@ -193,6 +202,7 @@ class TestMotherDuckSinkPrefetchHashes:
 # local database attached as the PostgreSQL mock.
 # ---------------------------------------------------------------------------
 
+
 class TestPostgreSQLSinkPrefetchHashesUnit:
     """Unit-level tests for PostgreSQLSink.prefetch_hashes() — no live Postgres."""
 
@@ -202,10 +212,13 @@ class TestPostgreSQLSinkPrefetchHashesUnit:
         under a fixed alias matching PostgreSQLSink's internal alias.
         """
         db = str(tmp_path / "pg_mock.duckdb")
-        _make_dim_table(db, rows=[
-            {"sku": "S1", "checksum": "c1"},
-            {"sku": "S2", "checksum": "c2"},
-        ])
+        _make_dim_table(
+            db,
+            rows=[
+                {"sku": "S1", "checksum": "c1"},
+                {"sku": "S2", "checksum": "c2"},
+            ],
+        )
         # Manually wire up _con to emulate opened sink
         sink = PostgreSQLSink.__new__(PostgreSQLSink)
         sink._dsn = "postgresql://fake/fake"

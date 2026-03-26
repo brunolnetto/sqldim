@@ -8,12 +8,10 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from enum import Enum
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
-    from sqldim.core.query.dgm.bdd import DGMPredicateBDD
-    from sqldim.core.query.dgm.graph import GraphStatistics, NodeExpr, SubgraphExpr
-    from sqldim.core.query.dgm.annotations import AnnotationSigma, GrainKind
+    pass
 
 __all__ = [
     "QueryTarget",
@@ -187,23 +185,29 @@ def _r6_derived_fact(ann: object, c: "set[str]") -> list[str]:
     return []
 
 
-def _r6_weight_constraint(ann: object, _c: "set[str]") -> list[str]:
+def _r6_weight_constraint(ann: Any, _c: "set[str]") -> list[str]:
     if ann.is_allocative:  # type: ignore[attr-defined]
-        return [f"WeightConstraint(ALLOCATIVE) on {ann.bridge}: PathAgg without weight → use weighted form"]  # type: ignore[attr-defined]
+        return [
+            f"WeightConstraint(ALLOCATIVE) on {ann.bridge}: PathAgg without weight → use weighted form"
+        ]  # type: ignore[attr-defined]
     return []
 
 
-def _r6_bridge_semantics(ann: object, _c: "set[str]") -> list[str]:
+def _r6_bridge_semantics(ann: Any, _c: "set[str]") -> list[str]:
     from sqldim.core.query.dgm.annotations import BridgeSemanticsKind
 
     if ann.sem is BridgeSemanticsKind.CAUSAL:  # type: ignore[attr-defined]
-        return [f"BridgeSemantics(CAUSAL) on {ann.bridge}: drop cycle guard; dag_bfs on G and G^T"]  # type: ignore[attr-defined]
+        return [
+            f"BridgeSemantics(CAUSAL) on {ann.bridge}: drop cycle guard; dag_bfs on G and G^T"
+        ]  # type: ignore[attr-defined]
     if ann.sem is BridgeSemanticsKind.SUPERSESSION:  # type: ignore[attr-defined]
-        return [f"BridgeSemantics(SUPERSESSION) on {ann.bridge}: CASE WHEN superseded THEN -1*measure ELSE measure"]  # type: ignore[attr-defined]
+        return [
+            f"BridgeSemantics(SUPERSESSION) on {ann.bridge}: CASE WHEN superseded THEN -1*measure ELSE measure"
+        ]  # type: ignore[attr-defined]
     return []
 
 
-def _r6_degenerate(ann: object, _c: "set[str]") -> list[str]:
+def _r6_degenerate(ann: Any, _c: "set[str]") -> list[str]:
     return [f"Degenerate({ann.dim}): exclusion from GroupBy candidates"]  # type: ignore[attr-defined]
 
 
@@ -212,7 +216,9 @@ def _r6_degenerate(ann: object, _c: "set[str]") -> list[str]:
 # ---------------------------------------------------------------------------
 
 
-def _r8_partition_flag(plan: str, sink_target: SinkTarget, has_temporal_agg: bool) -> str:
+def _r8_partition_flag(
+    plan: str, sink_target: SinkTarget, has_temporal_agg: bool
+) -> str:
     _file_sinks = (SinkTarget.PARQUET, SinkTarget.DELTA, SinkTarget.ICEBERG)
     if has_temporal_agg and sink_target in _file_sinks:
         plan += "; PARTITION_BY timestamp_unit"
@@ -225,7 +231,9 @@ def _r8_delta_append_flag(plan: str, sink_target: SinkTarget, has_q_delta: bool)
     return plan
 
 
-def _r8_grain_append_flag(plan: str, sink_target: SinkTarget, grain_kind: object, GrainKind: type) -> str:
+def _r8_grain_append_flag(
+    plan: str, sink_target: SinkTarget, grain_kind: object, GrainKind: Any
+) -> str:
     if grain_kind is GrainKind.ACCUMULATING and sink_target is SinkTarget.DELTA:
         plan += "; APPEND mode"
     return plan

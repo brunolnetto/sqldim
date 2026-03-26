@@ -175,7 +175,9 @@ class Dataset:
         lines = [f"Dataset '{self.name}' ({len(self.sources)} sources):"]
         for src, table in self.sources:
             provider_name = (
-                src.provider.name if getattr(src, "provider", None) else type(src).__name__
+                src.provider.name
+                if src.provider is not None
+                else type(src).__name__
             )
             lines.append(f"  {table:35s}  ← {provider_name}")
         return "\n".join(lines)

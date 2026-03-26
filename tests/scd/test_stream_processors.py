@@ -12,6 +12,7 @@ sqldim/processors/_lazy_type2.py    → process_stream(), _register_source_from_
 sqldim/processors/_lazy_type3_6.py  → process_stream() on LazyType3Processor &
                                        LazyType6Processor
 """
+
 from __future__ import annotations
 
 import duckdb
@@ -28,6 +29,7 @@ from sqldim.sources.streaming.stream import StreamSourceAdapter
 # ---------------------------------------------------------------------------
 # StubStreamSource — finite, protocol-compatible, no I/O
 # ---------------------------------------------------------------------------
+
 
 class StubStreamSource:
     """Yields ``SELECT * FROM {view}`` for each pre-registered view name."""
@@ -52,6 +54,7 @@ class StubStreamSource:
 # ---------------------------------------------------------------------------
 # InMemorySink — same helper as test_lazy_scd.py, self-contained copy
 # ---------------------------------------------------------------------------
+
 
 class InMemorySink:
     def current_state_sql(self, table_name: str) -> str:
@@ -83,8 +86,7 @@ class InMemorySink:
         """)
         return con.execute(f"SELECT count(*) FROM {nk_view}").fetchone()[0]
 
-    def update_attributes(self, con, table_name, nk_col, updates_view,
-                          update_cols):
+    def update_attributes(self, con, table_name, nk_col, updates_view, update_cols):
         for col in update_cols:
             con.execute(f"""
                 UPDATE {table_name}
@@ -98,8 +100,7 @@ class InMemorySink:
             """)
         return con.execute(f"SELECT count(*) FROM {updates_view}").fetchone()[0]
 
-    def rotate_attributes(self, con, table_name, nk_col, rotations_view,
-                          column_pairs):
+    def rotate_attributes(self, con, table_name, nk_col, rotations_view, column_pairs):
         for curr, prev in column_pairs:
             con.execute(f"""
                 UPDATE {table_name}
@@ -115,6 +116,7 @@ class InMemorySink:
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
+
 
 def _empty_scd_table(con, name, nk, track_cols):
     """Create an empty SCD2-style table in *con*."""
@@ -147,26 +149,27 @@ def _empty_scd_table_type6(con, name, nk, type1_cols, type2_cols):
     """)
 
 
-def _seed_scd_row(con, table, nk_val, nk_col, track_vals: dict,
-                  checksum="oldhash"):
-    col_names = [nk_col] + list(track_vals.keys()) + [
-        "checksum", "is_current", "valid_from", "valid_to"
-    ]
+def _seed_scd_row(con, table, nk_val, nk_col, track_vals: dict, checksum="oldhash"):
+    col_names = (
+        [nk_col]
+        + list(track_vals.keys())
+        + ["checksum", "is_current", "valid_from", "valid_to"]
+    )
     col_vals = (
-        [f"'{nk_val}'"] +
-        [f"'{v}'" if v is not None else "NULL" for v in track_vals.values()] +
-        [f"'{checksum}'", "TRUE", "'2024-01-01'", "NULL"]
+        [f"'{nk_val}'"]
+        + [f"'{v}'" if v is not None else "NULL" for v in track_vals.values()]
+        + [f"'{checksum}'", "TRUE", "'2024-01-01'", "NULL"]
     )
     con.execute(
-        f"INSERT INTO {table} ({', '.join(col_names)}) "
-        f"VALUES ({', '.join(col_vals)})"
+        f"INSERT INTO {table} ({', '.join(col_names)}) VALUES ({', '.join(col_vals)})"
     )
 
 
 def _register_batch(con, view_name, rows: list[dict]):
     """Register a list of dicts as a DuckDB view."""
     select_rows = " UNION ALL ".join(
-        "SELECT " + ", ".join(
+        "SELECT "
+        + ", ".join(
             f"'{v}' AS {k}" if isinstance(v, str) else f"{v} AS {k}"
             for k, v in row.items()
         )
@@ -179,8 +182,8 @@ def _register_batch(con, view_name, rows: list[dict]):
 # LazySCDProcessor.process_stream()  (SCD Type 2)
 # ---------------------------------------------------------------------------
 
-class TestLazySCDProcessorStream:
 
+class TestLazySCDProcessorStream:
     def _make(self, con):
         sink = InMemorySink()
         proc = LazySCDProcessor(
@@ -196,14 +199,16 @@ class TestLazySCDProcessorStream:
     def test_single_batch_all_new_rows(self):
         con = duckdb.connect()
         _empty_scd_table(con, "dim_p", "sku", ["name", "price"])
-        _register_batch(con, "b1", [
-            {"sku": "A", "name": "Apple",  "price": "1.00"},
-            {"sku": "B", "name": "Banana", "price": "0.50"},
-        ])
-        proc, _ = self._make(con)
-        result = proc.process_stream(
-            StubStreamSource(["b1"]), "dim_p"
+        _register_batch(
+            con,
+            "b1",
+            [
+                {"sku": "A", "name": "Apple", "price": "1.00"},
+                {"sku": "B", "name": "Banana", "price": "0.50"},
+            ],
         )
+        proc, _ = self._make(con)
+        result = proc.process_stream(StubStreamSource(["b1"]), "dim_p")
         assert result.inserted == 2
         assert result.versioned == 0
         assert result.batches_processed == 1
@@ -212,8 +217,8 @@ class TestLazySCDProcessorStream:
     def test_second_batch_changed_rows_versioned(self):
         con = duckdb.connect()
         _empty_scd_table(con, "dim_p", "sku", ["name", "price"])
-        _register_batch(con, "b1", [{"sku": "A", "name": "Apple",    "price": "1.00"}])
-        _register_batch(con, "b2", [{"sku": "A", "name": "Apple+",   "price": "1.50"}])
+        _register_batch(con, "b1", [{"sku": "A", "name": "Apple", "price": "1.00"}])
+        _register_batch(con, "b2", [{"sku": "A", "name": "Apple+", "price": "1.50"}])
         proc, _ = self._make(con)
         result = proc.process_stream(StubStreamSource(["b1", "b2"]), "dim_p")
         assert result.inserted == 1
@@ -228,8 +233,14 @@ class TestLazySCDProcessorStream:
         checksum = con.execute(
             "SELECT md5(coalesce('Apple','')||'|'||coalesce('1.00',''))"
         ).fetchone()[0]
-        _seed_scd_row(con, "dim_p", "A", "sku",
-                      {"name": "Apple", "price": "1.00"}, checksum=checksum)
+        _seed_scd_row(
+            con,
+            "dim_p",
+            "A",
+            "sku",
+            {"name": "Apple", "price": "1.00"},
+            checksum=checksum,
+        )
         proc, _ = self._make(con)
         result = proc.process_stream(StubStreamSource(["b1"]), "dim_p")
         assert result.unchanged == 1
@@ -244,7 +255,8 @@ class TestLazySCDProcessorStream:
             _register_batch(con, i, [{"sku": f"X{i}", "name": "N", "price": "1"}])
         proc, _ = self._make(con)
         result = proc.process_stream(
-            StubStreamSource(["b1", "b2", "b3"]), "dim_p",
+            StubStreamSource(["b1", "b2", "b3"]),
+            "dim_p",
             max_batches=2,
         )
         assert result.batches_processed == 2
@@ -254,9 +266,7 @@ class TestLazySCDProcessorStream:
         _empty_scd_table(con, "dim_p", "sku", ["name", "price"])
         _register_batch(con, "b1", [{"sku": "A", "name": "V", "price": "1"}])
         proc, _ = self._make(con)
-        result = proc.process_stream(
-            StubStreamSource(["b1"]), "dim_p", max_batches=0
-        )
+        result = proc.process_stream(StubStreamSource(["b1"]), "dim_p", max_batches=0)
         assert result.batches_processed == 0
 
     # ── on_batch callback ─────────────────────────────────────────────────
@@ -269,7 +279,8 @@ class TestLazySCDProcessorStream:
         calls = []
         proc, _ = self._make(con)
         proc.process_stream(
-            StubStreamSource(["b1", "b2"]), "dim_p",
+            StubStreamSource(["b1", "b2"]),
+            "dim_p",
             on_batch=lambda i, r: calls.append((i, r.inserted)),
         )
         assert len(calls) == 2
@@ -328,7 +339,8 @@ class TestLazySCDProcessorStream:
         """)
         proc, _ = self._make(con)
         result = proc.process_stream(
-            StubStreamSource(["b_dedup"]), "dim_p",
+            StubStreamSource(["b_dedup"]),
+            "dim_p",
             deduplicate_by="price",
         )
         assert result.inserted == 1  # only 1 row per NK
@@ -348,7 +360,8 @@ class TestLazySCDProcessorStream:
         """)
         proc, _ = self._make(con)
         result = proc.process_stream(
-            StubStreamSource(["b_no_dedup"]), "dim_p",
+            StubStreamSource(["b_no_dedup"]),
+            "dim_p",
         )
         assert result.inserted == 2
 
@@ -380,10 +393,14 @@ class TestLazySCDProcessorStream:
                 valid_to   VARCHAR
             )
         """)
-        _register_batch(con, "batch_ol", [
-            {"order_id": "O1", "line_no": "1", "qty": "5"},
-            {"order_id": "O1", "line_no": "2", "qty": "3"},
-        ])
+        _register_batch(
+            con,
+            "batch_ol",
+            [
+                {"order_id": "O1", "line_no": "1", "qty": "5"},
+                {"order_id": "O1", "line_no": "2", "qty": "3"},
+            ],
+        )
         sink = InMemorySink()
         proc = LazySCDProcessor(
             natural_key=["order_id", "line_no"],
@@ -399,8 +416,8 @@ class TestLazySCDProcessorStream:
 # LazyType1Processor.process_stream()  (SCD Type 1 — overwrite)
 # ---------------------------------------------------------------------------
 
-class TestLazyType1ProcessorStream:
 
+class TestLazyType1ProcessorStream:
     def _make(self, con):
         sink = InMemorySink()
         proc = LazyType1Processor(
@@ -437,7 +454,8 @@ class TestLazyType1ProcessorStream:
         calls = []
         proc, _ = self._make(con)
         proc.process_stream(
-            StubStreamSource(["b1"]), "dim_t1",
+            StubStreamSource(["b1"]),
+            "dim_t1",
             on_batch=lambda i, r: calls.append(i),
         )
         assert calls == [0]
@@ -474,7 +492,8 @@ class TestLazyType1ProcessorStream:
         """)
         proc, _ = self._make(con)
         result = proc.process_stream(
-            StubStreamSource(["b_dedup_t1"]), "dim_t1",
+            StubStreamSource(["b_dedup_t1"]),
+            "dim_t1",
             deduplicate_by="price",
         )
         assert result.inserted == 1
@@ -484,6 +503,7 @@ class TestLazyType1ProcessorStream:
     def test_drop_stream_views_exception_swallowed(self):
         """_drop_stream_views must not propagate exceptions from DROP statements."""
         from unittest.mock import MagicMock
+
         proc, _ = self._make(duckdb.connect())
         mock_con = MagicMock()
         mock_con.execute.side_effect = Exception("Simulated DROP failure")
@@ -495,8 +515,8 @@ class TestLazyType1ProcessorStream:
 # LazyType3Processor.process_stream()  (SCD Type 3 — current + previous)
 # ---------------------------------------------------------------------------
 
-class TestLazyType3ProcessorStream:
 
+class TestLazyType3ProcessorStream:
     def _make(self, con):
         sink = InMemorySink()
         proc = LazyType3Processor(
@@ -574,7 +594,8 @@ class TestLazyType3ProcessorStream:
         """)
         proc, _ = self._make(con)
         result = proc.process_stream(
-            StubStreamSource(["b_dedup_t3"]), "dim_emp",
+            StubStreamSource(["b_dedup_t3"]),
+            "dim_emp",
             deduplicate_by="region",
         )
         assert result.inserted == 1
@@ -584,6 +605,7 @@ class TestLazyType3ProcessorStream:
     def test_drop_stream_views_exception_swallowed(self):
         """_drop_stream_views must not propagate exceptions from DROP statements."""
         from unittest.mock import MagicMock
+
         proc, _ = self._make(duckdb.connect())
         mock_con = MagicMock()
         mock_con.execute.side_effect = Exception("Simulated DROP failure")
@@ -598,7 +620,8 @@ class TestLazyType3ProcessorStream:
         calls = []
         proc, _ = self._make(con)
         proc.process_stream(
-            StubStreamSource(["b1"]), "dim_emp",
+            StubStreamSource(["b1"]),
+            "dim_emp",
             on_batch=lambda i, r: calls.append(i),
         )
         assert calls == [0]
@@ -617,8 +640,8 @@ class TestLazyType3ProcessorStream:
 # LazyType6Processor.process_stream()  (SCD Type 6 — hybrid Type 1 + Type 2)
 # ---------------------------------------------------------------------------
 
-class TestLazyType6ProcessorStream:
 
+class TestLazyType6ProcessorStream:
     def _make(self, con):
         sink = InMemorySink()
         proc = LazyType6Processor(
@@ -646,9 +669,13 @@ class TestLazyType6ProcessorStream:
     def test_single_batch_inserts_new_rows(self):
         con = duckdb.connect()
         self._empty_t6_table(con, "dim_cust")
-        _register_batch(con, "b1", [
-            {"cust_id": "C1", "email": "a@example.com", "tier": "gold"},
-        ])
+        _register_batch(
+            con,
+            "b1",
+            [
+                {"cust_id": "C1", "email": "a@example.com", "tier": "gold"},
+            ],
+        )
         proc, _ = self._make(con)
         result = proc.process_stream(StubStreamSource(["b1"]), "dim_cust")
         assert result.inserted == 1
@@ -657,18 +684,26 @@ class TestLazyType6ProcessorStream:
     def test_type2_change_creates_new_version(self):
         con = duckdb.connect()
         self._empty_t6_table(con, "dim_cust")
-        _register_batch(con, "b1", [{"cust_id": "C1", "email": "a@x.com", "tier": "gold"}])
-        _register_batch(con, "b2", [{"cust_id": "C1", "email": "a@x.com", "tier": "platinum"}])
+        _register_batch(
+            con, "b1", [{"cust_id": "C1", "email": "a@x.com", "tier": "gold"}]
+        )
+        _register_batch(
+            con, "b2", [{"cust_id": "C1", "email": "a@x.com", "tier": "platinum"}]
+        )
         proc, _ = self._make(con)
         proc.process_stream(StubStreamSource(["b1", "b2"]), "dim_cust")
         # Both old (is_current=FALSE) and new (is_current=TRUE) should exist
-        total = con.execute("SELECT count(*) FROM dim_cust WHERE cust_id='C1'").fetchone()[0]
+        total = con.execute(
+            "SELECT count(*) FROM dim_cust WHERE cust_id='C1'"
+        ).fetchone()[0]
         assert total == 2
 
     def test_batches_processed_count(self):
         con = duckdb.connect()
         self._empty_t6_table(con, "dim_cust")
-        _register_batch(con, "b1", [{"cust_id": "C1", "email": "a@x.com", "tier": "silver"}])
+        _register_batch(
+            con, "b1", [{"cust_id": "C1", "email": "a@x.com", "tier": "silver"}]
+        )
         proc, _ = self._make(con)
         result = proc.process_stream(StubStreamSource(["b1"]), "dim_cust")
         assert result.batches_processed == 1
@@ -676,8 +711,12 @@ class TestLazyType6ProcessorStream:
     def test_max_batches_limits_type6(self):
         con = duckdb.connect()
         self._empty_t6_table(con, "dim_cust")
-        _register_batch(con, "b1", [{"cust_id": "C1", "email": "a@x.com", "tier": "silver"}])
-        _register_batch(con, "b2", [{"cust_id": "C2", "email": "b@x.com", "tier": "gold"}])
+        _register_batch(
+            con, "b1", [{"cust_id": "C1", "email": "a@x.com", "tier": "silver"}]
+        )
+        _register_batch(
+            con, "b2", [{"cust_id": "C2", "email": "b@x.com", "tier": "gold"}]
+        )
         proc, _ = self._make(con)
         result = proc.process_stream(
             StubStreamSource(["b1", "b2"]), "dim_cust", max_batches=1
@@ -696,11 +735,14 @@ class TestLazyType6ProcessorStream:
     def test_on_batch_callback_called(self):
         con = duckdb.connect()
         self._empty_t6_table(con, "dim_cust")
-        _register_batch(con, "b1", [{"cust_id": "C1", "email": "a@x.com", "tier": "silver"}])
+        _register_batch(
+            con, "b1", [{"cust_id": "C1", "email": "a@x.com", "tier": "silver"}]
+        )
         calls = []
         proc, _ = self._make(con)
         proc.process_stream(
-            StubStreamSource(["b1"]), "dim_cust",
+            StubStreamSource(["b1"]),
+            "dim_cust",
             on_batch=lambda i, r: calls.append(i),
         )
         assert calls == [0]
@@ -717,7 +759,8 @@ class TestLazyType6ProcessorStream:
         """)
         proc, _ = self._make(con)
         result = proc.process_stream(
-            StubStreamSource(["b_dedup_t6"]), "dim_cust",
+            StubStreamSource(["b_dedup_t6"]),
+            "dim_cust",
             deduplicate_by="tier",
         )
         assert result.inserted == 1
@@ -727,6 +770,7 @@ class TestLazyType6ProcessorStream:
     def test_drop_stream_views_exception_swallowed(self):
         """_drop_stream_views must not propagate exceptions from DROP statements."""
         from unittest.mock import MagicMock
+
         proc, _ = self._make(duckdb.connect())
         mock_con = MagicMock()
         mock_con.execute.side_effect = Exception("Simulated DROP failure")
@@ -738,10 +782,12 @@ class TestLazyType6ProcessorStream:
 # LazySCDProcessor (Type 2) _drop_stream_views exception path
 # ---------------------------------------------------------------------------
 
+
 class TestSCDType2DropStreamViewsException:
     def test_drop_stream_views_exception_swallowed(self):
         """_drop_stream_views on LazySCDProcessor must not propagate DROP errors."""
         from unittest.mock import MagicMock
+
         con = duckdb.connect()
         sink = InMemorySink()
         proc = LazySCDProcessor("sku", ["name", "price"], sink=sink, con=con)
@@ -754,6 +800,7 @@ class TestSCDType2DropStreamViewsException:
 # ---------------------------------------------------------------------------
 # _drop_stream_views cleans up between batches
 # ---------------------------------------------------------------------------
+
 
 class TestDropStreamViews:
     """Verify that _drop_stream_views does not leave stale views between batches."""
@@ -790,6 +837,7 @@ class TestDropStreamViews:
 # StreamSourceAdapter protocol contract for StubStreamSource
 # ---------------------------------------------------------------------------
 
+
 def test_stub_satisfies_protocol():
     assert isinstance(StubStreamSource([]), StreamSourceAdapter)
 
@@ -798,6 +846,7 @@ def test_stub_satisfies_protocol():
 # LazyType3Processor cross-batch changed rows
 # (covers _update_local_fingerprint_after_batch UPDATE branch)
 # ---------------------------------------------------------------------------
+
 
 class TestLazyType3CrossBatchUpdates:
     """
@@ -837,7 +886,9 @@ class TestLazyType3CrossBatchUpdates:
             sink=sink,
             con=con,
         )
-        result = proc.process_stream(StubStreamSource(["xb1", "xb2", "xb3"]), "dim_emp_xb")
+        result = proc.process_stream(
+            StubStreamSource(["xb1", "xb2", "xb3"]), "dim_emp_xb"
+        )
         # b1 inserts 1, b2 rotates 1, b3 nothing
         assert result.inserted == 1
         assert result.versioned == 1  # b2 rotated once via rotate_attributes
@@ -858,7 +909,9 @@ class TestLazyType3CrossBatchUpdates:
             sink=sink,
             con=con,
         )
-        result = proc.process_stream(StubStreamSource(["ch1", "ch2", "ch3"]), "dim_emp_3ch")
+        result = proc.process_stream(
+            StubStreamSource(["ch1", "ch2", "ch3"]), "dim_emp_3ch"
+        )
         assert result.inserted == 1
         # Two rotation events: North→South, South→East
         assert result.versioned == 2
@@ -869,6 +922,7 @@ class TestLazyType3CrossBatchUpdates:
 # LazyType6Processor cross-batch type1_only and type2_changed branches
 # (covers _update_local_state_after_batch UPDATE branches)
 # ---------------------------------------------------------------------------
+
 
 class TestLazyType6CrossBatchUpdates:
     """
@@ -898,9 +952,15 @@ class TestLazyType6CrossBatchUpdates:
         """
         con = duckdb.connect()
         self._empty_t6(con, "dim_t6_xb")
-        _register_batch(con, "t6_b1", [{"cust_id": "C1", "email": "a@x.com", "tier": "gold"}])
-        _register_batch(con, "t6_b2", [{"cust_id": "C1", "email": "a@x.com", "tier": "platinum"}])
-        _register_batch(con, "t6_b3", [{"cust_id": "C1", "email": "a@x.com", "tier": "platinum"}])
+        _register_batch(
+            con, "t6_b1", [{"cust_id": "C1", "email": "a@x.com", "tier": "gold"}]
+        )
+        _register_batch(
+            con, "t6_b2", [{"cust_id": "C1", "email": "a@x.com", "tier": "platinum"}]
+        )
+        _register_batch(
+            con, "t6_b3", [{"cust_id": "C1", "email": "a@x.com", "tier": "platinum"}]
+        )
         sink = InMemorySink()
         proc = LazyType6Processor(
             natural_key="cust_id",
@@ -909,10 +969,12 @@ class TestLazyType6CrossBatchUpdates:
             sink=sink,
             con=con,
         )
-        result = proc.process_stream(StubStreamSource(["t6_b1", "t6_b2", "t6_b3"]), "dim_t6_xb")
+        result = proc.process_stream(
+            StubStreamSource(["t6_b1", "t6_b2", "t6_b3"]), "dim_t6_xb"
+        )
         assert result.inserted == 1
-        assert result.versioned == 1   # b2 created new version
-        assert result.unchanged == 1   # b3 unchanged
+        assert result.versioned == 1  # b2 created new version
+        assert result.unchanged == 1  # b3 unchanged
         assert result.batches_processed == 3
 
     def test_type1_only_change_then_unchanged(self):
@@ -923,9 +985,15 @@ class TestLazyType6CrossBatchUpdates:
         """
         con = duckdb.connect()
         self._empty_t6(con, "dim_t6_t1")
-        _register_batch(con, "t1_b1", [{"cust_id": "C2", "email": "old@x.com", "tier": "silver"}])
-        _register_batch(con, "t1_b2", [{"cust_id": "C2", "email": "new@x.com", "tier": "silver"}])
-        _register_batch(con, "t1_b3", [{"cust_id": "C2", "email": "new@x.com", "tier": "silver"}])
+        _register_batch(
+            con, "t1_b1", [{"cust_id": "C2", "email": "old@x.com", "tier": "silver"}]
+        )
+        _register_batch(
+            con, "t1_b2", [{"cust_id": "C2", "email": "new@x.com", "tier": "silver"}]
+        )
+        _register_batch(
+            con, "t1_b3", [{"cust_id": "C2", "email": "new@x.com", "tier": "silver"}]
+        )
         sink = InMemorySink()
         proc = LazyType6Processor(
             natural_key="cust_id",
@@ -934,13 +1002,16 @@ class TestLazyType6CrossBatchUpdates:
             sink=sink,
             con=con,
         )
-        result = proc.process_stream(StubStreamSource(["t1_b1", "t1_b2", "t1_b3"]), "dim_t6_t1")
+        result = proc.process_stream(
+            StubStreamSource(["t1_b1", "t1_b2", "t1_b3"]), "dim_t6_t1"
+        )
         assert result.inserted == 1
         # type1_only contributes 1 to versioned (via _apply_type1_only count)
         assert result.versioned == 1
-        assert result.unchanged == 1   # b3 correctly identified as unchanged
+        assert result.unchanged == 1  # b3 correctly identified as unchanged
         assert result.batches_processed == 3
         # Verify only one row exists (no SCD2 version split for type1-only change)
-        total_rows = con.execute("SELECT count(*) FROM dim_t6_t1 WHERE cust_id='C2'").fetchone()[0]
+        total_rows = con.execute(
+            "SELECT count(*) FROM dim_t6_t1 WHERE cust_id='C2'"
+        ).fetchone()[0]
         assert total_rows == 1
-

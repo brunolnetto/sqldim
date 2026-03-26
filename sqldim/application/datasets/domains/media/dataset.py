@@ -14,6 +14,7 @@ Instantiate and use with a DuckDB connection:
 
     media_dataset.teardown(con)
 """
+
 from sqldim.application.datasets.dataset import Dataset
 from sqldim.application.datasets.domains.media.sources import (
     MoviesSource,
@@ -26,4 +27,11 @@ media_dataset = Dataset(
     ],
 )
 
-__all__ = ["media_dataset"]
+DATASET_METADATA = {
+    "name": "media",
+    "title": "Media streaming",
+    "description": "Creators, content, viewers, playlists, and watch events",
+    "dataset_attr": "media_dataset",
+}
+
+__all__ = ["media_dataset", "DATASET_METADATA"]

@@ -3,6 +3,7 @@
 Covers: ModelKind enum, SilverBuildOrder classification, dependency checks,
 and sorted build ordering for mixed model sets.
 """
+
 from __future__ import annotations
 
 import pytest
@@ -15,6 +16,7 @@ from sqldim.core.graph.schema_graph import SchemaGraph
 # ---------------------------------------------------------------------------
 # Concrete model fixtures (minimal table=False to skip SQLite metaclass)
 # ---------------------------------------------------------------------------
+
 
 class Dim(DimensionModel, table=False):
     pass
@@ -35,6 +37,7 @@ class Bridge(BridgeModel, table=False):
 # ---------------------------------------------------------------------------
 # TestModelKind
 # ---------------------------------------------------------------------------
+
 
 class TestModelKind:
     def test_values(self):
@@ -63,6 +66,7 @@ class TestModelKind:
 # TestClassify
 # ---------------------------------------------------------------------------
 
+
 class TestClassify:
     def test_dimension_model(self):
         assert SilverBuildOrder().classify(Dim) == ModelKind.DIMENSION
@@ -79,6 +83,7 @@ class TestClassify:
     def test_unknown_raises(self):
         class Unknown:
             pass
+
         with pytest.raises(TypeError, match="Cannot classify"):
             SilverBuildOrder().classify(Unknown)
 
@@ -92,6 +97,7 @@ class TestClassify:
 # TestCanBuildAfter
 # ---------------------------------------------------------------------------
 
+
 class TestCanBuildAfter:
     def setup_method(self):
         self.sbo = SilverBuildOrder()
@@ -104,18 +110,29 @@ class TestCanBuildAfter:
         assert self.sbo.can_build_after(ModelKind.FACT, {ModelKind.DIMENSION}) is True
 
     def test_bridge_needs_fact(self):
-        assert self.sbo.can_build_after(ModelKind.BRIDGE, {ModelKind.DIMENSION}) is False
-        assert self.sbo.can_build_after(
-            ModelKind.BRIDGE, {ModelKind.DIMENSION, ModelKind.FACT}
-        ) is True
+        assert (
+            self.sbo.can_build_after(ModelKind.BRIDGE, {ModelKind.DIMENSION}) is False
+        )
+        assert (
+            self.sbo.can_build_after(
+                ModelKind.BRIDGE, {ModelKind.DIMENSION, ModelKind.FACT}
+            )
+            is True
+        )
 
     def test_graph_needs_bridge(self):
-        assert self.sbo.can_build_after(
-            ModelKind.GRAPH, {ModelKind.DIMENSION, ModelKind.FACT}
-        ) is False
-        assert self.sbo.can_build_after(
-            ModelKind.GRAPH, {ModelKind.DIMENSION, ModelKind.FACT, ModelKind.BRIDGE}
-        ) is True
+        assert (
+            self.sbo.can_build_after(
+                ModelKind.GRAPH, {ModelKind.DIMENSION, ModelKind.FACT}
+            )
+            is False
+        )
+        assert (
+            self.sbo.can_build_after(
+                ModelKind.GRAPH, {ModelKind.DIMENSION, ModelKind.FACT, ModelKind.BRIDGE}
+            )
+            is True
+        )
 
     def test_extra_preceding_kinds_accepted(self):
         """Providing more than strictly required is still OK."""
@@ -126,6 +143,7 @@ class TestCanBuildAfter:
 # ---------------------------------------------------------------------------
 # TestBuildOrder
 # ---------------------------------------------------------------------------
+
 
 class TestBuildOrder:
     def setup_method(self):
@@ -149,6 +167,7 @@ class TestBuildOrder:
 
     def test_stable_within_same_kind(self):
         """Multiple models of the same kind keep insertion order."""
+
         class Dim2(DimensionModel, table=False):
             pass
 
@@ -167,6 +186,7 @@ class TestBuildOrder:
     def test_unknown_model_raises(self):
         class Unknown:
             pass
+
         with pytest.raises(TypeError, match="Cannot classify"):
             self.sbo.build_order([Dim, Unknown])
 
@@ -174,6 +194,7 @@ class TestBuildOrder:
 # ---------------------------------------------------------------------------
 # TestPublicExports
 # ---------------------------------------------------------------------------
+
 
 class TestPublicExports:
     def test_importable_from_medallion(self):

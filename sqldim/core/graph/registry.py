@@ -173,7 +173,10 @@ class GraphModel(_GraphQueryMixin):
         subject_cls = edge_model.__subject__
         object_cls = edge_model.__object__
         vertex_cls = self._pick_neighbor_class(
-            vertex.__class__, subject_cls, object_cls, direction
+            vertex.__class__,
+            subject_cls,  # type: ignore[arg-type]
+            object_cls,  # type: ignore[arg-type]
+            direction,  # type: ignore[arg-type]
         )
 
         if not neighbor_ids:

@@ -14,7 +14,6 @@ recommender surfaces a ``CORRELATE`` suggestion proposing a JOIN composition.
 
 from __future__ import annotations
 
-import pytest
 
 from sqldim.core.query.dgm.algebra import QuestionAlgebra, ComposeOp
 from sqldim.core.query.dgm.annotations import AnnotationSigma
@@ -27,6 +26,7 @@ from sqldim.core.query.dgm.refs import PropRef
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
+
 
 def _sigma() -> AnnotationSigma:
     return AnnotationSigma([])
@@ -69,9 +69,18 @@ class TestSuggestionKindCorrelate:
     def test_existing_kinds_preserved(self):
         """Adding CORRELATE must not remove existing SuggestionKind members."""
         for name in (
-            "SCALAR_PRED", "PATH_PRED", "TRIM_JOIN", "TEMPORAL_PIVOT",
-            "GROUP_BY", "AGG", "HAVING", "COMMUNITY_PARTITION",
-            "K_SHORTEST", "Q_DELTA", "TRAIL_PIVOT", "SIGNATURE_RESTRICT",
+            "SCALAR_PRED",
+            "PATH_PRED",
+            "TRIM_JOIN",
+            "TEMPORAL_PIVOT",
+            "GROUP_BY",
+            "AGG",
+            "HAVING",
+            "COMMUNITY_PARTITION",
+            "K_SHORTEST",
+            "Q_DELTA",
+            "TRAIL_PIVOT",
+            "SIGNATURE_RESTRICT",
             "SUPPRESS",
         ):
             assert hasattr(SuggestionKind, name), f"Missing: {name}"
@@ -163,7 +172,7 @@ class TestSuggestCorrelationsDetection:
         """A DGMQuery with no anchor set is not a correlation candidate."""
         # DGMQuery() with no .anchor() call has _anchor_table = None
         qa = QuestionAlgebra()
-        qa.add("q1", DGMQuery())   # no anchor
+        qa.add("q1", DGMQuery())  # no anchor
         qa.add("q2", _q("dim_t"))
         result = _rec().suggest_correlations(qa)
         assert result == []

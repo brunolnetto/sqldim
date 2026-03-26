@@ -1,15 +1,21 @@
 """Tests for TraversalEngine SQL generation — Task 6.4."""
+
 import pytest
 from typing import Optional
 from sqlmodel import Field
 
 from sqldim.core.graph import VertexModel, EdgeModel
-from sqldim.core.graph.traversal import TraversalEngine, DuckDBTraversalEngine, _build_filters
+from sqldim.core.graph.traversal import (
+    TraversalEngine,
+    DuckDBTraversalEngine,
+    _build_filters,
+)
 
 
 # ---------------------------------------------------------------------------
 # Fixtures
 # ---------------------------------------------------------------------------
+
 
 class TPlayer(VertexModel, table=True):
     __tablename__ = "t_player"
@@ -60,6 +66,7 @@ def engine():
 # neighbors_sql
 # ---------------------------------------------------------------------------
 
+
 def test_neighbors_sql_out(engine):
     sql = engine.neighbors_sql(DirectedEdge, start_id=1, direction="out")
     assert "object_id" in sql
@@ -84,7 +91,7 @@ def test_neighbors_sql_both(engine):
 def test_neighbors_sql_undirected_always_both(engine):
     # Undirected edges always produce symmetric UNION regardless of direction arg
     sql_out = engine.neighbors_sql(UndirectedEdge, start_id=2, direction="out")
-    sql_in  = engine.neighbors_sql(UndirectedEdge, start_id=2, direction="in")
+    sql_in = engine.neighbors_sql(UndirectedEdge, start_id=2, direction="in")
     for sql in (sql_out, sql_in):
         assert "UNION" in sql.upper()
         assert "subject_id = 2" in sql
@@ -92,23 +99,30 @@ def test_neighbors_sql_undirected_always_both(engine):
 
 
 def test_neighbors_sql_with_filters(engine):
-    sql = engine.neighbors_sql(DirectedEdge, start_id=1, direction="out", filters={"score": 30})
+    sql = engine.neighbors_sql(
+        DirectedEdge, start_id=1, direction="out", filters={"score": 30}
+    )
     assert "score = 30" in sql
 
 
 def test_neighbors_sql_string_filter(engine):
-    sql = engine.neighbors_sql(DirectedEdge, start_id=1, direction="out", filters={"team": "LAL"})
+    sql = engine.neighbors_sql(
+        DirectedEdge, start_id=1, direction="out", filters={"team": "LAL"}
+    )
     assert "team = 'LAL'" in sql
 
 
 def test_neighbors_sql_none_filter(engine):
-    sql = engine.neighbors_sql(DirectedEdge, start_id=1, direction="out", filters={"pos": None})
+    sql = engine.neighbors_sql(
+        DirectedEdge, start_id=1, direction="out", filters={"pos": None}
+    )
     assert "IS NULL" in sql
 
 
 # ---------------------------------------------------------------------------
 # paths_sql
 # ---------------------------------------------------------------------------
+
 
 def test_paths_sql_contains_recursive(engine):
     sql = engine.paths_sql(DirectedEdge, start_id=1, target_id=5, max_hops=3)
@@ -143,26 +157,34 @@ def test_paths_sql_undirected_symmetric_join(engine):
 # aggregate_sql
 # ---------------------------------------------------------------------------
 
+
 def test_aggregate_sql_sum(engine):
-    sql = engine.aggregate_sql(DirectedEdge, start_id=1, measure="score", agg="sum", direction="out")
+    sql = engine.aggregate_sql(
+        DirectedEdge, start_id=1, measure="score", agg="sum", direction="out"
+    )
     assert "SUM(score)" in sql
     assert "subject_id = 1" in sql
 
 
 def test_aggregate_sql_avg(engine):
-    sql = engine.aggregate_sql(DirectedEdge, start_id=1, measure="score", agg="avg", direction="in")
+    sql = engine.aggregate_sql(
+        DirectedEdge, start_id=1, measure="score", agg="avg", direction="in"
+    )
     assert "AVG(score)" in sql
     assert "object_id = 1" in sql
 
 
 def test_aggregate_sql_both_directions(engine):
-    sql = engine.aggregate_sql(DirectedEdge, start_id=1, measure="score", agg="count", direction="both")
+    sql = engine.aggregate_sql(
+        DirectedEdge, start_id=1, measure="score", agg="count", direction="both"
+    )
     assert "subject_id = 1 OR object_id = 1" in sql
 
 
 # ---------------------------------------------------------------------------
 # degree_sql
 # ---------------------------------------------------------------------------
+
 
 def test_degree_sql(engine):
     sql = engine.degree_sql(DirectedEdge, start_id=1, direction="out")
@@ -174,6 +196,7 @@ def test_degree_sql(engine):
 # _build_filters helper
 # ---------------------------------------------------------------------------
 
+
 def test_build_filters_multiple():
     result = _build_filters({"a": 1, "b": "x"})
     assert "a = 1" in result
@@ -184,6 +207,7 @@ def test_build_filters_multiple():
 # ---------------------------------------------------------------------------
 # Migrated from test_coverage_100.py and test_coverage_gap_v2.py
 # ---------------------------------------------------------------------------
+
 
 class TravPlayer(VertexModel, table=True):
     __tablename__ = "trav_player"
@@ -229,23 +253,20 @@ class TravUndirectedEdge(EdgeModel, table=True):
 def ddb_trav_con():
     """DuckDB connection with test edge data for DuckDBTraversalEngine."""
     import duckdb
+
     con = duckdb.connect()
     con.execute(
         "CREATE TABLE trav_directed_edge "
         "(id INT, subject_id INT, object_id INT, weight DOUBLE)"
     )
     con.execute(
-        "INSERT INTO trav_directed_edge VALUES "
-        "(1,1,2,1.0),(2,1,3,2.0),(3,2,3,1.5)"
+        "INSERT INTO trav_directed_edge VALUES (1,1,2,1.0),(2,1,3,2.0),(3,2,3,1.5)"
     )
     con.execute(
         "CREATE TABLE trav_undirected_edge "
         "(id INT, subject_id INT, object_id INT, weight DOUBLE)"
     )
-    con.execute(
-        "INSERT INTO trav_undirected_edge VALUES "
-        "(1,1,2,1.0),(2,2,3,2.0)"
-    )
+    con.execute("INSERT INTO trav_undirected_edge VALUES (1,1,2,1.0),(2,2,3,2.0)")
     yield con
     con.close()
 
@@ -254,7 +275,9 @@ class TestTraversalEngineSQLExtended:
     def test_neighbors_sql_undirected_with_filters(self):
         """Undirected neighbors SQL with filters uses UNION."""
         te = TraversalEngine()
-        sql = te.neighbors_sql(TravUndirectedEdge, 1, direction="both", filters={"weight": 1.0})
+        sql = te.neighbors_sql(
+            TravUndirectedEdge, 1, direction="both", filters={"weight": 1.0}
+        )
         assert "UNION" in sql
         assert "weight = 1.0" in sql
 
@@ -317,6 +340,7 @@ class TestDuckDBTraversalEngine:
 
 def test_traversal_engine_undirected_sql():
     """Undirected TraversalEngine generates UNION SQL."""
+
     class UEdge2(EdgeModel, table=True):
         __tablename__ = "uedge2"
         __edge_type__ = "ue2"

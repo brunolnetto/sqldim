@@ -3,6 +3,7 @@ TDD tests for DGM edge type classification in GraphSchema.
 
 Covers the τ_E : E → {verb, bridge} function from DGM §2.
 """
+
 from __future__ import annotations
 
 
@@ -13,6 +14,7 @@ from sqldim.core.graph.schema_graph import SchemaGraph
 # ---------------------------------------------------------------------------
 # Minimal test models
 # ---------------------------------------------------------------------------
+
 
 class CustomerDim(DimensionModel, table=True):
     __tablename__ = "dgm_test_customer"
@@ -35,7 +37,7 @@ class SaleFact(FactModel, table=True):
     __grain__ = "one row per sale"
     id: int = Field(primary_key=True)
     customer_id: int = Field(foreign_key="dgm_test_customer.id", dimension=CustomerDim)
-    product_id:  int = Field(foreign_key="dgm_test_product.id",  dimension=ProductDim)
+    product_id: int = Field(foreign_key="dgm_test_product.id", dimension=ProductDim)
     revenue: float
 
 
@@ -43,14 +45,15 @@ class ProductSegmentBridge(BridgeModel, table=True):
     __tablename__ = "dgm_test_prod_seg_bridge"
     __bridge_keys__ = ["product_id", "segment_id"]
     id: int = Field(default=None, primary_key=True)
-    product_id:  int
-    segment_id:  int
+    product_id: int
+    segment_id: int
     weight: float = Field(default=1.0)
 
 
 # ---------------------------------------------------------------------------
 # Tests
 # ---------------------------------------------------------------------------
+
 
 class TestGraphSchemaEdgeKind:
     """§ DGM §4: edge type function τ_E maps each edge to verb or bridge."""

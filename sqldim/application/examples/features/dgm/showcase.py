@@ -4,6 +4,7 @@ QuestionAlgebra, CSE, and CORRELATE recommendations.
 Run:
     PYTHONPATH=. python -m sqldim.application.examples.features.dgm.showcase
 """
+
 from __future__ import annotations
 
 import duckdb

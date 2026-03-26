@@ -1,4 +1,5 @@
 """DGM showcase — model demos (BDD, annotation sigma, planner, pipeline artifact)."""
+
 from __future__ import annotations
 
 from sqldim import (
@@ -54,14 +55,22 @@ def demo_annotation_sigma() -> None:
             Grain(fact="dgm_showcase_sale", grain=GrainKind.PERIOD),
             SCDType(dim="dgm_showcase_customer", scd=SCDKind.SCD2),
             Conformed(dim="dgm_showcase_customer", fact_types=frozenset({"Sale"})),
-            BridgeSemantics(bridge="dgm_showcase_prod_seg", sem=BridgeSemanticsKind.STRUCTURAL),
+            BridgeSemantics(
+                bridge="dgm_showcase_prod_seg", sem=BridgeSemanticsKind.STRUCTURAL
+            ),
         ]
     )
     print(f"  Annotations loaded: {len(sigma)}")
-    print(f"  scd_of('dgm_showcase_customer'): {sigma.scd_of('dgm_showcase_customer').value}")
-    print(f"  is_conformed('dgm_showcase_customer', 'Sale'): "
-          f"{sigma.is_conformed('dgm_showcase_customer', 'Sale')}")
-    print(f"  grain_of('dgm_showcase_sale'): {sigma.grain_of('dgm_showcase_sale').value}")
+    print(
+        f"  scd_of('dgm_showcase_customer'): {sigma.scd_of('dgm_showcase_customer').value}"  # type: ignore[union-attr]
+    )
+    print(
+        f"  is_conformed('dgm_showcase_customer', 'Sale'): "
+        f"{sigma.is_conformed('dgm_showcase_customer', 'Sale')}"
+    )
+    print(
+        f"  grain_of('dgm_showcase_sale'): {sigma.grain_of('dgm_showcase_sale').value}"  # type: ignore[union-attr]
+    )
 
     rec = DGMRecommender(sigma)
     suggestions = rec.run_annotation_rules()
@@ -122,7 +131,9 @@ def demo_pipeline_artifact() -> None:
     from sqldim.core.query.dgm.planner import DGMPlanner, QueryTarget, SinkTarget
     from sqldim.core.query.dgm.graph import GraphStatistics
 
-    _section("Example 6 — PipelineArtifact: backfill-incremental state machine (D20/D21)")
+    _section(
+        "Example 6 — PipelineArtifact: backfill-incremental state machine (D20/D21)"
+    )
 
     artifact = PipelineArtifact(
         fact="daily_rev",
@@ -132,20 +143,22 @@ def demo_pipeline_artifact() -> None:
         write_mode=WriteModeKind.ADAPTIVE,
     )
     sigma = AnnotationSigma([artifact])
-    print(f"  PipelineArtifact: fact={artifact.fact!r}, pipeline_id={artifact.pipeline_id!r}")
+    print(
+        f"  PipelineArtifact: fact={artifact.fact!r}, pipeline_id={artifact.pipeline_id!r}"
+    )
     print(f"  Effective grain : {artifact.effective_grain.value}")
     print(f"  Write mode      : {artifact.write_mode.value}")
     print(f"  TTL (s)         : {artifact.ttl}")
     print(f"  Backfill horizon: {artifact.backfill_horizon} days")
 
     transitions = [
-        (PipelineStateKind.MISSING,    PipelineStateKind.IN_FLIGHT, False),
-        (PipelineStateKind.IN_FLIGHT,  PipelineStateKind.COMPLETE,  False),
-        (PipelineStateKind.IN_FLIGHT,  PipelineStateKind.FAILED,    False),
-        (PipelineStateKind.IN_FLIGHT,  PipelineStateKind.FAILED,    True),
-        (PipelineStateKind.COMPLETE,   PipelineStateKind.STALE,     False),
-        (PipelineStateKind.STALE,      PipelineStateKind.IN_FLIGHT, False),
-        (PipelineStateKind.FAILED,     PipelineStateKind.IN_FLIGHT, False),
+        (PipelineStateKind.MISSING, PipelineStateKind.IN_FLIGHT, False),
+        (PipelineStateKind.IN_FLIGHT, PipelineStateKind.COMPLETE, False),
+        (PipelineStateKind.IN_FLIGHT, PipelineStateKind.FAILED, False),
+        (PipelineStateKind.IN_FLIGHT, PipelineStateKind.FAILED, True),
+        (PipelineStateKind.COMPLETE, PipelineStateKind.STALE, False),
+        (PipelineStateKind.STALE, PipelineStateKind.IN_FLIGHT, False),
+        (PipelineStateKind.FAILED, PipelineStateKind.IN_FLIGHT, False),
     ]
     print("\n  Transition semantics:")
     for from_s, to_s, is_refresh in transitions:
@@ -184,8 +197,9 @@ def demo_pipeline_artifact() -> None:
         .where(
             AND(
                 ScalarPred(PropRef("a", "state"), "IN", ("Missing", "Failed")),
-                ScalarPred(PropRef("a", "window_end"), "<",
-                           "DATE_SUB(NOW(), INTERVAL 90 DAY)"),
+                ScalarPred(
+                    PropRef("a", "window_end"), "<", "DATE_SUB(NOW(), INTERVAL 90 DAY)"
+                ),
             )
         )
         .group_by("a.pipeline_id", "a.window_start")

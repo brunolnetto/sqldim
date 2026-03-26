@@ -1,4 +1,5 @@
 """Tests for Notifications — Severity, NotificationEvent, channels, router."""
+
 import pytest
 
 from sqldim.medallion import Layer
@@ -16,6 +17,7 @@ from sqldim.notifications import (
 # Severity
 # ---------------------------------------------------------------------------
 
+
 class TestSeverity:
     def test_p1_is_highest(self):
         assert Severity.P1 < Severity.P2 < Severity.P3 < Severity.P4
@@ -32,6 +34,7 @@ class TestSeverity:
 # ---------------------------------------------------------------------------
 # NotificationEvent
 # ---------------------------------------------------------------------------
+
 
 class TestNotificationEvent:
     def test_required_fields(self):
@@ -60,6 +63,7 @@ class TestNotificationEvent:
 
     def test_timestamp_is_recent(self):
         from datetime import datetime, timezone
+
         before = datetime.now(timezone.utc)
         ev = NotificationEvent("x", Severity.P4, Layer.BRONZE)
         after = datetime.now(timezone.utc)
@@ -69,6 +73,7 @@ class TestNotificationEvent:
 # ---------------------------------------------------------------------------
 # NotificationChannel (abstract base)
 # ---------------------------------------------------------------------------
+
 
 class TestNotificationChannelABC:
     def test_cannot_instantiate_abstract(self):
@@ -86,6 +91,7 @@ class TestNotificationChannelABC:
 # ---------------------------------------------------------------------------
 # MemoryChannel
 # ---------------------------------------------------------------------------
+
 
 class TestMemoryChannel:
     def _ev(self, event_type="test", severity=Severity.P3, layer=Layer.BRONZE):
@@ -130,6 +136,7 @@ class TestMemoryChannel:
 # ---------------------------------------------------------------------------
 # NotificationRule
 # ---------------------------------------------------------------------------
+
 
 class TestNotificationRule:
     def _ev(self, event_type="gate_failure", severity=Severity.P2, layer=Layer.SILVER):
@@ -194,6 +201,7 @@ class TestNotificationRule:
 # ---------------------------------------------------------------------------
 # NotificationRouter
 # ---------------------------------------------------------------------------
+
 
 class TestNotificationRouter:
     def _make_router(self):

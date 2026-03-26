@@ -83,7 +83,7 @@ class Team(VertexModel, table=True):
 # ---------------------------------------------------------------------------
 
 
-class Game(FactModel, VertexModel, table=True):
+class Game(FactModel, VertexModel, table=True):  # type: ignore[misc]
     """Periodic snapshot fact for games. Reproduces games.sql."""
 
     __grain__ = "one row per game"
@@ -154,5 +154,5 @@ class PlayerSCD(DimensionModel, SCD2Mixin, table=True):
     scoring_class: ScoringClass
     is_active: bool
     # Override period types to support integer seasons
-    valid_from: int = Field(default=0)
-    valid_to: Optional[int] = Field(default=None, nullable=True)
+    valid_from: int = Field(default=0)  # type: ignore[assignment]
+    valid_to: Optional[int] = Field(default=None, nullable=True)  # type: ignore[assignment]

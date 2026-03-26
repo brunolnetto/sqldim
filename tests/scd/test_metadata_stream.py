@@ -10,17 +10,21 @@ sqldim/processors/_lazy_metadata.py
 
 All tests use an in-memory DuckDB connection and a local StubStreamSource.
 """
+
 from __future__ import annotations
 import json
 import duckdb
 
-from sqldim.core.kimball.dimensions.scd.processors.lazy.metadata._lazy_metadata import LazySCDMetadataProcessor
+from sqldim.core.kimball.dimensions.scd.processors.lazy.metadata._lazy_metadata import (
+    LazySCDMetadataProcessor,
+)
 from sqldim.sources.streaming.stream import StreamResult
 
 
 # ---------------------------------------------------------------------------
 # StubStreamSource — yields pre-registered view/table names
 # ---------------------------------------------------------------------------
+
 
 class StubStreamSource:
     def __init__(self, views: list[str]):
@@ -44,6 +48,7 @@ class StubStreamSource:
 # InMemorySink — same helper as test_lazy_metadata.py
 # ---------------------------------------------------------------------------
 
+
 class InMemorySink:
     def current_state_sql(self, table_name: str) -> str:
         return f"SELECT * FROM {table_name}"
@@ -58,9 +63,7 @@ class InMemorySink:
                 f"INSERT INTO {table_name} ({cols}) SELECT {cols} FROM {view_name}"
             )
         except Exception:
-            con.execute(
-                f"CREATE TABLE {table_name} AS SELECT {cols} FROM {view_name}"
-            )
+            con.execute(f"CREATE TABLE {table_name} AS SELECT {cols} FROM {view_name}")
         return n
 
     def close_versions(self, con, table_name, nk_cols, nk_view, valid_to):
@@ -80,6 +83,7 @@ class InMemorySink:
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
+
 
 def _make_dim_table(con, table_name: str, nk_cols: list[str]) -> None:
     nk_defs = " ".join(f"{c} VARCHAR," for c in nk_cols)
@@ -108,7 +112,8 @@ def _make_proc(con, nk_cols, meta_cols=None) -> LazySCDMetadataProcessor:
 
 def _seed_source_table(con, view_name: str, rows: list[dict]) -> None:
     select_rows = " UNION ALL ".join(
-        "SELECT " + ", ".join(
+        "SELECT "
+        + ", ".join(
             f"'{v}' AS {k}" if isinstance(v, str) else f"{v} AS {k}"
             for k, v in row.items()
         )
@@ -121,13 +126,17 @@ def _seed_source_table(con, view_name: str, rows: list[dict]) -> None:
 # TestRegisterSourceFromSql
 # ---------------------------------------------------------------------------
 
-class TestRegisterSourceFromSql:
 
+class TestRegisterSourceFromSql:
     def test_builds_incoming_table_with_hash(self):
         con = duckdb.connect()
-        _seed_source_table(con, "src_tab", [
-            {"entity_id": "E1", "name": "Alice", "score": "10"},
-        ])
+        _seed_source_table(
+            con,
+            "src_tab",
+            [
+                {"entity_id": "E1", "name": "Alice", "score": "10"},
+            ],
+        )
         proc = _make_proc(con, ["entity_id"], ["name", "score"])
         proc._register_source_from_sql("SELECT * FROM src_tab")
         cols = {r[0] for r in con.execute("DESCRIBE incoming").fetchall()}
@@ -137,9 +146,13 @@ class TestRegisterSourceFromSql:
     def test_empty_meta_cols_uses_empty_json(self):
         """When _meta_cols is empty, metadata payload should be '{}'."""
         con = duckdb.connect()
-        _seed_source_table(con, "src_nk_only", [
-            {"entity_id": "E1"},
-        ])
+        _seed_source_table(
+            con,
+            "src_nk_only",
+            [
+                {"entity_id": "E1"},
+            ],
+        )
         proc = _make_proc(con, ["entity_id"], meta_cols=[])
         proc._register_source_from_sql("SELECT * FROM src_nk_only")
         row = con.execute("SELECT _metadata FROM incoming").fetchone()
@@ -166,8 +179,8 @@ class TestRegisterSourceFromSql:
 # TestUpdateLocalHashesAfterBatch
 # ---------------------------------------------------------------------------
 
-class TestUpdateLocalHashesAfterBatch:
 
+class TestUpdateLocalHashesAfterBatch:
     def test_insert_branch_adds_new_rows(self):
         con = duckdb.connect()
         # Manually create current_hashes and classified as process_stream would
@@ -200,7 +213,9 @@ class TestUpdateLocalHashesAfterBatch:
         """)
         proc = _make_proc(con, ["entity_id"])
         proc._update_local_hashes_after_batch()
-        rows = con.execute("SELECT _row_hash FROM current_hashes WHERE entity_id='E2'").fetchall()
+        rows = con.execute(
+            "SELECT _row_hash FROM current_hashes WHERE entity_id='E2'"
+        ).fetchall()
         assert rows[0][0] == "new_hash"
 
 
@@ -208,15 +223,19 @@ class TestUpdateLocalHashesAfterBatch:
 # TestProcessStream
 # ---------------------------------------------------------------------------
 
-class TestProcessStreamSingleBatch:
 
+class TestProcessStreamSingleBatch:
     def test_single_batch_all_new_rows(self):
         con = duckdb.connect()
         _make_dim_table(con, "dim_ent", ["entity_id"])
-        _seed_source_table(con, "src_b1", [
-            {"entity_id": "E1", "name": "Alice"},
-            {"entity_id": "E2", "name": "Bob"},
-        ])
+        _seed_source_table(
+            con,
+            "src_b1",
+            [
+                {"entity_id": "E1", "name": "Alice"},
+                {"entity_id": "E2", "name": "Bob"},
+            ],
+        )
         proc = _make_proc(con, ["entity_id"], ["name"])
         result = proc.process_stream(StubStreamSource(["src_b1"]), "dim_ent")
         assert result.inserted == 2
@@ -227,9 +246,13 @@ class TestProcessStreamSingleBatch:
     def test_single_batch_accumulates_all_result_fields(self):
         con = duckdb.connect()
         _make_dim_table(con, "dim_e2", ["entity_id"])
-        _seed_source_table(con, "src_single", [
-            {"entity_id": "X", "status": "active"},
-        ])
+        _seed_source_table(
+            con,
+            "src_single",
+            [
+                {"entity_id": "X", "status": "active"},
+            ],
+        )
         proc = _make_proc(con, ["entity_id"], ["status"])
         result = proc.process_stream(StubStreamSource(["src_single"]), "dim_e2")
         assert isinstance(result, StreamResult)
@@ -237,7 +260,6 @@ class TestProcessStreamSingleBatch:
 
 
 class TestProcessStreamMultiBatch:
-
     def test_second_batch_unchanged_rows(self):
         con = duckdb.connect()
         _make_dim_table(con, "dim_m1", ["entity_id"])
@@ -275,7 +297,9 @@ class TestProcessStreamMultiBatch:
         _seed_source_table(con, "cb_b2", [{"entity_id": "E1", "v": "B"}])
         _seed_source_table(con, "cb_b3", [{"entity_id": "E1", "v": "B"}])
         proc = _make_proc(con, ["entity_id"], ["v"])
-        result = proc.process_stream(StubStreamSource(["cb_b1", "cb_b2", "cb_b3"]), "dim_cb")
+        result = proc.process_stream(
+            StubStreamSource(["cb_b1", "cb_b2", "cb_b3"]), "dim_cb"
+        )
         assert result.inserted == 1
         assert result.versioned == 1
         assert result.unchanged == 1
@@ -289,7 +313,8 @@ class TestProcessStreamMultiBatch:
         _seed_source_table(con, "mb_b3", [{"entity_id": "C", "v": "3"}])
         proc = _make_proc(con, ["entity_id"], ["v"])
         result = proc.process_stream(
-            StubStreamSource(["mb_b1", "mb_b2", "mb_b3"]), "dim_mb",
+            StubStreamSource(["mb_b1", "mb_b2", "mb_b3"]),
+            "dim_mb",
             max_batches=2,
         )
         assert result.batches_processed == 2
@@ -302,7 +327,8 @@ class TestProcessStreamMultiBatch:
         calls = []
         proc = _make_proc(con, ["entity_id"], ["v"])
         proc.process_stream(
-            StubStreamSource(["cb2_b1", "cb2_b2"]), "dim_cb2",
+            StubStreamSource(["cb2_b1", "cb2_b2"]),
+            "dim_cb2",
             on_batch=lambda i, r: calls.append((i, r.inserted)),
         )
         assert len(calls) == 2
@@ -320,7 +346,6 @@ class TestProcessStreamMultiBatch:
 
 
 class TestProcessStreamFailurePaths:
-
     def test_failed_batch_increments_batches_failed(self):
         con = duckdb.connect()
         _make_dim_table(con, "dim_fail", ["entity_id"])
@@ -353,14 +378,14 @@ class TestProcessStreamFailurePaths:
 
 
 class TestProcessStreamNowParameter:
-
     def test_custom_now_string_used_in_valid_from(self):
         con = duckdb.connect()
         _make_dim_table(con, "dim_now", ["entity_id"])
         _seed_source_table(con, "now_b1", [{"entity_id": "A", "v": "1"}])
         proc = _make_proc(con, ["entity_id"], ["v"])
         result = proc.process_stream(
-            StubStreamSource(["now_b1"]), "dim_now",
+            StubStreamSource(["now_b1"]),
+            "dim_now",
             now="2099-01-01T00:00:00+00:00",
         )
         assert result.inserted == 1
@@ -371,7 +396,6 @@ class TestProcessStreamNowParameter:
 
 
 class TestProcessStreamEmptyMetaCols:
-
     def test_no_meta_cols_inserts_empty_json(self):
         """When metadata_columns=[] every row gets metadata='{}'."""
         con = duckdb.connect()

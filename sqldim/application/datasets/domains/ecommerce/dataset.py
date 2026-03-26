@@ -12,6 +12,7 @@ Usage::
         print(f"{table}: {len(rows)} rows")
     ecommerce_dataset.teardown(con)
 """
+
 from sqldim.application.datasets.dataset import Dataset
 from sqldim.application.datasets.domains.ecommerce.sources import (
     LoyaltyCustomersSource,
@@ -30,4 +31,11 @@ ecommerce_dataset = Dataset(
     ],
 )
 
-__all__ = ["ecommerce_dataset"]
+DATASET_METADATA = {
+    "name": "ecommerce",
+    "title": "E-commerce pipeline",
+    "description": "Loyalty customers, catalog products, stores, and fulfilment orders",
+    "dataset_attr": "ecommerce_dataset",
+}
+
+__all__ = ["ecommerce_dataset", "DATASET_METADATA"]

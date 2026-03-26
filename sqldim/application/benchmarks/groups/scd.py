@@ -11,6 +11,7 @@ Re-export shim for the **scd** group — implementation split into subgroup modu
 
 CLI: ``scd``, ``scd.regression``, ``scd.regression.products``, …
 """
+
 from sqldim.application.benchmarks.groups.scd_regression import (
     group_a_scan_regression,
     group_b_memory_safety,

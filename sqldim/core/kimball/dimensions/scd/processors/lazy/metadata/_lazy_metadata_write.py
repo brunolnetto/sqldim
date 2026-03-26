@@ -6,9 +6,19 @@ These methods are mixed into :class:`LazySCDMetadataProcessor` via inheritance.
 
 from __future__ import annotations
 
+from typing import TYPE_CHECKING, Any
+
 
 class _MetadataWriteMixin:
     """Write helper methods for LazySCDMetadataProcessor."""
+
+    if TYPE_CHECKING:
+        _nk_cols: Any
+        _con: Any
+        sink: Any
+        batch_size: Any
+        _EXTRA_COLS: Any
+        _meta_cols: Any
 
     def _nk_join_fragments(self) -> tuple:
         """Return (nk_d_sel, join_cnd, nk_cl_sel, cl_join) built from *_nk_cols*."""

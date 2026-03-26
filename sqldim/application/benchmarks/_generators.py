@@ -1,4 +1,5 @@
 """Benchmark profile metadata and DuckDB SQL generators for all six profiles."""
+
 from __future__ import annotations
 
 # ── Profile registry ──────────────────────────────────────────────────────
@@ -6,37 +7,45 @@ from __future__ import annotations
 
 _PROFILE_META: dict[str, dict] = {
     "products": {
-        "source_class":     "sqldim.application.datasets.domains.ecommerce.ProductsSource",
-        "natural_key":      "product_id",
-        "track_columns":    ["name", "category", "price"],
+        "source_class": "sqldim.application.datasets.domains.ecommerce.ProductsSource",
+        "natural_key": "product_id",
+        "track_columns": ["name", "category", "price"],
     },
     "employees": {
-        "source_class":     "sqldim.application.datasets.domains.enterprise.EmployeesSource",
-        "natural_key":      "employee_id",
-        "track_columns":    ["title", "department"],
+        "source_class": "sqldim.application.datasets.domains.enterprise.EmployeesSource",
+        "natural_key": "employee_id",
+        "track_columns": ["title", "department"],
     },
     "customers": {
-        "source_class":     "sqldim.application.datasets.domains.ecommerce.CustomersSource",
-        "natural_key":      "customer_id",
-        "track_columns":    ["full_name", "email"],
+        "source_class": "sqldim.application.datasets.domains.ecommerce.CustomersSource",
+        "natural_key": "customer_id",
+        "track_columns": ["full_name", "email"],
     },
     "saas_users": {
-        "source_class":     "sqldim.application.datasets.domains.saas_growth.SaaSUsersSource",
-        "natural_key":      "user_id",
-        "track_columns":    ["plan_tier"],
+        "source_class": "sqldim.application.datasets.domains.saas_growth.SaaSUsersSource",
+        "natural_key": "user_id",
+        "track_columns": ["plan_tier"],
     },
     "player_seasons": {
-        "source_class":     "sqldim.application.datasets.domains.nba_analytics.PlayerSeasonsSource",
-        "natural_key":      "player_id",
-        "track_columns":    ["scoring_class"],
+        "source_class": "sqldim.application.datasets.domains.nba_analytics.PlayerSeasonsSource",
+        "natural_key": "player_id",
+        "track_columns": ["scoring_class"],
     },
     "cnpj_empresa": {
-        "source_class":     None,
-        "natural_key":      "cnpj_basico",
-        "track_columns":    ["razao_social", "natureza_juridica",
-                             "porte_empresa", "capital_social"],
-        "metadata_columns": ["razao_social", "natureza_juridica",
-                             "porte_empresa", "capital_social"],
+        "source_class": None,
+        "natural_key": "cnpj_basico",
+        "track_columns": [
+            "razao_social",
+            "natureza_juridica",
+            "porte_empresa",
+            "capital_social",
+        ],
+        "metadata_columns": [
+            "razao_social",
+            "natureza_juridica",
+            "porte_empresa",
+            "capital_social",
+        ],
         "ddl": """
             CREATE TABLE IF NOT EXISTS {table} (
                 cnpj_basico         VARCHAR,
@@ -56,7 +65,6 @@ _PROFILE_META: dict[str, dict] = {
 # Fast in-database generation via generate_series — no Python row loops.
 
 _SQL_GENERATORS: dict[str, dict] = {
-
     "products": {
         "snapshot_view": """
             CREATE OR REPLACE VIEW _bench_snapshot AS
@@ -89,7 +97,6 @@ _SQL_GENERATORS: dict[str, dict] = {
             FROM generate_series(1, {changed}) t(i)
         """,
     },
-
     "employees": {
         "snapshot_view": """
             CREATE OR REPLACE VIEW _bench_snapshot AS
@@ -138,7 +145,6 @@ _SQL_GENERATORS: dict[str, dict] = {
             FROM generate_series(1, {changed}) t(i)
         """,
     },
-
     "customers": {
         "snapshot_view": """
             CREATE OR REPLACE VIEW _bench_snapshot AS
@@ -159,7 +165,6 @@ _SQL_GENERATORS: dict[str, dict] = {
             FROM generate_series(1, {changed}) t(i)
         """,
     },
-
     "saas_users": {
         "snapshot_view": """
             CREATE OR REPLACE VIEW _bench_snapshot AS
@@ -212,7 +217,6 @@ _SQL_GENERATORS: dict[str, dict] = {
             FROM generate_series(1, {changed}) t(i)
         """,
     },
-
     "player_seasons": {
         "snapshot_view": """
             CREATE OR REPLACE VIEW _bench_snapshot AS
@@ -249,7 +253,6 @@ _SQL_GENERATORS: dict[str, dict] = {
             FROM generate_series(1, {changed}) t(i)
         """,
     },
-
     "cnpj_empresa": {
         "snapshot_view": """
             CREATE OR REPLACE VIEW _bench_snapshot AS

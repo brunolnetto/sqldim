@@ -48,8 +48,8 @@ class ParquetSink:
         self,
         base_path: str,
         *,
-        partition_by: list[str | None] = None,
-        zorder_by: list[str | None] = None,
+        partition_by: list[str] | None = None,
+        zorder_by: list[str] | None = None,
         target_file_size_mb: int = 256,
     ):
         self._base = base_path.rstrip("/")
@@ -117,7 +117,7 @@ class ParquetSink:
             TO '{out}'
             (FORMAT parquet{partition_clause}, OVERWRITE_OR_IGNORE true)
         """)
-        return con.execute(f"SELECT count(*) FROM {view_name}").fetchone()[0]
+        return (con.execute(f"SELECT count(*) FROM {view_name}").fetchone() or (0,))[0]
 
     def write_named(
         self,
@@ -137,7 +137,7 @@ class ParquetSink:
             TO '{out}'
             (FORMAT parquet{partition_clause}, OVERWRITE_OR_IGNORE true)
         """)
-        return con.execute(f"SELECT count(*) FROM {view_name}").fetchone()[0]
+        return (con.execute(f"SELECT count(*) FROM {view_name}").fetchone() or (0,))[0]
 
     def close_versions(
         self,
@@ -169,7 +169,7 @@ class ParquetSink:
             TO '{out}'
             (FORMAT parquet{self._partition_clause()}, OVERWRITE_OR_IGNORE true)
         """)
-        return con.execute(f"SELECT count(*) FROM {nk_view}").fetchone()[0]
+        return (con.execute(f"SELECT count(*) FROM {nk_view}").fetchone() or (0,))[0]
 
     # ── SinkAdapter extended ───────────────────────────────────────
 
@@ -206,7 +206,9 @@ class ParquetSink:
             TO '{out}'
             (FORMAT parquet{self._partition_clause()}, OVERWRITE_OR_IGNORE true)
         """)
-        return con.execute(f"SELECT count(*) FROM {updates_view}").fetchone()[0]
+        return (con.execute(f"SELECT count(*) FROM {updates_view}").fetchone() or (0,))[
+            0
+        ]
 
     def rotate_attributes(
         self,
@@ -238,7 +240,9 @@ class ParquetSink:
             TO '{out}'
             (FORMAT parquet{self._partition_clause()}, OVERWRITE_OR_IGNORE true)
         """)
-        return con.execute(f"SELECT count(*) FROM {rotations_view}").fetchone()[0]
+        return (
+            con.execute(f"SELECT count(*) FROM {rotations_view}").fetchone() or (0,)
+        )[0]
 
     def update_milestones(
         self,
@@ -267,4 +271,6 @@ class ParquetSink:
             TO '{out}'
             (FORMAT parquet{self._partition_clause()}, OVERWRITE_OR_IGNORE true)
         """)
-        return con.execute(f"SELECT count(*) FROM {updates_view}").fetchone()[0]
+        return (con.execute(f"SELECT count(*) FROM {updates_view}").fetchone() or (0,))[
+            0
+        ]

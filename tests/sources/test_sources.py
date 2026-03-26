@@ -2,6 +2,7 @@
 Tests for sqldim.sources — all 7 implementations + coerce_source().
 Target: bring sources/ package from 0 % to ~95 % coverage.
 """
+
 import pytest
 from unittest.mock import MagicMock
 
@@ -20,6 +21,7 @@ from sqldim.sources import (
 # ---------------------------------------------------------------------------
 # SourceAdapter runtime protocol
 # ---------------------------------------------------------------------------
+
 
 class TestSourceAdapterProtocol:
     def test_parquet_is_source_adapter(self):
@@ -44,6 +46,7 @@ class TestSourceAdapterProtocol:
 # ---------------------------------------------------------------------------
 # ParquetSource
 # ---------------------------------------------------------------------------
+
 
 class TestParquetSource:
     def test_single_path(self):
@@ -84,6 +87,7 @@ class TestParquetSource:
 # ---------------------------------------------------------------------------
 # CSVSource
 # ---------------------------------------------------------------------------
+
 
 class TestCSVSource:
     def test_single_path_defaults(self):
@@ -126,6 +130,7 @@ class TestCSVSource:
 # DuckDBSource
 # ---------------------------------------------------------------------------
 
+
 class TestDuckDBSource:
     def test_plain_table_name(self):
         src = DuckDBSource("my_view")
@@ -165,6 +170,7 @@ class TestDuckDBSource:
 # ---------------------------------------------------------------------------
 # PostgreSQLSource
 # ---------------------------------------------------------------------------
+
 
 class TestPostgreSQLSource:
     def _mock_con(self):
@@ -209,6 +215,7 @@ class TestPostgreSQLSource:
 # DeltaSource
 # ---------------------------------------------------------------------------
 
+
 class TestDeltaSource:
     def _mock_con(self):
         return MagicMock()
@@ -248,10 +255,12 @@ class TestDeltaSource:
     def test_attach_failure_falls_back_to_delta_scan(self):
         """When ATTACH raises, as_sql falls back to delta_scan()."""
         con = self._mock_con()
+
         # Make ATTACH raise but INSTALL/LOAD succeed
         def _execute_side_effect(sql, *args, **kwargs):
             if sql.startswith("ATTACH"):
                 raise RuntimeError("delta not supported")
+
         con.execute.side_effect = _execute_side_effect
 
         src = DeltaSource("/some/delta/path", use_attach=True)
@@ -263,6 +272,7 @@ class TestDeltaSource:
 # ---------------------------------------------------------------------------
 # SQLSource
 # ---------------------------------------------------------------------------
+
 
 class TestSQLSource:
     def test_returns_verbatim_sql(self):
@@ -301,6 +311,7 @@ class TestSQLSource:
 # ---------------------------------------------------------------------------
 # coerce_source
 # ---------------------------------------------------------------------------
+
 
 class TestCoerceSource:
     def test_parquet_extension_returns_parquet_source(self):

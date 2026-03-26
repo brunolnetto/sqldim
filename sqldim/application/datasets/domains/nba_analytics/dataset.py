@@ -14,13 +14,14 @@ Instantiate and use with a DuckDB connection:
 
     nba_analytics_dataset.teardown(con)
 """
+
 from sqldim.application.datasets.dataset import Dataset
 from sqldim.application.datasets.domains.nba_analytics.sources import (
     PlayerSeasonsSource,
     TeamsSource,
     GamesSource,
     GameDetailsSource,
-)   
+)
 
 _games_src = GamesSource(n=200, seed=42)
 
@@ -36,4 +37,11 @@ nba_analytics_dataset = Dataset(
     ],
 )
 
-__all__ = ["nba_analytics_dataset"]
+DATASET_METADATA = {
+    "name": "nba_analytics",
+    "title": "NBA analytics",
+    "description": "Teams, players, games, and per-game performance statistics",
+    "dataset_attr": "nba_analytics_dataset",
+}
+
+__all__ = ["nba_analytics_dataset", "DATASET_METADATA"]

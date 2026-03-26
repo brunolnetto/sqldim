@@ -1,4 +1,5 @@
 """Tests for GraphModel registry — Task 6.3."""
+
 import pytest
 from typing import Any, Optional
 from unittest.mock import AsyncMock, MagicMock
@@ -15,6 +16,7 @@ from sqldim.exceptions import SchemaError
 # ---------------------------------------------------------------------------
 # Vertex / Edge fixtures
 # ---------------------------------------------------------------------------
+
 
 class RPlayer(VertexModel, table=True):
     __tablename__ = "r_player"
@@ -59,6 +61,7 @@ class RSelfEdge(EdgeModel, table=True):
 # Helpers
 # ---------------------------------------------------------------------------
 
+
 def _make_session(rows: list[dict]) -> Any:
     """Build a minimal async session mock that returns given rows."""
     session = AsyncMock()
@@ -66,7 +69,9 @@ def _make_session(rows: list[dict]) -> Any:
     # mappings().first() — for get_vertex
     execute_result.mappings.return_value.first.return_value = rows[0] if rows else None
     # fetchall() — for neighbors / paths / degree
-    execute_result.fetchall.return_value = [(r.get("id", r.get("neighbor_id", 0)),) for r in rows]
+    execute_result.fetchall.return_value = [
+        (r.get("id", r.get("neighbor_id", 0)),) for r in rows
+    ]
     execute_result.fetchone.return_value = (len(rows),)
     # mappings().fetchall() — for hydrating neighbor vertices
     execute_result.mappings.return_value.fetchall.return_value = rows
@@ -77,6 +82,7 @@ def _make_session(rows: list[dict]) -> Any:
 # ---------------------------------------------------------------------------
 # Construction
 # ---------------------------------------------------------------------------
+
 
 def test_graph_model_registers_vertices():
     session = _make_session([])
@@ -106,6 +112,7 @@ def test_graph_model_rejects_non_graph_models():
 # ---------------------------------------------------------------------------
 # get_vertex
 # ---------------------------------------------------------------------------
+
 
 @pytest.mark.asyncio
 async def test_get_vertex_returns_instance():
@@ -144,6 +151,7 @@ async def test_get_vertex_unregistered_raises():
 # neighbors
 # ---------------------------------------------------------------------------
 
+
 @pytest.mark.asyncio
 async def test_neighbors_returns_vertex_instances():
     neighbor_rows = [{"id": 5, "game_id": 100}]
@@ -180,6 +188,7 @@ async def test_neighbors_empty_result():
 # neighbor_aggregation
 # ---------------------------------------------------------------------------
 
+
 @pytest.mark.asyncio
 async def test_neighbor_aggregation_returns_float():
     session = AsyncMock()
@@ -189,7 +198,9 @@ async def test_neighbor_aggregation_returns_float():
 
     g = GraphModel(RPlayer, RGame, RPlaysIn, session=session)
     player = RPlayer(id=1, name="Jordan")
-    total = await g.neighbor_aggregation(player, edge_type=RPlaysIn, measure="pts", agg="sum")
+    total = await g.neighbor_aggregation(
+        player, edge_type=RPlaysIn, measure="pts", agg="sum"
+    )
     assert total == 150.5
 
 
@@ -210,6 +221,7 @@ async def test_neighbor_aggregation_null_returns_zero():
 # degree
 # ---------------------------------------------------------------------------
 
+
 @pytest.mark.asyncio
 async def test_degree_returns_int():
     session = AsyncMock()
@@ -226,6 +238,7 @@ async def test_degree_returns_int():
 # ---------------------------------------------------------------------------
 # explain
 # ---------------------------------------------------------------------------
+
 
 def test_explain_neighbors():
     g = GraphModel(RPlayer, RGame, RPlaysIn, session=AsyncMock())
@@ -249,6 +262,7 @@ def test_explain_unknown_operation_raises():
 # ---------------------------------------------------------------------------
 # Models and fixture for tests needing a real SQLite session
 # ---------------------------------------------------------------------------
+
 
 class RegGVertex(VertexModel, table=True):
     __tablename__ = "reg_gvertex"
@@ -293,6 +307,7 @@ def sqlite_session():
 # Multi-edge / no-edge error branches
 # ---------------------------------------------------------------------------
 
+
 @pytest.mark.asyncio
 async def test_graph_registry_multi_edge_error(sqlite_session):
     class ExtraEdge(EdgeModel, table=True):
@@ -319,15 +334,20 @@ async def test_graph_registry_no_edge_error(sqlite_session):
 
 
 def test_pick_neighbor_class_hetero():
-    cls = GraphModel._pick_neighbor_class(RegGVertex, RegGVertex, RegHeteroVertex, "both")
+    cls = GraphModel._pick_neighbor_class(
+        RegGVertex, RegGVertex, RegHeteroVertex, "both"
+    )
     assert cls == RegHeteroVertex
-    cls2 = GraphModel._pick_neighbor_class(RegHeteroVertex, RegGVertex, RegHeteroVertex, "both")
+    cls2 = GraphModel._pick_neighbor_class(
+        RegHeteroVertex, RegGVertex, RegHeteroVertex, "both"
+    )
     assert cls2 == RegGVertex
 
 
 # ---------------------------------------------------------------------------
 # _assert_edge_registered error branch
 # ---------------------------------------------------------------------------
+
 
 @pytest.mark.asyncio
 async def test_graph_registry_assert_edge_unregistered(sqlite_session):
@@ -366,17 +386,21 @@ async def test_graph_registry_assert_edge_unregistered(sqlite_session):
 # _pick_neighbor_class direction branches
 # ---------------------------------------------------------------------------
 
+
 def test_pick_neighbor_class_in_direction():
     cls_in = GraphModel._pick_neighbor_class(RegGVertex, RegGVertex, RegGVertex, "in")
     assert cls_in == RegGVertex
 
-    cls_self = GraphModel._pick_neighbor_class(RegGVertex, RegGVertex, RegGVertex, "both")
+    cls_self = GraphModel._pick_neighbor_class(
+        RegGVertex, RegGVertex, RegGVertex, "both"
+    )
     assert cls_self == RegGVertex
 
 
 # ---------------------------------------------------------------------------
 # paths() with mocked async session
 # ---------------------------------------------------------------------------
+
 
 @pytest.mark.asyncio
 async def test_graph_paths_execution():
@@ -409,8 +433,10 @@ async def test_graph_paths_execution():
 # UnifiedGraph — schema_graph, auto_register, diff, registered_vertices/edges
 # ---------------------------------------------------------------------------
 
+
 class _UGDimCov(VertexModel, table=True):
     """Module-level model for UnifiedGraph tests (avoids table redefinition)."""
+
     __tablename__ = "ug_dim_cov2"
     __vertex_type__ = "ug_dim_cov2"
     id: Optional[int] = Field(default=None, primary_key=True)
@@ -423,6 +449,7 @@ class TestUnifiedGraph:
 
     def _make_schema_graph(self):
         from sqldim.core.graph.schema_graph import SchemaGraph
+
         return SchemaGraph([_UGDimCov]), _UGDimCov
 
     def test_init_without_auto_register(self):
@@ -474,10 +501,13 @@ class TestUnifiedGraph:
 
         class _UGFactOneFk(FactModel, table=True):
             """Only one FK dim → not enough to form an edge."""
+
             __tablename__ = "ug_fact_one_fk_cov"
             __grain__ = "test"
             id: Optional[int] = Field(default=None, primary_key=True)
-            dim_id: int = Field(foreign_key="ug_dim_single_fk_cov.id", dimension=_UGDimSingle)
+            dim_id: int = Field(
+                foreign_key="ug_dim_single_fk_cov.id", dimension=_UGDimSingle
+            )
             value: float = 0.0
 
         sg = SchemaGraph([_UGDimSingle, _UGFactOneFk])
@@ -505,6 +535,7 @@ class TestUnifiedGraph:
 
         class _UGFactTwoFks(FactModel, table=True):
             """Two FK dims → registers as edge."""
+
             __tablename__ = "ug_fact_two_fks_cov"
             __grain__ = "test"
             id: Optional[int] = Field(default=None, primary_key=True)

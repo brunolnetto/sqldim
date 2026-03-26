@@ -1,4 +1,5 @@
 """Re-exports for sqldim.application.datasets.domains.saas_growth."""
+
 from sqldim.application.datasets.domains.saas_growth.sources import SaaSUsersSource
 from sqldim.application.datasets.domains.saas_growth.events import (
     UserPlanUpgradedEvent,

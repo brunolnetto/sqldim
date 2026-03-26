@@ -1,4 +1,5 @@
 """Tests for sqldim.lineage.column — ColumnLineageFacet, extract_* functions."""
+
 from __future__ import annotations
 
 import sys
@@ -18,6 +19,7 @@ from sqldim.lineage.column import (
 # ---------------------------------------------------------------------------
 # ColumnLineageEntry
 # ---------------------------------------------------------------------------
+
 
 class TestColumnLineageEntry:
     def test_to_dict_shape(self):
@@ -52,14 +54,20 @@ class TestColumnLineageEntry:
 # ColumnLineageFacet
 # ---------------------------------------------------------------------------
 
+
 class TestColumnLineageFacet:
     def _make_facet(self):
-        return ColumnLineageFacet(entries=[
-            ColumnLineageEntry("customer_sk", ["customer_id"]),
-            ColumnLineageEntry("order_total", ["amount", "tax"],
-                               transform_description="amount + tax",
-                               confidence="parsed"),
-        ])
+        return ColumnLineageFacet(
+            entries=[
+                ColumnLineageEntry("customer_sk", ["customer_id"]),
+                ColumnLineageEntry(
+                    "order_total",
+                    ["amount", "tax"],
+                    transform_description="amount + tax",
+                    confidence="parsed",
+                ),
+            ]
+        )
 
     def test_to_dict_structure(self):
         facet = self._make_facet()
@@ -79,25 +87,32 @@ class TestColumnLineageFacet:
         assert first["inputFields"][0]["name"] == "customer_id"
 
     def test_to_openlineage_fields_transform_type_identity(self):
-        facet = ColumnLineageFacet(entries=[
-            ColumnLineageEntry("col_a", ["col_a"], transform_description="Direct mapping"),
-        ])
+        facet = ColumnLineageFacet(
+            entries=[
+                ColumnLineageEntry(
+                    "col_a", ["col_a"], transform_description="Direct mapping"
+                ),
+            ]
+        )
         fields = facet.to_openlineage_fields()
         assert fields[0]["inputFields"][0]["transformType"] == "IDENTITY"
 
     def test_to_openlineage_fields_transform_type_custom(self):
-        facet = ColumnLineageFacet(entries=[
-            ColumnLineageEntry("col_b", ["a", "b"],
-                               transform_description="a + b"),
-        ])
+        facet = ColumnLineageFacet(
+            entries=[
+                ColumnLineageEntry("col_b", ["a", "b"], transform_description="a + b"),
+            ]
+        )
         fields = facet.to_openlineage_fields()
         assert fields[0]["inputFields"][0]["transformType"] == "CUSTOM"
 
     def test_to_openlineage_fields_qualified_column(self):
         """Columns with table prefix should be split into namespace/name."""
-        facet = ColumnLineageFacet(entries=[
-            ColumnLineageEntry("total", ["orders.amount"]),
-        ])
+        facet = ColumnLineageFacet(
+            entries=[
+                ColumnLineageEntry("total", ["orders.amount"]),
+            ]
+        )
         fields = facet.to_openlineage_fields()
         input_field = fields[0]["inputFields"][0]
         assert input_field["namespace"] == "orders"
@@ -105,9 +120,11 @@ class TestColumnLineageFacet:
 
     def test_to_openlineage_fields_unqualified_column(self):
         """Bare column names have empty namespace."""
-        facet = ColumnLineageFacet(entries=[
-            ColumnLineageEntry("total", ["amount"]),
-        ])
+        facet = ColumnLineageFacet(
+            entries=[
+                ColumnLineageEntry("total", ["amount"]),
+            ]
+        )
         fields = facet.to_openlineage_fields()
         input_field = fields[0]["inputFields"][0]
         assert input_field["namespace"] == ""
@@ -115,9 +132,11 @@ class TestColumnLineageFacet:
 
     def test_to_openlineage_fields_no_inputs(self):
         """Entry with no input columns produces a field with no inputFields key."""
-        facet = ColumnLineageFacet(entries=[
-            ColumnLineageEntry("computed", []),
-        ])
+        facet = ColumnLineageFacet(
+            entries=[
+                ColumnLineageEntry("computed", []),
+            ]
+        )
         fields = facet.to_openlineage_fields()
         assert "inputFields" not in fields[0]
 
@@ -131,18 +150,23 @@ class TestColumnLineageFacet:
 # extract_declared_lineage
 # ---------------------------------------------------------------------------
 
+
 class _FakeCol:
     """Minimal stand-in for a SQLAlchemy column."""
+
     def __init__(self, name, info=None):
         self.name = name
         self.info = info or {}
+
 
 class _FakeTable:
     def __init__(self, cols):
         self.columns = cols
 
+
 class _ModelWithLineage:
     pass
+
 
 class _ModelWithoutTable:
     pass
@@ -164,8 +188,13 @@ class TestExtractDeclaredLineage:
         del _ModelWithLineage.__table__
 
     def test_source_columns_list(self):
-        col = _FakeCol("full_name", info={"source_columns": ["first_name", "last_name"],
-                                          "transform_description": "concat"})
+        col = _FakeCol(
+            "full_name",
+            info={
+                "source_columns": ["first_name", "last_name"],
+                "transform_description": "concat",
+            },
+        )
         _ModelWithLineage.__table__ = _FakeTable([col])
         facet = extract_declared_lineage(_ModelWithLineage)
         assert len(facet.entries) == 1
@@ -192,13 +221,16 @@ class TestExtractDeclaredLineage:
 # extract_structural_lineage
 # ---------------------------------------------------------------------------
 
+
 class TestExtractStructuralLineage:
     def test_returns_empty_when_no_table(self):
         facet = extract_structural_lineage(_ModelWithoutTable)
         assert facet.entries == []
 
     def test_fk_column_produces_inferred_entry(self):
-        col = _FakeCol("customer_sk", info={"foreign_key_target": "customer_dim.customer_id"})
+        col = _FakeCol(
+            "customer_sk", info={"foreign_key_target": "customer_dim.customer_id"}
+        )
         _ModelWithLineage.__table__ = _FakeTable([col])
         facet = extract_structural_lineage(_ModelWithLineage)
         assert len(facet.entries) == 1
@@ -234,6 +266,7 @@ class TestExtractStructuralLineage:
 # extract_sql_lineage
 # ---------------------------------------------------------------------------
 
+
 class TestExtractSqlLineage:
     def test_raises_import_error_without_sqlglot(self):
         with patch.dict(sys.modules, {"sqlglot": None, "sqlglot.lineage": None}):
@@ -268,6 +301,7 @@ class TestExtractSqlLineage:
     def test_returns_empty_when_parse_returns_none(self):
         pytest.importorskip("sqlglot")
         import sqlglot
+
         with patch.object(sqlglot, "parse_one", return_value=None):
             facet = extract_sql_lineage("SELECT 1", "out_table")
         assert isinstance(facet, ColumnLineageFacet)

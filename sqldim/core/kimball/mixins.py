@@ -78,7 +78,7 @@ class SCD3Mixin(SQLModel):
     #: SCD6 also uses prev_* rotation alongside validity tracking.
     __dim_mixin_compatible_types__: ClassVar[frozenset] = frozenset({3, 6})
 
-    def __init_subclass__(cls, **kwargs: object) -> None:
+    def __init_subclass__(cls, **kwargs: Any) -> None:
         super().__init_subclass__(**kwargs)
         if getattr(cls, "__scd_type__", None) != 3:
             return

@@ -1,4 +1,5 @@
 """Tests for VertexModel base class — Task 6.1."""
+
 import pytest
 from typing import Optional
 from sqlmodel import Field
@@ -11,6 +12,7 @@ from sqldim.exceptions import SchemaError
 # ---------------------------------------------------------------------------
 # Fixtures
 # ---------------------------------------------------------------------------
+
 
 class SimplePlayer(VertexModel, table=True):
     __tablename__ = "simple_player"
@@ -36,6 +38,7 @@ class LimitedPropsPlayer(VertexModel, table=True):
 # ---------------------------------------------------------------------------
 # Tests
 # ---------------------------------------------------------------------------
+
 
 def test_vertex_model_is_also_dimension_model():
     assert issubclass(SimplePlayer, DimensionModel)

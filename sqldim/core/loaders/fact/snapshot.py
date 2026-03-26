@@ -29,7 +29,9 @@ class LazyTransactionLoader:
         self.sink = sink
         self.batch_size = batch_size
         self._con = con or _duckdb.connect()
-        self._model_cls = None  # set by factory when created via as_loader()
+        self._model_cls: type | None = (
+            None  # set by factory when created via as_loader()
+        )
 
     def load(self, source, table: str | type) -> int:
         """
@@ -164,7 +166,9 @@ class LazySnapshotLoader:
         self.date_field = date_field
         self.batch_size = batch_size
         self._con = con or _duckdb.connect()
-        self._model_cls = None  # set by factory when created via as_loader()
+        self._model_cls: type | None = (
+            None  # set by factory when created via as_loader()
+        )
 
     def load(self, source, table: str | type, *, snapshot_date=None) -> int:
         """

@@ -1,5 +1,3 @@
-
-
 class BackfillHint:
     """Metadata record instructing operators to backfill a column before making it NOT NULL.
 

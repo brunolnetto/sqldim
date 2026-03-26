@@ -26,31 +26,37 @@ class TemporalMode:
 
 class _SingletonMode(TemporalMode):
     """Base for modes without a payload — subclasses are used as the class itself."""
+
     sql_operator: str = ""
 
 
 class EVENTUALLY(_SingletonMode):
     """EF / AF — the property holds at some future hop."""
+
     sql_operator = "EVENTUALLY"
 
 
 class GLOBALLY(_SingletonMode):
     """EG / AG — the property holds at every hop."""
+
     sql_operator = "GLOBALLY"
 
 
 class NEXT(_SingletonMode):
     """EX / AX — the property holds at the immediately next hop."""
+
     sql_operator = "NEXT"
 
 
 class ONCE(_SingletonMode):
     """Past dual of NEXT — holds at the immediately previous hop."""
+
     sql_operator = "ONCE"
 
 
 class PREVIOUSLY(_SingletonMode):
     """Past dual of GLOBALLY — holds at every prior hop."""
+
     sql_operator = "PREVIOUSLY"
 
 

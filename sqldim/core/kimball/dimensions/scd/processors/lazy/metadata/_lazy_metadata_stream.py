@@ -8,12 +8,28 @@ from __future__ import annotations
 
 import logging
 from datetime import datetime, timezone
+from typing import TYPE_CHECKING, Any
 
 _log = logging.getLogger(__name__)
 
 
 class _MetadataStreamMixin:
     """Stream-batch processing methods for LazySCDMetadataProcessor."""
+
+    if TYPE_CHECKING:
+        _register_current_hashes: Any
+        _con: Any
+        _update_local_hashes_after_batch: Any
+
+    def _commit_batch(self, i, source, result, batch_result, on_batch) -> None:
+        """Commit *batch_result* into *result* and invoke the optional callback."""
+        self._update_local_hashes_after_batch()
+        self._con.execute("DROP TABLE IF EXISTS classified")
+        source.commit(source.checkpoint())
+        result.accumulate(batch_result)
+        result.batches_processed += 1
+        if on_batch:
+            on_batch(i, batch_result)
 
     def _run_stream_batch(
         self, i, sql_fragment, table_name, now, on_batch, source, result, _log
@@ -44,15 +60,7 @@ class _MetadataStreamMixin:
             batch_result.versioned = self._write_changed(table_name, now, n_changed)
             batch_result.unchanged = n_unchanged
 
-            self._update_local_hashes_after_batch()
-            self._con.execute("DROP TABLE IF EXISTS classified")
-
-            source.commit(source.checkpoint())
-            result.accumulate(batch_result)
-            result.batches_processed += 1
-
-            if on_batch:
-                on_batch(i, batch_result)
+            self._commit_batch(i, source, result, batch_result, on_batch)
 
         except Exception as exc:
             result.batches_failed += 1

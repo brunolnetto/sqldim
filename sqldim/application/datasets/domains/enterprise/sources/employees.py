@@ -4,12 +4,9 @@ from __future__ import annotations
 
 
 import random
-from typing import Any
 
-from faker import Faker
 
 from sqldim.application.datasets.base import (
-    BaseSource,
     DatasetFactory,
     SchematicSource,
     SourceProvider,

@@ -7,12 +7,18 @@ These methods are mixed into :class:`LazySCDProcessor` via inheritance.
 from __future__ import annotations
 
 import logging
+from typing import TYPE_CHECKING, Any
 
 _log = logging.getLogger(__name__)
 
 
 class _Type2StreamMixin:
     """Stream-batch processing methods for LazySCDProcessor."""
+
+    if TYPE_CHECKING:
+        _register_current_checksums: Any
+        _con: Any
+        _resolve_dedup_sql: Any
 
     def _run_stream_batch(
         self, i, dedup_sql, table_name, now, on_batch, source, result, _log

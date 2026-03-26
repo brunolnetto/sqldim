@@ -6,6 +6,7 @@ dlt is NOT installed in the test environment; resource-mode tests inject a
 fake ``dlt`` module via ``sys.modules`` so that ``_require_dlt()`` succeeds.
 Dataset-mode tests use a real temporary DuckDB file and require no mocking.
 """
+
 import contextlib
 import os
 import sys
@@ -42,9 +43,7 @@ def tmp_duckdb():
     os.unlink(path)  # DuckDB needs to create the file itself
     setup_con = duckdb.connect(path)
     setup_con.execute("CREATE SCHEMA staging")
-    setup_con.execute(
-        "CREATE TABLE staging.accounts (id INTEGER, name VARCHAR)"
-    )
+    setup_con.execute("CREATE TABLE staging.accounts (id INTEGER, name VARCHAR)")
     setup_con.execute("INSERT INTO staging.accounts VALUES (1, 'Acme'), (2, 'Beta')")
     setup_con.close()
     yield path
@@ -284,8 +283,8 @@ class TestDatasetSourceAsSql:
 
         src = _DatasetSource(tmp_duckdb, "accounts", "staging")
         con = duckdb.connect()
-        src.as_sql(con)   # first call — ATTACHes
-        src.as_sql(con)   # second call — already attached, should not raise
+        src.as_sql(con)  # first call — ATTACHes
+        src.as_sql(con)  # second call — already attached, should not raise
         con.close()
 
     def test_alias_derived_from_filename(self, tmp_duckdb):
@@ -315,9 +314,7 @@ class TestDatasetSourceAsSql:
                 paths.append(path)
                 setup = duckdb.connect(path)
                 setup.execute("CREATE SCHEMA staging")
-                setup.execute(
-                    "CREATE TABLE staging.t (n INTEGER)"
-                )
+                setup.execute("CREATE TABLE staging.t (n INTEGER)")
                 setup.execute(f"INSERT INTO staging.t VALUES ({i})")
                 setup.close()
 

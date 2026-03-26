@@ -12,6 +12,7 @@ Strategy
                          extension limitation.
 * __enter__ / __exit__ — patch duckdb.connect to avoid extension install in CI.
 """
+
 from __future__ import annotations
 from unittest.mock import MagicMock, patch
 import duckdb
@@ -23,6 +24,7 @@ from sqldim.sinks.file.delta import DeltaLakeSink
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
+
 
 def _mock_con(row_count: int = 5) -> MagicMock:
     """Return a MagicMock DuckDB connection whose fetchone() yields (row_count,)."""
@@ -55,14 +57,16 @@ class TestDeltaLakeSinkCurrentStateSql:
         table_path = str(tmp_path / "dim_player")
         write_deltalake(
             table_path,
-            pa.table({
-                "player_id": pa.array([1, 2], type=pa.int64()),
-                "name":      pa.array(["Alice", "Bob"], type=pa.string()),
-            }),
+            pa.table(
+                {
+                    "player_id": pa.array([1, 2], type=pa.int64()),
+                    "name": pa.array(["Alice", "Bob"], type=pa.string()),
+                }
+            ),
         )
 
         sink = DeltaLakeSink(str(tmp_path))
-        sql  = sink.current_state_sql("dim_player")
+        sql = sink.current_state_sql("dim_player")
 
         con = duckdb.connect()
         try:
@@ -82,13 +86,15 @@ class TestDeltaLakeSinkCurrentStateSql:
 class TestDeltaLakeSinkCloseVersions:
     def test_returns_zero(self):
         sink = DeltaLakeSink("/data/lake")
-        con  = _mock_con()
-        result = sink.close_versions(con, "dim_player", "player_id", "v_nk", "2024-12-31")
+        con = _mock_con()
+        result = sink.close_versions(
+            con, "dim_player", "player_id", "v_nk", "2024-12-31"
+        )
         assert result == 0
 
     def test_does_not_execute_sql(self):
         sink = DeltaLakeSink("/data/lake")
-        con  = _mock_con()
+        con = _mock_con()
         sink.close_versions(con, "dim_player", "player_id", "v_nk", "2024-12-31")
         con.execute.assert_not_called()
 
@@ -102,33 +108,33 @@ class TestDeltaLakeSinkWrite:
     def test_execute_called_twice(self):
         """Expect at least a MERGE INTO call and a SELECT count(*) call."""
         sink = DeltaLakeSink("/data/lake", natural_key="player_id")
-        con  = _mock_con(3)
+        con = _mock_con(3)
         sink.write(con, "v_source", "dim_player")
         assert con.execute.call_count == 2
 
     def test_merge_sql_contains_natural_key(self):
         sink = DeltaLakeSink("/data/lake", natural_key="pid")
-        con  = _mock_con()
+        con = _mock_con()
         sink.write(con, "v_source", "dim_player")
         merge_sql = con.execute.call_args_list[0][0][0]
         assert "pid" in merge_sql
 
     def test_merge_sql_contains_path(self):
         sink = DeltaLakeSink("/data/lake", natural_key="player_id")
-        con  = _mock_con()
+        con = _mock_con()
         sink.write(con, "v_source", "dim_player")
         merge_sql = con.execute.call_args_list[0][0][0]
         assert "/data/lake/dim_player" in merge_sql
 
     def test_returns_source_count(self):
         sink = DeltaLakeSink("/data/lake")
-        con  = _mock_con(7)
+        con = _mock_con(7)
         result = sink.write(con, "v_source", "dim_player")
         assert result == 7
 
     def test_merge_sql_contains_is_current(self):
         sink = DeltaLakeSink("/data/lake")
-        con  = _mock_con()
+        con = _mock_con()
         sink.write(con, "v_source", "dim_player")
         merge_sql = con.execute.call_args_list[0][0][0]
         assert "is_current" in merge_sql
@@ -142,21 +148,25 @@ class TestDeltaLakeSinkWrite:
 class TestDeltaLakeSinkUpdateAttributes:
     def test_set_clause_contains_columns(self):
         sink = DeltaLakeSink("/data/lake")
-        con  = _mock_con(2)
-        sink.update_attributes(con, "dim_player", "pid", "v_updates", ["rating", "team"])
+        con = _mock_con(2)
+        sink.update_attributes(
+            con, "dim_player", "pid", "v_updates", ["rating", "team"]
+        )
         merge_sql = con.execute.call_args_list[0][0][0]
         assert "rating" in merge_sql
-        assert "team"   in merge_sql
+        assert "team" in merge_sql
 
     def test_returns_source_count(self):
         sink = DeltaLakeSink("/data/lake")
-        con  = _mock_con(4)
-        result = sink.update_attributes(con, "dim_player", "pid", "v_updates", ["rating"])
+        con = _mock_con(4)
+        result = sink.update_attributes(
+            con, "dim_player", "pid", "v_updates", ["rating"]
+        )
         assert result == 4
 
     def test_on_clause_uses_nk_col(self):
         sink = DeltaLakeSink("/data/lake")
-        con  = _mock_con()
+        con = _mock_con()
         sink.update_attributes(con, "dim_player", "my_key", "v_updates", ["col1"])
         merge_sql = con.execute.call_args_list[0][0][0]
         assert "my_key" in merge_sql
@@ -170,20 +180,26 @@ class TestDeltaLakeSinkUpdateAttributes:
 class TestDeltaLakeSinkRotateAttributes:
     def test_set_clause_contains_both_columns(self):
         sink = DeltaLakeSink("/data/lake")
-        con  = _mock_con()
+        con = _mock_con()
         sink.rotate_attributes(
-            con, "dim_player", "pid", "v_rot",
+            con,
+            "dim_player",
+            "pid",
+            "v_rot",
             column_pairs=[("rating", "prev_rating")],
         )
         merge_sql = con.execute.call_args_list[0][0][0]
-        assert "rating"      in merge_sql
+        assert "rating" in merge_sql
         assert "prev_rating" in merge_sql
 
     def test_returns_source_count(self):
         sink = DeltaLakeSink("/data/lake")
-        con  = _mock_con(6)
+        con = _mock_con(6)
         result = sink.rotate_attributes(
-            con, "dim_player", "pid", "v_rot",
+            con,
+            "dim_player",
+            "pid",
+            "v_rot",
             column_pairs=[("rating", "prev_rating")],
         )
         assert result == 6
@@ -197,16 +213,18 @@ class TestDeltaLakeSinkRotateAttributes:
 class TestDeltaLakeSinkUpdateMilestones:
     def test_coalesce_clause_contains_columns(self):
         sink = DeltaLakeSink("/data/lake")
-        con  = _mock_con()
-        sink.update_milestones(con, "dim_player", "pid", "v_ms", ["first_game", "last_game"])
+        con = _mock_con()
+        sink.update_milestones(
+            con, "dim_player", "pid", "v_ms", ["first_game", "last_game"]
+        )
         merge_sql = con.execute.call_args_list[0][0][0]
         assert "first_game" in merge_sql
-        assert "last_game"  in merge_sql
-        assert "COALESCE"   in merge_sql
+        assert "last_game" in merge_sql
+        assert "COALESCE" in merge_sql
 
     def test_returns_source_count(self):
         sink = DeltaLakeSink("/data/lake")
-        con  = _mock_con(9)
+        con = _mock_con(9)
         result = sink.update_milestones(
             con, "dim_player", "pid", "v_ms", ["first_game"]
         )
@@ -222,11 +240,11 @@ class TestDeltaLakeSinkInit:
     def test_default_natural_key(self):
         sink = DeltaLakeSink("/data/lake")
         assert sink._natural_key == "id"
-        assert sink._con         is None
+        assert sink._con is None
 
     def test_custom_path_and_key(self):
         sink = DeltaLakeSink("/custom/path", natural_key="uuid")
-        assert sink._path        == "/custom/path"
+        assert sink._path == "/custom/path"
         assert sink._natural_key == "uuid"
 
 

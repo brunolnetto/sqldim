@@ -1,4 +1,5 @@
 """Tests for @traced and @metered decorators."""
+
 import pytest
 
 from sqldim.observability import (
@@ -13,6 +14,7 @@ from sqldim.observability import (
 # ---------------------------------------------------------------------------
 # @traced — sync functions
 # ---------------------------------------------------------------------------
+
 
 class TestTracedSync:
     def test_records_span_on_success(self):
@@ -63,6 +65,7 @@ class TestTracedSync:
 
     def test_span_records_duration(self):
         import time
+
         col = OTelCollector()
 
         @traced(col)
@@ -76,6 +79,7 @@ class TestTracedSync:
 # ---------------------------------------------------------------------------
 # @traced — async functions
 # ---------------------------------------------------------------------------
+
 
 class TestTracedAsync:
     @pytest.mark.asyncio
@@ -109,6 +113,7 @@ class TestTracedAsync:
 # ---------------------------------------------------------------------------
 # @metered — sync functions
 # ---------------------------------------------------------------------------
+
 
 class TestMeteredSync:
     def test_records_metric_after_call(self):
@@ -190,6 +195,7 @@ class TestMeteredSync:
 # @metered — async functions
 # ---------------------------------------------------------------------------
 
+
 class TestMeteredAsync:
     @pytest.mark.asyncio
     async def test_records_metric_after_call(self):
@@ -218,6 +224,7 @@ class TestMeteredAsync:
 # ---------------------------------------------------------------------------
 # Combined @traced + @metered
 # ---------------------------------------------------------------------------
+
 
 class TestCombinedDecorators:
     def test_traced_and_metered_together(self):
@@ -254,7 +261,7 @@ class TestCombinedDecorators:
         run()
 
         lines = buf.getvalue().strip().split("\n")
-        types = [json.loads(l)["type"] for l in lines]
+        types = [json.loads(line)["type"] for line in lines]
         # Order: metric recorded first (inner decorator), then span (outer)
         assert "metric" in types
         assert "span" in types

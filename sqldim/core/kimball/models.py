@@ -1,4 +1,4 @@
-from typing import ClassVar, Sequence
+from typing import Any, ClassVar, Sequence
 from sqlmodel import SQLModel
 from sqlalchemy import Index
 from sqldim.core.kimball.fields import Field
@@ -53,7 +53,7 @@ class DimensionModel(SQLModel):
     __natural_key__: ClassVar[list[str]] = []
     __scd_type__: ClassVar[int] = 2
 
-    def __init_subclass__(cls, **kwargs: object) -> None:
+    def __init_subclass__(cls, **kwargs: Any) -> None:
         super().__init_subclass__(**kwargs)
         _check_dim_mixin_roles(cls)
         _check_dim_mixin_compat(cls)
@@ -148,11 +148,11 @@ class FactModel(SQLModel):
     # --- edge_projection ----------------------------------------------------
     __subject_key__: ClassVar[str | None] = None
     __object_key__: ClassVar[str | None] = None
-    __property_map__: ClassVar[dict[str, str | None]] = None
+    __property_map__: ClassVar[dict[str, str | None] | None] = None
     __self_join__: ClassVar[bool] = False
     __self_join_key__: ClassVar[str | None] = None
 
-    def __init_subclass__(cls, **kwargs: object) -> None:
+    def __init_subclass__(cls, **kwargs: Any) -> None:
         super().__init_subclass__(**kwargs)
         strategy: str | None = getattr(cls, "__strategy__", None)
         if strategy not in _STRATEGY_REQUIRED:
@@ -231,7 +231,7 @@ class BridgeModel(SQLModel):
     __bridge_keys__: ClassVar[list[str]] = []
     weight: float = Field(default=1.0, description="Allocation factor (0.0 to 1.0)")
 
-    def __init_subclass__(cls, **kwargs: object) -> None:
+    def __init_subclass__(cls, **kwargs: Any) -> None:
         super().__init_subclass__(**kwargs)
         keys: Sequence[str] = getattr(cls, "__bridge_keys__", [])
         if not keys:

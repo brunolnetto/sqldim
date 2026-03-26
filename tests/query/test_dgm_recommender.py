@@ -127,12 +127,16 @@ class TestStage1Result:
 
     def test_suggest_stage2_low_entropy(self):
         """Low diversity → recommend direct Bound→Bound deep-dive (Stage 2)."""
-        r = Stage1Result(anchor="a", outgoing_sig_count=1, dominant_signature=["v"], diversity=0.1)
+        r = Stage1Result(
+            anchor="a", outgoing_sig_count=1, dominant_signature=["v"], diversity=0.1
+        )
         assert r.recommend_stage2 is True
 
     def test_suggest_more_exploration_high_entropy(self):
         """High diversity → recommend more Stage 1 characterisation."""
-        r = Stage1Result(anchor="a", outgoing_sig_count=5, dominant_signature=["v"], diversity=0.9)
+        r = Stage1Result(
+            anchor="a", outgoing_sig_count=5, dominant_signature=["v"], diversity=0.9
+        )
         assert r.recommend_stage2 is False
 
 
@@ -199,7 +203,9 @@ class TestAnnotationDrivenRules:
         sigma = AnnotationSigma([Degenerate(dim="order_num")])
         rec = DGMRecommender(sigma=sigma)
         suggestions = rec.run_annotation_rules()
-        suppressed = [s for s in suggestions if s.band == "suppress" and "order_num" in s.text]
+        suppressed = [
+            s for s in suggestions if s.band == "suppress" and "order_num" in s.text
+        ]
         assert len(suppressed) >= 1
 
     def test_degenerate_adds_scalar_pred(self):
@@ -210,9 +216,9 @@ class TestAnnotationDrivenRules:
         assert len(added) >= 1
 
     def test_conformed_adds_constellation_path(self):
-        sigma = AnnotationSigma([
-            Conformed(dim="customer", fact_types={"Sale", "Return"})
-        ])
+        sigma = AnnotationSigma(
+            [Conformed(dim="customer", fact_types={"Sale", "Return"})]
+        )
         rec = DGMRecommender(sigma=sigma)
         suggestions = rec.run_annotation_rules()
         paths = [s for s in suggestions if s.kind is SuggestionKind.PATH_PRED]
@@ -243,42 +249,62 @@ class TestAnnotationDrivenRules:
         sigma = AnnotationSigma([Hierarchy(root="geography", depth=3)])
         rec = DGMRecommender(sigma=sigma)
         suggestions = rec.run_annotation_rules()
-        drill = [s for s in suggestions if "drill" in s.text.lower() or "roll" in s.text.lower()]
+        drill = [
+            s
+            for s in suggestions
+            if "drill" in s.text.lower() or "roll" in s.text.lower()
+        ]
         assert len(drill) >= 1
 
     def test_scd3_adds_previous_value(self):
         sigma = AnnotationSigma([SCDType(dim="customer", scd=SCDKind.SCD3)])
         rec = DGMRecommender(sigma=sigma)
         suggestions = rec.run_annotation_rules()
-        prev = [s for s in suggestions if "previous_value" in s.text or "SCD3" in s.text]
+        prev = [
+            s for s in suggestions if "previous_value" in s.text or "SCD3" in s.text
+        ]
         assert len(prev) >= 1
 
     def test_weight_allocative_adds_weighted_form(self):
-        sigma = AnnotationSigma([
-            WeightConstraint(bridge="bridge1", constraint=WeightConstraintKind.ALLOCATIVE)
-        ])
+        sigma = AnnotationSigma(
+            [
+                WeightConstraint(
+                    bridge="bridge1", constraint=WeightConstraintKind.ALLOCATIVE
+                )
+            ]
+        )
         rec = DGMRecommender(sigma=sigma)
         suggestions = rec.run_annotation_rules()
         weighted = [s for s in suggestions if "weight" in s.text.lower()]
         assert len(weighted) >= 1
 
     def test_bridge_causal_adds_betweenness(self):
-        sigma = AnnotationSigma([
-            BridgeSemantics(bridge="chain", sem=BridgeSemanticsKind.CAUSAL)
-        ])
+        sigma = AnnotationSigma(
+            [BridgeSemantics(bridge="chain", sem=BridgeSemanticsKind.CAUSAL)]
+        )
         rec = DGMRecommender(sigma=sigma)
         suggestions = rec.run_annotation_rules()
-        between = [s for s in suggestions if "BETWEENNESS" in s.text or "TARJAN" in s.text]
+        between = [
+            s for s in suggestions if "BETWEENNESS" in s.text or "TARJAN" in s.text
+        ]
         assert len(between) >= 1
 
     def test_bridge_supersession_adds_negation_advice(self):
         """BridgeSemantics(SUPERSESSION) → suppress with negation-aware hint."""
-        sigma = AnnotationSigma([
-            BridgeSemantics(bridge="override_bridge", sem=BridgeSemanticsKind.SUPERSESSION)
-        ])
+        sigma = AnnotationSigma(
+            [
+                BridgeSemantics(
+                    bridge="override_bridge", sem=BridgeSemanticsKind.SUPERSESSION
+                )
+            ]
+        )
         rec = DGMRecommender(sigma=sigma)
         suggestions = rec.run_annotation_rules()
-        supp = [s for s in suggestions if "SUPERSESSION" in s.text or "negation" in s.text.lower()]
+        supp = [
+            s
+            for s in suggestions
+            if "SUPERSESSION" in s.text or "negation" in s.text.lower()
+        ]
         assert len(supp) >= 1
 
     def test_grain_accumulating_adds_temporal_pivot(self):
@@ -307,15 +333,27 @@ class TestAnnotationDrivenRules:
 
     def test_derived_fact_adds_path_pred(self):
         """DerivedFact → PATH_PRED suggestion to drill into sources."""
-        sigma = AnnotationSigma([DerivedFact(fact="derived_margin", sources=["revenue", "cost"], expr="...")])
+        sigma = AnnotationSigma(
+            [
+                DerivedFact(
+                    fact="derived_margin", sources=["revenue", "cost"], expr="..."
+                )
+            ]
+        )
         rec = DGMRecommender(sigma=sigma)
         suggestions = rec.run_annotation_rules()
         paths = [s for s in suggestions if s.kind is SuggestionKind.PATH_PRED]
         assert len(paths) >= 1
-        sigma = AnnotationSigma([RolePlaying(dim="date", roles=["order_date", "ship_date"])])
+        sigma = AnnotationSigma(
+            [RolePlaying(dim="date", roles=["order_date", "ship_date"])]
+        )
         rec = DGMRecommender(sigma=sigma)
         suggestions = rec.run_annotation_rules()
-        cross = [s for s in suggestions if "cross" in s.text.lower() or "role" in s.text.lower()]
+        cross = [
+            s
+            for s in suggestions
+            if "cross" in s.text.lower() or "role" in s.text.lower()
+        ]
         assert len(cross) >= 1
 
 
@@ -367,9 +405,7 @@ class TestTrailExprDrivenRules:
             diversity=0.9,
             entropy=0.9,
         )
-        global_dom = [
-            s for s in suggestions if "GLOBAL_DOMINANT" in s.text
-        ]
+        global_dom = [s for s in suggestions if "GLOBAL_DOMINANT" in s.text]
         assert len(global_dom) >= 1
 
     def test_low_entropy_adds_signature_restrict(self):
@@ -381,7 +417,8 @@ class TestTrailExprDrivenRules:
             entropy=0.1,
         )
         restrict = [
-            s for s in suggestions
+            s
+            for s in suggestions
             if s.kind in (SuggestionKind.SIGNATURE_RESTRICT, SuggestionKind.PATH_PRED)
         ]
         assert len(restrict) >= 1
@@ -453,6 +490,7 @@ class TestStage2DeepDive:
 class TestBDDFeasibilityFilter:
     def test_tautology_passes(self):
         from sqldim.core.query.dgm.bdd import BDDManager, DGMPredicateBDD
+
         rec = DGMRecommender(sigma=AnnotationSigma([]))
         mgr = BDDManager()
         bdd = DGMPredicateBDD(mgr)
@@ -462,6 +500,7 @@ class TestBDDFeasibilityFilter:
 
     def test_contradition_filtered(self):
         from sqldim.core.query.dgm.bdd import BDDManager, DGMPredicateBDD
+
         rec = DGMRecommender(sigma=AnnotationSigma([]))
         mgr = BDDManager()
         bdd = DGMPredicateBDD(mgr)
@@ -473,6 +512,7 @@ class TestBDDFeasibilityFilter:
         from sqldim.core.query.dgm.bdd import BDDManager, DGMPredicateBDD
         from sqldim.core.query.dgm.preds import ScalarPred
         from sqldim.core.query.dgm.refs import PropRef
+
         rec = DGMRecommender(sigma=AnnotationSigma([]))
         mgr = BDDManager()
         bdd = DGMPredicateBDD(mgr)

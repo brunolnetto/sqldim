@@ -1,4 +1,5 @@
 """Tests for observability exporters — ConsoleExporter, protocol compliance, OTLP ImportError."""
+
 import io
 import json
 from unittest.mock import MagicMock
@@ -21,6 +22,7 @@ from sqldim.observability.exporters import OTLPSpanExporter, OTLPMetricExporter
 # Protocol compliance
 # ---------------------------------------------------------------------------
 
+
 class TestProtocolCompliance:
     def test_console_exporter_is_span_exporter(self):
         assert isinstance(ConsoleExporter(), SpanExporter)
@@ -32,6 +34,7 @@ class TestProtocolCompliance:
 # ---------------------------------------------------------------------------
 # ConsoleExporter — spans
 # ---------------------------------------------------------------------------
+
 
 class TestConsoleExporterSpans:
     def test_writes_span_as_json_line(self):
@@ -59,9 +62,7 @@ class TestConsoleExporterSpans:
     def test_span_error_included(self):
         buf = io.StringIO()
         exp = ConsoleExporter(stream=buf)
-        span = PipelineSpan(
-            name="fail", status=SpanStatus.ERROR, error="timeout"
-        )
+        span = PipelineSpan(name="fail", status=SpanStatus.ERROR, error="timeout")
         exp.export(span)
         data = json.loads(buf.getvalue().strip())
         assert data["status"] == "error"
@@ -69,6 +70,7 @@ class TestConsoleExporterSpans:
 
     def test_span_timestamps_serialised(self):
         from datetime import datetime, timezone
+
         buf = io.StringIO()
         exp = ConsoleExporter(stream=buf)
         now = datetime.now(timezone.utc)
@@ -93,6 +95,7 @@ class TestConsoleExporterSpans:
 # ConsoleExporter — metrics
 # ---------------------------------------------------------------------------
 
+
 class TestConsoleExporterMetrics:
     def test_writes_metric_as_json_line(self):
         buf = io.StringIO()
@@ -109,7 +112,9 @@ class TestConsoleExporterMetrics:
         buf = io.StringIO()
         exp = ConsoleExporter(stream=buf)
         sample = MetricSample(
-            name="latency", value=42.0, kind=MetricKind.HISTOGRAM,
+            name="latency",
+            value=42.0,
+            kind=MetricKind.HISTOGRAM,
             labels={"pipeline": "orders"},
         )
         exp.export(sample)
@@ -128,6 +133,7 @@ class TestConsoleExporterMetrics:
 # ---------------------------------------------------------------------------
 # ConsoleExporter — resilience
 # ---------------------------------------------------------------------------
+
 
 class TestConsoleExporterResilience:
     def test_broken_stream_does_not_raise(self):
@@ -152,6 +158,7 @@ class _BrokenStream:
 # OTLP exporters — ImportError guard
 # ---------------------------------------------------------------------------
 
+
 class TestOTLPImportGuards:
     def test_otlp_span_exporter_raises_without_dep(self):
         """OTLPSpanExporter raises ImportError with install hint when OTel is missing."""
@@ -164,11 +171,10 @@ class TestOTLPImportGuards:
             OTLPMetricExporter(endpoint="http://localhost:4318")
 
 
-
-
 # ---------------------------------------------------------------------------
 # OTLPSpanExporter — mocked OTel SDK
 # ---------------------------------------------------------------------------
+
 
 class _FakeOtelSpan:
     """Real class so __enter__/__exit__ resolve correctly (no MagicMock dunder issues)."""
@@ -232,7 +238,10 @@ class TestOTLPSpanExporterMocked:
 
     def test_init_creates_provider_and_tracer(self):
         import importlib
-        ctx, mod_ref, mock_otel, mock_trace, mock_provider_cls = self._build_span_mocks()
+
+        ctx, mod_ref, mock_otel, mock_trace, mock_provider_cls = (
+            self._build_span_mocks()
+        )
         with ctx:
             importlib.reload(mod_ref)
             mod_ref.OTLPSpanExporter(endpoint="http://localhost:9999")
@@ -243,37 +252,47 @@ class TestOTLPSpanExporterMocked:
 
     def test_export_creates_otel_span_with_attributes(self):
         import importlib
+
         ctx, mod_ref, mock_otel, mock_trace, _ = self._build_span_mocks()
 
         fake_span = _FakeOtelSpan()
-        mock_trace.get_tracer.return_value.start_as_current_span.return_value = fake_span
+        mock_trace.get_tracer.return_value.start_as_current_span.return_value = (
+            fake_span
+        )
 
         with ctx:
             importlib.reload(mod_ref)
             exp = mod_ref.OTLPSpanExporter()
-            exp.export(PipelineSpan(
-                name="scd_process",
-                attributes={"table": "dim_customer", "rows": 500},
-            ))
+            exp.export(
+                PipelineSpan(
+                    name="scd_process",
+                    attributes={"table": "dim_customer", "rows": 500},
+                )
+            )
 
         assert ("table", "dim_customer") in fake_span.attributes
         assert ("rows", 500) in fake_span.attributes
 
     def test_export_sets_error_status_on_error_span(self):
         import importlib
+
         ctx, mod_ref, mock_otel, mock_trace, _ = self._build_span_mocks()
 
         fake_span = _FakeOtelSpan()
-        mock_trace.get_tracer.return_value.start_as_current_span.return_value = fake_span
+        mock_trace.get_tracer.return_value.start_as_current_span.return_value = (
+            fake_span
+        )
 
         with ctx:
             importlib.reload(mod_ref)
             exp = mod_ref.OTLPSpanExporter()
-            exp.export(PipelineSpan(
-                name="fail_step",
-                status=SpanStatus.ERROR,
-                error="connection timeout",
-            ))
+            exp.export(
+                PipelineSpan(
+                    name="fail_step",
+                    status=SpanStatus.ERROR,
+                    error="connection timeout",
+                )
+            )
 
         assert fake_span.status is not None
 
@@ -281,6 +300,7 @@ class TestOTLPSpanExporterMocked:
 # ---------------------------------------------------------------------------
 # OTLPMetricExporter — mocked OTel SDK
 # ---------------------------------------------------------------------------
+
 
 class TestOTLPMetricExporterMocked:
     """Cover lines 120-154 of exporters.py with a mocked opentelemetry package."""
@@ -311,8 +331,12 @@ class TestOTLPMetricExporterMocked:
         mock_metrics_mod.get_meter.return_value = mock_meter
 
         mock_sdk_metrics.MeterProvider = MagicMock(name="MeterProvider")
-        mock_sdk_metrics_export.PeriodicExportingMetricReader = MagicMock(name="PeriodicExportingMetricReader")
-        mock_sdk_metrics_export.OTLPMetricExporter = MagicMock(name="OTLPMetricExporter")
+        mock_sdk_metrics_export.PeriodicExportingMetricReader = MagicMock(
+            name="PeriodicExportingMetricReader"
+        )
+        mock_sdk_metrics_export.OTLPMetricExporter = MagicMock(
+            name="OTLPMetricExporter"
+        )
         mock_sdk_resources.Resource = MagicMock(name="Resource")
 
         modules = {
@@ -338,6 +362,7 @@ class TestOTLPMetricExporterMocked:
 
     def test_init_creates_meter_provider(self):
         import importlib
+
         ctx, mod_ref, mock_metrics_mod, _, _, _, _ = self._build_metric_mocks()
         with ctx:
             importlib.reload(mod_ref)
@@ -347,48 +372,68 @@ class TestOTLPMetricExporterMocked:
 
     def test_export_counter_creates_and_records(self):
         import importlib
+
         ctx, mod_ref, _, mock_meter, mock_counter, _, _ = self._build_metric_mocks()
         with ctx:
             importlib.reload(mod_ref)
             exp = mod_ref.OTLPMetricExporter()
-            exp.export(MetricSample(
-                name="sqldim.rows_inserted", value=42.0,
-                kind=MetricKind.COUNTER, labels={"table": "orders"},
-            ))
+            exp.export(
+                MetricSample(
+                    name="sqldim.rows_inserted",
+                    value=42.0,
+                    kind=MetricKind.COUNTER,
+                    labels={"table": "orders"},
+                )
+            )
 
         mock_meter.create_counter.assert_called_once_with("sqldim.rows_inserted")
-        mock_counter.record.assert_called_once_with(42.0, attributes={"table": "orders"})
+        mock_counter.record.assert_called_once_with(
+            42.0, attributes={"table": "orders"}
+        )
 
     def test_export_histogram_creates_and_records(self):
         import importlib
+
         ctx, mod_ref, _, mock_meter, _, mock_histogram, _ = self._build_metric_mocks()
         with ctx:
             importlib.reload(mod_ref)
             exp = mod_ref.OTLPMetricExporter()
-            exp.export(MetricSample(
-                name="sqldim.duration", value=0.34, kind=MetricKind.HISTOGRAM,
-            ))
+            exp.export(
+                MetricSample(
+                    name="sqldim.duration",
+                    value=0.34,
+                    kind=MetricKind.HISTOGRAM,
+                )
+            )
 
         mock_meter.create_histogram.assert_called_once_with("sqldim.duration")
         mock_histogram.record.assert_called_once_with(0.34, attributes={})
 
     def test_export_gauge_uses_up_down_counter(self):
         import importlib
+
         ctx, mod_ref, _, mock_meter, _, _, mock_updown = self._build_metric_mocks()
         with ctx:
             importlib.reload(mod_ref)
             exp = mod_ref.OTLPMetricExporter()
-            exp.export(MetricSample(
-                name="sqldim.backlog", value=1200.0,
-                kind=MetricKind.GAUGE, labels={"topic": "events"},
-            ))
+            exp.export(
+                MetricSample(
+                    name="sqldim.backlog",
+                    value=1200.0,
+                    kind=MetricKind.GAUGE,
+                    labels={"topic": "events"},
+                )
+            )
 
         mock_meter.create_up_down_counter.assert_called_once_with("sqldim.backlog")
-        mock_updown.record.assert_called_once_with(1200.0, attributes={"topic": "events"})
+        mock_updown.record.assert_called_once_with(
+            1200.0, attributes={"topic": "events"}
+        )
 
     def test_export_reuses_instrument_for_same_metric(self):
         """Second export of the same name+kind should reuse the instrument."""
         import importlib
+
         ctx, mod_ref, _, mock_meter, mock_counter, _, _ = self._build_metric_mocks()
         with ctx:
             importlib.reload(mod_ref)
@@ -403,6 +448,7 @@ class TestOTLPMetricExporterMocked:
 # ---------------------------------------------------------------------------
 # OTelCollector integration with exporters
 # ---------------------------------------------------------------------------
+
 
 class TestCollectorWithExporter:
     def test_collector_forwards_spans_to_exporter(self):

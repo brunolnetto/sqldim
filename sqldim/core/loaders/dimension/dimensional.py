@@ -37,7 +37,7 @@ class SKResolver:
             return self._cache[cache_key]
 
         # Query the current version of the dimension row
-        stmt = select(model.id).where(
+        stmt = select(model.id).where(  # type: ignore[attr-defined]
             getattr(model, natural_key_name) == value, getattr(model, "is_current")
         )
         sk = self.session.exec(stmt).first()
@@ -60,15 +60,15 @@ class SKResolver:
         per-record DB overhead.
         """
         uncached = [
-            v for v in set(filter(lambda x: x is not None, values))
+            v
+            for v in set(filter(lambda x: x is not None, values))
             if (model, natural_key_name, v) not in self._cache
         ]
         if not uncached:
             return
         nk_col = getattr(model, natural_key_name)
-        stmt = (
-            select(model.id, nk_col)
-            .where(nk_col.in_(uncached), getattr(model, "is_current"))
+        stmt = select(model.id, nk_col).where(  # type: ignore[attr-defined]
+            nk_col.in_(uncached), getattr(model, "is_current")
         )
         for sk, nk_val in self.session.exec(stmt).all():
             self._cache[(model, natural_key_name, nk_val)] = sk
@@ -142,14 +142,14 @@ class DimensionalLoader:
         facts = [m for m in self._registry.keys() if issubclass(m, FactModel)]
         return dims + facts
 
-    async def _load_dimension(self, model: Type, data: list) -> None:
+    async def _load_dimension(self, model: type, data: list) -> None:
         """Run SCD handler for a dimension model over *data* rows."""
         track_cols = [
             name
-            for name in model.model_fields.keys()
+            for name in model.model_fields.keys()  # type: ignore[attr-defined]
             if name not in ["id", "valid_from", "valid_to", "is_current", "checksum"]
         ]
-        handler = SCDHandler(model, self.session, track_columns=track_cols)
+        handler: Any = SCDHandler(model, self.session, track_columns=track_cols)
         await handler.process(data)
 
     def _resolve_fks(self, record: dict, key_map: dict) -> dict:
@@ -161,7 +161,7 @@ class DimensionalLoader:
                 processed[fk_col] = sk_value
         return processed
 
-    def _insert_all(self, model: Type, records: list) -> None:
+    def _insert_all(self, model: type, records: list) -> None:
         """Bulk-insert *records* into *model* and commit."""
         from sqlalchemy import insert as _sa_insert
 
@@ -179,14 +179,20 @@ class DimensionalLoader:
 
         return [DatasetRef(namespace="sqldim.silver", name=m) for m in loaded_models]
 
-    def _emit_lineage(self, run_id: "str | None", job_name: str, state: Any, **kwargs: Any) -> None:
+    def _emit_lineage(
+        self, run_id: "str | None", job_name: str, state: Any, **kwargs: Any
+    ) -> None:
         """Emit a single lineage event; no-op when no emitter is configured."""
         from sqldim.lineage.events import LineageEvent
-        self._emit(LineageEvent(run_id=run_id, job_name=job_name, state=state, **kwargs))
+
+        event_kwargs: dict[str, Any] = {"job_name": job_name, "state": state, **kwargs}
+        if run_id is not None:
+            event_kwargs["run_id"] = run_id
+        self._emit(LineageEvent(**event_kwargs))
 
     async def _load_single_model(
         self,
-        model: Type,
+        model: type,
         data: list,
         key_map: dict,
         run_id: "str | None",
@@ -197,13 +203,17 @@ class DimensionalLoader:
         model_label = model.__name__
         model_type = "dimension" if issubclass(model, DimensionModel) else "fact"
         self._emit_lineage(
-            run_id, f"load.{model_label}", RunState.START,
+            run_id,
+            f"load.{model_label}",
+            RunState.START,
             facets={"model_type": model_type, "rows": len(data)},
         )
         try:
             await self._load_model_data(model, data, key_map)
             self._emit_lineage(
-                run_id, f"load.{model_label}", RunState.COMPLETE,
+                run_id,
+                f"load.{model_label}",
+                RunState.COMPLETE,
                 outputs=[DatasetRef(namespace="sqldim.silver", name=model_label)],
             )
         except Exception:  # noqa: BLE001
@@ -211,14 +221,14 @@ class DimensionalLoader:
             raise
         return model_label
 
-    async def _load_model_data(self, model: Type, data: list, key_map: dict) -> None:
+    async def _load_model_data(self, model: type, data: list, key_map: dict) -> None:
         """Dispatch dimension or fact load for *model*."""
         if issubclass(model, DimensionModel):
             await self._load_dimension(model, data)
         else:
             await self._load_fact(model, data, key_map)
 
-    async def _load_fact(self, model: Type, data: list, key_map: dict) -> None:
+    async def _load_fact(self, model: type, data: list, key_map: dict) -> None:
         """Pre-warm SK cache and load a fact model."""
         if key_map:
             for fk_col, (dim_model, nk_name) in key_map.items():

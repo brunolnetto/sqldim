@@ -9,6 +9,7 @@ Coverage targets
 sqldim/loaders/snapshot.py  → load_stream() on LazyTransactionLoader &
                                LazySnapshotLoader
 """
+
 from __future__ import annotations
 
 import duckdb
@@ -20,6 +21,7 @@ from sqldim.sources.streaming.stream import StreamResult
 # ---------------------------------------------------------------------------
 # StubStreamSource
 # ---------------------------------------------------------------------------
+
 
 class StubStreamSource:
     """Yields ``SELECT * FROM {view}`` for each pre-registered view name."""
@@ -45,6 +47,7 @@ class StubStreamSource:
 # InMemorySink
 # ---------------------------------------------------------------------------
 
+
 class InMemorySink:
     def current_state_sql(self, table_name: str) -> str:
         return f"SELECT * FROM {table_name}"
@@ -62,9 +65,11 @@ class InMemorySink:
 # Helpers
 # ---------------------------------------------------------------------------
 
+
 def _register_batch(con, view_name, rows: list[dict]):
     select_rows = " UNION ALL ".join(
-        "SELECT " + ", ".join(
+        "SELECT "
+        + ", ".join(
             f"'{v}' AS {k}" if isinstance(v, str) else f"{v} AS {k}"
             for k, v in row.items()
         )
@@ -77,18 +82,22 @@ def _register_batch(con, view_name, rows: list[dict]):
 # LazyTransactionLoader.load_stream()
 # ---------------------------------------------------------------------------
 
-class TestLazyTransactionLoaderStream:
 
+class TestLazyTransactionLoaderStream:
     def _make(self, con):
         sink = InMemorySink()
         return LazyTransactionLoader(sink, con=con), sink
 
     def test_single_batch_appends_rows(self):
         con = duckdb.connect()
-        _register_batch(con, "b1", [
-            {"event_id": "1", "event_type": "click"},
-            {"event_id": "2", "event_type": "view"},
-        ])
+        _register_batch(
+            con,
+            "b1",
+            [
+                {"event_id": "1", "event_type": "click"},
+                {"event_id": "2", "event_type": "view"},
+            ],
+        )
         loader, _ = self._make(con)
         result = loader.load_stream(StubStreamSource(["b1"]), "fact_events")
         assert result.inserted == 2
@@ -98,8 +107,14 @@ class TestLazyTransactionLoaderStream:
     def test_two_batches_accumulate_inserts(self):
         con = duckdb.connect()
         _register_batch(con, "b1", [{"event_id": "1", "event_type": "click"}])
-        _register_batch(con, "b2", [{"event_id": "2", "event_type": "view"},
-                                    {"event_id": "3", "event_type": "purchase"}])
+        _register_batch(
+            con,
+            "b2",
+            [
+                {"event_id": "2", "event_type": "view"},
+                {"event_id": "3", "event_type": "purchase"},
+            ],
+        )
         loader, _ = self._make(con)
         result = loader.load_stream(StubStreamSource(["b1", "b2"]), "fact_events")
         assert result.inserted == 3
@@ -130,9 +145,7 @@ class TestLazyTransactionLoaderStream:
         con = duckdb.connect()
         _register_batch(con, "b1", [{"v": "1"}])
         loader, _ = self._make(con)
-        result = loader.load_stream(
-            StubStreamSource(["b1"]), "fact_t", max_batches=0
-        )
+        result = loader.load_stream(StubStreamSource(["b1"]), "fact_t", max_batches=0)
         assert result.batches_processed == 0
         assert result.inserted == 0
 
@@ -143,7 +156,8 @@ class TestLazyTransactionLoaderStream:
         calls = []
         loader, _ = self._make(con)
         loader.load_stream(
-            StubStreamSource(["b1", "b2"]), "fact_t",
+            StubStreamSource(["b1", "b2"]),
+            "fact_t",
             on_batch=lambda i, n: calls.append((i, n)),
         )
         assert len(calls) == 2
@@ -193,10 +207,13 @@ class TestLazyTransactionLoaderStream:
 
         class _DroppingFails:
             """Wraps real connection but raises on DROP VIEW."""
+
             def __init__(self, real):
                 self._real = real
+
             def __getattr__(self, name):
                 return getattr(self._real, name)
+
             def execute(self, sql, *args, **kwargs):
                 if "DROP VIEW" in sql:
                     raise Exception("DROP failed")
@@ -212,8 +229,8 @@ class TestLazyTransactionLoaderStream:
 # LazySnapshotLoader.load_stream()
 # ---------------------------------------------------------------------------
 
-class TestLazySnapshotLoaderStream:
 
+class TestLazySnapshotLoaderStream:
     def _make(self, con, snapshot_date="2024-03-31", date_field="snapshot_date"):
         sink = InMemorySink()
         return LazySnapshotLoader(
@@ -222,9 +239,13 @@ class TestLazySnapshotLoaderStream:
 
     def test_single_batch_injects_snapshot_date(self):
         con = duckdb.connect()
-        _register_batch(con, "b1", [
-            {"account_id": "ACC1", "balance": "100.0"},
-        ])
+        _register_batch(
+            con,
+            "b1",
+            [
+                {"account_id": "ACC1", "balance": "100.0"},
+            ],
+        )
         loader, _ = self._make(con)
         loader.load_stream(StubStreamSource(["b1"]), "fact_balance")
         row = con.execute("SELECT snapshot_date FROM fact_balance").fetchone()
@@ -247,8 +268,9 @@ class TestLazySnapshotLoaderStream:
     def test_custom_date_field_name(self):
         con = duckdb.connect()
         _register_batch(con, "b1", [{"id": "X", "val": "5"}])
-        loader, _ = self._make(con, snapshot_date="2024-01-15",
-                               date_field="period_date")
+        loader, _ = self._make(
+            con, snapshot_date="2024-01-15", date_field="period_date"
+        )
         loader.load_stream(StubStreamSource(["b1"]), "fact_snap")
         row = con.execute("SELECT period_date FROM fact_snap").fetchone()
         assert str(row[0]) == "2024-01-15"
@@ -269,7 +291,8 @@ class TestLazySnapshotLoaderStream:
         calls = []
         loader, _ = self._make(con)
         loader.load_stream(
-            StubStreamSource(["b1"]), "fact_snap",
+            StubStreamSource(["b1"]),
+            "fact_snap",
             on_batch=lambda i, n: calls.append((i, n)),
         )
         assert calls == [(0, 1)]
@@ -306,8 +329,10 @@ class TestLazySnapshotLoaderStream:
         class _DroppingFails:
             def __init__(self, real):
                 self._real = real
+
             def __getattr__(self, name):
                 return getattr(self._real, name)
+
             def execute(self, sql, *args, **kwargs):
                 if "DROP VIEW" in sql:
                     raise Exception("DROP failed")

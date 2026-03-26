@@ -21,7 +21,9 @@ from sqldim.application.examples.real_world.supply_chain.models import (
     ReceiptFact,
     InventoryFact,
 )
-from sqldim.application.datasets.domains.supply_chain.dataset import supply_chain_dataset
+from sqldim.application.datasets.domains.supply_chain.dataset import (
+    supply_chain_dataset,
+)
 from sqldim.core.kimball.dimensions.scd.handler import SCDHandler
 from sqldim.core.graph import GraphModel
 from sqldim import SchemaGraph
@@ -45,15 +47,15 @@ async def _sc_pillar1_scd_warehouses(engine) -> None:
         handler = SCDHandler(
             Warehouse, session, track_columns=["max_capacity_units", "region"]
         )
-        await handler.process([_strip(r, _WAREHOUSE_FACTORY_KEYS) for r in src.initial])
-        await handler.process([_strip(r, _WAREHOUSE_FACTORY_KEYS) for r in src.events])
+        await handler.process([_strip(r, _WAREHOUSE_FACTORY_KEYS) for r in src.initial])  # type: ignore[attr-defined]
+        await handler.process([_strip(r, _WAREHOUSE_FACTORY_KEYS) for r in src.events])  # type: ignore[attr-defined]
         versions = session.exec(
-            select(Warehouse).order_by(Warehouse.warehouse_code, Warehouse.valid_from)
+            select(Warehouse).order_by(Warehouse.warehouse_code, Warehouse.valid_from)  # type: ignore[arg-type]
         ).all()
 
     upgraded = sum(not v.is_current for v in versions)
     print("✅ Pillar 1: SCD Type 2 — Warehouse Capacity History")
-    print(f"   Loaded {len(src.initial)} warehouses via WarehousesSource factory.")
+    print(f"   Loaded {len(src.initial)} warehouses via WarehousesSource factory.")  # type: ignore[attr-defined]
     print(
         f"   Total version rows in dim_warehouse: {len(versions)} "
         f"({upgraded} expired / capacity-changed)."
@@ -74,13 +76,13 @@ async def _sc_pillar2_shipment_graph(engine) -> tuple:
         current_wh = session.exec(
             select(Warehouse)
             .where(Warehouse.is_current == True)  # noqa: E712
-            .order_by(Warehouse.id)
+            .order_by(Warehouse.id)  # type: ignore[arg-type]
             .limit(3)
         ).all()
         hub, spoke_a, spoke_b = current_wh[0], current_wh[1], current_wh[2]
 
         # SKU from factory (strip seq id)
-        sku_row = _strip(sku_src.initial[0], _SKU_FACTORY_KEYS)
+        sku_row = _strip(sku_src.initial[0], _SKU_FACTORY_KEYS)  # type: ignore[attr-defined]
         sku = SKU(**sku_row)
         session.add(sku)
         session.commit()
@@ -105,8 +107,8 @@ async def _sc_pillar2_shipment_graph(engine) -> tuple:
         session.add_all(shipments)
         session.commit()
         graph = GraphModel(Warehouse, ShipmentEdge, session=session)
-        hub_vertex = await graph.get_vertex(Warehouse, hub.id)
-        destinations = await graph.neighbors(hub_vertex, edge_type=ShipmentEdge)
+        hub_vertex = await graph.get_vertex(Warehouse, hub.id)  # type: ignore[arg-type]
+        destinations = await graph.neighbors(hub_vertex, edge_type=ShipmentEdge)  # type: ignore[arg-type]
         total_shipped = sum(s.quantity for s in shipments if s.subject_id == hub.id)
         hub_id, spoke_a_id, spoke_b_id, sku_id = (
             hub.id,
@@ -114,11 +116,11 @@ async def _sc_pillar2_shipment_graph(engine) -> tuple:
             spoke_b.id,
             sku.id,
         )
-        hub_name = hub.warehouse_name
+        hub_name = hub.warehouse_name  # type: ignore[attr-defined]
 
     print("✅ Pillar 2: Shipment Graph — Hub-and-Spoke Routing")
     print(f"   {hub_name} is the consolidation hub (from WarehousesSource factory).")
-    print(f"   Outbound destinations: {[v.warehouse_name for v in destinations]}")
+    print(f"   Outbound destinations: {[v.warehouse_name for v in destinations]}")  # type: ignore[attr-defined]
     print(f"   Total units shipped: {total_shipped:,}")
     print()
     return hub_id, spoke_a_id, spoke_b_id, sku_id

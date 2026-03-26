@@ -9,23 +9,45 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Any
 
 from sqldim.core.query.dgm.planner._targets import (
-    CLOSURE_THRESHOLD, DENSE, SMALL, SMALL_GRAPH_THRESHOLD,
-    CostEstimate, ExportPlan, PreComputation, QueryTarget, SinkTarget,
-    _r6_bridge_semantics, _r6_degenerate, _r6_derived_fact,
-    _r6_projects_from, _r6_role_playing, _r6_weight_constraint,
-    _r8_delta_append_flag, _r8_grain_append_flag, _r8_partition_flag,
-    _r10_ttl_check, _r10_adaptive_write_plan, _r10_backfill_predicate,
+    CLOSURE_THRESHOLD,
+    DENSE,
+    SMALL,
+    SMALL_GRAPH_THRESHOLD,
+    CostEstimate,
+    ExportPlan,
+    PreComputation,
+    QueryTarget,
+    SinkTarget,
+    _r6_bridge_semantics,
+    _r6_degenerate,
+    _r6_derived_fact,
+    _r6_projects_from,
+    _r6_role_playing,
+    _r6_weight_constraint,
+    _r8_delta_append_flag,
+    _r8_grain_append_flag,
+    _r8_partition_flag,
+    _r10_ttl_check,
+    _r10_adaptive_write_plan,
+    _r10_backfill_predicate,
 )
 
 if TYPE_CHECKING:
     from sqldim.core.query.dgm.bdd import DGMPredicateBDD
     from sqldim.core.query.dgm.graph import GraphStatistics, NodeExpr, SubgraphExpr
-    from sqldim.core.query.dgm.annotations import AnnotationSigma, GrainKind
+    from sqldim.core.query.dgm.annotations import AnnotationSigma, GrainKind, SCDKind
 
 __all__ = [
-    "QueryTarget", "SinkTarget", "PreComputation", "CostEstimate",
-    "ExportPlan", "DGMPlanner", "SMALL", "CLOSURE_THRESHOLD",
-    "SMALL_GRAPH_THRESHOLD", "DENSE",
+    "QueryTarget",
+    "SinkTarget",
+    "PreComputation",
+    "CostEstimate",
+    "ExportPlan",
+    "DGMPlanner",
+    "SMALL",
+    "CLOSURE_THRESHOLD",
+    "SMALL_GRAPH_THRESHOLD",
+    "DENSE",
 ]
 
 
@@ -177,7 +199,7 @@ class DGMPlanner:
         Pre-compute Floyd-Warshall when
         ``pair_count × avg_path_len > node_count²``.
         """
-        if pair_count * avg_path_len > node_count ** 2:
+        if pair_count * avg_path_len > node_count**2:
             return "precompute Floyd-Warshall distance matrix"
         return "per_pair CTE with LIMIT 1"
 
@@ -187,7 +209,7 @@ class DGMPlanner:
 
     def apply_rule_3(self, expr: "NodeExpr | SubgraphExpr") -> str:
         """Rule 3: Schedule or inline a GraphExpr algorithm."""
-        from sqldim.core.query.dgm.graph import NodeExpr, SubgraphExpr
+        from sqldim.core.query.dgm.graph import NodeExpr
 
         if isinstance(expr, NodeExpr):
             return self._rule3_node_expr(expr)
@@ -203,7 +225,9 @@ class DGMPlanner:
         )
 
         alg = expr.algorithm
-        if isinstance(alg, (OUTGOING_SIGNATURES, DOMINANT_OUTGOING_SIGNATURE, SIGNATURE_DIVERSITY)):
+        if isinstance(
+            alg, (OUTGOING_SIGNATURES, DOMINANT_OUTGOING_SIGNATURE, SIGNATURE_DIVERSITY)
+        ):
             return "forward_bfs per anchor alias; pre-compute if stable"
         if isinstance(alg, (INCOMING_SIGNATURES, DOMINANT_INCOMING_SIGNATURE)):
             return "bfs on transposed G^T per anchor alias; pre-compute if stable"
@@ -273,8 +297,12 @@ class DGMPlanner:
     ) -> list[str]:
         """Rule 6: Return optimisation messages for *ann* (§6.2)."""
         from sqldim.core.query.dgm.annotations import (
-            RolePlaying, ProjectsFrom, DerivedFact,
-            WeightConstraint, BridgeSemantics, Degenerate,
+            RolePlaying,
+            ProjectsFrom,
+            DerivedFact,
+            WeightConstraint,
+            BridgeSemantics,
+            Degenerate,
         )
 
         c = candidate_set or set()
@@ -362,27 +390,33 @@ class DGMPlanner:
             (relevant for ADAPTIVE mode during a REFRESH run).
         """
         from sqldim.core.query.dgm.annotations import (
-            PipelineStateKind, WriteModeKind,
+            PipelineStateKind,
+            WriteModeKind,
         )
 
         notes: list[str] = []
 
         # 10a: TTL expiry — transition Complete → Stale
-        if (
-            state is PipelineStateKind.COMPLETE
-            and _r10_ttl_check(0.0, ttl_elapsed_s, 0)
+        if state is PipelineStateKind.COMPLETE and _r10_ttl_check(
+            0.0, ttl_elapsed_s, 0
         ):
-            notes.append(f"Rule 10a: {fact} TTL expired — emit Complete → Stale; WritePlan(MERGE)")
+            notes.append(
+                f"Rule 10a: {fact} TTL expired — emit Complete → Stale; WritePlan(MERGE)"
+            )
             return "; ".join(notes) or "WritePlan(MERGE, ttl_expired)"
 
         # 10b: ADAPTIVE mode — infer write plan from state
         if write_mode is WriteModeKind.ADAPTIVE:
             mode = _r10_adaptive_write_plan(state)
-            notes.append(f"Rule 10b: ADAPTIVE on {fact} — state={state!r} → WritePlan({mode})")
+            notes.append(
+                f"Rule 10b: ADAPTIVE on {fact} — state={state!r} → WritePlan({mode})"
+            )
             return "; ".join(notes)
 
         # 10c: fixed write modes
-        return self._r10_dispatch_fixed_mode(fact, state, write_mode, WriteModeKind, notes)
+        return self._r10_dispatch_fixed_mode(
+            fact, state, write_mode, WriteModeKind, notes
+        )
 
     def _r10_dispatch_fixed_mode(
         self, fact: str, state: object, write_mode: object, WriteModeKind, notes: list

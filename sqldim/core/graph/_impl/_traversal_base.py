@@ -14,7 +14,9 @@ if TYPE_CHECKING:
     from sqldim.core.graph.models import EdgeModel
 
 
-def _temporal_filter_clause(vertex_cls: type, as_of: date | datetime | None, alias: str = "v") -> str:
+def _temporal_filter_clause(
+    vertex_cls: type, as_of: date | datetime | None, alias: str = "v"
+) -> str:
     """
     Generate a temporal WHERE/JOIN predicate for SCD2 vertex models.
 
@@ -106,7 +108,7 @@ class TraversalEngine:
         """
         Single-hop neighbor lookup — returns peer vertex IDs.
         """
-        table = edge_model.__tablename__  # type: ignore[attr-defined]
+        table: str = edge_model.__tablename__  # type: ignore[attr-defined, assignment]
         directed: bool = getattr(edge_model, "__directed__", True)
         if not directed:
             direction = "both"
@@ -137,7 +139,7 @@ class TraversalEngine:
         - Array syntax (``path || id``) is PostgreSQL / DuckDB compatible.
         - SQLite does not support recursive CTEs with arrays.
         """
-        table = edge_model.__tablename__  # type: ignore[attr-defined]
+        table: str = edge_model.__tablename__  # type: ignore[attr-defined, assignment]
         directed: bool = getattr(edge_model, "__directed__", True)
 
         if directed:
@@ -187,7 +189,7 @@ WHERE current_id = {target_id}"""
             semantics (prevents double-counting in multi-valued dimensions).
             ``COUNT(*)`` is never affected by this flag.
         """
-        table = edge_model.__tablename__  # type: ignore[attr-defined]
+        table: str = edge_model.__tablename__  # type: ignore[attr-defined, assignment]
         directed: bool = getattr(edge_model, "__directed__", True)
 
         agg_upper = agg.upper()
@@ -265,8 +267,8 @@ WHERE current_id = {target_id}"""
         if as_of is None or scd_type != 2:
             return self.neighbors_sql(edge_model, start_id, direction, filters)
 
-        edge_table = edge_model.__tablename__  # type: ignore[attr-defined]
-        vertex_table = vertex_model.__tablename__  # type: ignore[attr-defined]
+        edge_table: str = edge_model.__tablename__  # type: ignore[attr-defined, assignment]
+        vertex_table: str = vertex_model.__tablename__  # type: ignore[attr-defined, assignment]
         if not getattr(edge_model, "__directed__", True):
             direction = "both"
 

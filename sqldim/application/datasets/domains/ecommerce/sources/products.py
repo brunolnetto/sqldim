@@ -86,7 +86,6 @@ _PRODUCTS_SPEC = DatasetSpec(
 )
 
 
-
 @DatasetFactory.register("products")
 class ProductsSource(SchematicSource):
     """

@@ -206,7 +206,7 @@ class SKResolver:
         if cache_key in self._cache:
             return self._cache[cache_key]
 
-        stmt = select(model.id).where(
+        stmt = select(model.id).where(  # type: ignore[attr-defined]
             getattr(model, natural_key_name) == value,
             getattr(model, "is_current"),
         )
@@ -233,7 +233,7 @@ class SKResolver:
         fact_table: str,
     ) -> object:
         """Handle a cache miss for resolve_multi: query, infer, or raise."""
-        stmt = select(model.id).where(
+        stmt = select(model.id).where(  # type: ignore[attr-defined]
             getattr(model, "is_current"),
             *[getattr(model, col) == val for col, val in key_values.items()],
         )
@@ -280,7 +280,7 @@ class SKResolver:
         Pre-load the entire current dimension into cache for batch resolution.
         Returns the number of rows cached.
         """
-        stmt = select(getattr(model, natural_key_name), model.id).where(
+        stmt = select(getattr(model, natural_key_name), model.id).where(  # type: ignore[attr-defined]
             getattr(model, "is_current")
         )
         rows = self.session.exec(stmt).all()

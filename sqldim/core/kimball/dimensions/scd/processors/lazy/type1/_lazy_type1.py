@@ -130,9 +130,12 @@ class LazyType1Processor:
         )
 
     def _count_unchanged(self) -> int:
-        return self._con.execute(
-            "SELECT count(*) FROM classified WHERE _scd_class = 'unchanged'"
-        ).fetchone()[0]
+        return (
+            self._con.execute(
+                "SELECT count(*) FROM classified WHERE _scd_class = 'unchanged'"
+            ).fetchone()
+            or (0,)
+        )[0]
 
     def _update_local_fingerprint_after_batch(self) -> None:
         """Sync the local ``current_checksums`` TABLE with rows written in this batch."""

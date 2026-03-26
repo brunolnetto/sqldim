@@ -61,6 +61,102 @@ class LazyType4Processor:
         self.batch_size = batch_size
         self._con = con or _duckdb.connect()
 
+    def _upsert_mini_dim(self) -> int:
+        """Step 1 — upsert distinct profile combos and resolve profile SKs."""
+        mini_cols = ", ".join(self.mini_dim_columns)
+        self._con.execute(f"""
+            CREATE OR REPLACE VIEW distinct_profiles AS
+            SELECT DISTINCT {mini_cols} FROM incoming
+        """)
+        return self.sink.upsert(
+            self._con,
+            view_name="distinct_profiles",
+            table_name=self.mini_dim_table,
+            conflict_cols=self.mini_dim_columns,
+            returning_col=self.mini_dim_id_col,
+            output_view="mini_dim_sks",
+        )
+
+    def _attach_profile_sk(self) -> None:
+        """Step 2 — join incoming rows with resolved profile SKs."""
+        mini_cols = ", ".join(self.mini_dim_columns)
+        join_on = " AND ".join(f"i.{c} = m.{c}" for c in self.mini_dim_columns)
+        self._con.execute(f"""
+            CREATE OR REPLACE VIEW incoming_with_profile_sk AS
+            SELECT i.* EXCLUDE ({mini_cols}),
+                   m.{self.mini_dim_id_col} AS {self.mini_dim_fk_col}
+            FROM incoming i
+            JOIN mini_dim_sks m ON {join_on}
+        """)
+
+    def _run_scd2_base(self, now: str) -> tuple[int, int, int]:
+        """Step 3 — SCD2 on the base dim; returns ``(inserted, versioned, unchanged)``."""
+        track_cols = sorted(self.base_columns + [self.mini_dim_fk_col])
+        cols_hash = " || '|' || ".join(
+            f"coalesce(cast({c} as varchar), '')" for c in track_cols
+        )
+        nk = self.natural_key
+        self._con.execute(f"""
+            CREATE OR REPLACE VIEW incoming_checksummed AS
+            SELECT *, md5({cols_hash}) AS _checksum
+            FROM incoming_with_profile_sk
+        """)
+        current_sql = self.sink.current_state_sql(self.base_dim_table)
+        self._con.execute(f"""
+            CREATE OR REPLACE TABLE current_checksums AS
+            SELECT {nk}, checksum AS _checksum
+            FROM {_as_subquery(current_sql)}
+            WHERE is_current = TRUE
+        """)
+        self._con.execute(f"""
+            CREATE OR REPLACE TABLE classified AS
+            SELECT i.*,
+                   CASE
+                       WHEN c.{nk} IS NULL             THEN 'new'
+                       WHEN i._checksum != c._checksum THEN 'changed'
+                       ELSE                                 'unchanged'
+                   END AS _scd_class
+            FROM incoming_checksummed i
+            LEFT JOIN current_checksums c
+                   ON cast(i.{nk} as varchar) = cast(c.{nk} as varchar)
+        """)
+        self._con.execute(f"""
+            CREATE OR REPLACE VIEW new_rows AS
+            SELECT * EXCLUDE (_scd_class, _checksum),
+                   '{now}'::varchar AS valid_from,
+                   NULL             AS valid_to,
+                   TRUE             AS is_current,
+                   _checksum        AS checksum
+            FROM classified WHERE _scd_class = 'new'
+        """)
+        inserted = self.sink.write(
+            self._con, "new_rows", self.base_dim_table, self.batch_size
+        )
+        self._con.execute(f"""
+            CREATE OR REPLACE VIEW changed_nks AS
+            SELECT {nk} FROM classified WHERE _scd_class = 'changed'
+        """)
+        self.sink.close_versions(self._con, self.base_dim_table, nk, "changed_nks", now)
+        self._con.execute(f"""
+            CREATE OR REPLACE VIEW new_versions AS
+            SELECT * EXCLUDE (_scd_class, _checksum),
+                   '{now}'::varchar AS valid_from,
+                   NULL             AS valid_to,
+                   TRUE             AS is_current,
+                   _checksum        AS checksum
+            FROM classified WHERE _scd_class = 'changed'
+        """)
+        versioned = self.sink.write(
+            self._con, "new_versions", self.base_dim_table, self.batch_size
+        )
+        unchanged = (
+            self._con.execute(
+                "SELECT count(*) FROM classified WHERE _scd_class = 'unchanged'"
+            ).fetchone()
+            or (0,)
+        )[0]
+        return inserted, versioned, unchanged
+
     def process(self, source) -> dict:
         """
         Process a full incoming batch.
@@ -83,100 +179,9 @@ class LazyType4Processor:
             CREATE OR REPLACE VIEW incoming AS SELECT * FROM {_as_subquery(src_sql)}
         """)
 
-        # Step 1 — upsert distinct profile combos, resolve profile SKs
-        mini_cols = ", ".join(self.mini_dim_columns)
-        self._con.execute(f"""
-            CREATE OR REPLACE VIEW distinct_profiles AS
-            SELECT DISTINCT {mini_cols} FROM incoming
-        """)
-        mini_dim_rows = self.sink.upsert(
-            self._con,
-            view_name="distinct_profiles",
-            table_name=self.mini_dim_table,
-            conflict_cols=self.mini_dim_columns,
-            returning_col=self.mini_dim_id_col,
-            output_view="mini_dim_sks",
-        )
-
-        # Step 2 — attach profile SK to incoming rows
-        join_on = " AND ".join(f"i.{c} = m.{c}" for c in self.mini_dim_columns)
-        self._con.execute(f"""
-            CREATE OR REPLACE VIEW incoming_with_profile_sk AS
-            SELECT i.* EXCLUDE ({mini_cols}),
-                   m.{self.mini_dim_id_col} AS {self.mini_dim_fk_col}
-            FROM incoming i
-            JOIN mini_dim_sks m ON {join_on}
-        """)
-
-        # Step 3 — SCD2 on base dim; checksum covers base_columns + profile FK
-        track_cols = sorted(self.base_columns + [self.mini_dim_fk_col])
-        cols_hash = " || '|' || ".join(
-            f"coalesce(cast({c} as varchar), '')" for c in track_cols
-        )
-        nk = self.natural_key
-        self._con.execute(f"""
-            CREATE OR REPLACE VIEW incoming_checksummed AS
-            SELECT *, md5({cols_hash}) AS _checksum
-            FROM incoming_with_profile_sk
-        """)
-
-        current_sql = self.sink.current_state_sql(self.base_dim_table)
-        self._con.execute(f"""
-            CREATE OR REPLACE TABLE current_checksums AS
-            SELECT {nk}, checksum AS _checksum
-            FROM {_as_subquery(current_sql)}
-            WHERE is_current = TRUE
-        """)
-
-        self._con.execute(f"""
-            CREATE OR REPLACE TABLE classified AS
-            SELECT i.*,
-                   CASE
-                       WHEN c.{nk} IS NULL             THEN 'new'
-                       WHEN i._checksum != c._checksum THEN 'changed'
-                       ELSE                                 'unchanged'
-                   END AS _scd_class
-            FROM incoming_checksummed i
-            LEFT JOIN current_checksums c
-                   ON cast(i.{nk} as varchar) = cast(c.{nk} as varchar)
-        """)
-
-        # Write new rows
-        self._con.execute(f"""
-            CREATE OR REPLACE VIEW new_rows AS
-            SELECT * EXCLUDE (_scd_class, _checksum),
-                   '{now}'::varchar AS valid_from,
-                   NULL             AS valid_to,
-                   TRUE             AS is_current,
-                   _checksum        AS checksum
-            FROM classified WHERE _scd_class = 'new'
-        """)
-        inserted = self.sink.write(
-            self._con, "new_rows", self.base_dim_table, self.batch_size
-        )
-
-        # Close old versions and write new versions for changed rows
-        self._con.execute(f"""
-            CREATE OR REPLACE VIEW changed_nks AS
-            SELECT {nk} FROM classified WHERE _scd_class = 'changed'
-        """)
-        self.sink.close_versions(self._con, self.base_dim_table, nk, "changed_nks", now)
-        self._con.execute(f"""
-            CREATE OR REPLACE VIEW new_versions AS
-            SELECT * EXCLUDE (_scd_class, _checksum),
-                   '{now}'::varchar AS valid_from,
-                   NULL             AS valid_to,
-                   TRUE             AS is_current,
-                   _checksum        AS checksum
-            FROM classified WHERE _scd_class = 'changed'
-        """)
-        versioned = self.sink.write(
-            self._con, "new_versions", self.base_dim_table, self.batch_size
-        )
-
-        unchanged = self._con.execute(
-            "SELECT count(*) FROM classified WHERE _scd_class = 'unchanged'"
-        ).fetchone()[0]
+        mini_dim_rows = self._upsert_mini_dim()
+        self._attach_profile_sk()
+        inserted, versioned, unchanged = self._run_scd2_base(now)
 
         for v in [
             "incoming",

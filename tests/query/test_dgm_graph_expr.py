@@ -17,8 +17,10 @@ import pytest
 
 from sqldim.core.query.dgm.graph import (
     # --- existing ---
-    NodeAlg, PairAlg, SubgraphAlg,
-    NodeExpr, PairExpr, SubgraphExpr, GraphExpr,
+    NodeAlg,
+    PairAlg,
+    SubgraphAlg,
+    SubgraphExpr,
     MAX_FLOW,
     # --- TrailExpr NodeAlg ---
     OUTGOING_SIGNATURES,
@@ -37,7 +39,6 @@ from sqldim.core.query.dgm.graph import (
     # --- RelationshipSubgraph ---
     Endpoint,
     Bound,
-    Free,
     FREE,
     RelationshipSubgraph,
     # --- GraphStatistics ---
@@ -249,15 +250,11 @@ class TestRelationshipSubgraphCase1:
         assert isinstance(rs.target, Bound)
 
     def test_endpoint_case_name(self):
-        rs = RelationshipSubgraph(
-            source=Bound(alias="a"), target=Bound(alias="b")
-        )
+        rs = RelationshipSubgraph(source=Bound(alias="a"), target=Bound(alias="b"))
         assert rs.endpoint_case == "BB"
 
     def test_granularity_tier(self):
-        rs = RelationshipSubgraph(
-            source=Bound(alias="a"), target=Bound(alias="b")
-        )
+        rs = RelationshipSubgraph(source=Bound(alias="a"), target=Bound(alias="b"))
         assert rs.granularity_tier == "PairExpr"
 
 
@@ -319,6 +316,7 @@ class TestRelationshipSubgraphCase4:
 class TestRelationshipSubgraphStrategy:
     def test_with_strategy(self):
         from sqldim.core.query.dgm.preds import ALL
+
         rs = RelationshipSubgraph(
             source=Bound(alias="a"),
             target=FREE,
@@ -335,11 +333,13 @@ class TestRelationshipSubgraphStrategy:
 class TestSubgraphExprScope:
     def test_scope_none_by_default(self):
         from sqldim.core.query.dgm.graph import DENSITY
+
         se = SubgraphExpr(algorithm=DENSITY())
         assert se.scope is None
 
     def test_scope_with_relationship_subgraph(self):
         from sqldim.core.query.dgm.graph import SIGNATURE_ENTROPY
+
         scope = RelationshipSubgraph(source=FREE, target=FREE)
         se = SubgraphExpr(algorithm=SIGNATURE_ENTROPY(), scope=scope)
         assert se.scope is scope
@@ -416,6 +416,7 @@ class TestMaxDepthToSql:
 
     def test_dominant_incoming_signature_max_depth_to_sql(self):
         from sqldim.core.query.dgm.graph import DOMINANT_INCOMING_SIGNATURE
+
         sql = DOMINANT_INCOMING_SIGNATURE(max_depth=3).to_sql()
         assert "DOMINANT_INCOMING_SIGNATURE" in sql
         assert "3" in sql
@@ -462,6 +463,5 @@ class TestMaxFlowEdgeCases:
         assert mf.target == "b"
 
     def test_missing_target_raises(self):
-        import pytest
         with pytest.raises(TypeError):
             MAX_FLOW(source="a")

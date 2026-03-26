@@ -6,13 +6,19 @@ These methods are mixed into :class:`DriftObservatory` via inheritance.
 
 from __future__ import annotations
 
-from typing import Any
+from typing import TYPE_CHECKING, Any
+
+if TYPE_CHECKING:
+    pass
 
 from sqldim.observability.drift._drift_models import _OBS_MODELS, _EVOLUTION_TYPE_SEED  # noqa: F401
 
 
 class _DriftAnalyticsMixin:
     """Gold-layer analytical queries for DriftObservatory."""
+
+    if TYPE_CHECKING:
+        _con: Any
 
     # Gold-layer analytical queries
     # ------------------------------------------------------------------
@@ -136,7 +142,7 @@ class _DriftAnalyticsMixin:
     def counts(self) -> dict[str, int]:
         """Return row counts for all observability tables."""
         return {
-            model.__tablename__: (
+            model.__tablename__: (  # type: ignore[misc]
                 self._con.execute(
                     f"SELECT COUNT(*) FROM {model.__tablename__}"
                 ).fetchone()

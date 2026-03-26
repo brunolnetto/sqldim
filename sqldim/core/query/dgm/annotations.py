@@ -52,6 +52,7 @@ __all__ = [
 
 class GrainKind(Enum):
     """Grain classifications for fact tables (spec §2.4 Grain)."""
+
     EVENT = "EVENT"
     PERIOD = "PERIOD"
     ACCUMULATING = "ACCUMULATING"
@@ -59,6 +60,7 @@ class GrainKind(Enum):
 
 class SCDKind(Enum):
     """SCD type variants (spec §2.4 SCDType)."""
+
     SCD1 = "SCD1"
     SCD2 = "SCD2"
     SCD3 = "SCD3"
@@ -67,12 +69,14 @@ class SCDKind(Enum):
 
 class WeightConstraintKind(Enum):
     """Weight constraint policy for bridge tables (spec §2.4 WeightConstraint)."""
+
     ALLOCATIVE = "ALLOCATIVE"
     UNCONSTRAINED = "UNCONSTRAINED"
 
 
 class BridgeSemanticsKind(Enum):
     """Bridge-edge semantic category (spec §2.4 BridgeSemantics)."""
+
     CAUSAL = "CAUSAL"
     TEMPORAL = "TEMPORAL"
     SUPERSESSION = "SUPERSESSION"
@@ -81,6 +85,7 @@ class BridgeSemanticsKind(Enum):
 
 class WriteModeKind(Enum):
     """Write mode for pipeline-managed fact tables (spec §2.4 PipelineArtifact)."""
+
     BACKFILL = "BACKFILL"
     REFRESH = "REFRESH"
     ADAPTIVE = "ADAPTIVE"
@@ -88,6 +93,7 @@ class WriteModeKind(Enum):
 
 class PipelineStateKind(Enum):
     """Five-state lifecycle for a PipelineArtifact fact (spec §2.4)."""
+
     MISSING = "MISSING"
     IN_FLIGHT = "IN_FLIGHT"
     COMPLETE = "COMPLETE"
@@ -141,6 +147,7 @@ class Conformed(SchemaAnnotation):
 
     Enables constellation paths (spec §2.4).
     """
+
     dim: str
     fact_types: frozenset[str] = field(default_factory=frozenset, compare=True)
 
@@ -158,6 +165,7 @@ class Grain(SchemaAnnotation):
     - ACCUMULATING → cross-row agg warns; NULL → COALESCE.
     - EVENT    → fully additive; no restrictions.
     """
+
     fact: str
     grain: GrainKind
 
@@ -177,6 +185,7 @@ class SCDType(SchemaAnnotation):
     - SCD3 → PropRef(d.current_value) / PropRef(d.previous_value).
     - SCD6 → lateral join; SCD2 for versioned_attrs; direct for overwrite_attrs.
     """
+
     dim: str
     scd: SCDKind
     versioned_attrs: frozenset[str] | None = None
@@ -194,15 +203,18 @@ class SCDType(SchemaAnnotation):
         object.__setattr__(self, "dim", dim)
         object.__setattr__(self, "scd", scd)
         object.__setattr__(
-            self, "versioned_attrs",
+            self,
+            "versioned_attrs",
             frozenset(versioned_attrs) if versioned_attrs is not None else None,
         )
         object.__setattr__(
-            self, "overwrite_attrs",
+            self,
+            "overwrite_attrs",
             frozenset(overwrite_attrs) if overwrite_attrs is not None else None,
         )
         object.__setattr__(
-            self, "prev_attrs",
+            self,
+            "prev_attrs",
             frozenset(prev_attrs) if prev_attrs is not None else None,
         )
 
@@ -218,12 +230,14 @@ class Degenerate(SchemaAnnotation):
 
     GroupBy planning excludes degenerate dims unless explicitly requested.
     """
+
     dim: str
 
 
 @dataclass(eq=True)
 class RolePlaying(SchemaAnnotation):
     """Declares a role-playing dimension and its aliases."""
+
     dim: str
     roles: list[str]
 
@@ -231,6 +245,7 @@ class RolePlaying(SchemaAnnotation):
 @dataclass(frozen=True, eq=True)
 class ProjectsFrom(SchemaAnnotation):
     """Declares that dim_mini is a mini-dimension projected from dim_full."""
+
     dim_mini: str
     dim_full: str
 
@@ -241,6 +256,7 @@ class FactlessFact(SchemaAnnotation):
 
     Rule 1b: SUM/AVG/MIN/MAX must be rejected at construction.
     """
+
     fact: str
 
     @property
@@ -252,6 +268,7 @@ class FactlessFact(SchemaAnnotation):
 @dataclass(eq=True)
 class DerivedFact(SchemaAnnotation):
     """Declares a fact as derived from one or more source facts via an expression."""
+
     fact: str
     sources: list[str]
     expr: str
@@ -260,6 +277,7 @@ class DerivedFact(SchemaAnnotation):
 @dataclass(frozen=True, eq=True)
 class WeightConstraint(SchemaAnnotation):
     """Declares the weight constraint policy for a bridge table."""
+
     bridge: str
     constraint: WeightConstraintKind
 
@@ -275,6 +293,7 @@ class BridgeSemantics(SchemaAnnotation):
 
     Rule 1a: CAUSAL → DAG BFS (drop cycle guard); reverse topological order on G^T.
     """
+
     bridge: str
     sem: BridgeSemanticsKind
 
@@ -291,6 +310,7 @@ class Hierarchy(SchemaAnnotation):
     depth is an integer for fixed-depth hierarchies or the RAGGED sentinel for
     variable-depth (self-referencing) hierarchies.
     """
+
     root: str
     depth: int | _Ragged
 
@@ -319,9 +339,10 @@ class PipelineArtifact(SchemaAnnotation):
         BACKFILL → always APPEND; REFRESH → always MERGE;
         ADAPTIVE → inferred from P(f).state at planning time (Rule 10).
     """
+
     fact: str
     pipeline_id: str
-    ttl: int          # seconds
+    ttl: int  # seconds
     backfill_horizon: int  # days
     write_mode: WriteModeKind
 

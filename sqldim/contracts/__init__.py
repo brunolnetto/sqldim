@@ -19,7 +19,11 @@ from sqldim.contracts.contract import DataContract
 from sqldim.contracts.registry import ContractRegistry
 
 # --- SQL validation engine ---
-from sqldim.contracts.reporting.report import Severity, ContractViolation, ContractReport
+from sqldim.contracts.reporting.report import (
+    Severity,
+    ContractViolation,
+    ContractReport,
+)
 from sqldim.contracts.exceptions import ContractViolationError
 from sqldim.contracts.validation.rules import (
     Rule,
@@ -41,7 +45,11 @@ from sqldim.contracts.validation.scd_rules import (
 )
 from sqldim.contracts.validation.freshness import Freshness, RowCountDelta
 from sqldim.contracts.engine import ContractEngine, EvolutionReport, EvolutionChange
-from sqldim.contracts.reporting.composite import SourceContract, StateContract, OutputContract
+from sqldim.contracts.reporting.composite import (
+    SourceContract,
+    StateContract,
+    OutputContract,
+)
 from sqldim.contracts.validation.gates import QualityGate, CheckResult, GateResult
 
 __all__ = [

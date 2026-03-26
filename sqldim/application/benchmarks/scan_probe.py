@@ -18,23 +18,22 @@ Usage::
     report = probe.report
     print(report)  # ScanReport(scan_count=3, expected=1, regression=True)
 """
+
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
+from typing import Any
 
 
 # ── Data ──────────────────────────────────────────────────────────────────
 
+
 @dataclass
 class ScanReport:
-    scan_count:  int   = 0
-    expected:    int   = 1
-    table_name:  str   = ""
-    calls:       list  = None
-
-    def __post_init__(self):
-        if self.calls is None:
-            self.calls = []
+    scan_count: int = 0
+    expected: int = 1
+    table_name: str = ""
+    calls: list = field(default_factory=list)
 
     @property
     def regression(self) -> bool:
@@ -56,20 +55,24 @@ class ScanReport:
 # ── DuckDB catalog tracker ────────────────────────────────────────────────
 
 # Object names that indicate current-state materialization
-_CURRENT_STATE_NAMES = frozenset({
-    "current_checksums",
-    "current_hashes",
-    "current_state",
-})
+_CURRENT_STATE_NAMES = frozenset(
+    {
+        "current_checksums",
+        "current_hashes",
+        "current_state",
+    }
+)
 
 
 def _is_state_object(name: str) -> bool:
     return any(n in name.lower() for n in _CURRENT_STATE_NAMES)
 
+
 def _append_new(existing: list, new_set: set) -> None:
     for n in new_set:
         if n not in existing:
             existing.append(n)
+
 
 class DuckDBObjectTracker:
     """
@@ -104,10 +107,10 @@ class DuckDBObjectTracker:
 
     def __init__(self, con):
         self._con = con
-        self.views_created:  list[str] = []
+        self.views_created: list[str] = []
         self.tables_created: list[str] = []
         self._tracking = False
-        self._baseline_views:  set[str] = set()
+        self._baseline_views: set[str] = set()
         self._baseline_tables: set[str] = set()
 
     def _query_catalog(self, query: str) -> set[str]:
@@ -131,7 +134,7 @@ class DuckDBObjectTracker:
     def wrap(self) -> "DuckDBObjectTracker":
         """Take baseline snapshot. Call before process() starts."""
         self._tracking = True
-        self._baseline_views  = self._current_views()
+        self._baseline_views = self._current_views()
         self._baseline_tables = self._current_tables()
         return self
 
@@ -144,7 +147,7 @@ class DuckDBObjectTracker:
             return
         current_v = self._current_views()
         current_t = self._current_tables()
-        new_views  = current_v  - self._baseline_views
+        new_views = current_v - self._baseline_views
         new_tables = current_t - self._baseline_tables
         _append_new(self.views_created, new_views)
         _append_new(self.tables_created, new_tables)
@@ -174,15 +177,16 @@ class DuckDBObjectTracker:
 
     def report(self) -> dict:
         return {
-            "views_created":          self.views_created,
-            "tables_created":         self.tables_created,
+            "views_created": self.views_created,
+            "tables_created": self.tables_created,
             "current_state_as_table": self.current_state_as_table,
-            "current_state_as_view":  self.current_state_as_view,
-            "regression_detected":    self.current_state_as_view,
+            "current_state_as_view": self.current_state_as_view,
+            "regression_detected": self.current_state_as_view,
         }
 
 
 # ── ScanProbe — wraps a SinkAdapter to count current_state_sql() calls ───
+
 
 class ScanProbe:
     """
@@ -203,14 +207,14 @@ class ScanProbe:
     """
 
     def __init__(self, sink, table_name: str = "", expected_scans: int = 1):
-        self._sink       = sink
+        self._sink = sink
         self._table_name = table_name
-        self._expected   = expected_scans
-        self.report      = ScanReport(table_name=table_name, expected=expected_scans)
-        self._original   = None
+        self._expected = expected_scans
+        self.report = ScanReport(table_name=table_name, expected=expected_scans)
+        self._original: Any = None
 
     def __enter__(self) -> "ScanProbe":
-        self.report    = ScanReport(table_name=self._table_name, expected=self._expected)
+        self.report = ScanReport(table_name=self._table_name, expected=self._expected)
         self._original = self._sink.__class__.current_state_sql
 
         probe = self
@@ -222,6 +226,7 @@ class ScanProbe:
 
         # Bind to instance, not class, so other sinks aren't affected
         import types
+
         self._sink.current_state_sql = types.MethodType(_intercepted, self._sink)
         return self
 

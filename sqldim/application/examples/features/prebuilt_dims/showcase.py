@@ -83,9 +83,9 @@ def example_09_date_time_spine() -> None:
     q_quarter = con.execute(
         "SELECT quarter, COUNT(*) AS days FROM dim_date GROUP BY quarter ORDER BY quarter"
     ).fetchall()
-    weekends = con.execute("SELECT COUNT(*) FROM dim_date WHERE is_weekend").fetchone()[
-        0
-    ]
+    weekends = (
+        con.execute("SELECT COUNT(*) FROM dim_date WHERE is_weekend").fetchone() or (0,)
+    )[0]
 
     # Time spine stats
     periods = con.execute(
@@ -140,7 +140,7 @@ def example_10_sales_channel_flags() -> None:
     setup.close()
 
     with DuckDBSink(path) as sink:
-        n = populate_junk_dimension_lazy(flags, "dim_sales_flags", sink, con=sink._con)
+        n = populate_junk_dimension_lazy(flags, "dim_sales_flags", sink, con=sink._con)  # type: ignore[arg-type]
 
     con = duckdb.connect(path)
     rows = con.execute(

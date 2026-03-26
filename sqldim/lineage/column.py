@@ -267,8 +267,8 @@ def extract_sql_lineage(sql: str, output_table: str) -> ColumnLineageFacet:
         Entries with ``confidence="parsed"`` for each resolved column.
     """
     try:
-        import sqlglot
-        import sqlglot.lineage  # noqa: F401 — ensures submodule is loaded
+        import sqlglot  # type: ignore[import-not-found]
+        import sqlglot.lineage  # noqa: F401 — ensures submodule is loaded  # type: ignore[import-not-found]
     except ImportError:
         raise ImportError(
             "sqlglot is required for automatic SQL lineage analysis. "

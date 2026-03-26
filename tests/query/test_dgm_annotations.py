@@ -59,7 +59,11 @@ class TestGrainKind:
         assert GrainKind.ACCUMULATING.value == "ACCUMULATING"
 
     def test_all_members(self):
-        assert set(GrainKind) == {GrainKind.EVENT, GrainKind.PERIOD, GrainKind.ACCUMULATING}
+        assert set(GrainKind) == {
+            GrainKind.EVENT,
+            GrainKind.PERIOD,
+            GrainKind.ACCUMULATING,
+        }
 
 
 class TestSCDKind:
@@ -263,7 +267,9 @@ class TestFactlessFact:
 
 class TestDerivedFact:
     def test_basic(self):
-        a = DerivedFact(fact="margin", sources=["revenue", "cost"], expr="revenue - cost")
+        a = DerivedFact(
+            fact="margin", sources=["revenue", "cost"], expr="revenue - cost"
+        )
         assert a.fact == "margin"
         assert a.sources == ["revenue", "cost"]
         assert a.expr == "revenue - cost"
@@ -279,7 +285,9 @@ class TestDerivedFact:
 
 class TestWeightConstraint:
     def test_allocative(self):
-        a = WeightConstraint(bridge="customer_bridge", constraint=WeightConstraintKind.ALLOCATIVE)
+        a = WeightConstraint(
+            bridge="customer_bridge", constraint=WeightConstraintKind.ALLOCATIVE
+        )
         assert a.bridge == "customer_bridge"
         assert a.constraint is WeightConstraintKind.ALLOCATIVE
 
@@ -365,31 +373,41 @@ class TestAnnotationKind:
         assert annotation_kind(RolePlaying(dim="d", roles=[])) == "RolePlaying"
 
     def test_projects_from(self):
-        assert annotation_kind(ProjectsFrom(dim_mini="m", dim_full="f")) == "ProjectsFrom"
+        assert (
+            annotation_kind(ProjectsFrom(dim_mini="m", dim_full="f")) == "ProjectsFrom"
+        )
 
     def test_factless_fact(self):
         assert annotation_kind(FactlessFact(fact="f")) == "FactlessFact"
 
     def test_derived_fact(self):
-        assert annotation_kind(DerivedFact(fact="f", sources=[], expr="")) == "DerivedFact"
+        assert (
+            annotation_kind(DerivedFact(fact="f", sources=[], expr="")) == "DerivedFact"
+        )
 
     def test_weight_constraint(self):
-        assert annotation_kind(
-            WeightConstraint(bridge="b", constraint=WeightConstraintKind.ALLOCATIVE)
-        ) == "WeightConstraint"
+        assert (
+            annotation_kind(
+                WeightConstraint(bridge="b", constraint=WeightConstraintKind.ALLOCATIVE)
+            )
+            == "WeightConstraint"
+        )
 
     def test_bridge_semantics(self):
-        assert annotation_kind(
-            BridgeSemantics(bridge="b", sem=BridgeSemanticsKind.CAUSAL)
-        ) == "BridgeSemantics"
+        assert (
+            annotation_kind(BridgeSemantics(bridge="b", sem=BridgeSemanticsKind.CAUSAL))
+            == "BridgeSemantics"
+        )
 
     def test_hierarchy(self):
         assert annotation_kind(Hierarchy(root="r", depth=1)) == "Hierarchy"
 
     def test_unknown_type_returns_class_name(self):
         """annotation_kind on an unknown subclass falls back to __name__."""
+
         class CustomAnnotation(SchemaAnnotation):
             pass
+
         obj = CustomAnnotation()
         result = annotation_kind(obj)
         assert result == "CustomAnnotation"
@@ -402,15 +420,17 @@ class TestAnnotationKind:
 
 class TestAnnotationSigma:
     def setup_method(self):
-        self.sigma = AnnotationSigma([
-            Conformed(dim="customer", fact_types={"Sale", "Return"}),
-            Grain(fact="sale", grain=GrainKind.EVENT),
-            Grain(fact="balance", grain=GrainKind.PERIOD),
-            SCDType(dim="customer", scd=SCDKind.SCD2),
-            FactlessFact(fact="attendance"),
-            BridgeSemantics(bridge="event_chain", sem=BridgeSemanticsKind.CAUSAL),
-            Hierarchy(root="geography", depth=3),
-        ])
+        self.sigma = AnnotationSigma(
+            [
+                Conformed(dim="customer", fact_types={"Sale", "Return"}),
+                Grain(fact="sale", grain=GrainKind.EVENT),
+                Grain(fact="balance", grain=GrainKind.PERIOD),
+                SCDType(dim="customer", scd=SCDKind.SCD2),
+                FactlessFact(fact="attendance"),
+                BridgeSemantics(bridge="event_chain", sem=BridgeSemanticsKind.CAUSAL),
+                Hierarchy(root="geography", depth=3),
+            ]
+        )
 
     def test_lookup_grain_event(self):
         result = self.sigma.grain_of("sale")
@@ -635,7 +655,7 @@ class TestPipelineArtifact:
         defaults = dict(
             fact="daily_rev",
             pipeline_id="daily_revenue",
-            ttl=604800,       # 7 days in seconds
+            ttl=604800,  # 7 days in seconds
             backfill_horizon=90,
             write_mode=WriteModeKind.ADAPTIVE,
         )

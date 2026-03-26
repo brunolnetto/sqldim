@@ -2,6 +2,7 @@
 
 Profile metadata and DuckDB SQL generators live in _generators.py.
 """
+
 from __future__ import annotations
 
 import importlib
@@ -18,26 +19,27 @@ from sqldim.application.benchmarks._generators import _PROFILE_META, _SQL_GENERA
 # ── Scale tiers ───────────────────────────────────────────────────────────
 
 SCALE_TIERS = {
-    "xs":  10_000,
-    "s":   100_000,
-    "m":   1_000_000,
-    "l":   5_000_000,
-    "xl":  20_000_000,
+    "xs": 10_000,
+    "s": 100_000,
+    "m": 1_000_000,
+    "l": 5_000_000,
+    "xl": 20_000_000,
     "xxl": 60_000_000,
 }
 
 # Change rate per tier for event batches
 CHANGE_RATES = {
-    "xs":  0.30,
-    "s":   0.20,
-    "m":   0.15,
-    "l":   0.10,
-    "xl":  0.05,
+    "xs": 0.30,
+    "s": 0.20,
+    "m": 0.15,
+    "l": 0.10,
+    "xl": 0.05,
     "xxl": 0.02,
 }
 
 
 # ── DDL resolver ──────────────────────────────────────────────────────────
+
 
 def _resolve_ddl(profile: str) -> str:
     meta = _PROFILE_META[profile]
@@ -60,6 +62,7 @@ def _get_ddl(profile: str) -> str:
 
 # ── DatasetArtifact helpers ────────────────────────────────────────────────
 
+
 def _remove_path(p: str) -> None:
     if p and os.path.exists(p):
         os.unlink(p)
@@ -75,6 +78,7 @@ def _remove_dir(d: str) -> None:
 
 # ── DatasetArtifact ────────────────────────────────────────────────────────
 
+
 @dataclass
 class DatasetArtifact:
     """A generated dataset available as Parquet files on disk.
@@ -82,17 +86,18 @@ class DatasetArtifact:
     Using Parquet means rescanning is cheap and does not keep the full
     dataset in Python memory — important at m/l/xl/xxl tiers.
     """
-    profile:          str
-    tier:             str
-    n_rows:           int
-    n_changed:        int
-    snapshot_path:    str  = ""
-    events_path:      str  = ""
-    ddl:              str  = ""
-    natural_key:      str  = ""
-    track_columns:    list = field(default_factory=list)
+
+    profile: str
+    tier: str
+    n_rows: int
+    n_changed: int
+    snapshot_path: str = ""
+    events_path: str = ""
+    ddl: str = ""
+    natural_key: str = ""
+    track_columns: list = field(default_factory=list)
     metadata_columns: list = field(default_factory=list)
-    _temp_dir:        str  = field(default="", repr=False)
+    _temp_dir: str = field(default="", repr=False)
 
     def cleanup(self) -> None:
         for p in [self.snapshot_path, self.events_path]:
@@ -107,6 +112,7 @@ class DatasetArtifact:
 
 
 # ── Generator ─────────────────────────────────────────────────────────────
+
 
 class BenchmarkDatasetGenerator:
     """Generates benchmark datasets at scale via DuckDB ``generate_series``.
@@ -136,24 +142,30 @@ class BenchmarkDatasetGenerator:
     ) -> DatasetArtifact:
         """Generate snapshot + event-batch Parquet files for *profile* at *tier* scale."""
         if profile not in _PROFILE_META:
-            raise ValueError(f"Unknown profile {profile!r}. Available: {sorted(_PROFILE_META)}")
+            raise ValueError(
+                f"Unknown profile {profile!r}. Available: {sorted(_PROFILE_META)}"
+            )
         if profile not in _SQL_GENERATORS:
             raise ValueError(f"No SQL generator registered for profile {profile!r}.")
 
-        n_rows    = SCALE_TIERS[tier]
-        rate      = change_rate if change_rate is not None else CHANGE_RATES[tier]
+        n_rows = SCALE_TIERS[tier]
+        rate = change_rate if change_rate is not None else CHANGE_RATES[tier]
         n_changed = max(1, int(n_rows * rate))
-        meta      = _PROFILE_META[profile]
-        sql_gen   = _SQL_GENERATORS[profile]
-        tmp_dir   = tempfile.mkdtemp(
+        meta = _PROFILE_META[profile]
+        sql_gen = _SQL_GENERATORS[profile]
+        tmp_dir = tempfile.mkdtemp(
             prefix=f"sqldim_bench_{profile}_{tier}_", dir=self._tmp_root
         )
-        snap_path   = os.path.join(tmp_dir, "snapshot.parquet")
+        snap_path = os.path.join(tmp_dir, "snapshot.parquet")
         events_path = os.path.join(tmp_dir, "events.parquet")
 
-        self._con.execute(sql_gen["snapshot_view"].format(n=n_rows, changed=n_changed, seed=seed))
+        self._con.execute(
+            sql_gen["snapshot_view"].format(n=n_rows, changed=n_changed, seed=seed)
+        )
         self._con.execute(f"COPY _bench_snapshot TO '{snap_path}' (FORMAT parquet)")
-        self._con.execute(sql_gen["event_view"].format(n=n_rows, changed=n_changed, seed=seed))
+        self._con.execute(
+            sql_gen["event_view"].format(n=n_rows, changed=n_changed, seed=seed)
+        )
         self._con.execute(f"COPY _bench_events TO '{events_path}' (FORMAT parquet)")
 
         return DatasetArtifact(
@@ -176,7 +188,7 @@ class BenchmarkDatasetGenerator:
         tiers: list[str] | None = None,
     ) -> Iterator[DatasetArtifact]:
         """Yield artifacts for each tier, cleaning up each after yielding."""
-        for tier in (tiers or list(SCALE_TIERS.keys())):
+        for tier in tiers or list(SCALE_TIERS.keys()):
             yield self.generate(profile, tier)
 
     def setup_dim_table(

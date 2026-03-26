@@ -8,6 +8,7 @@ pytest-postgresql is unavailable (or postgres is not installed):
   - write_named() returns 0 for empty view                  (line 109)
   - write_named() complete happy-path (lines 108–136) via mock
 """
+
 from __future__ import annotations
 
 from unittest.mock import MagicMock
@@ -19,7 +20,7 @@ class TestCurrentStateSqlWithConSet:
     def test_uses_alias_path_when_con_is_set(self):
         """When _con is not None, return alias.schema.table (not postgres_scan)."""
         sink = PostgreSQLSink("host=127.0.0.1 port=5432 user=pg dbname=db")
-        sink._con = object()   # any non-None value triggers the alias branch
+        sink._con = object()  # any non-None value triggers the alias branch
         sql = sink.current_state_sql("dim_emp")
         assert "sqldim_pg" in sql
         assert "public" in sql
@@ -112,7 +113,9 @@ class TestWriteNamedHappyPath:
         sink = PostgreSQLSink("dsn=ignored")
         con = self._con_with_count(5)
         # Should not raise; n_chunks=1 means the debug branch is skipped
-        result = sink.write_named(con, "new_rows", "dim_emp", ["emp_id"], batch_size=100)
+        result = sink.write_named(
+            con, "new_rows", "dim_emp", ["emp_id"], batch_size=100
+        )
         assert result == 5
 
 
@@ -122,6 +125,7 @@ class TestCloseVersions:
 
     def _mock_con(self, count=2):
         from unittest.mock import MagicMock
+
         con = MagicMock()
         con.execute.return_value.fetchone.return_value = (count,)
         return con
@@ -130,7 +134,9 @@ class TestCloseVersions:
         """String nk_col → else branch: join_cond = 't.col = n.col' (line 172)."""
         sink = PostgreSQLSink("dsn=ignored")
         con = self._mock_con(2)
-        result = sink.close_versions(con, "dim_emp", "emp_id", "changed_nks", "2099-01-01")
+        result = sink.close_versions(
+            con, "dim_emp", "emp_id", "changed_nks", "2099-01-01"
+        )
         assert result == 2
         all_sql = [c[0][0] for c in con.execute.call_args_list]
         update_sql = next(s for s in all_sql if "UPDATE" in s)
@@ -231,7 +237,11 @@ class TestUpdateMilestones:
         con = MagicMock()
         con.execute.return_value.fetchone.return_value = (5,)
         result = sink.update_milestones(
-            con, "dim_orders", "order_id", "milestones_view", ["shipped_at", "delivered_at"]
+            con,
+            "dim_orders",
+            "order_id",
+            "milestones_view",
+            ["shipped_at", "delivered_at"],
         )
         assert result == 5
 

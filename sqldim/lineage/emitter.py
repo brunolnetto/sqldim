@@ -74,7 +74,7 @@ class OpenLineageEmitter:
         url: str = "http://localhost:5000/api/v1",
     ) -> None:
         try:
-            from openlineage.client import OpenLineageClient
+            from openlineage.client import OpenLineageClient  # type: ignore[import-not-found]
         except ImportError:
             raise ImportError(
                 "The [lineage] optional dependency group is required for "
@@ -130,7 +130,7 @@ class OpenLineageEmitter:
         return OpenLineageEmitter._STATE_MAP[state_value]
 
     def emit(self, event: LineageEvent) -> None:
-        from openlineage.client.run import (
+        from openlineage.client.run import (  # type: ignore[import-not-found]
             Run,
             RunEvent,
             RunState as OLRunState,

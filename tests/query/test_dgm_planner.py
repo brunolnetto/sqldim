@@ -20,7 +20,6 @@ Covers:
 
 from __future__ import annotations
 
-import pytest
 
 from sqldim.core.query.dgm.planner import (
     QueryTarget,
@@ -42,9 +41,6 @@ from sqldim.core.query.dgm.exporters import (
 )
 from sqldim.core.query.dgm.graph import (
     GraphStatistics,
-    RelationshipSubgraph,
-    Bound,
-    FREE,
     OUTGOING_SIGNATURES,
     INCOMING_SIGNATURES,
     SIGNATURE_ENTROPY,
@@ -54,11 +50,8 @@ from sqldim.core.query.dgm.graph import (
 )
 from sqldim.core.query.dgm.annotations import (
     AnnotationSigma,
-    Grain,
     GrainKind,
-    SCDType,
     SCDKind,
-    FactlessFact,
     Degenerate,
     RolePlaying,
     BridgeSemantics,
@@ -67,17 +60,17 @@ from sqldim.core.query.dgm.annotations import (
     DerivedFact,
     WeightConstraint,
     WeightConstraintKind,
-    Hierarchy,
     RAGGED,
 )
 from sqldim.core.query.dgm.bdd import DGMPredicateBDD
-from sqldim.core.query.dgm.preds import ScalarPred, AND
+from sqldim.core.query.dgm.preds import ScalarPred
 from sqldim.core.query.dgm.refs import PropRef
 
 
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
+
 
 def _make_planner(
     sigma=None,
@@ -104,6 +97,7 @@ def _make_planner(
 # ---------------------------------------------------------------------------
 # QueryTarget
 # ---------------------------------------------------------------------------
+
 
 class TestQueryTarget:
     def test_has_sql_duckdb(self):
@@ -135,6 +129,7 @@ class TestQueryTarget:
 # SinkTarget
 # ---------------------------------------------------------------------------
 
+
 class TestSinkTarget:
     def test_has_duckdb(self):
         assert SinkTarget.DUCKDB.value == "DUCKDB"
@@ -162,6 +157,7 @@ class TestSinkTarget:
 # PreComputation
 # ---------------------------------------------------------------------------
 
+
 class TestPreComputation:
     def test_basic_creation(self):
         pc = PreComputation(name="gt_bfs", query="SELECT ...", kind="sql")
@@ -187,6 +183,7 @@ class TestPreComputation:
 # CostEstimate
 # ---------------------------------------------------------------------------
 
+
 class TestCostEstimate:
     def test_basic_creation(self):
         ce = CostEstimate(cpu_ops=100, io_ops=50)
@@ -208,6 +205,7 @@ class TestCostEstimate:
 # ---------------------------------------------------------------------------
 # ExportPlan
 # ---------------------------------------------------------------------------
+
 
 class TestExportPlan:
     def test_basic_creation(self):
@@ -255,6 +253,7 @@ class TestExportPlan:
 # DGMPlanner — instantiation
 # ---------------------------------------------------------------------------
 
+
 class TestDGMPlannerInit:
     def test_basic_instantiation(self):
         p = _make_planner()
@@ -278,6 +277,7 @@ class TestDGMPlannerInit:
 # Rule 1a — Path execution strategy
 # ---------------------------------------------------------------------------
 
+
 class TestRule1a:
     """Rule 1a: Bound/Free endpoint × strategy dispatching."""
 
@@ -288,7 +288,10 @@ class TestRule1a:
             strategy="ALL",
             path_card=SMALL - 1,
         )
-        assert "recursive_cte" in result.query_text.lower() or "recursive" in result.query_text.lower()
+        assert (
+            "recursive_cte" in result.query_text.lower()
+            or "recursive" in result.query_text.lower()
+        )
 
     def test_bb_large_prematerialise(self):
         p = _make_planner()
@@ -297,7 +300,10 @@ class TestRule1a:
             strategy="ALL",
             path_card=SMALL + 1,
         )
-        assert "materialise" in result.query_text.lower() or "materialize" in result.query_text.lower()
+        assert (
+            "materialise" in result.query_text.lower()
+            or "materialize" in result.query_text.lower()
+        )
 
     def test_bb_shortest_limit_1(self):
         p = _make_planner()
@@ -315,28 +321,43 @@ class TestRule1a:
             strategy="CAUSAL",
             path_card=SMALL - 1,
         )
-        assert "dag_bfs" in result.query_text.lower() or "dag" in result.query_text.lower()
+        assert (
+            "dag_bfs" in result.query_text.lower() or "dag" in result.query_text.lower()
+        )
 
     def test_bf_forward_bfs(self):
         p = _make_planner()
         result = p.apply_rule_1a(endpoint_case="BF", strategy="ALL", path_card=10)
-        assert "bfs" in result.query_text.lower() or "forward" in result.query_text.lower()
+        assert (
+            "bfs" in result.query_text.lower() or "forward" in result.query_text.lower()
+        )
 
     def test_fb_forward_bfs_default(self):
         p = _make_planner()
         result = p.apply_rule_1a(endpoint_case="FB", strategy="ALL", path_card=10)
         # Free→Bound uses G^T (transposed adjacency)
-        assert "transposed" in result.query_text.lower() or "g^t" in result.query_text.lower() or "bfs" in result.query_text.lower()
+        assert (
+            "transposed" in result.query_text.lower()
+            or "g^t" in result.query_text.lower()
+            or "bfs" in result.query_text.lower()
+        )
 
     def test_fb_causal_reverse_topological(self):
         p = _make_planner()
         result = p.apply_rule_1a(endpoint_case="FB", strategy="CAUSAL", path_card=10)
-        assert "topological" in result.query_text.lower() or "reverse" in result.query_text.lower() or "g^t" in result.query_text.lower()
+        assert (
+            "topological" in result.query_text.lower()
+            or "reverse" in result.query_text.lower()
+            or "g^t" in result.query_text.lower()
+        )
 
     def test_ff_wcc(self):
         p = _make_planner()
         result = p.apply_rule_1a(endpoint_case="FF", strategy="ALL", path_card=10)
-        assert "wcc" in result.query_text.lower() or "component" in result.query_text.lower()
+        assert (
+            "wcc" in result.query_text.lower()
+            or "component" in result.query_text.lower()
+        )
 
     def test_returns_export_plan(self):
         p = _make_planner()
@@ -351,12 +372,16 @@ class TestRule1a:
     def test_bf_shortest_first_visit(self):
         p = _make_planner()
         result = p.apply_rule_1a(endpoint_case="BF", strategy="SHORTEST", path_card=10)
-        assert "first_visit" in result.query_text.lower() or "bfs" in result.query_text.lower()
+        assert (
+            "first_visit" in result.query_text.lower()
+            or "bfs" in result.query_text.lower()
+        )
 
 
 # ---------------------------------------------------------------------------
 # Rule 1b — Grain-aware aggregation
 # ---------------------------------------------------------------------------
+
 
 class TestRule1b:
     def test_period_rejects_sum(self):
@@ -395,6 +420,7 @@ class TestRule1b:
 # Rule 1c — SCD resolution
 # ---------------------------------------------------------------------------
 
+
 class TestRule1c:
     def test_scd1_strip_temporal(self):
         p = _make_planner()
@@ -425,12 +451,17 @@ class TestRule1c:
 # Rule 2 — Floyd-Warshall threshold
 # ---------------------------------------------------------------------------
 
+
 class TestRule2:
     def test_above_threshold_precompute(self):
         p = _make_planner(statistics=GraphStatistics(node_count=10, edge_count=20))
         # pair_count * avg_path_len > node_count² → pre-compute
         result = p.apply_rule_2(pair_count=50, avg_path_len=5, node_count=10)
-        assert "floyd" in result.lower() or "precompute" in result.lower() or "pre_compute" in result.lower()
+        assert (
+            "floyd" in result.lower()
+            or "precompute" in result.lower()
+            or "pre_compute" in result.lower()
+        )
 
     def test_below_threshold_per_pair_cte(self):
         p = _make_planner()
@@ -447,12 +478,15 @@ class TestRule2:
 
     def test_returns_string(self):
         p = _make_planner()
-        assert isinstance(p.apply_rule_2(pair_count=1, avg_path_len=1, node_count=1), str)
+        assert isinstance(
+            p.apply_rule_2(pair_count=1, avg_path_len=1, node_count=1), str
+        )
 
 
 # ---------------------------------------------------------------------------
 # Rule 3 — GraphExpr scheduling
 # ---------------------------------------------------------------------------
+
 
 class TestRule3:
     def test_outgoing_sigs_forward_bfs(self):
@@ -465,16 +499,28 @@ class TestRule3:
         p = _make_planner()
         expr = NodeExpr(INCOMING_SIGNATURES(), alias="a")
         result = p.apply_rule_3(expr)
-        assert "transposed" in result.lower() or "g^t" in result.lower() or "bfs" in result.lower()
+        assert (
+            "transposed" in result.lower()
+            or "g^t" in result.lower()
+            or "bfs" in result.lower()
+        )
 
     def test_signature_entropy_large_graph_precompute(self):
-        p = _make_planner(statistics=GraphStatistics(node_count=SMALL_GRAPH_THRESHOLD + 1, edge_count=100))
+        p = _make_planner(
+            statistics=GraphStatistics(
+                node_count=SMALL_GRAPH_THRESHOLD + 1, edge_count=100
+            )
+        )
         expr = SubgraphExpr(SIGNATURE_ENTROPY())
         result = p.apply_rule_3(expr)
         assert "precompute" in result.lower() or "pre_compute" in result.lower()
 
     def test_signature_entropy_small_graph_inline(self):
-        p = _make_planner(statistics=GraphStatistics(node_count=SMALL_GRAPH_THRESHOLD - 1, edge_count=50))
+        p = _make_planner(
+            statistics=GraphStatistics(
+                node_count=SMALL_GRAPH_THRESHOLD - 1, edge_count=50
+            )
+        )
         expr = SubgraphExpr(SIGNATURE_ENTROPY())
         result = p.apply_rule_3(expr)
         assert "inline" in result.lower()
@@ -485,14 +531,23 @@ class TestRule3:
         assert isinstance(p.apply_rule_3(expr), str)
 
     def test_global_dominant_sig_broadcast(self):
-        p = _make_planner(statistics=GraphStatistics(node_count=SMALL_GRAPH_THRESHOLD - 1, edge_count=10))
+        p = _make_planner(
+            statistics=GraphStatistics(
+                node_count=SMALL_GRAPH_THRESHOLD - 1, edge_count=10
+            )
+        )
         expr = SubgraphExpr(GLOBAL_DOMINANT_SIGNATURE())
         result = p.apply_rule_3(expr)
-        assert "broadcast" in result.lower() or "scalar" in result.lower() or "inline" in result.lower()
+        assert (
+            "broadcast" in result.lower()
+            or "scalar" in result.lower()
+            or "inline" in result.lower()
+        )
 
     def test_inline_node_expr_fallback(self):
         """NodeExpr with a non-TrailExpr alg (e.g. DEGREE) hits the inline fallback."""
         from sqldim.core.query.dgm.graph import DEGREE
+
         p = _make_planner()
         expr = NodeExpr(DEGREE(), alias="x")
         result = p.apply_rule_3(expr)
@@ -502,6 +557,7 @@ class TestRule3:
     def test_inline_subgraph_expr_fallback(self):
         """SubgraphExpr with a non-TrailExpr alg (e.g. DENSITY) hits the inline fallback."""
         from sqldim.core.query.dgm.graph import DENSITY
+
         p = _make_planner()
         expr = SubgraphExpr(DENSITY())
         result = p.apply_rule_3(expr)
@@ -513,9 +569,11 @@ class TestRule3:
 # Rule 4 — Band reordering (BDD implies)
 # ---------------------------------------------------------------------------
 
+
 class TestRule4:
     def test_implies_removes_having(self):
         from sqldim.core.query.dgm.bdd import BDDManager
+
         mgr = BDDManager()
         bdd = DGMPredicateBDD(mgr)
         p_true = ScalarPred(PropRef("r.revenue"), ">", 0)
@@ -529,6 +587,7 @@ class TestRule4:
 
     def test_no_implies_keeps_having(self):
         from sqldim.core.query.dgm.bdd import BDDManager
+
         mgr = BDDManager()
         bdd = DGMPredicateBDD(mgr)
         p1 = ScalarPred(PropRef("r.revenue"), ">", 100)
@@ -542,6 +601,7 @@ class TestRule4:
 
     def test_returns_bool(self):
         from sqldim.core.query.dgm.bdd import BDDManager
+
         mgr = BDDManager()
         bdd = DGMPredicateBDD(mgr)
         p = ScalarPred(PropRef("x.y"), "=", 1)
@@ -553,6 +613,7 @@ class TestRule4:
 # ---------------------------------------------------------------------------
 # Rule 5 — Hierarchy execution
 # ---------------------------------------------------------------------------
+
 
 class TestRule5:
     def test_depth_le_4_unroll(self):
@@ -584,6 +645,7 @@ class TestRule5:
 # Rule 6 — Annotation-driven optimisations
 # ---------------------------------------------------------------------------
 
+
 class TestRule6:
     def test_role_playing_single_scan(self):
         p = _make_planner()
@@ -613,7 +675,9 @@ class TestRule6:
 
     def test_weight_constraint_alloc_warn(self):
         p = _make_planner()
-        ann = WeightConstraint(bridge="bridge_b", constraint=WeightConstraintKind.ALLOCATIVE)
+        ann = WeightConstraint(
+            bridge="bridge_b", constraint=WeightConstraintKind.ALLOCATIVE
+        )
         result = p.apply_rule_6(ann)
         assert any("weight" in s.lower() for s in result)
 
@@ -658,7 +722,9 @@ class TestRule6:
     def test_weight_non_allocative_empty(self):
         """WeightConstraint(UNCONSTRAINED) → no optimisation → []."""
         p = _make_planner()
-        ann = WeightConstraint(bridge="b", constraint=WeightConstraintKind.UNCONSTRAINED)
+        ann = WeightConstraint(
+            bridge="b", constraint=WeightConstraintKind.UNCONSTRAINED
+        )
         result = p.apply_rule_6(ann)
         assert result == []
 
@@ -673,6 +739,7 @@ class TestRule6:
 # ---------------------------------------------------------------------------
 # Rule 7 — TemporalAgg window scheduling
 # ---------------------------------------------------------------------------
+
 
 class TestRule7:
     def test_dense_pre_aggregate(self):
@@ -699,6 +766,7 @@ class TestRule7:
 # Rule 8 — Sink-aware write planning
 # ---------------------------------------------------------------------------
 
+
 class TestRule8:
     def test_duckdb_create_table_as(self):
         p = _make_planner()
@@ -718,7 +786,11 @@ class TestRule8:
             has_q_delta=False,
             grain_kind=None,
         )
-        assert "copy" in result.lower() or "attach" in result.lower() or "insert" in result.lower()
+        assert (
+            "copy" in result.lower()
+            or "attach" in result.lower()
+            or "insert" in result.lower()
+        )
 
     def test_parquet_copy_to(self):
         p = _make_planner()
@@ -738,7 +810,11 @@ class TestRule8:
             has_q_delta=False,
             grain_kind=None,
         )
-        assert "delta" in result.lower() or "create or replace" in result.lower() or "insert into" in result.lower()
+        assert (
+            "delta" in result.lower()
+            or "create or replace" in result.lower()
+            or "insert into" in result.lower()
+        )
 
     def test_parquet_temporal_agg_partition_by(self):
         p = _make_planner()
@@ -778,6 +854,7 @@ class TestRule8:
 # ---------------------------------------------------------------------------
 # Rule 9 — Cone containment optimisation
 # ---------------------------------------------------------------------------
+
 
 class TestRule9:
     def test_both_present_fires(self):
@@ -836,6 +913,7 @@ class TestRule9:
 # Constants sanity
 # ---------------------------------------------------------------------------
 
+
 class TestConstants:
     def test_small_positive_int(self):
         assert isinstance(SMALL, int)
@@ -854,6 +932,7 @@ class TestConstants:
 # ---------------------------------------------------------------------------
 # CypherExporter
 # ---------------------------------------------------------------------------
+
 
 class TestCypherExporter:
     def test_export_returns_string(self):
@@ -889,6 +968,7 @@ class TestCypherExporter:
 # SPARQLExporter
 # ---------------------------------------------------------------------------
 
+
 class TestSPARQLExporter:
     def test_export_returns_string(self):
         plan = ExportPlan(QueryTarget.SPARQL, "SELECT * WHERE { ?s ?p ?o }")
@@ -912,6 +992,7 @@ class TestSPARQLExporter:
 # ---------------------------------------------------------------------------
 # DGMJSONExporter
 # ---------------------------------------------------------------------------
+
 
 class TestDGMJSONExporter:
     def test_export_returns_dict(self):
@@ -980,6 +1061,7 @@ class TestDGMJSONExporter:
 # ---------------------------------------------------------------------------
 # DGMYAMLExporter
 # ---------------------------------------------------------------------------
+
 
 class TestDGMYAMLExporter:
     def test_export_returns_string(self):
@@ -1096,6 +1178,7 @@ class TestDGMYAMLExporter:
 # Integration: build_plan()
 # ---------------------------------------------------------------------------
 
+
 class TestBuildPlan:
     def test_build_plan_sql_duckdb(self):
         p = _make_planner(query_target=QueryTarget.SQL_DUCKDB)
@@ -1121,18 +1204,22 @@ class TestBuildPlan:
         p = _make_planner()
         plan = p.build_plan("SELECT 1")
         # Cost estimate may be None or a CostEstimate — both valid
-        assert plan.cost_estimate is None or isinstance(plan.cost_estimate, CostEstimate)
+        assert plan.cost_estimate is None or isinstance(
+            plan.cost_estimate, CostEstimate
+        )
 
 
 # ---------------------------------------------------------------------------
 # Rule 10 — PipelineArtifact state-aware write planning
 # ---------------------------------------------------------------------------
 
+
 class TestRule10:
     from sqldim.core.query.dgm.annotations import PipelineStateKind, WriteModeKind
 
     def test_adaptive_missing_infers_append(self):
         from sqldim.core.query.dgm.annotations import PipelineStateKind, WriteModeKind
+
         p = _make_planner()
         result = p.apply_rule_10(
             fact="daily_rev",
@@ -1144,6 +1231,7 @@ class TestRule10:
 
     def test_adaptive_failed_infers_append(self):
         from sqldim.core.query.dgm.annotations import PipelineStateKind, WriteModeKind
+
         p = _make_planner()
         result = p.apply_rule_10(
             fact="daily_rev",
@@ -1155,6 +1243,7 @@ class TestRule10:
 
     def test_adaptive_stale_infers_merge(self):
         from sqldim.core.query.dgm.annotations import PipelineStateKind, WriteModeKind
+
         p = _make_planner()
         result = p.apply_rule_10(
             fact="daily_rev",
@@ -1166,6 +1255,7 @@ class TestRule10:
 
     def test_backfill_mode_infers_append(self):
         from sqldim.core.query.dgm.annotations import PipelineStateKind, WriteModeKind
+
         p = _make_planner()
         result = p.apply_rule_10(
             fact="daily_rev",
@@ -1177,6 +1267,7 @@ class TestRule10:
 
     def test_backfill_mode_injects_predicate(self):
         from sqldim.core.query.dgm.annotations import PipelineStateKind, WriteModeKind
+
         p = _make_planner()
         result = p.apply_rule_10(
             fact="daily_rev",
@@ -1184,10 +1275,15 @@ class TestRule10:
             ttl_elapsed_s=0.0,
             write_mode=WriteModeKind.BACKFILL,
         )
-        assert "backfill" in result.lower() or "predicate" in result.lower() or "window_end" in result.lower()
+        assert (
+            "backfill" in result.lower()
+            or "predicate" in result.lower()
+            or "window_end" in result.lower()
+        )
 
     def test_refresh_mode_infers_merge(self):
         from sqldim.core.query.dgm.annotations import PipelineStateKind, WriteModeKind
+
         p = _make_planner()
         result = p.apply_rule_10(
             fact="daily_rev",
@@ -1199,6 +1295,7 @@ class TestRule10:
 
     def test_returns_string(self):
         from sqldim.core.query.dgm.annotations import PipelineStateKind, WriteModeKind
+
         p = _make_planner()
         result = p.apply_rule_10(
             fact="f",
@@ -1211,6 +1308,7 @@ class TestRule10:
     def test_ttl_expiry_complete_to_stale(self):
         """Rule 10a: COMPLETE state + elapsed TTL triggers → emits MERGE plan (lines 375-376)."""
         from sqldim.core.query.dgm.annotations import PipelineStateKind, WriteModeKind
+
         p = _make_planner()
         result = p.apply_rule_10(
             fact="daily_rev",
@@ -1223,9 +1321,9 @@ class TestRule10:
     def test_dispatch_fixed_mode_fallthrough(self):
         """_r10_dispatch_fixed_mode returns fallthrough string for unknown mode (line 398)."""
         from sqldim.core.query.dgm.annotations import PipelineStateKind, WriteModeKind
+
         p = _make_planner()
         result = p._r10_dispatch_fixed_mode(
             "fact_x", PipelineStateKind.MISSING, "UNKNOWN_MODE", WriteModeKind, []
         )
         assert "no write plan inferred" in result
-
