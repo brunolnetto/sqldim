@@ -1,5 +1,5 @@
 # Dimensional Graph Model — Formal Specification
-**Version 0.20 — Draft**
+**Version 0.22 — Draft**
 
 ---
 
@@ -43,6 +43,17 @@
     - 10.3 Related work
     - 10.4 Design decisions
     - 10.5 References
+11. [Natural Language Interface](#11-natural-language-interface)
+    - 11.1 Architecture overview
+    - 11.2 LLM responsibilities
+    - 11.3 Semantic grounding layer
+    - 11.4 Temporal and compositional intent mapping
+    - 11.5 Confirmation and refinement loop
+    - 11.6 Ambiguity resolution
+    - 11.7 Schema evolution handling
+    - 11.8 Hallucination prevention
+    - 11.9 Integration with execution budget gate
+    - 11.10 Implementation: LangGraph + Pydantic-AI
 
 ---
 
@@ -67,6 +78,9 @@ The framework rests on fifteen core ideas:
 - **A query planner** makes DGM-specific physical execution decisions informed by schema annotations, including cone containment optimisation (Rule 9) for relaxed-endpoint traversals.
 - **A query exporter** translates physical plans to multiple query and sink targets.
 - **A recommender** surfaces analytically useful next steps via a two-stage trail exploration flow grounded in endpoint relaxation.
+- **ExecutionBudget and pre-execution gate** — a runtime policy layer between the planner and execution that intercepts expensive queries and redirects gracefully via cost-aware rewriting, progressive streaming, sampling with Hoeffding error bounds, or async execution with PipelineArtifact materialisation.
+- **Natural language interface** — a five-layer architecture mapping NL utterances to formally bounded Q_valid(A,B) positions. The LLM navigates the canonical question lattice rather than generating SQL from scratch.
+- **LangGraph + Pydantic-AI implementation stack** — five specialist Pydantic-AI agents with output schemas derived from DGM formal types, orchestrated by a LangGraph state graph with explicit HIL checkpoints and cyclic refinement workflows. DGM's bounded vocabulary is enforced as Pydantic validators.
 
 ---
 
@@ -890,7 +904,159 @@ Containment check:
 
 After elimination, the canonical query DAG is topologically sorted. Each node becomes exactly one CTE in the SQL output. The minimum CTE count equals the number of nodes in the canonical DAG — a tight lower bound: no correct query with fewer CTEs exists.
 
-### 6.3  Query exporter
+### 6.3  Execution budget and pre-execution gate
+
+The pre-execution gate sits between the planner and execution. It intercepts every `ExportPlan` before it reaches the SQL emitter, compares the cost estimate against a declared `ExecutionBudget`, classifies the failure mode if any, and applies one of four graceful handling strategies.
+
+**ExecutionBudget type:**
+
+```
+ExecutionBudget = (
+  max_estimated_cost:   CostEstimate,  -- planner cost unit ceiling
+  max_result_rows:      ℕ,             -- row count ceiling
+  max_wall_time:        Duration,       -- synchronous execution timeout
+  max_precompute_time:  Duration,       -- per PreComputation timeout
+  streaming_threshold:  CostEstimate,  -- above → stream results progressively
+  async_threshold:      CostEstimate   -- above → async with callback + materialisation
+)
+
+BudgetDecision ::= PROCEED                      -- within budget; execute synchronously
+                 | STREAM                        -- above streaming_threshold; progressive delivery
+                 | ASYNC(sink: SinkTarget,
+                         callback: Endpoint,
+                         ttl: Duration)          -- above async_threshold; execute async
+                 | REWRITE(plan: ExportPlan,
+                           warning: string)      -- cost-reduced rewrite + transparency note
+                 | SAMPLE(fraction: ℝ,
+                          method: RANDOM | STRATIFIED | RESERVOIR,
+                          error_bound: ℝ)        -- approximate result with confidence interval
+                 | PAGINATE(page_size: ℕ)        -- rewrite to paginate result set
+                 | CLARIFY(options: list[ExportPlan],
+                           cost_per_option: list[CostEstimate])
+                                                 -- ask user to narrow; surface lattice refinements
+                 | REJECT(reason: string)         -- hard ceiling exceeded; refuse
+```
+
+**Pre-execution decision procedure:**
+
+```
+gate(plan: ExportPlan, budget: ExecutionBudget) → BudgetDecision:
+
+  est = plan.cost_estimate
+
+  -- Hard ceiling
+  if est > budget.max_estimated_cost * HARD_CEILING_FACTOR:
+    return REJECT("Query exceeds hard cost ceiling. " + narrowing_hint(plan))
+
+  -- Async threshold
+  if est > budget.async_threshold:
+    return ASYNC(sink=default_sink, callback=user_endpoint, ttl=24h)
+
+  -- Streaming threshold
+  if est > budget.streaming_threshold:
+    return STREAM
+
+  -- Cost-aware rewrite candidates (preserves analytical intent):
+  rewrites = [
+    rewrite_strategy(plan, SHORTEST)    if has_ALL_PathPred(plan),
+    rewrite_depth_limit(plan, depth=3)  if has_unbounded_TrailExpr(plan),
+    rewrite_cone(plan, BOUND_FREE)      if has_FREE_FREE_scope(plan),
+  ]
+  viable = [r for r in rewrites if r.cost_estimate ≤ budget.streaming_threshold]
+  if viable:
+    return REWRITE(best(viable), warning=rewrite_explanation(viable[0]))
+
+  -- Result size guard
+  if estimated_rows(plan) > budget.max_result_rows:
+    return PAGINATE(page_size=default_page_size)
+
+  -- PreComputation timeout guard
+  for pc in plan.pre_compute:
+    if estimated_time(pc) > budget.max_precompute_time:
+      -- substitute approximation algorithm
+      plan = substitute_approximation(plan, pc)
+
+  return PROCEED
+```
+
+**Four graceful handling strategies:**
+
+**Strategy 1 — Cost-aware rewriting.** Moves the query down the strategy lattice while preserving analytical intent. Rewrites are transparent — the user sees a note explaining what was approximated.
+
+```
+Rewrite rules:
+  PathPred(FORALL/EXISTS, ALL, φ)  →  PathPred(..., SHORTEST, φ)
+    warning: "Checking only shortest paths. Use ALL strategy for exhaustive check."
+
+  DISTINCT_SIGNATURES(max_depth=∞) →  DISTINCT_SIGNATURES(max_depth=3)
+    warning: "Path depth limited to 3."
+
+  SubgraphExpr(scope=Free→Free)    →  SubgraphExpr(scope=Bound(A)→Free)
+    warning: "Scoped to forward cone of anchor node."
+
+  GraphExpr(PAGE_RANK, exact=true) →  GraphExpr(PAGE_RANK, iterations=10)
+    warning: "Using 10-iteration approximation (convergence threshold relaxed)."
+```
+
+**Strategy 2 — Progressive streaming.** The query DAG topological order is the streaming schedule — independent leaves execute in parallel and deliver results as they complete. For recursive CTE traversals, intermediate depths are delivered incrementally.
+
+```
+Streaming schedule from DAG topology:
+  for node in topological_sort(query_dag):
+    if node.is_leaf: execute_async(node); stream result when ready
+    if node.is_join:  wait for both children; stream joined result
+    if node.is_union: stream each child result as it arrives
+
+Per-depth streaming for PathPred(ALL):
+  depth=1 complete → deliver: "142 nodes reachable (depth 1)"
+  depth=2 complete → deliver: "891 nodes reachable (depth 2)"
+  depth=3 complete → deliver: "2,340 nodes reachable (converged)"
+```
+
+**Strategy 3 — Sampling with error bounds.** Applied at the `Anchor` step in Band 1. The error bound is computed from the sampling fraction via Hoeffding's inequality. For `GraphExpr` algorithms, provably approximate variants are substituted.
+
+```
+Sampling:
+  anchor_sample = SAMPLE(N_AB, fraction=f, method=STRATIFIED)
+  error_bound   = sqrt(log(2/δ) / (2 * f * |N_AB|))   -- Hoeffding
+  -- returned with: "Estimated (±{error_bound*100:.1f}% at 95% confidence)"
+
+GraphExpr approximations:
+  BETWEENNESS_CENTRALITY  →  Monte Carlo approximation (k=200 samples)
+  PAGE_RANK               →  power iteration with ε=0.01 convergence threshold
+  SIGNATURE_ENTROPY       →  reservoir sample of path instances (k=1000)
+```
+
+**Strategy 4 — Async execution with materialisation.** Above `async_threshold`, the query is scheduled as a `PipelineArtifact` (§2.4) — the result is written to a `SinkTarget` and the query DAG node id is the cache key. The user receives an immediate acknowledgement; subsequent identical questions are answered from the cached result.
+
+```
+Async lifecycle:
+  Missing (not yet run)
+  → In-flight (executing)
+  → Complete (result in sink, cached by q_dag_id)
+  → Stale (after ttl expires)
+
+WritePlan inferred from ADAPTIVE mode (PipelineArtifact Rule 10):
+  First run: WritePlan(mode=APPEND)
+  Re-run after stale: WritePlan(mode=MERGE)
+```
+
+**Clarification messages are lattice refinements.** When `CLARIFY` is returned, the options are not generic suggestions — they are specific BDD-valid descent steps in `L(G_AB)` that bring the query within the `streaming_threshold`:
+
+```
+Example clarification for Free→Free query over dense G:
+  "This query traverses 2.1M paths. Here are three narrowings
+   that each run in under 5 seconds:
+   A) Restrict to retail customers (+ScalarPred c.segment='retail' → 180K paths)
+   B) Restrict to last 30 days (+TemporalAgg ROLLING 30d → 340K paths)
+   C) Fix the target product (Bound→Bound endpoint → 42K paths)
+   Which would you like? [A / B / C / show more options]"
+
+Cost estimates per option come from GraphStatistics.path_cardinality;
+options are generated by the recommender navigating L(G_AB).
+```
+
+### 6.4  Query exporter
 
 ```
 QueryTarget ::= SQL_DUCKDB|SQL_POSTGRESQL|SQL_MOTHERDUCK|CYPHER|SPARQL|DGM_JSON|DGM_YAML
@@ -1463,11 +1629,629 @@ Reading the DAG bottom-up gives a complete, minimal, language-free explanation o
 
 **Phase 7 — Planner and exporter (~2 weeks)**
 - GraphStatistics with transposed_adj, scc_sizes, temporal_density.
-- Planning rules 1–9 (Rules 1a cone extension, Rule 3 TrailExpr, Rule 9 cone containment).
+- Planning rules 1–10 (Rules 1a cone extension, Rule 3 TrailExpr, Rule 9 cone containment, Rule 10 PipelineArtifact, Rule 11 query DAG CSE + minimisation).
 - SQL emitter with G^T BFS for Free→Bound; cone containment optimisation.
 - Sink integration; Cypher, SPARQL, DGM_JSON/YAML exporters.
+- ExecutionBudget type and pre-execution gate (§6.3): BudgetDecision types, decision procedure, four graceful handling strategies.
+- Cost-aware rewrite rules; progressive streaming schedule from DAG topology.
+- Sampling with Hoeffding error bounds; async execution via PipelineArtifact.
+- Clarification message generation from recommender lattice refinements.
+
+**Phase 8 — Natural language interface (~3 weeks)**
+- Implementation stack: Pydantic-AI (five specialist agents) + LangGraph (state graph with HIL checkpoints).
+- DGMContext dataclass as Pydantic-AI dependency: carries graph G, entity_registry, BDD, query_dag, recommender, budget, q_current.
+- Pydantic output schemas derived from DGM formal types: EntityResolutionResult, TemporalClassificationResult, CompositionalDetectionResult, CandidateRankingResult, ExplanationRenderResult.
+- Agent 1 (entity_resolution): PropRef resolution against closed EntityRegistry vocabulary; get_valid_prop_refs and get_verb_labels tools.
+- Agent 2 (temporal_classification): TemporalModeEnum + TemporalPropertyEnum + TemporalWindow classification.
+- Agent 3 (compositional_detection): QAlgebraOpEnum detection (UNION/INTERSECT/JOIN/CHAIN).
+- Agent 4 (candidate_ranking): linguistic proximity ranking over BDD-pre-validated Q_valid candidates.
+- Agent 5 (explanation_rendering): DAG decomposition rendering via dag_decomposition and get_next_suggestions tools.
+- Six non-LLM nodes: candidate_generation (recommender), confirmation_loop (interrupt/HIL), dag_construction (QueryDAG.make_from_candidate), budget_gate (§6.3 gate), execution (QueryDAG.execute), clarification (recommender).
+- Explicit LangGraph cycles: candidate_generation → confirmation_loop → candidate_generation (refinement); clarification → confirmation_loop (budget clarification).
+- MemorySaver checkpointer for multi-turn state persistence across HIL pauses.
+- Pydantic validation as hallucination prevention: agents retry on validation failure; UNRESOLVED on retry exhaustion.
+- Parallel leaf execution in STREAM mode via asyncio.gather over topologically independent DAG leaves.
 
 ---
+
+## 11  Natural Language Interface
+
+### 11.1  Architecture overview
+
+A DGM-backed NL interface narrows the LLM's role from query synthesiser to formal-space navigator. The LLM does not generate SQL or Cypher from schema text. It maps natural language utterances to positions in `Q_valid(A, B)`, ranks candidates by linguistic proximity, and renders the query DAG decomposition as a natural language explanation. All analytical guarantees come from the DGM formalism; the LLM provides the language bridge.
+
+```
+Natural language utterance
+         ↓
+┌──────────────────────────────────────────────────────────┐
+│  Layer 1 — Semantic grounding                            │
+│  Entity resolution:      NL terms → PropRef in P(n)     │
+│  Relationship resolution: NL → BoundPath via trail metrics│
+│  Band identification:    intent → B₁ / B₂ / B₃          │
+└──────────────────────────────────────────────────────────┘
+         ↓
+┌──────────────────────────────────────────────────────────┐
+│  Layer 2 — Q_valid navigation                            │
+│  Candidate generation:  recommender over L(G_AB)         │
+│  Candidate ranking:     LLM scores by linguistic proximity│
+│  Temporal mapping:      NL → TemporalMode / CTL property │
+│  Compositional mapping: NL → Q_algebra operation         │
+└──────────────────────────────────────────────────────────┘
+         ↓
+┌──────────────────────────────────────────────────────────┐
+│  Layer 3 — Confirmation / refinement loop                │
+│  Surface top-k candidates with plain-language labels     │
+│  User selects or refines → lattice navigation step       │
+│  Ambiguity: present as lattice positions, not errors     │
+└──────────────────────────────────────────────────────────┘
+         ↓
+┌──────────────────────────────────────────────────────────┐
+│  Layer 4 — Query DAG construction + budget gate          │
+│  BDD canonical form (predicate level)                   │
+│  Query DAG canonical form (composition level)            │
+│  Cache check: same DAG node id → return cached result    │
+│  Pre-execution gate: ExecutionBudget → BudgetDecision    │
+└──────────────────────────────────────────────────────────┘
+         ↓
+┌──────────────────────────────────────────────────────────┐
+│  Layer 5 — Execution and explanation                     │
+│  Exporter: target SQL / Cypher / SPARQL per backend      │
+│  Planner rules applied (annotation-aware)                │
+│  Result + DAG decomposition → structured explanation     │
+│  LLM renders explanation in natural language             │
+│  Recommender surfaces next-step suggestions              │
+└──────────────────────────────────────────────────────────┘
+```
+
+### 11.2  LLM responsibilities (narrowly scoped)
+
+The LLM is responsible for five tasks only. All analytical guarantees are provided by the DGM formalism; the LLM cannot introduce invalid queries, hallucinated properties, or incorrect aggregation semantics because the question space is formally bounded before the LLM acts.
+
+```
+1. Entity resolution
+   Input:  NL term (e.g. "retail customers", "Q3 revenue")
+   Output: PropRef value in P(n) for n ∈ G, or UNRESOLVED
+   Constraint: output must exist in {P(n).keys | n ∈ N}
+   Hallucination prevention: unresolved terms trigger clarification,
+                              not query generation
+
+2. Candidate ranking
+   Input:  top-k Q_valid candidates from recommender + NL utterance
+   Output: ranking by linguistic proximity
+   Constraint: candidates are pre-validated by BDD; LLM cannot introduce
+               invalid candidates
+
+3. Temporal intent classification
+   Input:  NL temporal expression (e.g. "has always been", "eventually reaches")
+   Output: TemporalMode ∈ {EVENTUALLY, GLOBALLY, NEXT, UNTIL, SINCE, ONCE, PREVIOUSLY}
+           or TemporalProperty ∈ {SAFETY, LIVENESS, RESPONSE, PERSISTENCE, RECURRENCE}
+   This is classification, not generation
+
+4. Compositional intent detection
+   Input:  NL question with multiple sub-questions
+   Output: Q_algebra operation ∈ {UNION, INTERSECT, JOIN, CHAIN}
+   Examples: "and also" → INTERSECT; "compared to" → JOIN; "then" → CHAIN
+
+5. Explanation rendering
+   Input:  query DAG decomposition (structured, mechanical)
+   Output: natural language explanation of what the query does
+   This is generation from structured input, not from raw schema
+```
+
+### 11.3  Semantic grounding layer
+
+**Entity resolution.** Grounded in `P(n)` property names, verb edge labels, and annotation vocabulary — not raw column names. The entity registry is built once from `G` and updated via `Q_delta` when `G` changes.
+
+```
+EntityRegistry = {
+  prop_terms:    { NL term → PropRef }   -- "revenue" → PropRef(sale.revenue)
+  node_terms:    { NL term → alias → A } -- "customer" → alias c of Customer dim
+  verb_terms:    { NL term → VerbHop }   -- "purchased" → VerbHop(c,'placed',s)
+  temporal_terms:{ NL term → TemporalWindow } -- "Q3 2024" → PERIOD(...)
+  agg_terms:     { NL term → AggFn }     -- "total" → SUM; "average" → AVG
+}
+```
+
+**Relationship resolution.** Trail metrics constrain path selection. When `DISTINCT_SIGNATURES(A, B) = 1`, the path is unambiguous and the LLM does not need to choose. When `SIGNATURE_ENTROPY` is high, the interface asks for clarification before resolving.
+
+```
+path_resolution(A: NodeRef, B: NodeRef, utterance: str) → BoundPath | AMBIGUOUS:
+  sigs = DISTINCT_SIGNATURES(A, B)
+  if sigs == 1:
+    return canonical_path(A, B)          -- unambiguous; determined by G_AB
+  dominant = DOMINANT_SIGNATURE(A, B)
+  llm_match = score_path_by_utterance(dominant, utterance)
+  if llm_match > CONFIDENCE_THRESHOLD:
+    return dominant_path(A, B)
+  return AMBIGUOUS(candidates=top_k_signatures(A, B, k=3))
+```
+
+**Band identification.** A lightweight classifier maps intent signals to band structure. The classifier is trained on patterns grounded in DGM vocabulary — not SQL keywords.
+
+```
+Intent signals → Band mapping:
+  "total", "sum", "average", "count"     → B₂ AggFn
+  "highest", "lowest", "top N", "rank"   → B₃ RankFn / Qualify
+  "where", "which", "filter"             → B₁ Where ScalarPred
+  "over time", "rolling", "YTD"          → B₂ TemporalAgg
+  "has always", "never", "eventually"    → B₁ PathPred + TemporalMode
+  "whenever X, does Y"                   → RESPONSE temporal property
+  "compared to last year"                → Q_algebra JOIN on time dimension
+  "customers who X and also Y"           → Q_algebra INTERSECT
+```
+
+### 11.4  Temporal and compositional intent mapping
+
+**Temporal patterns map to CTL operators:**
+
+```
+NL expression                          → TemporalMode / Property
+─────────────────────────────────────────────────────────────────
+"has always been true"                 → GLOBALLY (AG)
+"will eventually happen"               → EVENTUALLY (AF)
+"at the next step"                     → NEXT (AX)
+"positive until churn occurred"        → UNTIL(positive, churn)
+"rising since the last campaign"       → SINCE(rising, campaign_end)
+"was once a premium customer"          → ONCE (O)
+"the previous value was higher"        → PREVIOUSLY (Y)
+"this condition never violated"        → SAFETY(NOT condition)
+"this outcome always eventually reached"→ LIVENESS(outcome)
+"whenever X, Y follows"               → RESPONSE(X, Y)
+```
+
+These are classification mappings — the interface recognises the pattern and selects the correct `TemporalMode` or `TemporalProperty`. The LLM does not generate the temporal logic formula; it classifies the pattern from a closed vocabulary.
+
+**Compositional patterns map to Q_algebra operations:**
+
+```
+NL pattern                             → Q_algebra operation
+─────────────────────────────────────────────────────────────────
+"customers who X and also Y"           → INTERSECT(Q_X, Q_Y)
+"customers who X or Y"                 → UNION(Q_X, Q_Y)
+"X compared to Y" / "X alongside Y"   → JOIN(Q_X, Q_Y, ON shared_key)
+"first X, then among those, Y"         → CHAIN: Q_X → Q_Y
+"for each X, what is Y?"               → JOIN with key = X's GroupBy
+```
+
+### 11.5  Confirmation and refinement loop
+
+Rather than generating a query and hoping it is correct, the interface proposes the top-k most likely intended queries from `Q_valid(A, B)` and asks for confirmation. Each candidate is a valid point in `L(G_AB)` generated by the recommender.
+
+```
+Example:
+  User: "How are my retail customers doing this year?"
+
+  Entity resolution:
+    "retail customers" → ScalarPred(c.segment = 'retail')
+    "this year"        → TemporalAgg window YTD
+    "doing"            → ambiguous measure; band = B₂
+
+  Relationship: Customer →[placed]→ Sale (DOMINANT_SIGNATURE = ['placed'])
+
+  Recommender generates top-3 candidates from L(G_AB):
+    A) Total YTD revenue (SUM revenue, YTD)
+    B) Order count YTD (COUNT sale, YTD)
+    C) YTD revenue rolling 30-day trend
+
+  Interface: "I think you are asking about one of these:
+    A) Total revenue from retail customers year-to-date
+    B) Number of orders from retail customers year-to-date
+    C) Rolling 30-day revenue trend for retail customers
+
+    Which fits best, or show more options?"
+```
+
+User selection triggers a descent step in `L(G_AB)` — the selected candidate becomes `q_current`, and the recommender's neighbourhood provides the next set of refinement suggestions.
+
+### 11.6  Ambiguity resolution grounded in the question space
+
+Ambiguity is not "the LLM is uncertain." It is "the utterance maps to multiple positions in `Q_valid(A, B)`." The positions are known; the task is to identify which one the user intended.
+
+```
+Ambiguity types and resolution strategies:
+
+Measure ambiguity:  "how are customers doing?"
+  Multiple valid AggFn over different PropRef values
+  → surface top-k by data distribution (highest-variance measures first)
+
+Path ambiguity:  DISTINCT_SIGNATURES > 1, high SIGNATURE_ENTROPY
+  Multiple valid BoundPath structures between resolved entities
+  → surface dominant signatures as named path type options
+
+Temporal ambiguity:  "last year" → calendar year? rolling 12 months?
+  Multiple valid TemporalWindow interpretations
+  → surface both; apply user preference if previously expressed
+
+Grain ambiguity:  no explicit GroupBy in B₂ question
+  Multiple valid GroupBy keys (region, segment, product category)
+  → surface annotation-driven suggestions (Hierarchy roll-up; RolePlaying cross-role)
+
+Compositional ambiguity:  "customers who bought X and returned Y"
+  INTERSECT or sequential chain?
+  → detect temporal ordering cue ("then", "after") → CHAIN
+  → no temporal cue → INTERSECT (default for "and")
+```
+
+### 11.7  Schema evolution handling
+
+When `G` changes, `Q_valid(A, B)` changes with it. Saved NL questions may become invalid or gain new interpretations.
+
+```
+Q_delta(t₁, t₂) triggers:
+
+  ADDED_NODES(dim):    new GroupBy candidates; new constellation paths
+                       → suggest new questions to users who query related nodes
+  REMOVED_NODES:       invalidate saved questions referencing removed nodes
+                       → notify: "Your saved question about X is no longer valid"
+  ADDED_EDGES(verb):   new path types available; DISTINCT_SIGNATURES increases
+                       → suggest constellation paths if Conformed annotation added
+  ROLE_DRIFT:          dim→fact reclassification changes valid AggFn set
+                       → revalidate saved questions; notify if Band 2 becomes invalid
+  CHANGED_PROPERTY:    PropRef values in EntityRegistry may be stale
+                       → re-resolve saved NL terms against updated P(n)
+```
+
+Saved questions are stored by query DAG node id. When `G` changes, the interface checks whether the node id is still valid by attempting to re-derive the DAG from the new `G`. If derivation fails, the question is invalidated. If derivation succeeds but produces a different DAG, the user is notified of the semantic change.
+
+### 11.8  Hallucination prevention
+
+Three formal mechanisms prevent the LLM from producing invalid queries:
+
+**Closed PropRef vocabulary.** Entity resolution maps NL terms to `{P(n).keys | n ∈ N}`. A term that does not resolve to any existing property triggers `UNRESOLVED` — the interface asks for clarification rather than guessing a column name.
+
+**BDD-validated candidates.** The recommender generates candidates from `Q_valid(A, B)` using the BDD feasibility filter. Every candidate surfaced to the LLM for ranking is already structurally valid and non-redundant. The LLM cannot introduce an invalid candidate by ranking — it can only choose among pre-validated options.
+
+**Query DAG canonical form.** Even if the LLM's ranking is imperfect, the canonical form catches semantic equivalents — two syntactically different queries that reduce to the same DAG node id are treated as identical, and the cached result (if any) is returned without re-execution.
+
+### 11.9  Integration with the execution budget gate
+
+The NL interface feeds directly into the pre-execution gate (§6.3). When the gate returns `CLARIFY`, the clarification options are generated by the recommender as lattice refinements — not as generic "try a simpler query" messages. The NL interface renders them in natural language using the entity registry.
+
+When the gate returns `ASYNC`, the NL interface immediately acknowledges with the query DAG node id as a reference:
+
+```
+"This analysis will take approximately 3 minutes.
+ I've queued it (reference: q_7f3a2b).
+ You'll be notified when it's ready.
+ In the meantime, here's a 10% sample result with ±3.2% error bound:
+ [sampled result]"
+```
+
+The sample is produced by Strategy 3 (sampling with error bounds) in parallel with the async execution — the user gets an immediate approximate result while the full computation runs.
+
+### 11.10  Implementation: LangGraph + Pydantic-AI
+
+The NL interface is implemented as a LangGraph state graph of specialist Pydantic-AI agents. This pairing is structurally forced by two properties of the DGM NL interface: the workflow is stateful and cyclic (LangGraph), and the output vocabulary is formally bounded (Pydantic-AI).
+
+**Why Pydantic-AI for each specialist agent.**
+
+DGM's formal types are the Pydantic output schemas. Every agent output must be drawn from a closed set validated against the live graph. An agent that produces a `PropRef` not in `P(n)` fails Pydantic validation and retries with a corrected prompt — hallucination is structurally prevented, not post-hoc filtered.
+
+**Pydantic output schemas (DGM formal types as models):**
+
+```python
+from pydantic import BaseModel, field_validator
+from pydantic_ai import Agent, RunContext
+from dataclasses import dataclass
+from enum import Enum
+
+@dataclass
+class DGMContext:
+    graph:           object          # G = (N, E, τ_N, τ_E, P, Σ)
+    entity_registry: object          # NL term → PropRef mapping
+    bdd:             object          # DGMPredicateBDD (Level 1)
+    query_dag:       object          # QueryDAG (Level 2)
+    recommender:     object          # L(G_AB) navigator
+    budget:          object          # ExecutionBudget
+    q_current:       object | None   # current lattice position
+
+class TemporalModeEnum(str, Enum):
+    EVENTUALLY="EVENTUALLY"; GLOBALLY="GLOBALLY"; NEXT="NEXT"
+    UNTIL="UNTIL"; SINCE="SINCE"; ONCE="ONCE"; PREVIOUSLY="PREVIOUSLY"
+
+class TemporalPropertyEnum(str, Enum):
+    SAFETY="SAFETY"; LIVENESS="LIVENESS"; RESPONSE="RESPONSE"
+    PERSISTENCE="PERSISTENCE"; RECURRENCE="RECURRENCE"
+
+class QAlgebraOpEnum(str, Enum):
+    UNION="UNION"; INTERSECT="INTERSECT"; JOIN="JOIN"; CHAIN="CHAIN"
+
+class PropRefModel(BaseModel):
+    alias: str
+    prop:  str   # validated against live P(n) via agent tool
+
+class EntityResolutionResult(BaseModel):
+    resolved:     list[PropRefModel]
+    unresolved:   list[str]           # trigger CLARIFY
+    node_aliases: dict[str, str]      # "customer" → alias "c"
+
+class TemporalClassificationResult(BaseModel):
+    mode:        TemporalModeEnum | None = None
+    property_:   TemporalPropertyEnum | None = None
+    window_type: str | None = None    # ROLLING|TRAILING|PERIOD|YTD|QTD|MTD
+    confidence:  float
+
+class CompositionalDetectionResult(BaseModel):
+    operation:  QAlgebraOpEnum | None = None
+    join_key:   PropRefModel | None = None
+    confidence: float
+
+class QueryCandidate(BaseModel):
+    dag_node_id:   int               # must exist in query_dag.nodes
+    description:   str
+    band_coverage: list[str]
+    cost_estimate: float
+
+class CandidateRankingResult(BaseModel):
+    ranked:     list[QueryCandidate]  # pre-validated by BDD; LLM only reorders
+    confidence: list[float]
+
+class ExplanationRenderResult(BaseModel):
+    explanation:           str
+    follow_up_suggestions: list[str]
+```
+
+**The five specialist agents:**
+
+```python
+# Agent 1 — Entity Resolution
+entity_agent = Agent(
+    model="claude-sonnet-4-6",
+    deps_type=DGMContext,
+    result_type=EntityResolutionResult,
+    system_prompt=(
+        "Map natural language terms to DGM PropRef values. "
+        "Use get_valid_prop_refs to check what exists. "
+        "Only return PropRef values the tool confirms. "
+        "Mark anything not found as unresolved — do not guess."
+    ),
+)
+
+@entity_agent.tool
+def get_valid_prop_refs(ctx: RunContext[DGMContext], node_type: str) -> list[str]:
+    """Returns all valid PropRef keys for nodes of the given type."""
+    return [
+        alias + "." + k
+        for n, alias in ctx.deps.entity_registry.node_terms.items()
+        if n == node_type
+        for k in ctx.deps.graph.P(n).keys()
+    ]
+
+@entity_agent.tool
+def get_verb_labels(ctx: RunContext[DGMContext],
+                    from_type: str, to_type: str) -> list[str]:
+    """Returns verb labels connecting two node types."""
+    return ctx.deps.entity_registry.verb_terms.get((from_type, to_type), [])
+
+# Agent 2 — Temporal Classifier
+temporal_agent = Agent(
+    model="claude-sonnet-4-6",
+    deps_type=DGMContext,
+    result_type=TemporalClassificationResult,
+    system_prompt=(
+        "Classify temporal intent. Map to exactly one of: "
+        "TemporalMode enum, TemporalProperty enum, or TemporalWindow type string. "
+        "If no temporal intent, return all None with confidence=0."
+    ),
+)
+
+# Agent 3 — Compositional Detector
+compositional_agent = Agent(
+    model="claude-sonnet-4-6",
+    deps_type=DGMContext,
+    result_type=CompositionalDetectionResult,
+    system_prompt=(
+        "Detect multi-question composition. "
+        "UNION='or'; INTERSECT='and both'; JOIN='compared to/alongside'; "
+        "CHAIN='then/among those'. Return None for atomic questions."
+    ),
+)
+
+# Agent 4 — Candidate Ranking
+ranking_agent = Agent(
+    model="claude-sonnet-4-6",
+    deps_type=DGMContext,
+    result_type=CandidateRankingResult,
+    system_prompt=(
+        "Rank provided Q_valid candidates by linguistic proximity. "
+        "Do not add or remove candidates — only reorder the pre-validated list. "
+        "Assign confidence scores in [0,1]."
+    ),
+)
+
+# Agent 5 — Explanation Renderer
+explanation_agent = Agent(
+    model="claude-sonnet-4-6",
+    deps_type=DGMContext,
+    result_type=ExplanationRenderResult,
+    system_prompt=(
+        "Render the query DAG decomposition as natural language (2-4 sentences). "
+        "Use dag_decomposition and get_next_suggestions tools."
+    ),
+)
+
+@explanation_agent.tool
+def dag_decomposition(ctx: RunContext[DGMContext], dag_node_id: int) -> dict:
+    """Returns the structured DAG decomposition for the given query DAG node."""
+    return ctx.deps.query_dag.decompose(dag_node_id)
+
+@explanation_agent.tool
+def get_next_suggestions(ctx: RunContext[DGMContext],
+                         dag_node_id: int, k: int = 3) -> list[str]:
+    """Returns top-k recommender suggestions from the current lattice position."""
+    return ctx.deps.recommender.neighbourhood_descriptions(dag_node_id, k)
+```
+
+**The LangGraph state graph:**
+
+```python
+from langgraph.graph import StateGraph, END
+from langgraph.checkpoint.memory import MemorySaver
+from langgraph.types import interrupt
+from typing import Literal
+
+class NLInterfaceState(BaseModel):
+    utterance:       str
+    dgm_ctx:         DGMContext
+    entity_result:   EntityResolutionResult | None = None
+    temporal_result: TemporalClassificationResult | None = None
+    compositional:   CompositionalDetectionResult | None = None
+    candidates:      list[QueryCandidate] = []
+    ranking_result:  CandidateRankingResult | None = None
+    q_current:       int | None = None    # query DAG node id
+    user_selection:  object | None = None
+    budget_decision: str | None = None
+    partial_result:  object | None = None
+    final_result:    object | None = None
+    explanation:     str | None = None
+
+# Non-LLM nodes (pure DGM computation):
+
+def candidate_generation_node(state: NLInterfaceState) -> dict:
+    candidates = state.dgm_ctx.recommender.top_k_candidates(
+        entity_result=state.entity_result,
+        temporal_result=state.temporal_result,
+        compositional=state.compositional,
+        q_current=state.q_current, k=5
+    )
+    return {"candidates": candidates}
+
+def confirmation_loop_node(state: NLInterfaceState) -> dict:
+    selection = interrupt({
+        "type": "confirmation",
+        "candidates": [c.description for c in state.ranking_result.ranked],
+        "prompt": "Which fits best, or type 'more' for additional options?"
+    })
+    return {"user_selection": selection}
+
+def dag_construction_node(state: NLInterfaceState) -> dict:
+    selected = state.ranking_result.ranked[state.user_selection]
+    dag_node_id = state.dgm_ctx.query_dag.make_from_candidate(
+        selected, state.entity_result,
+        state.temporal_result, state.compositional,
+    )
+    return {"q_current": dag_node_id}
+
+def budget_gate_node(state: NLInterfaceState) -> dict:
+    from dgm.execution import gate
+    plan     = state.dgm_ctx.query_dag.to_export_plan(state.q_current)
+    decision = gate(plan, state.dgm_ctx.budget)
+    partial  = None
+    if decision.type == "ASYNC":
+        partial = state.dgm_ctx.query_dag.execute_sample(
+            state.q_current, fraction=0.10
+        )
+    return {"budget_decision": decision.type, "partial_result": partial}
+
+def clarification_node(state: NLInterfaceState) -> dict:
+    refinements = state.dgm_ctx.recommender.clarification_options(
+        state.q_current, budget=state.dgm_ctx.budget
+    )
+    return {"candidates": refinements}
+
+# Routing functions:
+
+def route_after_confirmation(state: NLInterfaceState) -> Literal[
+        "confirmed", "refine", "more_options"]:
+    if state.user_selection == "more":   return "more_options"
+    if state.user_selection == "refine": return "refine"
+    return "confirmed"
+
+def route_budget(state: NLInterfaceState) -> str:
+    return state.budget_decision
+
+# Graph assembly:
+
+graph = StateGraph(NLInterfaceState)
+
+# LLM nodes (5):
+graph.add_node("entity_resolution",
+    lambda s: {"entity_result":
+        entity_agent.run_sync(s.utterance, deps=s.dgm_ctx).data})
+graph.add_node("temporal_classification",
+    lambda s: {"temporal_result":
+        temporal_agent.run_sync(s.utterance, deps=s.dgm_ctx).data})
+graph.add_node("compositional_detection",
+    lambda s: {"compositional":
+        compositional_agent.run_sync(s.utterance, deps=s.dgm_ctx).data})
+graph.add_node("candidate_ranking",
+    lambda s: {"ranking_result":
+        ranking_agent.run_sync(
+            "Utterance: " + s.utterance + " Candidates: " + str(s.candidates),
+            deps=s.dgm_ctx).data})
+graph.add_node("explanation_rendering",
+    lambda s: {"explanation":
+        explanation_agent.run_sync(
+            "DAG node: " + str(s.q_current) +
+            " Budget: " + str(s.budget_decision),
+            deps=s.dgm_ctx).data.explanation})
+
+# Non-LLM nodes (6):
+graph.add_node("candidate_generation", candidate_generation_node)
+graph.add_node("confirmation_loop",    confirmation_loop_node)
+graph.add_node("dag_construction",     dag_construction_node)
+graph.add_node("budget_gate",          budget_gate_node)
+graph.add_node("execution",
+    lambda s: {"final_result":
+        s.dgm_ctx.query_dag.execute(s.q_current, mode=s.budget_decision)})
+graph.add_node("clarification", clarification_node)
+
+# Edges:
+graph.add_edge("entity_resolution",       "temporal_classification")
+graph.add_edge("temporal_classification", "compositional_detection")
+graph.add_edge("compositional_detection", "candidate_generation")
+graph.add_edge("candidate_generation",    "candidate_ranking")
+graph.add_edge("candidate_ranking",       "confirmation_loop")
+
+graph.add_conditional_edges("confirmation_loop", route_after_confirmation,
+    {"confirmed":    "dag_construction",
+     "refine":       "candidate_generation",
+     "more_options": "candidate_generation"})
+
+graph.add_edge("dag_construction", "budget_gate")
+
+graph.add_conditional_edges("budget_gate", route_budget,
+    {"PROCEED":  "execution",   "STREAM":   "execution",
+     "ASYNC":    "explanation_rendering",
+     "REWRITE":  "dag_construction",
+     "SAMPLE":   "execution",   "PAGINATE": "execution",
+     "CLARIFY":  "clarification",
+     "REJECT":   "explanation_rendering"})
+
+graph.add_edge("execution",            "explanation_rendering")
+graph.add_edge("explanation_rendering", END)
+graph.add_edge("clarification",         "confirmation_loop")
+
+graph.set_entry_point("entity_resolution")
+nl_app = graph.compile(checkpointer=MemorySaver())
+```
+
+**Key structural properties:**
+
+*Five LLM nodes, six deterministic nodes.* Only `entity_resolution`, `temporal_classification`, `compositional_detection`, `candidate_ranking`, and `explanation_rendering` invoke an LLM. The remaining six nodes are pure DGM computation — formal, deterministic, and verifiable.
+
+*Explicit cycles with state persistence.* The `candidate_generation → confirmation_loop` refinement cycle and the `clarification → confirmation_loop` budget cycle are first-class LangGraph constructs. `MemorySaver` persists state across the human-in-the-loop pause at `confirmation_loop`, enabling multi-turn conversations without bespoke session management.
+
+*Bounded retry via Pydantic-AI.* If an agent produces output that fails Pydantic validation, Pydantic-AI retries with a corrected prompt. After exhausting retries, the agent returns `UNRESOLVED` items rather than propagating invalid output downstream.
+
+*Parallel leaf execution in streaming mode.* When `budget_gate` returns `STREAM`, the `execution_node` runs topologically independent `query_dag` leaves in parallel using `asyncio.gather`.
+
+**The ontology-to-Pydantic mapping (formal relationship):**
+
+```
+DGM formal constraint                  Pydantic enforcement
+────────────────────────────────────────────────────────────────────────
+PropRef alias ∈ EntityRegistry         field_validator checks registry
+PropRef prop ∈ P(n).keys              get_valid_prop_refs tool confirms pre-generation
+TemporalMode ∈ {EVENTUALLY,...}        TemporalModeEnum; no free strings permitted
+QAlgebraOp ∈ {UNION,INTERSECT,...}     QAlgebraOpEnum; closed set
+QueryCandidate.dag_node_id valid       field_validator checks query_dag.nodes
+candidates pre-validated by BDD        generated by recommender, not LLM
+BudgetDecision variant ∈ fixed set     discriminated union enforces per-variant fields
+```
+
+This is the machine-executable form of §11.8 (hallucination prevention): not a post-hoc filter, but a generation constraint baked into every agent's output schema. The DGM specification is the formal source; the Pydantic schema is its executable projection.
+
 
 ## 10  Reference
 
@@ -1743,7 +2527,11 @@ Novel contributions added in v0.18:
 
 Novel contributions added in v0.19: Question algebra `Q_algebra(A, B)` as closure of `Q_valid` under CTE composition; semiring structure `(Q_algebra, UNION, INTERSECT, ∅, Q_top)`; Datalog equivalence theorem for `Q_algebra` under CTE composition; PTIME complexity bound via Immerman-Vardi; fixpoint semantics of recursive CTEs as descent paths in `L(G_AB)`; two-level predicate system (BDD for single-query, containment for cross-query); extended question completeness theorem (v0.19); planner Rule 11 cross-CTE CSE using BDD node id equality; compositional suggestion type (Correlation) in recommender; question chain suggestions as multi-step descent paths; Datalog reference [13] added; D23 design decision on CTE composition complexity.
 
-Novel contributions added in v0.20: Query DAG as canonical form for `Q_algebra(A, B)`; BDD/query DAG parallel (variable ordering ↔ dependency partial order, sharing rule ↔ CSE, elimination rule ↔ semiring laws); canonical form theorem (two composed queries equivalent iff same DAG node id); two-level canonical form (BDD at leaves, query DAG at composition); construction algorithm with elimination + sharing rules; minimum CTE count as tight lower bound (= number of canonical DAG nodes); complexity stratification of containment checking (Band 1: NP-complete; monotone Band 2: polynomial; arbitrary Band 2: undecidable; recursive: Σ₁-hard); cross-session caching via DAG node id as cache key; query explanation via DAG decomposition; canonical-space recommender navigation (neighbourhood over DAG nodes); Rule 11 extended with full semiring elimination laws; D24 design decision on canonical form. Question completeness theorem (§8.11) — `Q_valid(A, B)` finite and enumerable from `G_AB` and `Σ|_AB`; question lattice `L(G_AB)` with tautological top, contradictory bottom, and three specificity dimensions; formal characterisation of recommender as guided navigator of `L(G_AB)`; semantic scoring theorem — trail metrics induce non-uniform distribution over `L(G_AB)` without enumeration; `BETWEENNESS_CENTRALITY` as GroupBy pivot signal; `DOMINANT_SIGNATURE` as predicate seed; ontology relationship paragraph positioning DGM against RDF/OWL/SPARQL/OWL-Time along five axes; references [10] RDF, [11] OWL, [12] OWL-Time; D22 design decision on DGM/ontology distinction.
+Novel contributions added in v0.20: Query DAG as canonical form for `Q_algebra(A, B)`; BDD/query DAG parallel (variable ordering ↔ dependency partial order, sharing rule ↔ CSE, elimination rule ↔ semiring laws); canonical form theorem (two composed queries equivalent iff same DAG node id); two-level canonical form (BDD at leaves, query DAG at composition); construction algorithm with elimination + sharing rules; minimum CTE count as tight lower bound (= number of canonical DAG nodes); complexity stratification of containment checking (Band 1: NP-complete; monotone Band 2: polynomial; arbitrary Band 2: undecidable; recursive: Σ₁-hard); cross-session caching via DAG node id as cache key; query explanation via DAG decomposition; canonical-space recommender navigation (neighbourhood over DAG nodes); Rule 11 extended with full semiring elimination laws; D24 design decision on canonical form.
+
+Novel contributions added in v0.21:
+
+Novel contributions added in v0.22: §11.10 Implementation architecture — LangGraph state graph with five Pydantic-AI specialist agents; DGMContext as Pydantic-AI dependency injection carrier; Pydantic output schemas as executable projection of DGM formal types (EntityResolutionResult, TemporalClassificationResult, CompositionalDetectionResult, CandidateRankingResult, ExplanationRenderResult); TemporalModeEnum / TemporalPropertyEnum / QAlgebraOpEnum as closed-set Pydantic validators; five LLM nodes + six deterministic non-LLM nodes in the graph; explicit refinement and clarification cycles; MemorySaver HIL state persistence; bounded retry for hallucination prevention; parallel DAG leaf execution in STREAM mode; ontology-to-Pydantic formal mapping table; Phase 8 roadmap updated with specific implementation artefacts; D27 design decision. `ExecutionBudget` type with `BudgetDecision` taxonomy (`PROCEED`, `STREAM`, `ASYNC`, `REWRITE`, `SAMPLE`, `PAGINATE`, `CLARIFY`, `REJECT`); pre-execution gate (§6.3) as formal decision procedure between planner and execution; four graceful handling strategies (cost-aware rewriting via strategy lattice, progressive streaming from DAG topology, sampling with Hoeffding error bounds, async execution via `PipelineArtifact` lifecycle); clarification messages grounded in recommender lattice refinements; §11 Natural Language Interface — five-layer architecture; LLM responsibilities narrowed to five tasks (entity resolution, candidate ranking, temporal classification, compositional detection, explanation rendering); `EntityRegistry` as entity/relationship/temporal vocabulary; closed `PropRef` vocabulary for hallucination prevention; BDD-validated candidate generation for LLM ranking; temporal intent classification to CTL operators; compositional intent detection to Q_algebra operations; confirmation/refinement loop as lattice navigation; ambiguity resolution grounded in question space positions; schema evolution handling via Q_delta; sample-parallel async execution pattern; D25 and D26 design decisions. Question completeness theorem (§8.11) — `Q_valid(A, B)` finite and enumerable from `G_AB` and `Σ|_AB`; question lattice `L(G_AB)` with tautological top, contradictory bottom, and three specificity dimensions; formal characterisation of recommender as guided navigator of `L(G_AB)`; semantic scoring theorem — trail metrics induce non-uniform distribution over `L(G_AB)` without enumeration; `BETWEENNESS_CENTRALITY` as GroupBy pivot signal; `DOMINANT_SIGNATURE` as predicate seed; ontology relationship paragraph positioning DGM against RDF/OWL/SPARQL/OWL-Time along five axes; references [10] RDF, [11] OWL, [12] OWL-Time; D22 design decision on DGM/ontology distinction.
 
 ### 10.4  Design decisions
 
@@ -1770,7 +2558,10 @@ Novel contributions added in v0.20: Query DAG as canonical form for `Q_algebra(A
 **D21** — Backfill and refresh require different WritePlan modes by construction. Backfill (APPEND) has no prior artifact — failure leaves the window durably in Failed. Refresh (MERGE) preserves the prior Complete via atomic swap — failure regresses to Stale, not Failed. ADAPTIVE mode makes this automatic from P(f).state at planning time.
 **D22** — DGM shares the graph primitive with RDF but diverges above it. The triple / typed directed labeled edge is the correct foundational structure — DGM and RDF arrived at it independently. The divergence is complete above that primitive: DGM adds the dim/fact typed split, the three-band analytical query structure, the annotation-driven planner, CTL/LTL temporal logic, trail space analysis, and the question completeness theorem — none of which exist in ontological tooling.
 **D23** — CTE composition extends `Q_valid` to `Q_algebra` (Datalog-equivalent, PTIME-bounded). The BDD covers single-query predicate optimisation; cross-CTE CSE (Rule 11) extends it to multi-query scope. The D17 restriction (no `Free→Free` in `Where PathPred`) is not arbitrary — it is the boundary that keeps `Q_algebra` within PTIME. Allowing unrestricted fixpoints in the filter position would push DGM toward the complexity class of stratified Datalog with negation, where decidability is more fragile.
-**D24** — The query DAG canonical form is the composition-level analogue of the BDD. The analogy is exact: variable ordering ↔ dependency partial order; sharing rule ↔ CSE; elimination rule ↔ semiring laws. Containment-based elimination is applied only for Band 1 leaf nodes (NP-complete but tractable in practice). For Band 2/3 nodes, only syntactic laws are applied — this is the conservative choice that preserves correctness at the cost of some missed simplifications. Cross-session caching via DAG node id is the semantic-level generalisation of SQL text caching; it correctly identifies equivalent questions expressed in different syntactic forms. The triple / typed directed labeled edge is the correct foundational structure — DGM and RDF arrived at it independently. The divergence is complete above that primitive: DGM adds the dim/fact typed split, the three-band analytical query structure, the annotation-driven planner, CTL/LTL temporal logic, trail space analysis, and the question completeness theorem — none of which exist in ontological tooling. DGM is an analytical graph model; ontologies are knowledge representation languages. The relationship is complementary, not competitive: DGM can export to SPARQL as one execution target.
+**D24** — The query DAG canonical form is the composition-level analogue of the BDD. The analogy is exact: variable ordering ↔ dependency partial order; sharing rule ↔ CSE; elimination rule ↔ semiring laws. Containment-based elimination is applied only for Band 1 leaf nodes (NP-complete but tractable in practice). For Band 2/3 nodes, only syntactic laws are applied — this is the conservative choice that preserves correctness at the cost of some missed simplifications. Cross-session caching via DAG node id is the semantic-level generalisation of SQL text caching; it correctly identifies equivalent questions expressed in different syntactic forms.
+**D25** — The pre-execution gate produces `BudgetDecision` rather than raising errors or blocking. Every failure mode has a graceful path: cost explosion → rewrite or clarify; result explosion → paginate; slow pre-computation → approximate; very expensive → async. `REJECT` is reserved for hard ceilings only — most queries reach `PROCEED`, `STREAM`, or `REWRITE`. The clarification path surfaces lattice refinements, not generic "simplify your query" messages — this is only possible because `Q_valid(A, B)` is formally defined.
+**D26** — The NL interface does not generate queries from the LLM. It navigates a formally bounded question space. The LLM's five responsibilities are each a constrained mapping task — entity resolution against a closed vocabulary, candidate ranking over pre-validated options, pattern classification to a closed CTL vocabulary, compositional detection, and structured explanation rendering. This architecture prevents the two failure modes of SQL-generation NL interfaces: hallucinated schema references (prevented by closed PropRef vocabulary) and semantically invalid queries (prevented by BDD-validated candidates).
+**D27** — LangGraph is chosen for the NL interface workflow and Pydantic-AI for each specialist agent. This pairing is structurally forced, not arbitrary. LangGraph handles the two properties that linear pipelines cannot: stateful cyclic workflows (the refinement and clarification cycles) and human-in-the-loop checkpoints with multi-turn state persistence. Pydantic-AI handles the two properties that unstructured LLM calls cannot: closed-vocabulary output enforcement (DGM formal types as Pydantic schemas) and bounded retry on validation failure. The majority of the LangGraph graph nodes (6 of 11) are deterministic non-LLM DGM computation — only 5 nodes invoke LLMs, each with a formally bounded output type. This ratio is intentional: the more computation that is formal and deterministic, the fewer guarantees depend on LLM reliability. The triple / typed directed labeled edge is the correct foundational structure — DGM and RDF arrived at it independently. The divergence is complete above that primitive: DGM adds the dim/fact typed split, the three-band analytical query structure, the annotation-driven planner, CTL/LTL temporal logic, trail space analysis, and the question completeness theorem — none of which exist in ontological tooling. DGM is an analytical graph model; ontologies are knowledge representation languages. The relationship is complementary, not competitive: DGM can export to SPARQL as one execution target.
 
 ### 10.5  References
 
