@@ -2,93 +2,110 @@
 
 ## Summary
 
-The Medallion architecture divides the data platform into three progressively
-refined zones — **Bronze**, **Silver**, and **Gold** — each with its own
-storage format, contract regime, and quality guarantee.  Data flows in one
-direction only: raw → validated → aggregated.
+The Medallion architecture divides the data platform into four progressively
+refined zones — **Bronze**, **Silver**, **Gold**, and **Semantic** — each with
+its own data policy, contract regime, and quality guarantee.  Data flows in
+one direction only: dimensional models → pre-aggregates → aggregates →
+business views.
 
 ---
 
 ## Layer overview
 
 ```
-Source events / APIs
+Source events / APIs  (staging / raw ingestion)
         │
         ▼
 ┌───────────────────────────────────────────────────────────┐
-│  BRONZE  (raw ingestion)                                  │
-│  Append-only · Schema-on-read · Immutable once written    │
-│  Format: Parquet / Avro                                   │
+│  BRONZE  (dimensional models: dim, fact, bridge)          │
+│  SCD-versioned · Type-safe · Surrogate keys               │
+│  Format: Delta Lake / Iceberg / DuckDB tables             │
 └────────────────────────────┬──────────────────────────────┘
                              │  Quality gate: Bronze → Silver
                              ▼
 ┌───────────────────────────────────────────────────────────┐
-│  SILVER  (validated / enriched)                           │
-│  Cleansed · Deduplicated · Type-safe · PII masked         │
-│  Format: Delta Lake / Iceberg                             │
+│  SILVER  (pre-aggregated / array-like data)               │
+│  Snapshot views · Nested structures · PII masked          │
+│  Format: materialised tables / views                      │
 └────────────────────────────┬──────────────────────────────┘
                              │  Quality gate: Silver → Gold
                              ▼
 ┌───────────────────────────────────────────────────────────┐
-│  GOLD  (aggregated / consumption-ready)                   │
-│  Star schema · Pre-computed aggregates · SLA ≤ 5 min      │
+│  GOLD  (aggregated metrics and KPIs)                      │
+│  Pre-computed aggregates · SLA ≤ 5 min                    │
 │  Format: materialised tables / views                      │
 └────────────────────────────┬──────────────────────────────┘
-                             │
+                             │  Quality gate: Gold → Semantic
                              ▼
-              BI tools / ML pipelines / APIs
+┌───────────────────────────────────────────────────────────┐
+│  SEMANTIC  (business-level consumption layer)             │
+│  BI-ready · NL-queryable · Domain-owned                   │
+│  Format: views / virtual datasets                         │
+└───────────────────────────────────────────────────────────┘
+              ↓
+  BI tools / ML pipelines / NL agents / APIs
 ```
 
 ---
 
-## Bronze — raw ingestion
+## Bronze — dimensional models
 
-**Principle:** *fidelity over quality*.  Every source event lands here
-unchanged so that any downstream bug can be reprocessed from the source of
-truth.
-
-| Property | Value |
-|---|---|
-| Write mode | Append-only |
-| Schema | Schema-on-read; no enforcement |
-| Retention | Configurable (default: indefinite) |
-| Transformation | None |
-| Format | Parquet (columnar) or Avro (schema-evolution-friendly) |
-
-sqldim produces Bronze-layer Parquet files today via `ParquetSink`.
-
----
-
-## Silver — validated / enriched
-
-**Principle:** *quality over completeness*.  A row that fails validation is
-quarantined, not silently dropped.
+**Principle:** *structure over raw fidelity*.  Source data is modelled into
+dimensions, facts, and bridges following Kimball methodology.
 
 | Property | Value |
 |---|---|
-| Write mode | Insert + SCD2 versioning (via sqldim processors) |
+| Data types | Dimensions (SCD2/SCD1), Facts, Bridges |
 | Schema | Enforced by Data Contract |
-| Deduplication | Natural-key dedup before insert |
-| PII | Masked or tokenised at write time |
-| Format | Delta Lake (`DeltaLakeSink`) or Apache Iceberg (`IcebergSink`) |
+| Versioning | SCD2 with `valid_from`, `valid_to`, `is_current` |
+| Build order | DIMENSION → FACT → BRIDGE → GRAPH |
+| Format | Delta Lake / Iceberg / DuckDB tables |
 
 sqldim's `LazySCDProcessor` and `LazySCDMetadataProcessor` operate at this
-layer, producing a fully versioned dimension table with `is_current`,
-`valid_from`, and `valid_to` columns.
+layer, producing fully versioned dimension tables.
 
 ---
 
-## Gold — aggregated / consumption-ready
+## Silver — pre-aggregated / array-like data
 
-**Principle:** *performance over flexibility*.  Structure is fixed, latency
-is guaranteed, consumers never touch raw data.
+**Principle:** *readiness over completeness*.  Bronze models are snapshotted,
+flattened, or nested into consumption-optimised structures.
 
 | Property | Value |
 |---|---|
-| Structure | Star schema (fact + conformed dimensions) |
+| Data types | Current-snapshot views, nested arrays, denormalised tables |
+| Deduplication | Natural-key dedup, current-version filtering |
+| PII | Masked or tokenised at write time |
+| Format | Materialised tables or views |
+
+---
+
+## Gold — aggregated metrics
+
+**Principle:** *performance over flexibility*.  Pre-computed aggregates
+eliminate fan-out at query time.
+
+| Property | Value |
+|---|---|
+| Data types | Aggregated KPIs, materialised metrics, cohort tables |
 | Aggregation | Pre-computed (no fan-out at query time) |
 | SLA | Freshness ≤ 5 min after Silver promotion |
 | Format | Materialised tables in DuckDB / MotherDuck |
+
+---
+
+## Semantic — business consumption
+
+**Principle:** *meaning over mechanics*.  Gold aggregates are wrapped in
+business-friendly names, descriptions, and access policies for end-user
+consumption via BI tools, NL agents, or APIs.
+
+| Property | Value |
+|---|---|
+| Data types | Business views, domain-owned datasets |
+| Consumers | NL agents, BI dashboards, ML pipelines, APIs |
+| Governance | Domain-owned, access-controlled |
+| Format | Views / virtual datasets |
 
 ---
 
@@ -121,6 +138,19 @@ on_fail: hold + alert(P1)
 
 `statistical_drift` is computed against a rolling 7-day baseline; a 3σ
 deviation in row count or key metric distribution halts the promotion.
+
+### Gold → Semantic
+
+```yaml
+checks:
+  - business_rule_coverage  > 95%
+  - naming_convention       PASS
+  - access_policy           DEFINED
+on_fail: hold + alert(P1)
+```
+
+Semantic promotion verifies that business naming conventions are followed
+and access policies are attached before datasets are exposed to consumers.
 
 ---
 
