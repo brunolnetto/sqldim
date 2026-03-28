@@ -26,7 +26,7 @@ Minimum CTE count = number of nodes in canonical DAG (tight lower bound).
 
 from __future__ import annotations
 
-from sqldim.core.query.dgm.algebra import ComposeOp, QuestionAlgebra
+from sqldim.core.query.dgm.algebra import ComposeOp, ComposedQuery, QuestionAlgebra
 from sqldim.core.query.dgm.bdd import BDDManager, DGMPredicateBDD, TRUE_NODE_ID
 from sqldim.core.query.dgm.core import DGMQuery
 from sqldim.core.query.dgm.preds import ScalarPred, AND
@@ -35,6 +35,11 @@ from sqldim.core.query.dgm._dag import (
     apply_semiring_minimisation,
     QueryDAGNode,
     QueryDAGManager,
+    _leaf_bdd_id,
+    _try_eliminate,
+    _resolve,
+    _union_survivor,
+    _intersect_survivor,
 )
 
 
@@ -611,15 +616,6 @@ class TestQueryDAGManagerMake:
 # ===========================================================================
 # Task 10: Coverage completeness — internal helper branches
 # ===========================================================================
-
-from sqldim.core.query.dgm._dag import (
-    _leaf_bdd_id,
-    _try_eliminate,
-    _resolve,
-    _union_survivor,
-    _intersect_survivor,
-)
-from sqldim.core.query.dgm.algebra import ComposedQuery
 
 
 class TestLeafBddIdSqlOnlyBranch:

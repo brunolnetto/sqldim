@@ -1,4 +1,6 @@
 import pytest
+from datetime import datetime
+from typing import Optional as Opt
 from sqlalchemy.pool import StaticPool
 from sqlmodel import Session, create_engine, SQLModel, Field as SM_Field
 from sqldim import DimensionModel, Field, SCD2Mixin
@@ -209,9 +211,6 @@ def test_infer_missing_resolve_multi(inferred_session):
 # A model with valid_from/is_current declared but without default_factory /
 # without a "truthy" default causes the explicit fallback assignment.
 # ---------------------------------------------------------------------------
-
-from datetime import datetime
-from typing import Optional as Opt
 
 
 class BareTemporalDim(DimensionModel, table=True):

@@ -5,15 +5,26 @@ from __future__ import annotations
 from enum import Enum
 
 
-_ORDER = ["bronze", "silver", "gold"]
+_ORDER = ["bronze", "silver", "gold", "semantic"]
 
 
 class Layer(str, Enum):
-    """The three tiers of the Medallion architecture."""
+    """The four tiers of the Medallion architecture.
+
+    ======== =====================================================
+    Layer    Data policy
+    ======== =====================================================
+    BRONZE   Dimensional models: dimensions, facts, bridges.
+    SILVER   Pre-aggregated or array-like (nested) data.
+    GOLD     Aggregated / materialised metrics and KPIs.
+    SEMANTIC Business-level views for BI / NL consumption.
+    ======== =====================================================
+    """
 
     BRONZE = "bronze"
     SILVER = "silver"
     GOLD = "gold"
+    SEMANTIC = "semantic"
 
     def __str__(self) -> str:
         return self.value

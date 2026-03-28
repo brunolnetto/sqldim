@@ -15,19 +15,20 @@ from __future__ import annotations
 import json
 import pytest
 
-pytestmark = pytest.mark.filterwarnings(
-    "ignore::logfire._internal.config.LogfireNotConfiguredWarning"
-)
-
 from sqldim.application.evals.cases import EvalCase, EVAL_SUITE
 from sqldim.application.evals.metrics import (
     check_has_result,
     check_columns_present,
     check_table_referenced,
     check_hop_budget,
+    check_result_matches_expected,
     score_case,
 )
 from sqldim.application.evals.runner import EvalResult, EvalReport, EvalRunner
+
+pytestmark = pytest.mark.filterwarnings(
+    "ignore::logfire._internal.config.LogfireNotConfiguredWarning"
+)
 
 
 # ---------------------------------------------------------------------------
@@ -48,6 +49,7 @@ class TestEvalCase:
         assert case.expect_columns == []
         assert case.expect_table is None
         assert case.max_hops == 11
+        assert case.expected_sql is None
         assert case.tags == []
 
     def test_frozen(self):
@@ -71,6 +73,7 @@ class TestEvalSuite:
         assert "fintech" in datasets
         assert "saas_growth" in datasets
         assert "user_activity" in datasets
+        assert "retail" in datasets
 
     def test_ids_unique(self):
         ids = [c.id for c in EVAL_SUITE]
@@ -187,7 +190,71 @@ class TestCheckHopBudget:
         assert ok
 
 
-class TestScoreCase:
+class TestCheckResultMatchesExpected:
+    def test_no_expected_skips(self):
+        ok, detail = check_result_matches_expected({"count": 5}, None)
+        assert ok
+        assert "skipped" in detail
+
+    def test_actual_none_with_rows_expected_fails(self):
+        expected = {"columns": ["a"], "rows": [["1"]], "count": 1}
+        ok, detail = check_result_matches_expected(None, expected)
+        assert not ok
+        assert "row count mismatch" in detail
+
+    def test_row_count_mismatch_fails(self):
+        actual = {"columns": ["a"], "rows": [], "count": 0}
+        expected = {"columns": ["a"], "rows": [["1"]], "count": 1}
+        ok, detail = check_result_matches_expected(actual, expected)
+        assert not ok
+        assert "row count mismatch" in detail
+
+    def test_both_zero_rows_passes(self):
+        actual = {"columns": ["a"], "rows": [], "count": 0}
+        expected = {"columns": ["a"], "rows": [], "count": 0}
+        ok, detail = check_result_matches_expected(actual, expected)
+        assert ok
+        assert "empty" in detail
+
+    def test_column_alias_difference_passes_when_data_matches(self):
+        # Different alias (e.g. count_accounts vs account_count) but same data → PASS
+        actual = {"columns": ["count_accounts"], "rows": [["15"]], "count": 1}
+        expected = {"columns": ["account_count"], "rows": [["15"]], "count": 1}
+        ok, detail = check_result_matches_expected(actual, expected)
+        assert ok
+        assert "alias" in detail  # informational note present
+
+    def test_different_data_fails_regardless_of_column_names(self):
+        # Different alias AND different data → FAIL on data mismatch
+        actual = {"columns": ["x"], "rows": [["different"]], "count": 1}
+        expected = {"columns": ["a"], "rows": [["expected_value"]], "count": 1}
+        ok, detail = check_result_matches_expected(actual, expected)
+        assert not ok
+        assert "data mismatch" in detail
+
+    def test_matching_rows_passes(self):
+        result = {"columns": ["a", "b"], "rows": [["x", "1"], ["y", "2"]], "count": 2}
+        ok, detail = check_result_matches_expected(result, result)
+        assert ok
+        assert "2" in detail
+
+    def test_differing_row_data_fails(self):
+        actual = {"columns": ["a"], "rows": [["x"]], "count": 1}
+        expected = {"columns": ["a"], "rows": [["y"]], "count": 1}
+        ok, detail = check_result_matches_expected(actual, expected)
+        assert not ok
+        assert "data mismatch" in detail
+
+    def test_large_result_skips_row_comparison(self):
+        # > 100 rows: only count + columns checked
+        rows = [[str(i)] for i in range(101)]
+        actual = {"columns": ["a"], "rows": rows, "count": 101}
+        expected = {"columns": ["a"], "rows": [[str(i + 1)] for i in range(101)], "count": 101}
+        ok, _ = check_result_matches_expected(actual, expected)
+        assert ok  # row data not compared beyond 100 rows
+
+
+
     def test_empty_checks_returns_1(self):
         assert score_case() == 1.0
 
@@ -234,6 +301,9 @@ def _make_result(passed: bool, hops: int = 5, score: float = 1.0) -> EvalResult:
         check_details={"has_result": "10 row(s) returned"},
         error=None,
         tags=["entity"],
+        check_passed={"has_result": True},
+        expected_sql=None,
+        expected_result=None,
     )
 
 
@@ -494,9 +564,9 @@ class TestEvalRunnerStubMode:
         with mock.patch(
             "sqldim.application.evals.runner.make_model", return_value=None
         ):
-            report = runner.run(datasets=["ecommerce"], tags=["entity"])
+            report = runner.run(datasets=["ecommerce"], tags=["metric"])
         assert len(report.results) > 0
-        assert all("entity" in r.tags for r in report.results)
+        assert all("metric" in r.tags for r in report.results)
 
     def test_unknown_dataset_yields_error_result(self):
         runner = self._make_stub_runner()

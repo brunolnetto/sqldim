@@ -276,5 +276,6 @@ class NLInterfaceState(BaseModel):
     result: Any | None = None  # QueryResult
     explanation: str | None = None
     visited_nodes: list[str] = []  # ordered list of graph hops for evals
+    node_timings: dict[str, float] = {}  # wall-clock ms per node, keyed by node name
 
     model_config = {"arbitrary_types_allowed": True}

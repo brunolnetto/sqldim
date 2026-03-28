@@ -305,7 +305,7 @@ def _p1_work(result: BenchmarkResult, temp_dir: str) -> None:
     atoms = [ScalarPred(PropRef("t", f"c{i}"), "=", i) for i in range(10)]
     probe = MemoryProbe(temp_dir=temp_dir, label=result.case_id)
     with probe:
-        t0 = time.perf_counter()
+        time.perf_counter()
         for _ in range(n):
             mgr = BDDManager()
             bdd = DGMPredicateBDD(mgr)

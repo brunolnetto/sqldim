@@ -35,6 +35,7 @@ saas_growth   — SaaSUsersSource
 supply_chain  — SuppliersSource, WarehousesSource, SKUsSource, ReceiptsSource
 user_activity — DevicesSource, EventsSource
 devops        — GitHubIssuesSource
+observability — PipelineSpanSource, MetricSampleSource
 """
 
 from sqldim.application.datasets.base import (
@@ -98,6 +99,10 @@ try:
         DevicesSource,
         EventsSource,
     )
+    from sqldim.application.datasets.domains.observability import (
+        PipelineSpanSource,
+        MetricSampleSource,
+    )
 except ImportError:  # pragma: no cover
     pass
 
@@ -149,6 +154,9 @@ __all__ = [
     # user_activity (requires faker)
     "DevicesSource",
     "EventsSource",
+    # observability (real execution telemetry)
+    "PipelineSpanSource",
+    "MetricSampleSource",
     # domain-event infrastructure
     "AggregateState",
     "DomainEvent",

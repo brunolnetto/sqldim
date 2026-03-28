@@ -1,5 +1,5 @@
 """
-application/datasets/dlt_bridge.py
+sqldim/sources/dlt_bridge.py
 ====================================
 Thin bridge between a `dlt <https://dlthub.com>`_ pipeline and the sqldim
 ``SQLSource`` abstraction.
@@ -14,7 +14,7 @@ Typical usage
 -------------
 ::
 
-    from sqldim.application.datasets.dlt_bridge import DLTBridge
+    from sqldim.sources.dlt_bridge import DLTBridge
     from sqldim.application.examples.features.integrations.ecommerce_api import (
         ecommerce_api_source,
     )

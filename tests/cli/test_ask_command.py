@@ -13,10 +13,6 @@ from __future__ import annotations
 import pytest
 import duckdb
 
-pytestmark = pytest.mark.filterwarnings(
-    "ignore::logfire._internal.config.LogfireNotConfiguredWarning"
-)
-
 from sqldim.application.ask import (
     KNOWN_DATASETS,
     _discover_datasets,
@@ -27,6 +23,10 @@ from sqldim.application.ask import (
     run_ask,
 )
 from sqldim.cli import build_parser, main
+
+pytestmark = pytest.mark.filterwarnings(
+    "ignore::logfire._internal.config.LogfireNotConfiguredWarning"
+)
 
 
 # ---------------------------------------------------------------------------
@@ -214,10 +214,7 @@ class TestDiscoverDatasets:
     def test_discover_datasets_skips_non_packages(self, monkeypatch):
         """Entries where ``ispkg=False`` are silently skipped."""
         import pkgutil
-        import types
-        import importlib
 
-        orig_iter = pkgutil.iter_modules
 
         def _fake_iter(path):
             # Return one non-package entry that should be skipped
@@ -503,7 +500,7 @@ class TestMainAsk:
 class TestBuildPipelineSource:
     def test_unknown_source_type_prints_error_and_returns_one(self, capsys, monkeypatch):
         """cmd_ask returns 1 when _build_pipeline_source gets an unknown source."""
-        from sqldim.cli import _build_pipeline_source
+        from sqldim.cli.ask import _build_pipeline_source
         import argparse
 
         args = argparse.Namespace(source="nonexistent_source_type_xyz")
@@ -520,7 +517,7 @@ class TestBuildPipelineSource:
         # Invoke cmd_ask via main with a custom source type not in the registry
         # The CLI parser uses --source to distinguish source types; default is "dataset"
         # We inject directly via _build_pipeline_source to test the None path
-        from sqldim.cli import _build_pipeline_source
+        from sqldim.cli.ask import _build_pipeline_source
         import argparse
 
         fake_args = argparse.Namespace(source="bogus_type")

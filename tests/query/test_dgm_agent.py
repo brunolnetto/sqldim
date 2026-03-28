@@ -23,11 +23,9 @@ Covers:
 from __future__ import annotations
 
 import pytest
+from datetime import timedelta
+from typing import Any
 
-# Logfire emits a warning when no backend is configured; suppress it in tests.
-pytestmark = pytest.mark.filterwarnings(
-    "ignore::logfire._internal.config.LogfireNotConfiguredWarning"
-)
 from sqldim.core.query.dgm.nl._agent_types import (
     CandidateRankingResult,
     CompositionalDetectionResult,
@@ -64,8 +62,11 @@ from sqldim.core.query.dgm.planner._gate import (
     SampleMethod,
     StreamDecision,
 )
-from datetime import timedelta
-from typing import Any
+
+# Logfire emits a warning when no backend is configured; suppress it in tests.
+pytestmark = pytest.mark.filterwarnings(
+    "ignore::logfire._internal.config.LogfireNotConfiguredWarning"
+)
 
 
 # ---------------------------------------------------------------------------
@@ -770,10 +771,19 @@ class TestMakeModel:
 
     def test_make_model_openai_returns_object(self):
         """Cover _make_openai_model body (lines 70-78)."""
+        import os
         from sqldim.core.query.dgm.nl._agents import make_model
 
-        model = make_model("openai", model_name="gpt-4o-mini")
-        assert model is not None
+        old = os.environ.get("OPENAI_API_KEY")
+        os.environ["OPENAI_API_KEY"] = "sk-test-fake"
+        try:
+            model = make_model("openai", model_name="gpt-4o-mini")
+            assert model is not None
+        finally:
+            if old is None:
+                os.environ.pop("OPENAI_API_KEY", None)
+            else:
+                os.environ["OPENAI_API_KEY"] = old
 
     def test_make_model_anthropic_returns_object(self):
         """Cover _make_anthropic_model body (lines 82-84)."""
@@ -1327,7 +1337,7 @@ class TestBuildNLGraphWithContext:
         # Pre-seed q_current to empty-string to trigger the no-sql branch
         state: dict = {"utterance": "show t", "q_current": ""}
         try:
-            result = graph.invoke(state, config=config)
+            graph.invoke(state, config=config)
         except Exception as exc:  # noqa: BLE001
             from langgraph.errors import GraphRecursionError
 
@@ -1432,7 +1442,7 @@ class TestBuildNLGraphWithContext:
 
     def test_llm_node_exception_handler_entity(self):
         """Cover lines 217-218: _entity_node except branch when agent raises."""
-        from unittest.mock import MagicMock, patch
+        from unittest.mock import patch
         from pydantic_ai.models.test import TestModel
 
         ctx = self._make_context_with_db()
@@ -1448,7 +1458,7 @@ class TestBuildNLGraphWithContext:
             side_effect=RuntimeError("agent error"),
         ):
             try:
-                result = graph.invoke({"utterance": "fail"}, config=config)
+                graph.invoke({"utterance": "fail"}, config=config)
             except Exception as exc:  # noqa: BLE001
                 from langgraph.errors import GraphRecursionError
 

@@ -8,18 +8,20 @@ from sqldim.medallion import Layer, MedallionRegistry
 
 
 class TestLayer:
-    def test_has_three_tiers(self):
-        assert {Layer.BRONZE, Layer.SILVER, Layer.GOLD} == set(Layer)
+    def test_has_four_tiers(self):
+        assert {Layer.BRONZE, Layer.SILVER, Layer.GOLD, Layer.SEMANTIC} == set(Layer)
 
     def test_string_values(self):
         assert Layer.BRONZE.value == "bronze"
         assert Layer.SILVER.value == "silver"
         assert Layer.GOLD.value == "gold"
+        assert Layer.SEMANTIC.value == "semantic"
 
     def test_from_string(self):
         assert Layer("bronze") is Layer.BRONZE
         assert Layer("silver") is Layer.SILVER
         assert Layer("gold") is Layer.GOLD
+        assert Layer("semantic") is Layer.SEMANTIC
 
     def test_invalid_string_raises(self):
         with pytest.raises(ValueError):
@@ -30,9 +32,10 @@ class TestLayer:
         assert str(Layer.BRONZE) == "bronze"
 
     def test_ordered_index(self):
-        order = [Layer.BRONZE, Layer.SILVER, Layer.GOLD]
+        order = [Layer.BRONZE, Layer.SILVER, Layer.GOLD, Layer.SEMANTIC]
         assert order.index(Layer.BRONZE) < order.index(Layer.SILVER)
         assert order.index(Layer.SILVER) < order.index(Layer.GOLD)
+        assert order.index(Layer.GOLD) < order.index(Layer.SEMANTIC)
 
     # can_promote_to
     def test_bronze_can_promote_to_silver(self):
@@ -41,12 +44,18 @@ class TestLayer:
     def test_silver_can_promote_to_gold(self):
         assert Layer.SILVER.can_promote_to(Layer.GOLD) is True
 
+    def test_gold_can_promote_to_semantic(self):
+        assert Layer.GOLD.can_promote_to(Layer.SEMANTIC) is True
+
     def test_cannot_skip_layers(self):
         assert Layer.BRONZE.can_promote_to(Layer.GOLD) is False
+        assert Layer.BRONZE.can_promote_to(Layer.SEMANTIC) is False
+        assert Layer.SILVER.can_promote_to(Layer.SEMANTIC) is False
 
     def test_cannot_promote_backwards(self):
         assert Layer.GOLD.can_promote_to(Layer.SILVER) is False
         assert Layer.SILVER.can_promote_to(Layer.BRONZE) is False
+        assert Layer.SEMANTIC.can_promote_to(Layer.GOLD) is False
 
     def test_cannot_promote_to_self(self):
         assert Layer.BRONZE.can_promote_to(Layer.BRONZE) is False

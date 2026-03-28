@@ -30,4 +30,5 @@ saas_growth   — SaaSUsersSource
 supply_chain  — SuppliersSource, WarehousesSource, SKUsSource, ReceiptsSource
 user_activity — DevicesSource, EventsSource
 devops        — GitHubIssuesSource
+observability — PipelineSpanSource, MetricSampleSource
 """

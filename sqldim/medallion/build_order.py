@@ -1,6 +1,6 @@
-"""sqldim/medallion/build_order.py — Silver-layer population ordering.
+"""sqldim/medallion/build_order.py — Bronze-layer population ordering.
 
-Within Silver, models must be built in dependency order:
+Within Bronze, dimensional models must be built in dependency order:
 
     DIMENSION → FACT → BRIDGE → GRAPH
 
@@ -19,7 +19,7 @@ from typing import Sequence
 
 
 class ModelKind(str, Enum):
-    """Canonical population order within the Silver layer."""
+    """Canonical population order within the Bronze layer (dim/fact/bridge)."""
 
     DIMENSION = "dimension"
     FACT = "fact"

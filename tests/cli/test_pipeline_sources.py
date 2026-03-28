@@ -14,10 +14,6 @@ from __future__ import annotations
 import pytest
 import duckdb
 
-pytestmark = pytest.mark.filterwarnings(
-    "ignore::logfire._internal.config.LogfireNotConfiguredWarning"
-)
-
 from sqldim.application.ask import (
     DatasetPipelineSource,
     MedallionPipelineSource,
@@ -28,6 +24,10 @@ from sqldim.application.ask import (
     run_ask_from_source,
 )
 from sqldim.cli import build_parser, main
+
+pytestmark = pytest.mark.filterwarnings(
+    "ignore::logfire._internal.config.LogfireNotConfiguredWarning"
+)
 
 
 # ---------------------------------------------------------------------------

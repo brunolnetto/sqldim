@@ -24,25 +24,24 @@ Observability:
 from __future__ import annotations
 
 from collections.abc import Callable
+import time
 from typing import Any
 
 import logfire
 from langgraph.checkpoint.memory import MemorySaver
 from langgraph.graph import END, StateGraph
 
-from sqldim.core.query.dgm.nl._agent_types import NLInterfaceState, QueryCandidate
-from sqldim.core.query.dgm.nl._agents import (
-    make_compositional_agent,
-    make_entity_agent,
-    make_explanation_agent,
-    make_ranking_agent,
-    make_temporal_agent,
+from sqldim.core.query.dgm.nl._agent_types import NLInterfaceState
+from sqldim.core.query.dgm.nl._node_impls import (
+    LLM_NODE_NAMES,
+    OPERATIONAL_NODE_NAMES,
+    make_llm_nodes,
+    make_operational_nodes,
 )
 from sqldim.core.query.dgm.planner._gate import (
     AsyncDecision,
     BudgetDecisionKind,
     ClarifyDecision,
-    ExecutionGate,
     PaginateDecision,
     ProceedDecision,
     RejectDecision,
@@ -122,6 +121,7 @@ def _traced_node(
     """Wrap a node function with a Logfire span that records state changes."""
 
     def _wrapper(state: NLInterfaceState) -> dict[str, Any]:
+        t0 = time.perf_counter()
         with logfire.span(
             "dgm.nl.{node}",
             node=name,
@@ -137,9 +137,11 @@ def _traced_node(
                     node=name,
                     changed_fields=list(changed.keys()),
                 )
-            # Record this hop for eval tracing (always appends, never replaces).
-            result["visited_nodes"] = list(state.visited_nodes) + [name]
-            return result
+        elapsed_ms = round((time.perf_counter() - t0) * 1000, 1)
+        # Record this hop + timing for eval tracing (always appends, never replaces).
+        result["visited_nodes"] = list(state.visited_nodes) + [name]
+        result["node_timings"] = {**state.node_timings, name: elapsed_ms}
+        return result
 
     _wrapper.__name__ = name
     return _wrapper
@@ -203,259 +205,19 @@ def build_nl_graph(
 
     # ── LLM nodes (Pydantic-AI specialist agents) ─────────────────────────
     if context is not None and model is not None:
-        # Create agents once and close over them in node functions.
-        _entity_agent = make_entity_agent(model)
-        _temporal_agent = make_temporal_agent(model)
-        _compositional_agent = make_compositional_agent(model)
-        _ranking_agent = make_ranking_agent(model)
-        _explanation_agent = make_explanation_agent(model)
-
-        def _entity_node(state: NLInterfaceState) -> dict[str, Any]:
-            try:
-                r = _entity_agent.run_sync(state.utterance, deps=context)
-                return {"entity_result": r.output}
-            except Exception:  # noqa: BLE001
-                return {}
-
-        def _temporal_node(state: NLInterfaceState) -> dict[str, Any]:
-            try:
-                r = _temporal_agent.run_sync(state.utterance, deps=context)
-                return {"temporal_result": r.output}
-            except Exception:  # noqa: BLE001
-                return {}
-
-        def _compositional_node(state: NLInterfaceState) -> dict[str, Any]:
-            try:
-                r = _compositional_agent.run_sync(state.utterance, deps=context)
-                return {"compositional": r.output}
-            except Exception:  # noqa: BLE001
-                return {}
-
-        def _ranking_node(state: NLInterfaceState) -> dict[str, Any]:
-            if not state.candidates:
-                return {}
-            try:
-                prompt = f"{state.utterance}\n\nCandidates:\n" + "\n".join(
-                    f"{i}. {c.description}" for i, c in enumerate(state.candidates)
-                )
-                r = _ranking_agent.run_sync(prompt, deps=context)
-                return {"ranking_result": r.output}
-            except Exception:  # noqa: BLE001
-                return {}
-
-        def _explanation_node(state: NLInterfaceState) -> dict[str, Any]:
-            try:
-                r = _explanation_agent.run_sync(state.utterance, deps=context)
-                return {"explanation": r.output.explanation}
-            except Exception:  # noqa: BLE001
-                return {}
-
-        _node("entity_resolution", _entity_node)
-        _node("temporal_classification", _temporal_node)
-        _node("compositional_detection", _compositional_node)
-        _node("candidate_ranking", _ranking_node)
-        _node("explanation_rendering", _explanation_node)
+        for name, fn in make_llm_nodes(context, model).items():
+            _node(name, fn)
     else:
-        _node("entity_resolution")
-        _node("temporal_classification")
-        _node("compositional_detection")
-        _node("candidate_ranking")
-        _node("explanation_rendering")
+        for name in LLM_NODE_NAMES:
+            _node(name)
 
     # ── Non-LLM nodes (pure DGM machinery) ────────────────────────────────
     if context is not None:
-        # ------------------------------------------------------------------
-        # candidate_generation — build QueryCandidates from resolved vocab
-        # ------------------------------------------------------------------
-        def _candidate_generation_node(
-            state: NLInterfaceState,
-        ) -> dict[str, Any]:
-            registry = context.entity_registry  # type: ignore[union-attr]
-
-            # Collect table names referenced by resolved proprefs.
-            tables: set[str] = set()
-            if state.entity_result:
-                for pr in state.entity_result.resolved:
-                    tables.add(pr.alias)
-
-            # Fallback: all registered node aliases.
-            if not tables:
-                tables = set(registry.node_terms.values())
-
-            candidates: list[QueryCandidate] = []
-            for i, table in enumerate(sorted(tables)):
-                props = [
-                    propref
-                    for propref in registry.prop_terms.values()
-                    if propref.startswith(f"{table}.")
-                ]
-                col_preview = ", ".join(p.split(".", 1)[1] for p in props[:3])
-                suffix = "..." if len(props) > 3 else ""
-                desc = (
-                    f"SELECT from {table} ({col_preview}{suffix})"
-                    if props
-                    else f"SELECT from {table}"
-                )
-                candidates.append(
-                    QueryCandidate(
-                        dag_node_id=i,
-                        description=desc,
-                        band_coverage=["B1"],
-                        cost_estimate=float(len(props)),
-                    )
-                )
-            return {"candidates": candidates}
-
-        # ------------------------------------------------------------------
-        # confirmation_loop — auto-confirm top candidate in CLI mode
-        # ------------------------------------------------------------------
-        def _confirmation_loop_node(
-            state: NLInterfaceState,
-        ) -> dict[str, Any]:
-            if state.confirmed:
-                return {}
-            if state.ranking_result and state.ranking_result.ranked:
-                return {"confirmed": True, "user_selection": 0}
-            if state.candidates:
-                return {"confirmed": True, "user_selection": 0}
-            return {"confirmed": True}
-
-        # ------------------------------------------------------------------
-        # dag_construction — build a SQL query from the confirmed candidate
-        # ------------------------------------------------------------------
-        def _dag_construction_node(
-            state: NLInterfaceState,
-        ) -> dict[str, Any]:
-            from sqldim.core.query.dgm.planner._targets import (
-                ExportPlan,
-                QueryTarget,
-            )
-
-            registry = context.entity_registry  # type: ignore[union-attr]
-
-            # Resolve selected candidate.
-            selected: QueryCandidate | None = None
-            idx = state.user_selection or 0
-            if state.ranking_result and state.ranking_result.ranked:
-                if 0 <= idx < len(state.ranking_result.ranked):
-                    selected = state.ranking_result.ranked[idx]
-            if selected is None and state.candidates:
-                if 0 <= idx < len(state.candidates):
-                    selected = state.candidates[idx]
-                elif state.candidates:
-                    selected = state.candidates[0]
-
-            if selected is None:
-                sql = "SELECT 1 AS placeholder"
-            else:
-                # Extract table name from description "SELECT from <table> ..."
-                desc = selected.description
-                table: str | None = None
-                if "SELECT from " in desc:
-                    rest = desc.split("SELECT from ", 1)[1].strip()
-                    table = rest.split()[0].rstrip(" (")
-
-                if table and table in registry.node_terms.values():
-                    props = [
-                        propref
-                        for propref in registry.prop_terms.values()
-                        if propref.startswith(f"{table}.")
-                    ]
-                    cols = (
-                        ", ".join(p.split(".", 1)[1] for p in props[:10])
-                        if props
-                        else "*"
-                    )
-                    sql = f"SELECT {cols} FROM {table} LIMIT 100"
-                else:
-                    sql = "SELECT 1 AS placeholder"
-
-            plan = ExportPlan(
-                query_target=QueryTarget.SQL_DUCKDB,
-                query_text=sql,
-            )
-            # Store both the raw SQL string (q_current) and the plan object.
-            context.q_current = plan  # type: ignore[union-attr]
-            return {"q_current": sql}
-
-        # ------------------------------------------------------------------
-        # budget_gate — apply ExecutionGate against declared budget
-        # ------------------------------------------------------------------
-        def _budget_gate_node(
-            state: NLInterfaceState,
-        ) -> dict[str, Any]:
-            from sqldim.core.query.dgm.planner._targets import (
-                CostEstimate,
-                ExportPlan,
-                QueryTarget,
-            )
-
-            sql = state.q_current or "SELECT 1"
-            # Heuristic cost: number of characters as a cpu_ops proxy.
-            cpu_ops = max(100, len(sql) * 10)
-            plan = ExportPlan(
-                query_target=QueryTarget.SQL_DUCKDB,
-                query_text=sql,
-                cost_estimate=CostEstimate(cpu_ops=cpu_ops, io_ops=100),
-            )
-            gate = ExecutionGate()
-            decision = gate.gate(plan, context.budget)  # type: ignore[union-attr]
-            return {"budget_decision": decision}
-
-        # ------------------------------------------------------------------
-        # execution — run SQL against DuckDB and capture results
-        # ------------------------------------------------------------------
-        def _execution_node(
-            state: NLInterfaceState,
-        ) -> dict[str, Any]:
-            sql = state.q_current
-            con = context.con  # type: ignore[union-attr]
-            if not sql or con is None:
-                return {"result": None}
-            try:
-                cursor = con.execute(sql)
-                columns = (
-                    [col[0] for col in cursor.description] if cursor.description else []
-                )
-                rows = cursor.fetchall()
-                return {
-                    "result": {
-                        "columns": columns,
-                        "rows": [[str(v) for v in row] for row in rows[:100]],
-                        "count": len(rows),
-                    }
-                }
-            except Exception:  # noqa: BLE001
-                return {"result": None}
-
-        # ------------------------------------------------------------------
-        # clarification — fall-through: auto-confirm best candidate
-        # ------------------------------------------------------------------
-        def _clarification_node(
-            state: NLInterfaceState,
-        ) -> dict[str, Any]:
-            # No interactive HIL in CLI mode; confirm the first candidate.
-            if state.candidates:
-                return {
-                    "confirmed": True,
-                    "user_selection": 0,
-                    "want_more_options": False,
-                }
-            return {"confirmed": True, "want_more_options": False}
-
-        _node("candidate_generation", _candidate_generation_node)
-        _node("confirmation_loop", _confirmation_loop_node)
-        _node("dag_construction", _dag_construction_node)
-        _node("budget_gate", _budget_gate_node)
-        _node("execution", _execution_node)
-        _node("clarification", _clarification_node)
+        for name, fn in make_operational_nodes(context, model=model).items():
+            _node(name, fn)
     else:
-        _node("candidate_generation")
-        _node("confirmation_loop")
-        _node("dag_construction")
-        _node("budget_gate")
-        _node("execution")
-        _node("clarification")
+        for name in OPERATIONAL_NODE_NAMES:
+            _node(name)
 
     # ── Linear pipeline edges ─────────────────────────────────────────────
     graph.add_edge("entity_resolution", "temporal_classification")

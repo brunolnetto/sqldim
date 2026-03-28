@@ -10,13 +10,12 @@ from __future__ import annotations
 
 import json
 import pytest
-import unittest.mock as mock
+
+from sqldim.cli import build_parser, main
 
 pytestmark = pytest.mark.filterwarnings(
     "ignore::logfire._internal.config.LogfireNotConfiguredWarning"
 )
-
-from sqldim.cli import build_parser, main
 
 
 # ---------------------------------------------------------------------------
@@ -80,7 +79,7 @@ class TestEvalsRunParser:
     def test_dataset_flag_accepted(self):
         parser = build_parser()
         args = parser.parse_args(["evals", "run", "--dataset", "ecommerce"])
-        assert args.dataset == "ecommerce"
+        assert args.dataset == ["ecommerce"]
 
     def test_tag_flag_accepted(self):
         parser = build_parser()

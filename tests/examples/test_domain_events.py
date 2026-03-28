@@ -332,7 +332,7 @@ class TestProductStockOutEvent:
                 "products": [
                     {
                         "product_id": 7,
-                        "stock_qty": 100,
+                        "stock_units": 100,
                         "is_active": True,
                         "updated_at": "2024-01-01",
                     },
@@ -340,13 +340,13 @@ class TestProductStockOutEvent:
             }
         )
         changes = self._event().apply(state, product_id=7)
-        assert changes["products"][0]["stock_qty"] == 0
+        assert changes["products"][0]["stock_units"] == 0
         assert changes["products"][0]["is_active"] is False
 
     def test_cancels_placed_orders_for_product(self):
         state = AggregateState(
             {
-                "products": [{"product_id": 3, "stock_qty": 5, "is_active": True}],
+                "products": [{"product_id": 3, "stock_units": 5, "is_active": True}],
                 "orders": [
                     {"order_id": 1, "product_id": 3, "status": "placed"},
                     {"order_id": 2, "product_id": 3, "status": "shipped"},
@@ -361,7 +361,7 @@ class TestProductStockOutEvent:
     def test_no_order_changes_when_no_orders_table(self):
         state = AggregateState(
             {
-                "products": [{"product_id": 1, "stock_qty": 5, "is_active": True}],
+                "products": [{"product_id": 1, "stock_units": 5, "is_active": True}],
             }
         )
         changes = self._event().apply(state, product_id=1)
@@ -371,7 +371,7 @@ class TestProductStockOutEvent:
         """Orders without product_id field are skipped."""
         state = AggregateState(
             {
-                "products": [{"product_id": 1, "stock_qty": 5, "is_active": True}],
+                "products": [{"product_id": 1, "stock_units": 5, "is_active": True}],
                 "orders": [{"order_id": 1, "status": "placed"}],
             }
         )
@@ -384,7 +384,7 @@ class TestProductStockOutEvent:
             _apply_stock_out_to_product,
         )
 
-        other = {"product_id": 99, "stock_qty": 50, "is_active": True}
+        other = {"product_id": 99, "stock_units": 50, "is_active": True}
         result = _apply_stock_out_to_product(other, product_id=1, event_ts="2024-01-01")
         assert result is other  # exact same object returned unchanged
 

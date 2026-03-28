@@ -65,6 +65,48 @@ def check_hop_budget(
     return False, f"{n} hops exceeds budget of {max_hops}"
 
 
+def check_result_matches_expected(
+    actual: dict[str, Any] | None,
+    expected: dict[str, Any] | None,
+) -> tuple[bool, str]:
+    """Pass when *actual* result matches *expected* ground-truth result.
+
+    Compares row count and sorted row data values (up to 100 rows).  Column
+    *aliases* are intentionally ignored — the model may use a different alias
+    for the metric column (e.g. ``count_accounts`` vs ``account_count``) while
+    the data is semantically identical.  A note is appended to the detail
+    string when aliases differ.  When *expected* is ``None`` the check is
+    skipped.
+    """
+    if expected is None:
+        return True, "no expected result (skipped)"
+
+    exp_count = expected.get("count", 0)
+    act_count = actual.get("count", 0) if actual is not None else 0
+
+    if act_count != exp_count:
+        return False, f"row count mismatch: expected {exp_count}, got {act_count}"
+
+    if exp_count == 0:
+        return True, "both queries return empty results"
+
+    if actual is None:
+        return False, "actual result is None; expected has data"
+
+    # Informational alias note — not a failure condition
+    exp_cols = sorted(c.lower() for c in expected.get("columns", []))
+    act_cols = sorted(c.lower() for c in actual.get("columns", []))
+    alias_note = f" (alias: {act_cols})" if act_cols != exp_cols else ""
+
+    if exp_count <= 100:
+        exp_rows = sorted(str(r) for r in expected.get("rows", []))
+        act_rows = sorted(str(r) for r in actual.get("rows", []))
+        if exp_rows != act_rows:
+            return False, f"data mismatch: {act_count} row(s) differ{alias_note}"
+
+    return True, f"matches expected: {act_count} row(s){alias_note}"
+
+
 def _earned_sum(checks: tuple, w: list[float]) -> float:  # type: ignore[type-arg]
     """Return the sum of weights for passing checks."""
     return sum(wi for (passed, _), wi in zip(checks, w) if passed)
@@ -92,5 +134,6 @@ __all__ = [
     "check_columns_present",
     "check_table_referenced",
     "check_hop_budget",
+    "check_result_matches_expected",
     "score_case",
 ]

@@ -54,7 +54,7 @@ def test_main_as_module(monkeypatch):
 
     monkeypatch.setattr(sys, "argv", ["sqldim.cli"])
     with pytest.raises(SystemExit) as exc:
-        runpy.run_module("sqldim.cli", run_name="__main__")
+        runpy.run_module("sqldim.cli.__main__", run_name="__main__")
     # No subcommand → help printed, exit 1
     assert exc.value.code == 1
 
@@ -104,7 +104,7 @@ def test_example_run_user_activity(capsys):
 
 def test_example_run_sync_branch(capsys, monkeypatch):
     """Cover the sync (non-coroutine) code path in cmd_example_run."""
-    import sqldim.cli as cli_mod
+    import sqldim.cli.examples as cli_mod
     import asyncio
 
     called = []
@@ -137,7 +137,7 @@ def test_example_run_sync_branch(capsys, monkeypatch):
 
 def test_discover_examples_import_error_skips_pkg(capsys):
     """Lines 89-90: ImportError on the package itself causes silent skip."""
-    import sqldim.cli as cli_mod
+    import sqldim.cli.examples as cli_mod
 
     import importlib
 
@@ -156,7 +156,7 @@ def test_discover_examples_import_error_skips_pkg(capsys):
 
 def test_discover_examples_showcase_import_error_skips_module():
     """Line 101: ImportError on the showcase module itself causes silent skip."""
-    import sqldim.cli as cli_mod
+    import sqldim.cli.examples as cli_mod
     import importlib
 
     real_import = importlib.import_module
@@ -175,7 +175,7 @@ def test_discover_examples_showcase_import_error_skips_module():
 
 def test_example_list_no_examples(capsys, monkeypatch):
     """Lines 120-121: empty discovery returns early with a helpful message."""
-    import sqldim.cli as cli_mod
+    import sqldim.cli.examples as cli_mod
 
     monkeypatch.setattr(cli_mod, "_discover_examples", lambda: {})
     rc = main(["example", "list"])
@@ -186,7 +186,7 @@ def test_example_list_no_examples(capsys, monkeypatch):
 
 def test_example_list_single_kind_skips_empty_group(capsys, monkeypatch):
     """Line 131: when features group is empty it is skipped silently."""
-    import sqldim.cli as cli_mod
+    import sqldim.cli.examples as cli_mod
 
     monkeypatch.setattr(
         cli_mod,
@@ -204,7 +204,7 @@ def test_example_list_single_kind_skips_empty_group(capsys, monkeypatch):
 
 def test_discover_examples_non_package_modules_skipped():
     """Lines 97-98: non-package entries in iter_modules are silently skipped."""
-    import sqldim.cli as cli_mod
+    import sqldim.cli.examples as cli_mod
     import pkgutil
 
     real_iter = pkgutil.iter_modules
@@ -225,7 +225,7 @@ def test_discover_examples_none_metadata_skips_module():
     """Line 101: showcase module that returns EXAMPLE_METADATA=None is silently skipped."""
     import importlib
     import types
-    import sqldim.cli as cli_mod
+    import sqldim.cli.examples as cli_mod
 
     real_import = importlib.import_module
 

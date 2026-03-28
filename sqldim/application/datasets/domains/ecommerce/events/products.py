@@ -23,7 +23,7 @@ def _apply_stock_out_to_product(p: dict, product_id: int, event_ts: str) -> dict
         return p
     return {
         **p,
-        "stock_qty": 0,
+        "stock_units": 0,
         "is_active": False,
         **({"updated_at": event_ts} if "updated_at" in p else {}),
     }

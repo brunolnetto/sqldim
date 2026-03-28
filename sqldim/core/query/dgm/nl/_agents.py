@@ -16,6 +16,7 @@ make_temporal_agent(model)       -> Agent[DGMContext, TemporalClassificationResu
 make_compositional_agent(model)  -> Agent[DGMContext, CompositionalDetectionResult]
 make_ranking_agent(model)        -> Agent[DGMContext, CandidateRankingResult]
 make_explanation_agent(model)    -> Agent[DGMContext, ExplanationRenderResult]
+make_sql_agent(model)            -> Agent[DGMContext, str]
 """
 
 from __future__ import annotations
@@ -41,6 +42,7 @@ __all__ = [
     "make_compositional_agent",
     "make_ranking_agent",
     "make_explanation_agent",
+    "make_sql_agent",
 ]
 
 #: Ollama server base URL (OpenAI-compatible endpoint).
@@ -229,6 +231,50 @@ def make_entity_agent(model: Any = None) -> Any:
     return agent
 
 
+# Task 6 — SQL generation
+# ---------------------------------------------------------------------------
+
+
+def make_sql_agent(model: Any = None) -> Any:
+    """Create the SQL generation specialist (§11.10 Agent 6).
+
+    Translates a natural-language question + database schema into a single
+    intent-fulfilling DuckDB SQL query with proper aggregations, filters,
+    and computed-column aliases.
+    """
+    _model = model if model is not None else make_ollama_model()
+    agent: Any = Agent(
+        model=_model,
+        deps_type=DGMContext,
+        output_type=str,
+        system_prompt=(
+            "You are an expert DuckDB SQL generator.\n"
+            "Translate the user's question into ONE valid DuckDB SQL query "
+            "that DIRECTLY and COMPLETELY answers the question.\n"
+            "\n"
+            "Rules:\n"
+            "- Totals/sums → SUM() with a descriptive alias (e.g. total_revenue)\n"
+            "- Averages → AVG() with a descriptive alias (e.g. avg_order_value)\n"
+            "- Counts/groupings → COUNT(*) with GROUP BY; alias count column descriptively\n"
+            "- Filters → WHERE clause with the exact condition\n"
+            "- Rankings/top-N → ORDER BY ... DESC LIMIT N\n"
+            "- MINIMUM TABLES (critical): use ONLY the tables whose columns appear in your "
+            "SELECT / WHERE / GROUP BY.  Before writing a JOIN ask: 'does my query need a "
+            "column that only exists in the joined table?'  If the answer is no, drop the "
+            "JOIN entirely.  Example: 'sessions per user' → COUNT rows in saas_sessions using "
+            "saas_sessions.user_id alone — do NOT join saas_users.\n"
+            "- Joins → when a JOIN is genuinely needed, use ONLY the exact join key "
+            "relationships listed in the schema under 'Join key relationships'. "
+            "Match INTEGER id columns to INTEGER id columns — "
+            "NEVER join an id column to a string/code column like 'sku', 'code', or 'number'\n"
+            "- For single-table aggregations (e.g. avg price per category from products), "
+            "query that table directly — do NOT add joins that are not needed\n"
+            "- Default LIMIT 1000 for non-aggregated results; omit for aggregations\n"
+            "- Return ONLY the raw SQL — no markdown fences, no explanation\n"
+            "- Use standard DuckDB SQL syntax"
+        ),
+    )
+    return agent
 # ---------------------------------------------------------------------------
 # Task 3 — Temporal classification
 # ---------------------------------------------------------------------------

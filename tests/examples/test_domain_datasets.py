@@ -257,7 +257,7 @@ class TestMediaDataset:
     def test_import_and_tables(self):
         from sqldim.application.datasets.domains.media.dataset import media_dataset
 
-        assert media_dataset.table_names() == ["movies"]
+        assert set(media_dataset.table_names()) == {"actors", "movies"}
 
     def test_setup_teardown(self):
         from sqldim.application.datasets.domains.media.dataset import media_dataset
@@ -266,15 +266,18 @@ class TestMediaDataset:
         media_dataset.setup(con)
         tables = con.execute("SHOW TABLES").fetchdf()["name"].tolist()
         assert "movies" in tables
+        assert "actors" in tables
         media_dataset.teardown(con)
         tables = con.execute("SHOW TABLES").fetchdf()["name"].tolist()
         assert "movies" not in tables
+        assert "actors" not in tables
 
     def test_snapshots(self):
         from sqldim.application.datasets.domains.media.dataset import media_dataset
 
         snaps = media_dataset.snapshots()
         assert "movies" in snaps
+        assert "actors" in snaps
 
     def test_repr(self):
         from sqldim.application.datasets.domains.media.dataset import media_dataset
