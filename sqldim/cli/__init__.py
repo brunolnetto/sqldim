@@ -10,6 +10,7 @@ Usage:
     sqldim evals run [--dataset DATASET [DATASET ...]] [--tag TAG] [--provider PROVIDER]
     sqldim evals drift [--domain {retail,ecommerce,saas_growth,fintech,user_activity,supply_chain,enterprise,nba_analytics}] [--provider PROVIDER]
     sqldim bench run [CASE ...] [--max-tier TIER] [--source SOURCE]
+    sqldim supervisor "<question>" [--verbose]
 
 Examples are auto-discovered from sqldim.application.examples.real_world.*
 and sqldim.application.examples.features.* via EXAMPLE_METADATA dicts.
@@ -21,6 +22,7 @@ import sys
 from sqldim.cli.ask import cmd_ask
 from sqldim.cli.bench import cmd_bench_run
 from sqldim.cli.examples import cmd_example_list, cmd_example_run
+from sqldim.cli.supervisor import cmd_supervisor
 
 # ── migration commands ────────────────────────────────────────────────────────
 
@@ -447,6 +449,23 @@ def build_parser() -> argparse.ArgumentParser:
         help="Print entity vocabulary details before invoking the graph",
     )
     ask.set_defaults(func=cmd_ask)
+
+    # supervisor subcommand — multi-dataset analytical agent
+    supervisor = subparsers.add_parser(
+        "supervisor",
+        help="Run the supervisor agent across all known datasets",
+    )
+    supervisor.add_argument(
+        "question",
+        help="Analytical question to decompose across datasets",
+    )
+    supervisor.add_argument(
+        "--verbose",
+        action="store_true",
+        default=False,
+        help="Print node traversal details",
+    )
+    supervisor.set_defaults(func=cmd_supervisor)
 
     return parser
 
