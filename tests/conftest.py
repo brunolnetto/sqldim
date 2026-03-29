@@ -103,6 +103,7 @@ def _dataset_pipeline_cache(tmp_path_factory):
         # internally and is best handled lazily in domain_pipeline_cache.
         "retail",
         "enterprise",
+        "social_network",
     ]
 
     cache: dict[str, str] = {}
