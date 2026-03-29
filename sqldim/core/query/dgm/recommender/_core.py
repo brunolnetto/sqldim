@@ -121,6 +121,8 @@ class DGMRecommender:
             RolePlaying,
         )
 
+        from sqldim.core.query.dgm.annotations import MedallionLayer
+
         _dispatch = {
             Degenerate: self._ann_degenerate,
             Conformed: self._ann_conformed,
@@ -132,6 +134,7 @@ class DGMRecommender:
             BridgeSemantics: self._ann_bridge_semantics,
             Hierarchy: self._ann_hierarchy,
             RolePlaying: self._ann_role_playing,
+            MedallionLayer: self._ann_medallion_layer,
         }
         handler = _dispatch.get(type(ann))
         if handler is not None:
@@ -312,6 +315,116 @@ class DGMRecommender:
                 priority=55,
             )
         )
+
+    def _ann_medallion_layer(self, ann: object, out: list[Suggestion]) -> None:
+        from sqldim.core.query.dgm.annotations import MedallionLayerKind
+
+        if ann.layer is MedallionLayerKind.BRONZE:  # type: ignore[attr-defined]
+            out.append(
+                Suggestion(
+                    kind=SuggestionKind.SUPPRESS,
+                    band="suppress",
+                    text=(
+                        f"Suppress GroupBy({ann.node})"  # type: ignore[attr-defined]
+                        " — MedallionLayer(BRONZE): raw, unvalidated data"
+                    ),
+                    priority=75,
+                )
+            )
+            out.append(
+                Suggestion(
+                    kind=SuggestionKind.SCALAR_PRED,
+                    band="B1",
+                    text=(
+                        f"Filter to SILVER+ before GroupBy on {ann.node}"  # type: ignore[attr-defined]
+                    ),
+                    priority=65,
+                )
+            )
+
+    # -- Parametric suggestion rules (§7.7) ----------------------------------
+
+    def run_parametric_rules(self) -> list[Suggestion]:
+        """Apply §7.7 parametric suggestion rules; return a flat suggestion list."""
+        suggestions: list[Suggestion] = []
+        for ann in self.sigma:
+            self._apply_parametric_rule(ann, suggestions)
+        return suggestions
+
+    def _apply_parametric_rule(self, ann: object, out: list[Suggestion]) -> None:
+        from sqldim.core.query.dgm.annotations import (
+            Grain,
+            FactlessFact,
+            BridgeSemantics,
+            MedallionLayer,
+            GrainKind,
+            BridgeSemanticsKind,
+            MedallionLayerKind,
+        )
+
+        if isinstance(ann, Grain):
+            if ann.grain is GrainKind.PERIOD:
+                out.append(
+                    Suggestion(
+                        kind=SuggestionKind.AGG_ALTERNATIVE,
+                        band="parametric",
+                        text=(
+                            f"Use LAST or AVG instead of SUM on"
+                            f" Grain(PERIOD) {ann.fact}"
+                        ),
+                        priority=65,
+                    )
+                )
+            elif ann.grain is GrainKind.EVENT:
+                out.append(
+                    Suggestion(
+                        kind=SuggestionKind.TEMPORAL_REFINEMENT,
+                        band="parametric",
+                        text=(
+                            f"Use point-based BEFORE/AFTER temporal ordering"
+                            f" on Grain(EVENT) {ann.fact}"
+                        ),
+                        priority=60,
+                    )
+                )
+        elif isinstance(ann, FactlessFact):
+            out.append(
+                Suggestion(
+                    kind=SuggestionKind.AGG_ALTERNATIVE,
+                    band="parametric",
+                    text=(
+                        f"Use COUNT on FactlessFact({ann.fact});"
+                        f" SUM/AVG/MIN/MAX excluded"
+                    ),
+                    priority=70,
+                )
+            )
+        elif isinstance(ann, BridgeSemantics):
+            if ann.sem is BridgeSemanticsKind.CAUSAL:
+                out.append(
+                    Suggestion(
+                        kind=SuggestionKind.STRATEGY_SHIFT,
+                        band="parametric",
+                        text=(
+                            f"Use DAG-aware strategy on CAUSAL bridge"
+                            f" {ann.bridge}"
+                        ),
+                        priority=60,
+                    )
+                )
+        elif isinstance(ann, MedallionLayer):
+            if ann.layer is MedallionLayerKind.BRONZE:
+                out.append(
+                    Suggestion(
+                        kind=SuggestionKind.THRESHOLD_RELAXATION,
+                        band="parametric",
+                        text=(
+                            f"Filter {ann.node} to SILVER+ before aggregation"
+                            " — BRONZE data may have quality issues"
+                        ),
+                        priority=70,
+                    )
+                )
 
     # -- TrailExpr-driven rules (§7.5) ---------------------------------------
 

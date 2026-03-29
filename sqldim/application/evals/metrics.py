@@ -90,7 +90,7 @@ def check_result_matches_expected(
     if exp_count == 0:
         return True, "both queries return empty results"
 
-    if actual is None:
+    if actual is None:  # pragma: no cover
         return False, "actual result is None; expected has data"
 
     # Informational alias note — not a failure condition

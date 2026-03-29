@@ -29,12 +29,14 @@ from sqldim.core.query.dgm.annotations import (
     BridgeSemantics,
     Hierarchy,
     PipelineArtifact,
+    MedallionLayer,
     GrainKind,
     SCDKind,
     WeightConstraintKind,
     BridgeSemanticsKind,
     WriteModeKind,
     PipelineStateKind,
+    MedallionLayerKind,
     RAGGED,
     SchemaAnnotation,
     annotation_kind,
@@ -740,3 +742,103 @@ class TestPipelineArtifact:
     def test_refresh_mode(self):
         a = self._make(write_mode=WriteModeKind.REFRESH)
         assert a.write_mode is WriteModeKind.REFRESH
+
+
+# ---------------------------------------------------------------------------
+# MedallionLayerKind
+# ---------------------------------------------------------------------------
+
+
+class TestMedallionLayerKind:
+    def test_bronze(self):
+        assert MedallionLayerKind.BRONZE.value == "BRONZE"
+
+    def test_silver(self):
+        assert MedallionLayerKind.SILVER.value == "SILVER"
+
+    def test_gold(self):
+        assert MedallionLayerKind.GOLD.value == "GOLD"
+
+    def test_diamond(self):
+        assert MedallionLayerKind.DIAMOND.value == "DIAMOND"
+
+    def test_all_members(self):
+        assert set(MedallionLayerKind) == {
+            MedallionLayerKind.BRONZE,
+            MedallionLayerKind.SILVER,
+            MedallionLayerKind.GOLD,
+            MedallionLayerKind.DIAMOND,
+        }
+
+
+# ---------------------------------------------------------------------------
+# MedallionLayer annotation
+# ---------------------------------------------------------------------------
+
+
+class TestMedallionLayer:
+    def _make(self, **kw):
+        defaults = dict(
+            node="customer",
+            layer=MedallionLayerKind.SILVER,
+        )
+        defaults.update(kw)
+        return MedallionLayer(**defaults)
+
+    def test_basic_fields(self):
+        a = self._make()
+        assert a.node == "customer"
+        assert a.layer is MedallionLayerKind.SILVER
+        assert a.promoted_at is None
+
+    def test_with_promoted_at(self):
+        a = self._make(promoted_at="2024-06-01T00:00:00Z")
+        assert a.promoted_at == "2024-06-01T00:00:00Z"
+
+    def test_isinstance_schema_annotation(self):
+        assert isinstance(self._make(), SchemaAnnotation)
+
+    def test_bronze_layer(self):
+        a = self._make(layer=MedallionLayerKind.BRONZE)
+        assert a.layer is MedallionLayerKind.BRONZE
+
+    def test_gold_layer(self):
+        a = self._make(layer=MedallionLayerKind.GOLD)
+        assert a.layer is MedallionLayerKind.GOLD
+
+    def test_diamond_layer(self):
+        a = self._make(layer=MedallionLayerKind.DIAMOND)
+        assert a.layer is MedallionLayerKind.DIAMOND
+
+    def test_is_bronze_property(self):
+        """BRONZE nodes trigger planner warning and recommender suppression."""
+        a = self._make(layer=MedallionLayerKind.BRONZE)
+        assert a.is_bronze is True
+
+    def test_is_bronze_false_for_silver(self):
+        a = self._make(layer=MedallionLayerKind.SILVER)
+        assert a.is_bronze is False
+
+    def test_equality(self):
+        a = self._make()
+        b = self._make()
+        assert a == b
+
+    def test_annotation_kind_dispatch(self):
+        a = self._make()
+        assert annotation_kind(a) == "MedallionLayer"
+
+    def test_annotation_sigma_medallion_layer_of(self):
+        a = self._make(node="customer", layer=MedallionLayerKind.SILVER)
+        sigma = AnnotationSigma([a])
+        assert sigma.medallion_layer_of("customer") is MedallionLayerKind.SILVER
+
+    def test_annotation_sigma_medallion_layer_of_missing(self):
+        sigma = AnnotationSigma([])
+        assert sigma.medallion_layer_of("customer") is None
+
+    def test_annotation_sigma_is_bronze(self):
+        a = self._make(node="raw_events", layer=MedallionLayerKind.BRONZE)
+        sigma = AnnotationSigma([a])
+        assert sigma.is_bronze("raw_events") is True
+        assert sigma.is_bronze("customer") is False

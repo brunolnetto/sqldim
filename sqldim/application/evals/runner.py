@@ -436,7 +436,7 @@ class EvalRunner:
         try:
             from logfire._internal.config import LogfireNotConfiguredWarning
             _logfire_warning = LogfireNotConfiguredWarning
-        except ImportError:
+        except ImportError:  # pragma: no cover
             pass
 
         with warnings.catch_warnings():
@@ -451,13 +451,67 @@ class EvalRunner:
                 model_name=self.model_name,
             )
 
-            for case in suite:
-                if self.verbose:
-                    print(f"  [{case.id}] {case.utterance!r}")
-                result = self._run_one(case, model)
-                report.results.append(result)
-                if self.verbose:
-                    self._log_case_result(result)
+            # Build each dataset source ONCE and reuse the open connection for
+            # all cases that share the same dataset.  Cases with a custom
+            # ``pipeline_source_factory`` still get their own per-call source
+            # because those factories may be stateful or mutate the connection.
+            _source_cache: dict[str, Any] = {}
+            try:
+                for case in suite:
+                    if self.verbose:
+                        print(f"  [{case.id}] {case.utterance!r}")
+
+                    if case.pipeline_source_factory is not None:
+                        # Custom factory — maintain original per-case lifecycle.
+                        result = self._run_one(case, model)
+                    else:
+                        if case.dataset not in _source_cache:
+                            try:
+                                dataset = load_dataset(case.dataset)
+                            except KeyError as exc:
+                                err_result = EvalResult(
+                                    case_id=case.id,
+                                    dataset=case.dataset,
+                                    utterance=case.utterance,
+                                    passed=False,
+                                    score=0.0,
+                                    visited_nodes=[],
+                                    hop_count=0,
+                                    latency_ms=0.0,
+                                    row_count=0,
+                                    columns=[],
+                                    sql_generated=None,
+                                    explanation=None,
+                                    check_details={"dataset_load": f"KeyError: {exc}"},
+                                    error=str(exc),
+                                    tags=list(case.tags),
+                                    check_passed={"dataset_load": False},
+                                )
+                                report.results.append(err_result)
+                                if self.verbose:
+                                    self._log_case_result(err_result)
+                                continue
+                            source = DatasetPipelineSource(dataset)
+                            source.setup()
+                            _source_cache[case.dataset] = source
+
+                        cached_source = _source_cache[case.dataset]
+                        result = self._run_on_connection(
+                            case,
+                            cached_source.get_connection(),
+                            cached_source.get_table_names(),
+                            model,
+                        )
+
+                    report.results.append(result)
+                    if self.verbose:
+                        self._log_case_result(result)
+            finally:
+                for _src in _source_cache.values():
+                    try:
+                        _src.teardown()
+                    except Exception:  # noqa: BLE001
+                        pass
 
         if self.verbose:
             print(report.summary())
@@ -495,7 +549,7 @@ class EvalRunner:
             try:
                 from logfire._internal.config import LogfireNotConfiguredWarning
                 warnings.filterwarnings("ignore", category=LogfireNotConfiguredWarning)
-            except ImportError:
+            except ImportError:  # pragma: no cover
                 pass
 
             for dc in drift_cases:

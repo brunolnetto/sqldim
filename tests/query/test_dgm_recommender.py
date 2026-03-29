@@ -32,10 +32,12 @@ from sqldim.core.query.dgm.annotations import (
     WeightConstraint,
     BridgeSemantics,
     Hierarchy,
+    MedallionLayer,
     GrainKind,
     SCDKind,
     WeightConstraintKind,
     BridgeSemanticsKind,
+    MedallionLayerKind,
 )
 from sqldim.core.query.dgm.graph import GraphStatistics
 
@@ -507,6 +509,126 @@ class TestBDDFeasibilityFilter:
         uid = bdd.compile_false()
         # A FALSE predicate is infeasible — should be filtered out
         assert rec.bdd_feasible(bdd, uid) is False
+
+
+# ---------------------------------------------------------------------------
+# Parametric SuggestionKind members (§7.7)
+# ---------------------------------------------------------------------------
+
+
+class TestParametricSuggestionKinds:
+    """Five parametric suggestion kinds from §7.7."""
+
+    def test_temporal_refinement(self) -> None:
+        assert SuggestionKind.TEMPORAL_REFINEMENT.value == "TEMPORAL_REFINEMENT"
+
+    def test_strategy_shift(self) -> None:
+        assert SuggestionKind.STRATEGY_SHIFT.value == "STRATEGY_SHIFT"
+
+    def test_agg_alternative(self) -> None:
+        assert SuggestionKind.AGG_ALTERNATIVE.value == "AGG_ALTERNATIVE"
+
+    def test_algo_variant(self) -> None:
+        assert SuggestionKind.ALGO_VARIANT.value == "ALGO_VARIANT"
+
+    def test_threshold_relaxation(self) -> None:
+        assert SuggestionKind.THRESHOLD_RELAXATION.value == "THRESHOLD_RELAXATION"
+
+
+# ---------------------------------------------------------------------------
+# MedallionLayer annotation-driven rule (§7.4 + §7.7)
+# ---------------------------------------------------------------------------
+
+
+class TestMedallionLayerAnnotationRule:
+    """MedallionLayer(BRONZE) → suppress GroupBy, suggest SILVER+ filter."""
+
+    def test_bronze_suppresses_groupby(self) -> None:
+        sigma = AnnotationSigma(
+            [MedallionLayer(node="raw_events", layer=MedallionLayerKind.BRONZE)]
+        )
+        rec = DGMRecommender(sigma=sigma)
+        suggestions = rec.run_annotation_rules()
+        suppressed = [s for s in suggestions if s.band == "suppress"]
+        assert len(suppressed) >= 1
+        assert any("raw_events" in s.text for s in suppressed)
+
+    def test_bronze_suggests_silver_filter(self) -> None:
+        sigma = AnnotationSigma(
+            [MedallionLayer(node="raw_events", layer=MedallionLayerKind.BRONZE)]
+        )
+        rec = DGMRecommender(sigma=sigma)
+        suggestions = rec.run_annotation_rules()
+        silver_hints = [
+            s for s in suggestions if "SILVER" in s.text or "filter" in s.text.lower()
+        ]
+        assert len(silver_hints) >= 1
+
+    def test_gold_no_suppression(self) -> None:
+        sigma = AnnotationSigma(
+            [MedallionLayer(node="clean_sales", layer=MedallionLayerKind.GOLD)]
+        )
+        rec = DGMRecommender(sigma=sigma)
+        suggestions = rec.run_annotation_rules()
+        suppressed = [s for s in suggestions if s.band == "suppress"]
+        assert len(suppressed) == 0
+
+
+# ---------------------------------------------------------------------------
+# Parametric suggestion rules (§7.7 run_parametric_rules)
+# ---------------------------------------------------------------------------
+
+
+class TestParametricSuggestionRules:
+    """DGMRecommender.run_parametric_rules() produces parametric suggestions."""
+
+    def test_grain_period_suggests_agg_alternative(self) -> None:
+        sigma = AnnotationSigma([Grain(fact="balance", grain=GrainKind.PERIOD)])
+        rec = DGMRecommender(sigma=sigma)
+        suggestions = rec.run_parametric_rules()
+        agg_alt = [s for s in suggestions if s.kind is SuggestionKind.AGG_ALTERNATIVE]
+        assert len(agg_alt) >= 1
+
+    def test_factless_suggests_agg_alternative(self) -> None:
+        sigma = AnnotationSigma([FactlessFact(fact="attendance")])
+        rec = DGMRecommender(sigma=sigma)
+        suggestions = rec.run_parametric_rules()
+        agg_alt = [s for s in suggestions if s.kind is SuggestionKind.AGG_ALTERNATIVE]
+        assert len(agg_alt) >= 1
+
+    def test_grain_event_suggests_temporal_refinement(self) -> None:
+        sigma = AnnotationSigma([Grain(fact="clicks", grain=GrainKind.EVENT)])
+        rec = DGMRecommender(sigma=sigma)
+        suggestions = rec.run_parametric_rules()
+        temporal = [
+            s for s in suggestions if s.kind is SuggestionKind.TEMPORAL_REFINEMENT
+        ]
+        assert len(temporal) >= 1
+
+    def test_bronze_suggests_threshold_relaxation(self) -> None:
+        sigma = AnnotationSigma(
+            [MedallionLayer(node="raw_events", layer=MedallionLayerKind.BRONZE)]
+        )
+        rec = DGMRecommender(sigma=sigma)
+        suggestions = rec.run_parametric_rules()
+        threshold = [
+            s for s in suggestions if s.kind is SuggestionKind.THRESHOLD_RELAXATION
+        ]
+        assert len(threshold) >= 1
+
+    def test_bridge_causal_suggests_strategy_shift(self) -> None:
+        sigma = AnnotationSigma(
+            [BridgeSemantics(bridge="chain", sem=BridgeSemanticsKind.CAUSAL)]
+        )
+        rec = DGMRecommender(sigma=sigma)
+        suggestions = rec.run_parametric_rules()
+        strategy = [s for s in suggestions if s.kind is SuggestionKind.STRATEGY_SHIFT]
+        assert len(strategy) >= 1
+
+    def test_empty_sigma_returns_empty(self) -> None:
+        rec = DGMRecommender(sigma=AnnotationSigma([]))
+        suggestions = rec.run_parametric_rules()
+        assert suggestions == []
 
     def test_satisfiable_atom_passes(self):
         from sqldim.core.query.dgm.bdd import BDDManager, DGMPredicateBDD

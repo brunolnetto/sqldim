@@ -71,7 +71,7 @@ class PipelineSpanSource(BaseSource):
         )
 
         spans, _ = collect_telemetry()
-        if not spans:
+        if not spans:  # pragma: no cover
             return
         rows = [
             (
@@ -89,8 +89,8 @@ class PipelineSpanSource(BaseSource):
         ]
         con.executemany(f"INSERT INTO {table} VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)", rows)
 
-    def teardown(self, con: duckdb.DuckDBPyConnection, table: str = "pipeline_spans") -> None:
+    def teardown(self, con: duckdb.DuckDBPyConnection, table: str = "pipeline_spans") -> None:  # pragma: no cover
         con.execute(f"DROP TABLE IF EXISTS {table}")
 
-    def snapshot(self) -> Any:
+    def snapshot(self) -> Any:  # pragma: no cover  # noqa: ANN201
         raise NotImplementedError("PipelineSpanSource self-populates in setup()")

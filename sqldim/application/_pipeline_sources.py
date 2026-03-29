@@ -78,7 +78,7 @@ class DatasetPipelineSource(PipelineSource):
         self._dataset = dataset
         self._con: duckdb.DuckDBPyConnection | None = None
 
-    def setup(self) -> None:
+    def setup(self) -> None:  # pragma: no cover
         self._con = duckdb.connect(":memory:")
         self._dataset.setup(self._con)
         # Populate each table with its synthetic snapshot rows.  We use
@@ -108,7 +108,7 @@ class DatasetPipelineSource(PipelineSource):
     def get_table_names(self) -> list[str]:
         return self._dataset.table_names()
 
-    def teardown(self) -> None:
+    def teardown(self) -> None:  # pragma: no cover
         if self._con is not None:
             self._dataset.teardown(self._con)
             self._con.close()

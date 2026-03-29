@@ -55,6 +55,12 @@ class SuggestionKind(Enum):
     SUPPRESS = "SUPPRESS"
     # Cross-question correlation (§7.2, fourth suggestion type)
     CORRELATE = "CORRELATE"
+    # Parametric suggestions (§7.7)
+    TEMPORAL_REFINEMENT = "TEMPORAL_REFINEMENT"
+    STRATEGY_SHIFT = "STRATEGY_SHIFT"
+    AGG_ALTERNATIVE = "AGG_ALTERNATIVE"
+    ALGO_VARIANT = "ALGO_VARIANT"
+    THRESHOLD_RELAXATION = "THRESHOLD_RELAXATION"
 
 
 # ---------------------------------------------------------------------------

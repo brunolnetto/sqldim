@@ -11,8 +11,6 @@ builder in one pass without needing an LLM or network access.
 
 from __future__ import annotations
 
-import importlib
-
 import duckdb
 import pytest
 
@@ -26,11 +24,17 @@ pytestmark = pytest.mark.filterwarnings(
 # Helpers
 # ---------------------------------------------------------------------------
 
-def _build_pipeline(domain: str, con: duckdb.DuckDBPyConnection) -> None:
-    mod = importlib.import_module(
-        f"sqldim.application.datasets.domains.{domain}.pipeline.builder"
-    )
-    mod.build_pipeline(con)
+
+def _restore_from_cache(cache_db_path: str, con: duckdb.DuckDBPyConnection) -> None:
+    """Copy all tables from the cached domain DB into *con* via ATTACH."""
+    con.execute(f"ATTACH '{cache_db_path}' AS _cache (READ_ONLY)")
+    tables = con.execute(
+        "SELECT table_name FROM information_schema.tables "
+        "WHERE table_catalog = '_cache' AND table_schema = 'main'"
+    ).fetchall()
+    for (tbl,) in tables:
+        con.execute(f"CREATE TABLE {tbl} AS SELECT * FROM _cache.main.{tbl}")
+    con.execute("DETACH _cache")
 
 
 def _schema(con: duckdb.DuckDBPyConnection) -> dict[str, set[str]]:
@@ -50,13 +54,14 @@ _CASE_IDS = [c.id for c in _DRIFT_CASES]
 
 
 @pytest.mark.parametrize("drift_case", _DRIFT_CASES, ids=_CASE_IDS)
-def test_drift_structural(drift_case):
-    """Build pipeline, apply event, verify all probe columns exist in schema."""
+def test_drift_structural(drift_case, domain_pipeline_cache):
+    """Restore pipeline from cache, apply event, verify all probe columns exist."""
     domain = drift_case.id.split(".")[0]
+    cache_path = domain_pipeline_cache[domain]
 
     con = duckdb.connect(":memory:")
     try:
-        _build_pipeline(domain, con)
+        _restore_from_cache(cache_path, con)
         drift_case.event_fn(con)
         schema = _schema(con)
         all_cols = set.union(*schema.values()) if schema else set()

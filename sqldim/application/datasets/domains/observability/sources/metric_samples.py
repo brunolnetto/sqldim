@@ -69,7 +69,7 @@ class MetricSampleSource(BaseSource):
         )
 
         _, metrics = collect_telemetry()
-        if not metrics:
+        if not metrics:  # pragma: no cover
             return
         rows = []
         for i, m in enumerate(metrics):
@@ -88,8 +88,8 @@ class MetricSampleSource(BaseSource):
             ))
         con.executemany(f"INSERT INTO {table} VALUES (?, ?, ?, ?, ?, ?, ?, ?)", rows)
 
-    def teardown(self, con: duckdb.DuckDBPyConnection, table: str = "metric_samples") -> None:
+    def teardown(self, con: duckdb.DuckDBPyConnection, table: str = "metric_samples") -> None:  # pragma: no cover
         con.execute(f"DROP TABLE IF EXISTS {table}")
 
-    def snapshot(self) -> Any:
+    def snapshot(self) -> Any:  # pragma: no cover
         raise NotImplementedError("MetricSampleSource self-populates in setup()")

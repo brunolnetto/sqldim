@@ -99,6 +99,7 @@ from sqldim.core.query.dgm.annotations import (  # noqa: F401
     BridgeSemanticsKind,
     WriteModeKind,
     PipelineStateKind,
+    MedallionLayerKind,
     RAGGED,
     SchemaAnnotation,
     Conformed,
@@ -113,6 +114,7 @@ from sqldim.core.query.dgm.annotations import (  # noqa: F401
     BridgeSemantics,
     Hierarchy,
     PipelineArtifact,
+    MedallionLayer,
     annotation_kind,
     AnnotationSigma,
 )

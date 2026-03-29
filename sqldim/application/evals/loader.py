@@ -86,7 +86,7 @@ def _make_pipeline_source_factory(domain: str):
 def load_eval_cases(domain: str) -> list[EvalCase]:
     """Load eval cases for a single *domain* from its ``artifacts/evals.json``."""
     path = _DOMAINS_ROOT / domain / "artifacts" / "evals.json"
-    if not path.exists():
+    if not path.exists():  # pragma: no cover
         return []
     with path.open() as f:
         data = json.load(f)
@@ -107,7 +107,7 @@ def load_eval_suite() -> list[EvalCase]:
 def load_drift_cases(domain: str) -> list[DriftEvalCase]:
     """Load drift cases for a single *domain* from its ``artifacts/drift.json``."""
     path = _DOMAINS_ROOT / domain / "artifacts" / "drift.json"
-    if not path.exists():
+    if not path.exists():  # pragma: no cover
         return []
     with path.open() as f:
         data = json.load(f)

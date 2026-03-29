@@ -679,3 +679,258 @@ class TestAskParserModelFlags:
         )
         assert args.model_provider == "openai"
         assert args.model_name == "gpt-4o"
+
+
+# ---------------------------------------------------------------------------
+# RetailMedallionPipelineSource — lifecycle tests
+# ---------------------------------------------------------------------------
+
+
+class TestRetailMedallionPipelineSource:
+    """Exercise the RetailMedallionPipelineSource lifecycle (setup/teardown)."""
+
+    @pytest.fixture(scope="class")
+    def _built_src(self, _dataset_pipeline_cache):
+        """Restore the pre-built retail pipeline from the session-level cache.
+
+        Avoids a ~17 s Faker build by cloning the cached retail DuckDB file
+        into an in-memory connection and attaching it to a
+        ``RetailMedallionPipelineSource`` instance directly.
+        """
+        import duckdb
+        from sqldim.application.datasets.domains.retail.sources.medallion import (
+            RetailMedallionPipelineSource,
+        )
+        db_path = _dataset_pipeline_cache["retail"]
+        src = RetailMedallionPipelineSource(seed=42)
+        # Bypass build_pipeline: restore the pre-built state from the cache file.
+        con = duckdb.connect(":memory:")
+        con.execute(f"ATTACH '{db_path}' AS _cache (READ_ONLY)")
+        tables = con.execute(
+            "SELECT table_name FROM information_schema.tables "
+            "WHERE table_catalog = '_cache' AND table_schema = 'main'"
+        ).fetchall()
+        for (tbl,) in tables:
+            con.execute(f"CREATE TABLE {tbl} AS SELECT * FROM _cache.main.{tbl}")
+        con.execute("DETACH _cache")
+        src._con = con
+        yield src
+        src.teardown()
+
+    def test_setup_builds_gold_tables(self, _built_src):
+        con = _built_src.get_connection()
+        tables = [r[0] for r in con.execute("SHOW TABLES").fetchall()]
+        assert "dim_customer" in tables
+        assert "fct_daily_sales" in tables
+        assert "fct_cohort_retention" in tables
+
+    def test_get_table_names_returns_gold_tables(self, _built_src):
+        from sqldim.application.datasets.domains.retail.sources.medallion import (
+            GOLD_TABLES,
+        )
+        names = _built_src.get_table_names()
+        assert names == list(GOLD_TABLES)
+
+    def test_get_connection_before_setup_raises(self):
+        from sqldim.application.datasets.domains.retail.sources.medallion import (
+            RetailMedallionPipelineSource,
+        )
+
+        src = RetailMedallionPipelineSource()
+        with pytest.raises(RuntimeError, match="setup()"):
+            src.get_connection()
+
+    def test_teardown_closes_connection(self, monkeypatch):
+        from sqldim.application.datasets.domains.retail.sources.medallion import (
+            RetailMedallionPipelineSource,
+        )
+        monkeypatch.setattr(
+            "sqldim.application.datasets.domains.retail.sources.medallion.build_pipeline",
+            lambda con, **kw: None,
+        )
+        src = RetailMedallionPipelineSource(seed=42)
+        src.setup()
+        src.teardown()
+        assert src._con is None
+
+    def test_teardown_idempotent(self, monkeypatch):
+        from sqldim.application.datasets.domains.retail.sources.medallion import (
+            RetailMedallionPipelineSource,
+        )
+        monkeypatch.setattr(
+            "sqldim.application.datasets.domains.retail.sources.medallion.build_pipeline",
+            lambda con, **kw: None,
+        )
+        src = RetailMedallionPipelineSource(seed=42)
+        src.setup()
+        src.teardown()
+        src.teardown()  # must not raise
+
+    def test_label_property(self):
+        from sqldim.application.datasets.domains.retail.sources.medallion import (
+            RetailMedallionPipelineSource,
+        )
+
+        src = RetailMedallionPipelineSource()
+        assert src.label == "medallion:retail:gold"
+
+
+# ---------------------------------------------------------------------------
+# Retail gold source — setup() and teardown() coverage
+# ---------------------------------------------------------------------------
+
+
+class TestRetailGoldSources:
+    """Exercise setup() and teardown() on the retail gold layer sources directly."""
+
+    def test_dim_customer_setup_and_teardown(self):
+        import duckdb
+        from sqldim.application.datasets.domains.retail.sources.gold import (
+            DimCustomerSource,
+        )
+
+        src = DimCustomerSource(n=5, seed=1)
+        con = duckdb.connect(":memory:")
+        src.setup(con, "dim_customer")
+        count = con.execute("SELECT COUNT(*) FROM dim_customer").fetchone()[0]
+        assert count == 5
+        src.teardown(con, "dim_customer")
+        tables = [r[0] for r in con.execute("SHOW TABLES").fetchall()]
+        assert "dim_customer" not in tables
+
+    def test_fct_daily_sales_setup_and_teardown(self):
+        import duckdb
+        from sqldim.application.datasets.domains.retail.sources.gold import (
+            FctDailySalesSource,
+        )
+
+        src = FctDailySalesSource(n_days=7, seed=2)
+        con = duckdb.connect(":memory:")
+        src.setup(con, "fct_daily_sales")
+        count = con.execute("SELECT COUNT(*) FROM fct_daily_sales").fetchone()[0]
+        # 7 days × 3 segments = 21 rows
+        assert count == 21
+        src.teardown(con, "fct_daily_sales")
+        tables = [r[0] for r in con.execute("SHOW TABLES").fetchall()]
+        assert "fct_daily_sales" not in tables
+
+    def test_fct_cohort_retention_setup_and_teardown(self):
+        import duckdb
+        from sqldim.application.datasets.domains.retail.sources.gold import (
+            FctCohortRetentionSource,
+        )
+
+        src = FctCohortRetentionSource(n_cohorts=3, seed=3)
+        con = duckdb.connect(":memory:")
+        src.setup(con, "fct_cohort_retention")
+        count = con.execute("SELECT COUNT(*) FROM fct_cohort_retention").fetchone()[0]
+        assert count == 3
+        src.teardown(con, "fct_cohort_retention")
+        tables = [r[0] for r in con.execute("SHOW TABLES").fetchall()]
+        assert "fct_cohort_retention" not in tables
+
+
+# ---------------------------------------------------------------------------
+# Retail pipeline builder — rebuild_from_bronze and rebuild_gold
+# ---------------------------------------------------------------------------
+
+
+class TestRetailPipelineBuilder:
+    @pytest.fixture(scope="class")
+    def _built_pipeline(self, _dataset_pipeline_cache):
+        """Reuse the session-level retail pipeline file from the shared pipeline
+        cache.  Each test clones into its own in-memory connection via ATTACH +
+        CREATE TABLE AS SELECT so it can mutate freely without affecting peers.
+        """
+        return _dataset_pipeline_cache["retail"]
+
+    def _clone(self, db_path: str):
+        """Return a fresh in-memory DuckDB populated from *db_path*."""
+        import duckdb
+        con = duckdb.connect(":memory:")
+        con.execute(f"ATTACH '{db_path}' AS _src (READ_ONLY)")
+        tables = con.execute(
+            "SELECT table_name FROM information_schema.tables "
+            "WHERE table_catalog = '_src' AND table_schema = 'main'"
+        ).fetchall()
+        for (tbl,) in tables:
+            con.execute(f"CREATE TABLE {tbl} AS SELECT * FROM _src.main.{tbl}")
+        con.execute("DETACH _src")
+        return con
+
+    def test_rebuild_from_bronze_preserves_gold_tables(self, _built_pipeline):
+        from sqldim.application.datasets.domains.retail.pipeline.builder import (
+            rebuild_from_bronze,
+        )
+
+        con = self._clone(_built_pipeline)
+        count_before = con.execute("SELECT COUNT(*) FROM dim_customer").fetchone()[0]
+        rebuild_from_bronze(con, seed=42)
+        count_after = con.execute("SELECT COUNT(*) FROM dim_customer").fetchone()[0]
+        assert count_after == count_before
+
+    def test_rebuild_gold_recreates_gold_from_silver(self, _built_pipeline):
+        from sqldim.application.datasets.domains.retail.pipeline.builder import (
+            rebuild_gold,
+            GOLD_TABLES,
+        )
+
+        con = self._clone(_built_pipeline)
+        rebuild_gold(con)
+        tables = {r[0] for r in con.execute("SHOW TABLES").fetchall()}
+        for t in GOLD_TABLES:
+            assert t in tables
+
+    def test_rebuild_fact_orders_recreates_fact_table(self, _built_pipeline):
+        from sqldim.application.datasets.domains.retail.pipeline.builder import (
+            rebuild_fact_orders,
+        )
+
+        con = self._clone(_built_pipeline)
+        count_before = con.execute("SELECT COUNT(*) FROM silver_fact_orders").fetchone()[0]
+        rebuild_fact_orders(con)
+        count_after = con.execute("SELECT COUNT(*) FROM silver_fact_orders").fetchone()[0]
+        # Row count is preserved after a full rebuild
+        assert count_after == count_before
+
+
+# ---------------------------------------------------------------------------
+# DatasetPipelineSource — already_loaded branch (line 95)
+# ---------------------------------------------------------------------------
+
+
+class TestDatasetPipelineSourceAlreadyLoadedBranch:
+    """Cover the `if already_loaded: continue` path in DatasetPipelineSource.setup()."""
+
+    def test_already_loaded_source_is_skipped(self):
+        """Use a self-inserting source: its table has rows after setup(), so
+        snapshot() is never called and the `already_loaded` continue is hit."""
+        import duckdb
+        from sqldim.application._pipeline_sources import DatasetPipelineSource
+        from sqldim.application.datasets.base import BaseSource, SourceProvider
+        from sqldim.application.datasets.dataset import Dataset
+
+        class SelfInsertingSource(BaseSource):
+            """Source that inserts one row in setup() so already_loaded=True."""
+
+            provider = SourceProvider(name="test", description="test", url=None)
+
+            def setup(self, con: duckdb.DuckDBPyConnection, table: str) -> None:
+                con.execute(f"CREATE TABLE IF NOT EXISTS {table} (x INTEGER)")
+                con.execute(f"INSERT INTO {table} VALUES (42)")
+
+            def teardown(self, con: duckdb.DuckDBPyConnection, table: str) -> None:
+                con.execute(f"DROP TABLE IF EXISTS {table}")
+
+            def snapshot(self):
+                raise AssertionError("snapshot() must NOT be called when already_loaded")
+
+        ds = Dataset("test_self_insert", [(SelfInsertingSource(), "my_table")])
+        src = DatasetPipelineSource(ds)
+        src.setup()
+        try:
+            con = src.get_connection()
+            count = con.execute("SELECT COUNT(*) FROM my_table").fetchone()[0]
+            assert count == 1  # data inserted in setup(), not snapshot()
+        finally:
+            src.teardown()

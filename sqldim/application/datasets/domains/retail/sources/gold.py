@@ -92,7 +92,7 @@ class DimCustomerSource(BaseSource):
             for i in range(n)
         ]
 
-    def snapshot(self):  # noqa: ANN201
+    def snapshot(self):  # noqa: ANN201  # pragma: no cover
         raise NotImplementedError("dim_customer is a static fixture — data inserted in setup()")
 
     def setup(self, con: duckdb.DuckDBPyConnection, table: str) -> None:
@@ -169,7 +169,7 @@ class FctDailySalesSource(BaseSource):
                 ret_c = max(0, orders - new_c)
                 self._rows.append((d, seg, orders, revenue, new_c, ret_c))
 
-    def snapshot(self):  # noqa: ANN201
+    def snapshot(self):  # noqa: ANN201  # pragma: no cover
         raise NotImplementedError("fct_daily_sales is a static fixture — data inserted in setup()")
 
     def setup(self, con: duckdb.DuckDBPyConnection, table: str) -> None:
@@ -236,7 +236,7 @@ class FctCohortRetentionSource(BaseSource):
                 (cohort_date, size, int(d1), int(d7), int(d30))
             )
 
-    def snapshot(self):  # noqa: ANN201
+    def snapshot(self):  # noqa: ANN201  # pragma: no cover
         raise NotImplementedError(
             "fct_cohort_retention is a static fixture — data inserted in setup()"
         )

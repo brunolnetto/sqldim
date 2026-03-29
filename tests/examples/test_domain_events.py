@@ -483,3 +483,392 @@ class TestUserChurnedEvent:
         state = AggregateState({"saas_users": [{"user_id": 99, "plan_tier": "pro"}]})
         changes = self._event().apply(state, user_id=1)
         assert changes["saas_users"] == []
+
+
+# ── OLTP drift events — DuckDB-backed (devops, dgm, hierarchy, media) ─────────
+
+
+class TestDevopsApplyIssueResolution:
+    """Tests for ``apply_issue_resolution`` (devops domain OLTP event)."""
+
+    def _setup_con(self):
+        import duckdb
+
+        con = duckdb.connect(":memory:")
+        con.execute("""
+            CREATE TABLE github_issues (
+                issue_id INTEGER PRIMARY KEY,
+                title    VARCHAR,
+                state    VARCHAR
+            )
+        """)
+        con.executemany("INSERT INTO github_issues VALUES (?, ?, ?)", [
+            (1, "Bug A", "open"),
+            (2, "Bug B", "open"),
+            (3, "Closed already", "closed"),
+        ])
+        return con
+
+    def test_closes_open_issues(self):
+        from sqldim.application.datasets.domains.devops.events.github_issues import (
+            apply_issue_resolution,
+        )
+
+        con = self._setup_con()
+        apply_issue_resolution(con)
+        rows = con.execute("SELECT state FROM github_issues ORDER BY issue_id").fetchall()
+        assert all(s == "closed" for (s,) in rows)
+
+    def test_closed_count_increases(self):
+        from sqldim.application.datasets.domains.devops.events.github_issues import (
+            apply_issue_resolution,
+        )
+
+        con = self._setup_con()
+        open_before = con.execute(
+            "SELECT COUNT(*) FROM github_issues WHERE state = 'open'"
+        ).fetchone()[0]
+        apply_issue_resolution(con)
+        open_after = con.execute(
+            "SELECT COUNT(*) FROM github_issues WHERE state = 'open'"
+        ).fetchone()[0]
+        assert open_before > 0
+        assert open_after == 0
+
+    def test_scenarios_reexport(self):
+        from sqldim.application.datasets.domains.devops.events.scenarios import (
+            apply_issue_resolution,
+        )
+
+        con = self._setup_con()
+        apply_issue_resolution(con)
+        closed = con.execute(
+            "SELECT COUNT(*) FROM github_issues WHERE state = 'closed'"
+        ).fetchone()[0]
+        assert closed == 3
+
+
+class TestDgmApplySegmentUpgrade:
+    """Tests for ``apply_segment_upgrade`` (dgm domain OLTP event)."""
+
+    def _setup_con(self):
+        import duckdb
+
+        con = duckdb.connect(":memory:")
+        con.execute("""
+            CREATE TABLE dgm_showcase_customer (
+                customer_id INTEGER PRIMARY KEY,
+                region      VARCHAR,
+                segment     VARCHAR
+            )
+        """)
+        con.executemany("INSERT INTO dgm_showcase_customer VALUES (?, ?, ?)", [
+            (1, "west", "standard"),
+            (2, "west", "trial"),
+            (3, "east", "standard"),
+        ])
+        return con
+
+    def test_upgrades_west_to_premium(self):
+        from sqldim.application.datasets.domains.dgm.events.customers import (
+            apply_segment_upgrade,
+        )
+
+        con = self._setup_con()
+        apply_segment_upgrade(con)
+        rows = con.execute(
+            "SELECT segment FROM dgm_showcase_customer WHERE region = 'west'"
+        ).fetchall()
+        assert all(s == "premium" for (s,) in rows)
+
+    def test_east_unchanged(self):
+        from sqldim.application.datasets.domains.dgm.events.customers import (
+            apply_segment_upgrade,
+        )
+
+        con = self._setup_con()
+        apply_segment_upgrade(con)
+        seg = con.execute(
+            "SELECT segment FROM dgm_showcase_customer WHERE region = 'east'"
+        ).fetchone()[0]
+        assert seg == "standard"
+
+    def test_scenarios_reexport(self):
+        from sqldim.application.datasets.domains.dgm.events.scenarios import (
+            apply_segment_upgrade,
+        )
+
+        con = self._setup_con()
+        apply_segment_upgrade(con)
+        count = con.execute(
+            "SELECT COUNT(*) FROM dgm_showcase_customer WHERE segment = 'premium'"
+        ).fetchone()[0]
+        assert count == 2
+
+
+class TestHierarchyApplyRevenueSurge:
+    """Tests for ``apply_revenue_surge`` (hierarchy domain OLTP event)."""
+
+    def _setup_con(self):
+        import duckdb
+
+        con = duckdb.connect(":memory:")
+        con.execute("""
+            CREATE TABLE sales_fact (
+                sale_id  INTEGER PRIMARY KEY,
+                revenue  DOUBLE
+            )
+        """)
+        con.executemany("INSERT INTO sales_fact VALUES (?, ?)", [
+            (1, 100.0),
+            (2, 200.0),
+        ])
+        return con
+
+    def test_default_20_pct_increase(self):
+        from sqldim.application.datasets.domains.hierarchy.events.sales_fact import (
+            apply_revenue_surge,
+        )
+
+        con = self._setup_con()
+        apply_revenue_surge(con)
+        rows = con.execute("SELECT revenue FROM sales_fact ORDER BY sale_id").fetchall()
+        assert abs(rows[0][0] - 120.0) < 0.01
+        assert abs(rows[1][0] - 240.0) < 0.01
+
+    def test_custom_factor(self):
+        from sqldim.application.datasets.domains.hierarchy.events.sales_fact import (
+            apply_revenue_surge,
+        )
+
+        con = self._setup_con()
+        apply_revenue_surge(con, factor=2.0)
+        rows = con.execute("SELECT revenue FROM sales_fact ORDER BY sale_id").fetchall()
+        assert abs(rows[0][0] - 200.0) < 0.01
+
+    def test_scenarios_reexport(self):
+        from sqldim.application.datasets.domains.hierarchy.events.scenarios import (
+            apply_revenue_surge,
+        )
+
+        con = self._setup_con()
+        apply_revenue_surge(con)
+        total = con.execute("SELECT SUM(revenue) FROM sales_fact").fetchone()[0]
+        assert total > 300.0  # > original 300
+
+
+class TestMediaApplyNewRelease:
+    """Tests for ``apply_new_release`` (media domain OLTP event)."""
+
+    def _setup_con(self):
+        import duckdb
+
+        con = duckdb.connect(":memory:")
+        con.execute("""
+            CREATE TABLE actors (id INTEGER PRIMARY KEY, name VARCHAR)
+        """)
+        con.execute("""
+            CREATE TABLE movies (
+                actor_id    INTEGER,
+                actor_name  VARCHAR,
+                movie_id    INTEGER,
+                title       VARCHAR,
+                released_at DATE
+            )
+        """)
+        con.executemany("INSERT INTO actors VALUES (?, ?)", [
+            (1, "Alice"),
+            (2, "Bob"),
+        ])
+        # existing movie
+        con.execute(
+            "INSERT INTO movies VALUES (1, 'Alice', 1, 'Old Film', '2020-01-01')"
+        )
+        return con
+
+    def test_inserts_rows_for_all_actors(self):
+        from sqldim.application.datasets.domains.media.events.movies import (
+            apply_new_release,
+        )
+
+        con = self._setup_con()
+        apply_new_release(con, movie_id=999, title="New Blockbuster", released_at="2024-06-01")
+        new_rows = con.execute(
+            "SELECT actor_id FROM movies WHERE movie_id = 999 ORDER BY actor_id"
+        ).fetchall()
+        assert len(new_rows) == 2
+        assert new_rows[0][0] == 1 and new_rows[1][0] == 2
+
+    def test_title_set_correctly(self):
+        from sqldim.application.datasets.domains.media.events.movies import (
+            apply_new_release,
+        )
+
+        con = self._setup_con()
+        apply_new_release(con)
+        titles = con.execute(
+            "SELECT DISTINCT title FROM movies WHERE movie_id = 999"
+        ).fetchall()
+        assert len(titles) == 1
+        assert titles[0][0] == "New Blockbuster"
+
+    def test_scenarios_reexport(self):
+        from sqldim.application.datasets.domains.media.events.scenarios import (
+            apply_new_release,
+        )
+
+        con = self._setup_con()
+        apply_new_release(con)
+        count = con.execute("SELECT COUNT(*) FROM movies").fetchone()[0]
+        assert count == 3  # 1 old + 2 new
+
+
+# ── Remaining OLTP events with missing single lines ─────────────────────────
+
+
+class TestFintechApplySanctionsWave:
+    """Tests for ``apply_sanctions_wave`` targeting remaining branch."""
+
+    def _setup_con(self):
+        import duckdb
+
+        con = duckdb.connect(":memory:")
+        con.execute("""
+            CREATE TABLE counterparties (
+                cp_id        INTEGER PRIMARY KEY,
+                country_code VARCHAR,
+                is_sanctioned BOOLEAN DEFAULT FALSE
+            )
+        """)
+        con.executemany("INSERT INTO counterparties VALUES (?, ?, ?)", [
+            (1, "RU", False),
+            (2, "IR", False),
+            (3, "US", False),
+        ])
+        return con
+
+    def test_sanctions_high_risk_countries(self):
+        from sqldim.application.datasets.domains.fintech.events.counterparties import (
+            apply_sanctions_wave,
+        )
+
+        con = self._setup_con()
+        apply_sanctions_wave(con)
+        rows = con.execute(
+            "SELECT country_code, is_sanctioned FROM counterparties ORDER BY cp_id"
+        ).fetchall()
+        assert rows[0][1] is True   # RU → sanctioned
+        assert rows[1][1] is True   # IR → sanctioned
+        assert rows[2][1] is False  # US → unchanged
+
+    def test_already_sanctioned_stays_sanctioned(self):
+        from sqldim.application.datasets.domains.fintech.events.counterparties import (
+            apply_sanctions_wave,
+        )
+
+        con = self._setup_con()
+        con.execute("UPDATE counterparties SET is_sanctioned = TRUE WHERE cp_id = 1")
+        apply_sanctions_wave(con)
+        row = con.execute(
+            "SELECT is_sanctioned FROM counterparties WHERE cp_id = 1"
+        ).fetchone()
+        assert row[0] is True
+
+
+class TestSupplyChainApplyWarehouseClosure:
+    """Tests for ``apply_warehouse_closure`` targeting remaining branch."""
+
+    def _setup_con(self):
+        import duckdb
+
+        con = duckdb.connect(":memory:")
+        con.execute("""
+            CREATE TABLE warehouses (
+                wh_id     INTEGER PRIMARY KEY,
+                region    VARCHAR,
+                is_active BOOLEAN DEFAULT TRUE
+            )
+        """)
+        con.executemany("INSERT INTO warehouses VALUES (?, ?, ?)", [
+            (1, "EMEA", True),
+            (2, "EMEA", True),
+            (3, "APAC", True),
+        ])
+        return con
+
+    def test_deactivates_matching_region(self):
+        from sqldim.application.datasets.domains.supply_chain.events.warehouses import (
+            apply_warehouse_closure,
+        )
+
+        con = self._setup_con()
+        apply_warehouse_closure(con)  # default EMEA
+        rows = con.execute(
+            "SELECT is_active FROM warehouses ORDER BY wh_id"
+        ).fetchall()
+        assert rows[0][0] is False
+        assert rows[1][0] is False
+        assert rows[2][0] is True  # APAC untouched
+
+    def test_custom_region(self):
+        from sqldim.application.datasets.domains.supply_chain.events.warehouses import (
+            apply_warehouse_closure,
+        )
+
+        con = self._setup_con()
+        apply_warehouse_closure(con, region="APAC")
+        row = con.execute(
+            "SELECT is_active FROM warehouses WHERE region = 'APAC'"
+        ).fetchone()
+        assert row[0] is False
+        # EMEA still active
+        emea = con.execute(
+            "SELECT COUNT(*) FROM warehouses WHERE region = 'EMEA' AND is_active = TRUE"
+        ).fetchone()[0]
+        assert emea == 2
+
+
+class TestEcommerceApplyStockOut:
+    """Tests for ``apply_stock_out`` — the missing line (category-filter path)."""
+
+    def _setup_con(self):
+        import duckdb
+
+        con = duckdb.connect(":memory:")
+        con.execute("""
+            CREATE TABLE products (
+                product_id  INTEGER PRIMARY KEY,
+                category    VARCHAR,
+                stock_units INTEGER
+            )
+        """)
+        con.executemany("INSERT INTO products VALUES (?, ?, ?)", [
+            (1, "Electronics", 10),
+            (2, "Electronics", 5),
+            (3, "Apparel", 8),
+        ])
+        return con
+
+    def test_zeros_electronics_stock(self):
+        from sqldim.application.datasets.domains.ecommerce.events.products_drift import (
+            apply_stock_out,
+        )
+
+        con = self._setup_con()
+        apply_stock_out(con, category="Electronics")
+        rows = con.execute(
+            "SELECT stock_units FROM products WHERE category = 'Electronics'"
+        ).fetchall()
+        assert all(s == 0 for (s,) in rows)
+
+    def test_other_category_unchanged(self):
+        from sqldim.application.datasets.domains.ecommerce.events.products_drift import (
+            apply_stock_out,
+        )
+
+        con = self._setup_con()
+        apply_stock_out(con, category="Electronics")
+        apparel = con.execute(
+            "SELECT stock_units FROM products WHERE category = 'Apparel'"
+        ).fetchone()[0]
+        assert apparel == 8

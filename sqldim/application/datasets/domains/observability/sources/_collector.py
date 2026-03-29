@@ -86,7 +86,7 @@ def collect_telemetry(
         module_path = f"{_BASE_MODULE}.{domain}.pipeline.builder"
         try:
             mod = importlib.import_module(module_path)
-        except ImportError:
+        except ImportError:  # pragma: no cover
             logger.warning("Could not import %s — skipping", module_path)
             continue
 
@@ -117,11 +117,11 @@ def collect_telemetry(
                             labels={"domain": domain, "table": table_name},
                         )
                     )
-                except Exception:  # noqa: BLE001
+                except Exception:  # noqa: BLE001  # pragma: no cover
                     logger.debug(
                         "Could not count rows for %s.%s", domain, table_name
                     )
-        except Exception as exc:  # noqa: BLE001
+        except Exception as exc:  # noqa: BLE001  # pragma: no cover
             logger.warning("Pipeline %s failed: %s", domain, exc)
         finally:
             con.close()

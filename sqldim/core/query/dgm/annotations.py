@@ -1,6 +1,6 @@
-"""DGM schema annotation layer Σ (DGM v0.17 §2.4).
+"""DGM schema annotation layer Σ (DGM v0.25 §2.4).
 
-Provides the 12 SchemaAnnotation dataclass types, their enum types, the RAGGED
+Provides the 13 SchemaAnnotation dataclass types, their enum types, the RAGGED
 sentinel, the AnnotationSigma collection, and the annotation_kind() dispatch
 helper.
 
@@ -23,6 +23,7 @@ __all__ = [
     "BridgeSemanticsKind",
     "WriteModeKind",
     "PipelineStateKind",
+    "MedallionLayerKind",
     # RAGGED sentinel
     "RAGGED",
     # Abstract base
@@ -40,6 +41,7 @@ __all__ = [
     "BridgeSemantics",
     "Hierarchy",
     "PipelineArtifact",
+    "MedallionLayer",
     # Helpers
     "annotation_kind",
     "AnnotationSigma",
@@ -101,6 +103,15 @@ class PipelineStateKind(Enum):
     FAILED = "FAILED"
 
 
+class MedallionLayerKind(Enum):
+    """Medallion architecture layer tags (spec §2.4 MedallionLayer)."""
+
+    BRONZE = "BRONZE"
+    SILVER = "SILVER"
+    GOLD = "GOLD"
+    DIAMOND = "DIAMOND"
+
+
 # ---------------------------------------------------------------------------
 # RAGGED sentinel
 # ---------------------------------------------------------------------------
@@ -131,7 +142,7 @@ RAGGED = _Ragged()
 class SchemaAnnotation:
     """Base class for all Σ annotation types.
 
-    All 11 annotation dataclasses inherit from this base so that
+    All 13 annotation dataclasses inherit from this base so that
     ``isinstance(ann, SchemaAnnotation)`` works uniformly.
     """
 
@@ -377,6 +388,35 @@ class PipelineArtifact(SchemaAnnotation):
         return BridgeSemanticsKind.TEMPORAL
 
 
+@dataclass(frozen=True, eq=True)
+class MedallionLayer(SchemaAnnotation):
+    """Tags which Medallion layer a node or edge originates from (spec §2.4).
+
+    Operational consequences:
+    (1) Planner warns when PathPred traversal crosses a BRONZE node.
+    (2) Recommender suppresses BRONZE nodes from GroupBy suggestions.
+    (3) Exporter tags DGM_JSON output with min layer of all query nodes.
+
+    Parameters
+    ----------
+    node:
+        Name of the node (dimension, fact) this annotation applies to.
+    layer:
+        The Medallion layer this node originates from.
+    promoted_at:
+        Optional timestamp of when the node was promoted to this layer.
+    """
+
+    node: str
+    layer: MedallionLayerKind
+    promoted_at: str | None = None
+
+    @property
+    def is_bronze(self) -> bool:
+        """True when this node is in the BRONZE layer — raw, unvalidated data."""
+        return self.layer is MedallionLayerKind.BRONZE
+
+
 # ---------------------------------------------------------------------------
 # annotation_kind() dispatch helper
 # ---------------------------------------------------------------------------
@@ -394,6 +434,7 @@ _KIND_MAP: dict[type, str] = {
     BridgeSemantics: "BridgeSemantics",
     Hierarchy: "Hierarchy",
     PipelineArtifact: "PipelineArtifact",
+    MedallionLayer: "MedallionLayer",
 }
 
 _AT = TypeVar("_AT", bound=SchemaAnnotation)
@@ -488,3 +529,14 @@ class AnnotationSigma:
             if isinstance(a, PipelineArtifact) and a.fact == fact:
                 return a
         return None
+
+    def medallion_layer_of(self, node: str) -> MedallionLayerKind | None:
+        """Return the MedallionLayerKind for *node*, or None."""
+        for a in self._anns:
+            if isinstance(a, MedallionLayer) and a.node == node:
+                return a.layer
+        return None
+
+    def is_bronze(self, node: str) -> bool:
+        """Return True if *node* has MedallionLayer(BRONZE)."""
+        return self.medallion_layer_of(node) is MedallionLayerKind.BRONZE
