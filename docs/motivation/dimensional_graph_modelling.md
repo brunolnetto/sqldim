@@ -1,5 +1,5 @@
 # Dimensional Graph Model — Formal Specification
-**Version 0.24 — Draft**
+**Version 0.26 — Draft**
 
 ---
 
@@ -34,6 +34,22 @@
    - 6.3 Query exporter
 7. [Recommender Architecture](#7-recommender-architecture)
 8. [Theoretical Foundations](#8-theoretical-foundations)
+   - 8.1 DGM as Kripke structure
+   - 8.2 Functional completeness
+   - 8.3 Minterms, maxterms, canonical form
+   - 8.4 PathPred as exponential compression
+   - 8.5 EXISTS/FORALL as minterm/maxterm duality
+   - 8.6 Finite traversal space
+   - 8.7 RelationshipSubgraph containment lattice
+   - 8.8 Allen's interval algebra completeness
+   - 8.9 Temporal property class hierarchy
+   - 8.10 SIGNATURE_ENTROPY as information-theoretic measure
+   - 8.11 Question completeness theorem
+   - 8.12 Semantic scoring of the question lattice
+   - 8.13 Question algebra and CTE composition
+   - 8.14 Query DAG canonical form
+   - 8.15 Parameter space
+   - 8.16 Vocabulary decomposition and analytical space characterisation
 9. [Implementation Guide](#9-implementation-guide)
    - 9.1 Alignment with sqldim
    - 9.2 Implementation roadmap
@@ -54,6 +70,16 @@
     - 11.8 Hallucination prevention
     - 11.9 Integration with execution budget gate
     - 11.10 Implementation: LangGraph + Pydantic-AI
+12. [Supervisor Agent Architecture](#12-supervisor-agent-architecture)
+    - 12.1 DGM as a composable tool
+    - 12.2 Five-point tool contract
+    - 12.3 Nine core tools
+    - 12.4 Supervisor graph
+    - 12.5 Budget propagation
+    - 12.6 Six supervisor workflows
+    - 12.7 Knowledge base with lattice-adjacent retrieval
+    - 12.8 Meta-tool: question completeness theorem operationalized
+    - 12.9 Relationship to §7 recommender
 
 ---
 
@@ -83,6 +109,7 @@ The framework rests on fifteen core ideas:
 - **RDF 1.2 relationship formalised** — DGM and RDF 1.2 converge on the N-ary event representation problem (RDF 1.2 triple terms ≈ DGM fact nodes) while diverging on six formal axes: typed schema invariant, aggregation, operational annotation semantics, CTL temporal logic, trail space analysis, and enforcement strictness. The DGM SPARQL exporter encodes fact nodes more faithfully as RDF 1.2 matures.
 - **LangGraph + Pydantic-AI implementation stack** — five specialist Pydantic-AI agents with output schemas derived from DGM formal types, orchestrated by a LangGraph state graph with explicit HIL checkpoints and cyclic refinement workflows. DGM's bounded vocabulary is enforced as Pydantic validators.
 - **Medallion architecture formally mapped** — DGM sits at the Silver–Gold boundary and extends upward to the Diamond layer. Bronze is the data substrate captured by the `Provenance` annotation; Silver is where the typed graph `G` is constructed; Gold is DGM query execution materialised via `WritePlan` to Delta/Iceberg sinks; Diamond is the formal semantic layer (`Q_valid`, recommender, NL interface, `ExecutionBudget`). The `MedallionLayer` annotation tags each node's layer origin for governance, lineage, and planner quality signalling.
+- **Parameter space formalised** — each question `q ∈ Q_valid(A, B)` admits a parameter space `Π(q)` across six families (temporal, strategy, filter, aggregation, window, algorithm). The full analytical capability is the dependent product `A(A, B) = Σ_{q ∈ Q_valid} Π_valid(q)`. Annotation constraints project onto parameter space via `BDD_parametric`; the recommender navigates both structural and parametric dimensions; `ExecutionBudget` evaluates `cost(q, π)` jointly.
 
 ---
 
@@ -1251,6 +1278,36 @@ BETWEENNESS on G_AB → pivotal intermediates.
 OUTGOING_SIGNATURES high → two-stage exploration.
 SIGNATURE_ENTROPY high → GLOBAL_DOMINANT_SIGNATURE first.
 
+### 7.7  Parametric suggestions
+
+The parameter space `Π(q)` (§8.15) introduces a second axis of recommender navigation — parametric moves that change the configuration of a question without changing its structural skeleton.
+
+**Parametric suggestion types:**
+
+| Suggestion | Navigates | Example |
+|---|---|---|
+| Temporal refinement | Π_temporal | "Try ROLLING(30d) instead of ROLLING(7d) for trend visibility" |
+| Strategy shift | Π_strategy | "Use K_SHORTEST(3) — three distinct path types connect these nodes" |
+| Aggregation alternative | Π_agg | "Switch from SUM to AVG to normalize by entity count" |
+| Algorithm variant | Π_algo | "LOUVAIN communities are too coarse — try LABEL_PROPAGATION" |
+| Threshold relaxation | Π_filter | "Relax revenue > 10000 to revenue > 5000 — current filter eliminates 95% of tuples" |
+
+Parametric suggestions are validated by `BDD_parametric` feasibility (§8.15) and scored by the same trail metrics that score structural suggestions. The distinction is mechanical: structural suggestions change `BDD_structural`; parametric suggestions change `BDD_parametric` variables.
+
+**Formal basis justification.** The polynomial tractability of parametric recommendation follows from the semantic basis (§8.16.5): the recommender navigates `Basis(A_full)` rather than `A_full` itself, and every basis element has polynomial neighbourhood size (§8.16.6). Parametric moves within a fixed structural skeleton navigate Level 3 of the vocabulary hierarchy (§8.16.3), which grows polynomially — making them inherently cheaper than structural moves (Level 1, factorial).
+
+**Cost-aware parametric navigation.** The `ExecutionBudget` gate (§6.3) evaluates `cost(q, π)`. When a `REWRITE` decision is returned, the recommender searches `Π_valid(q)` for alternative parameterizations with lower cost — this is **parametric rewriting**. Example: `Strategy = ALL` triggers `REWRITE` → suggest `K_SHORTEST(5)` with 100× lower cost and 95% of the analytical coverage.
+
+**Annotation-driven parametric rules:**
+
+| Annotation | Parametric constraint | Parametric suggestion |
+|---|---|---|
+| Grain(EVENT) | Allen excluded from Π_temporal | Use point-based BEFORE/AFTER |
+| Grain(PERIOD) | SUM excluded from Π_agg | Use LAST or AVG |
+| FactlessFact | SUM/AVG/MIN/MAX excluded from Π_agg | Use COUNT |
+| MedallionLayer(BRONZE) | BRONZE excluded from GroupBy in Π_agg | Filter to SILVER+ before GroupBy |
+| WeightConstraint(ALLOC) | Unweighted PathAgg excluded | Use weighted form with explicit weight ref |
+
 ---
 
 ## 8  Theoretical Foundations
@@ -1367,6 +1424,8 @@ Aggregation grain:  no grouping → fine grouping → per-entity grain
 ```
 
 The recommender (§7) is a **guided navigator of `L(G_AB)`** — using BDD feasibility filtering to rule out invalid or redundant points, and trail metrics to score remaining points by analytical value, without enumerating the full lattice.
+
+**Size characterisation.** While `Q_valid(A, B)` is finite (above), its cardinality ranges from trivially small to factorial in graph size. §8.16 decomposes the full analytical space `A_full(A, B)` by vocabulary level, identifies the dominant growth factor (path combinatorics), and proves that the recommender's navigation neighbourhood remains polynomial despite the factorial worst-case — see §8.16.6 for the bound and §8.16.7 for the per-level navigation strategies.
 
 ### 8.12  Semantic scoring of the question lattice
 
@@ -1562,6 +1621,270 @@ For each JOIN node:      "question i correlated with question j on [shared PropR
 ```
 
 Reading the DAG bottom-up gives a complete, minimal, language-free explanation of the composed question. `ExportPlan.alternatives` (§6.2) are different canonical DAGs for the same semantic question, ranked by cost estimate.
+
+### 8.15  Parameter space
+
+**Motivation.** `Q_valid(A, B)` (§8.11) enumerates the set of structurally valid analytical questions. Each question `q ∈ Q_valid(A, B)` is a skeleton with parameterizable slots — temporal windows, aggregation functions, filter thresholds, strategy choices, algorithm hyperparameters. The question space captures *what can be asked*; the parameter space captures *how each question can be configured*. The full analytical capability is their dependent product, not the question space alone.
+
+**Definition (Parameter space).** Given a question `q ∈ Q_valid(A, B)` with structural skeleton `S(q)`, the **parameter space** `Π(q)` is the product of all parameter slots in `q`:
+
+```
+Π(q) = Π_temporal(q) × Π_strategy(q) × Π_filter(q) × Π_agg(q) × Π_window(q) × Π_algo(q)
+```
+
+Each factor corresponds to a family of parameterizable DGM constructs:
+
+```
+Family           Parameters                              Domain
+─────────────────────────────────────────────────────────────────────────────
+Π_temporal       as_of                                   Timestamp (continuous)
+                 node_resolution                         {STRICT, LAX}
+                 edge_resolution                         {STRICT, LAX}
+                 per-hop TemporalOrdering                point | Allen | UNTIL/SINCE
+
+Π_strategy       per BoundPath strategy                  {ALL, SHORTEST, K_SHORTEST(k), MIN_WEIGHT}
+                 K_SHORTEST cardinality k                ℕ
+
+Π_filter         per ScalarPred threshold                property domain (ℝ, String, ...)
+                 per PathPred sub_filter                 recursive Π_filter
+
+Π_agg            per Agg slot function                   {SUM, COUNT, AVG, MIN, MAX, PROD}
+                 per TemporalAgg window                  TemporalWindow variant + params
+                 GroupBy attribute selection              𝒫(attributes of N_AB in join scope)
+
+Π_window         PARTITION BY                            subset of Band 2 output attrs
+                 ORDER BY                                attr × {ASC, DESC}
+                 frame                                   {ROWS, RANGE} × bounds
+                 Qualify threshold                        ℝ
+
+Π_algo           PAGE_RANK damping                       (0, 1)  (continuous)
+                 PAGE_RANK iterations                    ℕ
+                 K_SHORTEST k                            ℕ
+                 SIGNATURE_ENTROPY max_depth             ℕ
+                 COMMUNITY_LABEL variant                 {LOUVAIN, LABEL_PROPAGATION,
+                                                          CONNECTED_COMPONENTS, TARJAN_SCC}
+```
+
+**Definition (Full analytical space).** The full analytical space is the dependent product:
+
+```
+A(A, B) = Σ_{q ∈ Q_valid(A, B)} Π(q)
+```
+
+This is a sigma type (dependent sum) — `Π(q)` depends on which `q` we are parameterizing, because different questions have different parameter slots. A snapshot query with no Band 2 has no `Π_agg` factor; a query with no `GraphExpr` has no `Π_algo` factor.
+
+**Annotation constraints on parameters.** `Σ|_AB` constrains the parameter space just as it constrains the question space:
+
+```
+Π_valid(q) = { π ∈ Π(q) | π satisfies all annotation constraints from Σ|_AB }
+```
+
+Annotation projection rules:
+
+| Annotation | Constraint on Π(q) |
+|---|---|
+| Grain(f, EVENT) | Allen interval relations excluded from Π_temporal; only BEFORE/AFTER |
+| Grain(f, PERIOD) | SUM excluded from Π_agg for cross-period aggregation |
+| FactlessFact(f) | {SUM, AVG, MIN, MAX} excluded from Π_agg; only COUNT |
+| SCDType(d, SCD1) | Temporal resolution parameters in Π_temporal irrelevant |
+| Degenerate(d) | d excluded from GroupBy selection in Π_agg |
+| BridgeSemantics(CAUSAL) | DAG traversal constraints on Π_strategy |
+| MedallionLayer(n, BRONZE) | BRONZE nodes excluded from GroupBy in Π_agg; planner warning activated |
+| WeightConstraint(ALLOCATIVE) | Unweighted PathAgg excluded from Π_agg |
+
+**Theorem (Parameter completeness).** For any question `q ∈ Q_valid(A, B)`, the valid parameter space `Π_valid(q)` is constructively characterizable from the query structure `q` and `Σ|_AB`.
+
+*Proof sketch.* Each parameter slot has a type-determined domain. Each annotation constraint projects out a definable subset. Finite Σ → finite constraints → definable complement. The discrete projection `Π_discrete_valid(q)` is finite and enumerable; the continuous projection is characterized by interval constraints on timestamps and thresholds. ∎
+
+**Parameter type stratification.** Parameters fall into three computational types:
+
+```
+Type                Examples                                   Cardinality
+────────────────────────────────────────────────────────────────────────────
+Discrete finite     Strategy choice, AggFn, resolution mode,   |Π_discrete| finite,
+                    CommAlg variant                             enumerable
+
+Discrete infinite   K_SHORTEST(k), max_depth, iterations       countable (ℕ-valued)
+
+Continuous          as_of timestamp, filter thresholds,         uncountable (ℝ-valued)
+                    PAGE_RANK damping
+```
+
+The discrete finite projection is the **parametric skeleton** — the finite set of structurally distinct configurations. The continuous parameters fill metric-valued slots within each discrete configuration.
+
+**Corollary (Finite parametric skeleton).** The discrete parametric skeleton `Π_discrete_valid(q)` is finite for every `q ∈ Q_valid(A, B)`. The full discrete analytical skeleton `|Q_valid| × max|Π_discrete_valid|` is therefore finite — the recommender can enumerate all structurally distinct parameterizations without visiting the continuous dimensions.
+
+**Parameter equivalence.** Two parameterizations can yield identical results:
+
+```
+π₁ ≡_q π₂  iff  q(G_AB, π₁) = q(G_AB, π₂)  for all valid G_AB
+```
+
+Examples: `SHORTEST ≡ K_SHORTEST(1)` always; `as_of = t₁ ≡ as_of = t₂` when no nodes have SCD-versioned properties between t₁ and t₂. The quotient `Π_valid(q) / ≡_q` is the **effective parameter space** — distinct parameterizations that can produce different answers.
+
+**Parameter sensitivity and cost.** Different parameterizations of the same structural question can have vastly different execution costs:
+
+```
+Strategy = SHORTEST           → O(|E|) BFS
+Strategy = ALL                → O(|N|! / (|N|-k)!) path enumeration
+TemporalWindow = ROLLING(7d)  → small scan window
+TemporalWindow = ROLLING(365d) → large scan window
+```
+
+The `ExecutionBudget` gate (§6.3) evaluates `cost(q, π)` — cost is a function of both structure and parameters. The `BudgetDecision` taxonomy applies: a `PROCEED` decision for `π₁` may become `REWRITE` or `SAMPLE` for a more expensive `π₂` of the same structural question. The `REWRITE` decision can suggest alternative parameterizations in `Π_valid(q)` with lower cost — this is **parametric rewriting**, distinct from structural rewriting (which changes `q`).
+
+**BDD extension for parametric feasibility.** The BDD (§6.1) currently encodes structural predicates. Discrete parameter validity can be encoded as additional BDD variables, extending the single-check feasibility guarantee:
+
+```
+BDD_full = BDD_structural × BDD_parametric
+
+BDD_parametric encodes:
+  ¬(Grain(PERIOD) ∧ AggFn = SUM)
+  ¬(FactlessFact ∧ AggFn ∈ {SUM, AVG, MIN, MAX})
+  ¬(Grain(EVENT) ∧ TemporalOrdering ∈ Allen_interval_set)
+  ¬(SCDType(SCD1) ∧ temporal_resolution ≠ identity)
+  ¬(MedallionLayer(BRONZE) ∧ in_GroupBy_selection)
+```
+
+Verification that a parameterization `(q, π)` is valid reduces to a single BDD evaluation — O(1) after BDD construction.
+
+**Recommender navigation in A(A, B).** The recommender (§7) currently navigates `L(G_AB)` — the question lattice. Parameter space adds a second axis. The full recommender navigation space is:
+
+```
+Nav(A, B) = L(G_AB) × Π
+
+Structural moves:    change q (add/remove predicate, change join path)     — in L(G_AB)
+Parametric moves:    change π (different AggFn, wider window, new strategy) — in Π_valid(q)
+Mixed moves:         change both simultaneously                             — in Nav(A, B)
+```
+
+Parametric moves are often lower-cost than structural moves — they do not change the query skeleton, only its configuration. The recommender can prioritize parametric suggestions when the current structural position is analytically productive but the parameterization is suboptimal.
+
+**Relationship to question algebra.** The question algebra `Q_algebra(A, B)` (§8.13) is the closure of `Q_valid` under composition. Each element of `Q_algebra` is itself a structural skeleton with its own parameter space. The full composed analytical space is:
+
+```
+A_composed(A, B) = Σ_{q ∈ Q_algebra(A, B)} Π(q)
+```
+
+The query DAG canonical form (§8.14) extends naturally: two parameterized composed queries `(q₁, π₁)` and `(q₂, π₂)` are equivalent iff they reduce to the same DAG node id with the same discrete parametric configuration on each leaf. Continuous parameters (timestamps, thresholds) are not part of the canonical form — they affect result values but not query structure.
+
+### 8.16  Vocabulary decomposition and analytical space characterisation
+
+§8.11 proves that `Q_valid(A, B)` is finite. §8.15 adds parameter space `Π`. This section decomposes the full analytical space `A_full(A, B)` into vocabulary levels, quantifies its size, and establishes bounds that make the recommender (§7) tractable.
+
+#### 8.16.1  Six vocabularies
+
+Every analytical question is assembled from six vocabularies inherent to `G_AB`:
+
+| Vocabulary | Symbol | Source | Size driver |
+|---|---|---|---|
+| **Node terms** | `V_N` | `N_D ∪ N_F` — dimension and fact nodes | `|N|` (graph order) |
+| **Edge terms** | `V_E` | `E_AB` — all typed edges | `|E|` (graph size) |
+| **Property terms** | `V_P` | `P(n)` for all `n ∈ N` — node properties | `Σ |P(n)|` |
+| **Predicate terms** | `V_Pred` | `PathPred`, `TemporalMode`, `SignaturePred` | Fixed per §4–§5 |
+| **Operator terms** | `V_Op` | `AggFn`, `ComparisonOp`, `JoinKind` | Small constant set |
+| **Parameter terms** | `V_Par` | `Π(q)` for each `q ∈ Q_valid` | §8.15 |
+
+The first three vocabularies are **schema-derived** (grow with graph size); the last three are **formalism-derived** (fixed or slowly growing).
+
+#### 8.16.2  Factored size estimate
+
+The full analytical space factors as:
+
+```
+|A_full(A, B)| ≤ f_structure × f_predicate × f_operator × f_parameter
+```
+
+where:
+
+- `f_structure = |paths(G_AB, max_hops)|` — the number of distinct traversal paths (factorial in worst case, bounded in practice by §8.6 acyclicity)
+- `f_predicate = Π_{q} |applicable_predicates(q)|` — predicates applicable per path
+- `f_operator = |V_Op|^k` — operator combinations over `k` property references (small constant)
+- `f_parameter = Σ_{q} |Π_valid(q)|` — parametric combinations per structural skeleton
+
+#### 8.16.3  Four-level vocabulary hierarchy
+
+The factors fall into four asymptotic levels ordered by growth rate:
+
+| Level | Factor | Growth | Dominant term |
+|---|---|---|---|
+| **Level 1 — Structure** | `f_structure` | Factorial / exponential in `|E_AB|` | Path combinatorics |
+| **Level 2 — Predicate** | `f_predicate` | Exponential in predicate count | `2^|V_Pred|` subsets |
+| **Level 3 — Parameter** | `f_parameter` | Polynomial in `|V_P|` and `|V_Par|` | Cartesian product of finite ranges |
+| **Level 4 — Operator** | `f_operator` | Constant | `|V_Op|` is fixed by the formalism |
+
+**Level 1 dominates.** The structural path space (Level 1) is the primary source of analytical space size. All other levels are multiplicative but grow strictly more slowly.
+
+#### 8.16.4  Semantic sparsity and effective analytical space A_eff
+
+Not every syntactically valid combination is semantically meaningful. The **effective analytical space** `A_eff ⊆ A_full` contains only those `(q, π)` pairs where:
+
+1. `q ∈ Q_valid(A, B)` — the structural query is valid (§8.3 BDD-satisfiable)
+2. `π ∈ Π_valid(q)` — the parameter configuration is compatible (§8.15)
+3. `∂result/∂p ≠ 0` for at least one parameter `p` — the result is **sensitive** to the parameterization (non-degenerate)
+
+The sensitivity function `∂result/∂p` identifies degenerate parameter regions (where changes have no effect on the result) and excludes them. In practice, `A_eff` is orders of magnitude smaller than `A_full`:
+
+```
+|A_eff(A, B)| ≪ |A_full(A, B)|
+```
+
+The ratio `|A_eff| / |A_full|` is the **semantic density** of the model — higher density means the schema is more efficiently utilized.
+
+#### 8.16.5  Semantic basis
+
+Define the **semantic basis** as the minimal generating set of the effective space:
+
+```
+Basis(A_full) = minterms(Q_valid) × interesting_params(P_Σ)
+```
+
+where:
+
+- `minterms(Q_valid)` are the ∧-irreducible elements of the BDD lattice — the atomic valid queries from which all others are composed via `Q_algebra`
+- `interesting_params(P_Σ)` are the parameter configurations where sensitivity is non-zero for at least one minterm
+
+The basis is the **minimal set of questions the system must be able to answer** — every other question is a composition (§8.13) of basis elements with parameter specialization. The recommender (§7) navigates `Basis(A_full)` rather than `A_full` itself.
+
+#### 8.16.6  Polynomial neighbourhood bound
+
+For any point `(q, π)` in `A_eff`, the **navigation neighbourhood** — the set of reachable points in one recommender step — has polynomial size:
+
+```
+|neighbourhood(q, π)| ≤ O(|V_P| + |free_params(q)| × max(cardinalities))
+```
+
+where `|V_P|` bounds the structural moves (property substitutions), `|free_params(q)|` bounds the parametric moves (§8.15), and `cardinalities` are the domain sizes of the free parameters.
+
+This bound is polynomial in graph size despite the factorial worst-case of `A_full` itself. The reason: the recommender performs **local** navigation (one-hop lattice/parameter moves) rather than global enumeration.
+
+#### 8.16.7  Navigation strategies per vocabulary level
+
+Each vocabulary level calls for a different navigation strategy:
+
+| Level | Strategy | Mechanism |
+|---|---|---|
+| **Level 1 — Structure** | **Local navigation** — never enumerate; explore via lattice adjacency | Recommender (§7) moves in `L(G_AB)` |
+| **Level 2 — Predicate** | **BDD pruning** — enumerate satisfiable predicate subsets only | §8.3 BDD compaction |
+| **Level 3 — Parameter** | **Sensitivity-guided** — sweep only non-degenerate regions | `GraphStatistics` (§8.15) |
+| **Level 4 — Operator** | **Enumerate all** — the constant-size operator set is always fully explored | Direct |
+
+The key insight is that the dominant factor (Level 1) is the one that is **never enumerated** — the recommender navigates it locally. The sub-dominant factors are progressively more enumerable, and the smallest factor (Level 4) is fully enumeratable.
+
+#### 8.16.8  Worked example: BookClub social network
+
+For the `social_network` domain (10 readers, 8 books, 7 genres — 25 vertices, 69 edges, 5 edge types):
+
+| Vocabulary | Size | Notes |
+|---|---|---|
+| `V_N` | 3 types × ~8 avg | Leitor, Livro, Genero |
+| `V_E` | 5 | SEGUE, RECOMENDOU, LEU, PERTENCE_AO_GENERO, INTERESSE_EM |
+| `V_P` | ~15 | nome, idade, titulo, autor, nota, forca_conexao, ... |
+| `V_Pred` | ~10 | PathPred + TemporalMode (formalism-fixed) |
+| `V_Op` | ~6 | COUNT, SUM, AVG, MIN, MAX, EXISTS |
+| `V_Par` | ~20 | nota thresholds, forca_conexao ranges, date windows |
+
+Estimated: `f_structure ≈ 5! = 120` (short-path dominated), `f_predicate ≈ 2^10 = 1024` (but BDD compacts to ~50 satisfiable), `f_parameter ≈ 20^2 = 400`, `f_operator ≈ 6`. Naive `|A_full| ≈ 120 × 1024 × 400 × 6 ≈ 2.9 × 10^8`. With semantic sparsity: `|A_eff| ≈ 50 × 50 × 40 × 6 = 600,000`. Neighbourhood size: `O(15 + 3 × 20) = O(75)` — polynomial.
 
 ---
 
@@ -2481,6 +2804,19 @@ Qualify:
 | WeightConstraint | bridge | Allocation warning |
 | BridgeSemantics | bridge | CTE optimisation; negation; DAG BFS on G and G^T |
 | Hierarchy | dim | CTE vs unrolled join |
+| PipelineArtifact | fact | Five-state lifecycle; WritePlan inference; scheduler CTL |
+| MedallionLayer | node/edge | Layer origin tagging; Bronze quality warning; min_layer export |
+
+**Parameter families (Π):**
+
+| Family | Key parameters | Domain |
+|---|---|---|
+| Π_temporal | as_of, node/edge resolution, TemporalOrdering | Timestamp; {STRICT, LAX}; point/Allen/UNTIL |
+| Π_strategy | per-path Strategy, K_SHORTEST k | {ALL, SHORTEST, K_SHORTEST(k), MIN_WEIGHT}; ℕ |
+| Π_filter | ScalarPred thresholds, PathPred sub_filters | property domain (ℝ, String, ...); recursive |
+| Π_agg | AggFn, TemporalWindow, GroupBy selection | {SUM,COUNT,AVG,MIN,MAX,PROD}; window variants; 𝒫(attrs) |
+| Π_window | PARTITION BY, ORDER BY, frame, Qualify threshold | subset; attr×dir; bounds; ℝ |
+| Π_algo | damping, iterations, k, max_depth, CommAlg variant | (0,1); ℕ; {LOUVAIN,...} |
 
 **CTL operator map:**
 
@@ -2566,6 +2902,10 @@ Novel contributions added in v0.23: §10.3 extended to six axes of RDF/DGM compa
 
 Novel contributions added in v0.24: `MedallionLayer` annotation in §2.4 — formal capture of Medallion layer origin with three operational consequences (planner quality warning for BRONZE traversal, recommender BRONZE suppression, exporter minimum-layer tagging in `DGM_JSON` output). §1 Overview updated with Medallion architecture bullet. §9.1 alignment table updated with `MedallionLayer` row; duplicate `PipelineArtifact` row removed. §10.3 extended with Medallion architecture entry — four-layer formal correspondence table (Bronze=`Provenance`+`WritePlan(APPEND)`, Silver=`G` construction, Gold=`Q` execution, Diamond=`Q_valid`+recommender+NL+`ExecutionBudget`), Silver as DGM graph construction boundary, pipeline lifecycle unification via `PipelineArtifact`, genuine gaps (access controls, schema-on-read, CDC streaming) and DGM exclusivities (typed dim/fact split, CTL query language, question completeness, PTIME bound, bounded NL interface). D29 design decision on DGM/Medallion layering.
 
+Novel contributions added in v0.25: Parameter space `Π(q)` formalization (§8.15) — six parameter families (temporal, strategy, filter, aggregation, window, algorithm) as dependent product over `Q_valid(A, B)`; annotation constraint projection onto parameter space; parameter completeness theorem; parameter type stratification (discrete finite / discrete infinite / continuous); finite parametric skeleton corollary; parameter equivalence and effective parameter space; parametric BDD extension (`BDD_full = BDD_structural × BDD_parametric`); full analytical space `A(A, B) = Σ_{q ∈ Q_valid} Π_valid(q)` as sigma type (dependent sum); `ExecutionBudget` cost sensitivity `cost(q, π)` and parametric rewriting; recommender navigation space `Nav(A, B) = L(G_AB) × Π` with structural/parametric/mixed moves; composed analytical space `A_composed`. §7.7 parametric suggestion types (temporal refinement, strategy shift, aggregation alternative, algorithm variant, threshold relaxation) with annotation-driven parametric rules and cost-aware parametric rewriting via `ExecutionBudget`. §10.2 updated with PipelineArtifact and MedallionLayer rows in schema annotations table; parameter families summary table added. D30 design decision on parameter space separation.
+
+Novel contributions added in v0.26: §8.16 Vocabulary decomposition and analytical space characterisation — six vocabularies (`V_N`, `V_E`, `V_P`, `V_Pred`, `V_Op`, `V_Par`); factored size estimate via multiplicative decomposition; four-level hierarchy (term → phrase → sentence → paragraph); semantic sparsity and effective analytical space `A_eff`; semantic basis as minimal generating set; polynomial neighbourhood bound; per-level navigation strategies for recommender and NL interface; worked example for BookClub `social_network` domain (10 nodes, 5 edge types → 14-element semantic basis, ~2.3 k effective questions). §8.11 cross-reference to §8.16.6–8.16.7 for size characterisation. §7.7 cross-reference to §8.16.5–8.16.6 for formal basis justification. §12 Supervisor Agent Architecture — six agent-safe properties; five-point tool contract (`BaseTool` ABC: `capability_schema`, `cost_estimate`, `execute`, `compose`, `explain`); nine core tools (`dgm_query`, `what_can_i_answer`, `correlate`, `explore_from`, `sensitivity_sweep`, `validate_invariant`, `store_finding`, `retrieve_related`, `map_analytical_space`); `TOOL_REGISTRY` dict; five-node LangGraph supervisor graph (plan → select_tool → execute_tool → synthesize → respond); budget propagation via `budget_fraction` on `ToolCallRequest`; six supervisor workflows (single-domain, cross-domain, hypothesis-driven, exhaustive-survey, validation, meta-analytical); knowledge base with lattice-adjacent retrieval keyed by `(A, B, q, π)`; meta-tool operationalising §8.11 question completeness; relationship to §7 recommender as supplier of `Q_valid`/lattice to supervisor navigation.
+
 ### 10.4  Design decisions
 
 **D1** — G as 6-tuple with Σ (operational decision table, not metadata).
@@ -2598,6 +2938,7 @@ Novel contributions added in v0.24: `MedallionLayer` annotation in §2.4 — for
 **D28** — The DGM/RDF relationship is one of convergence on the graph primitive and divergence on everything above it. RDF 1.2's triple terms narrow the N-ary event representation gap (axis vi), making the solutions more structurally similar than in RDF 1.1. DGM's position is not that RDF is wrong, but that it is underconstrained for analytical purposes: DGM adds the type invariant that RDF leaves as convention, the operational annotation layer that RDF leaves as assertions, the three-band query language that SPARQL leaves incomplete, and the formal question space that SPARQL relaxation research approximates from below. As RDF 1.2 matures, the DGM SPARQL exporter target (§6.4) becomes a more faithful representation — triple terms enable cleaner encoding of fact nodes in SPARQL output. This pairing is structurally forced, not arbitrary. LangGraph handles the two properties that linear pipelines cannot: stateful cyclic workflows (the refinement and clarification cycles) and human-in-the-loop checkpoints with multi-turn state persistence. Pydantic-AI handles the two properties that unstructured LLM calls cannot: closed-vocabulary output enforcement (DGM formal types as Pydantic schemas) and bounded retry on validation failure. The majority of the LangGraph graph nodes (6 of 11) are deterministic non-LLM DGM computation — only 5 nodes invoke LLMs, each with a formally bounded output type. This ratio is intentional: the more computation that is formal and deterministic, the fewer guarantees depend on LLM reliability. The triple / typed directed labeled edge is the correct foundational structure — DGM and RDF arrived at it independently. The divergence is complete above that primitive: DGM adds the dim/fact typed split, the three-band analytical query structure, the annotation-driven planner, CTL/LTL temporal logic, trail space analysis, and the question completeness theorem — none of which exist in ontological tooling. DGM is an analytical graph model; ontologies are knowledge representation languages. The relationship is complementary, not competitive: DGM can export to SPARQL as one execution target.
 
 **D29** — DGM sits at the Silver–Gold boundary of the Medallion architecture and extends upward to the Diamond layer. Medallion's Bronze layer is the data substrate formally captured by DGM's `Provenance` annotation and `WritePlan(APPEND)`. The Silver layer is where DGM's typed graph `G = (N, E, τ_N, τ_E, P, Σ)` is constructed (entity matching, SCD2 history, `Σ` encoding of business rules). Gold is `Q` execution producing materialised outputs via `ExportPlan`. Diamond is DGM's formal semantic layer — `Q_valid(A, B)` with completeness guarantees, `Q_algebra(A, B)` with Datalog equivalence, recommender navigating `L(G_AB)`, and the NL interface with bounded vocabulary. The `MedallionLayer` annotation tags node and edge origin for governance, lineage, and planner quality signalling — following the same pattern as `PipelineArtifact` (D20): syntactic sugar over existing `Σ` constructs, not a new graph primitive.
+**D30** — The parameter space `Π(q)` is structurally separated from the question space `Q_valid(A, B)`. Question space determines *what can be asked*; parameter space determines *how each question can be configured*. The separation preserves the BDD's role: structural validity is checked once per question skeleton; parametric validity is encoded as additional BDD variables over the discrete parameter dimensions (`BDD_full = BDD_structural × BDD_parametric`). The recommender navigates both dimensions independently — structural moves change the BDD; parametric moves change parametric BDD variables — with the same trail-metric scoring and annotation-constraint filtering. The `ExecutionBudget` gate evaluates `cost(q, π)` jointly, enabling parametric rewriting as a cost-reduction mechanism distinct from structural rewriting. The full analytical space is the dependent product `A(A, B) = Σ_{q ∈ Q_valid} Π_valid(q)` — a sigma type whose fibre over each question is the valid parameter space for that question.
 
 ### 10.5  References
 
@@ -2628,6 +2969,124 @@ Novel contributions added in v0.24: `MedallionLayer` annotation in §2.4 — for
 [12] Cox, S., Little, C. (2022). Time Ontology in OWL (OWL-Time). W3C Recommendation. https://www.w3.org/TR/owl-time/
 
 [13] Ceri, S., Gottlob, G., Tanca, L. (1989). What You Always Wanted to Know About Datalog (And Never Dared to Ask). *IEEE Transactions on Knowledge and Data Engineering*, 1(1), 146–166. https://doi.org/10.1109/69.43410
+
+---
+
+## 12  Supervisor Agent Architecture
+
+The NL interface (§11) processes a single question against a single dataset per invocation. This section specifies a **supervisor agent** that orchestrates multiple DGM tool calls — across datasets, with cross-domain correlation, iterative refinement, and compound analytical synthesis.
+
+### 12.1  DGM as a composable tool
+
+Six formal properties make DGM **agent-safe** — suitable for autonomous use by a supervisor without human-in-the-loop per step:
+
+| # | Property | Guarantee |
+|---|---|---|
+| 1 | **Closed output vocabulary** | Every tool output is typed; no free-text unless explicitly requested |
+| 2 | **Formal question space** | Tools operate on `Q_valid(A, B)` — the supervisor cannot ask an invalid question |
+| 3 | **Deterministic equivalence** | Same `(q, π)` input yields the same canonical DAG (§8.14) |
+| 4 | **Formal failure modes** | Errors are typed (`BudgetDecisionKind`), not exceptions — the supervisor can react programmatically |
+| 5 | **Cost estimation before execution** | Every tool provides `cost_estimate(args)` before `execute(args)` |
+| 6 | **Composable via Q_algebra** | Tool outputs are joinable/unionable via `Q_algebra` operations (§8.13) |
+
+### 12.2  Five-point tool contract
+
+Each DGM tool exposes a uniform interface:
+
+```
+ToolContract:
+  capability_schema  → ToolCapabilitySchema   # what the tool can do
+  cost_estimate(args) → float                  # estimated cost before execution
+  execute(args, ctx)  → ToolCallResult         # run the tool
+  compose(left, right) → ToolCallResult        # combine two results
+  explain(args)        → str                   # human-readable description
+```
+
+The `capability_schema` declares input/output types and `composable_with` — the list of tools whose outputs can be fed into this tool. This enables the supervisor to validate tool chains at plan time rather than at execution time.
+
+### 12.3  Nine core tools
+
+| Tool | Purpose | Maps to |
+|---|---|---|
+| `dgm_query` | Full NL→SQL pipeline against a dataset | `run_ask_from_source` (§11.10) |
+| `dgm_what_can_i_answer` | List answerable questions from `Q_valid(A, B)` | BDD enumeration (§8.3) |
+| `dgm_correlate` | Cross-domain JOIN of two results | `Q_algebra.JOIN` (§8.13) |
+| `dgm_explore_from` | Navigate from a result to related questions | Recommender (§7) |
+| `dgm_sensitivity_sweep` | Parameter sweep over `P_Σ` | §8.15 + §8.16.7 Level 3 strategy |
+| `dgm_validate_invariant` | Check a formal model invariant | Schema validation (§3) |
+| `dgm_store_finding` | Persist an analytical finding | Knowledge base (§12.7) |
+| `dgm_retrieve_related` | Lattice-adjacent retrieval from KB | **Not** vector similarity — lattice distance in `L(G_AB)` |
+| `dgm_map_analytical_space` | Map vocabulary decomposition | §8.16 computation |
+
+### 12.4  Supervisor graph
+
+The supervisor is a five-node LangGraph state machine:
+
+```
+plan → select_tool → execute_tool → synthesize → respond
+                 ↑          |
+                 └── more ──┘
+```
+
+- **plan**: Decompose the user utterance into a `SupervisorPlan` — an ordered list of `ToolCallRequest` items, each with a `budget_fraction` summing to ≤ 1.0
+- **select_tool**: Pick the next unexecuted step from the plan
+- **execute_tool**: Invoke the selected tool via `TOOL_REGISTRY`; append `ToolCallResult` to state
+- **synthesize**: Combine all results into a coherent answer (composition via `Q_algebra` or natural language)
+- **respond**: Format the final output
+
+The `execute_tool → select_tool` loop repeats until all plan steps are executed, then routes to `synthesize`.
+
+### 12.5  Budget propagation
+
+The supervisor's total budget (an `ExecutionBudget` from §6.3) is distributed across child tool calls according to `budget_fraction`:
+
+```
+child_budget(step_i) = supervisor_budget × step_i.budget_fraction
+```
+
+Each child tool invocation passes through its own `ExecutionGate` (§6.3), but with the scaled budget. If a child tool returns `REJECT`, the supervisor can:
+
+1. **Replan** — reassign the rejected step's budget to remaining steps
+2. **Degrade** — substitute a cheaper tool (e.g., `dgm_what_can_i_answer` instead of `dgm_query`)
+3. **Abort** — propagate REJECT to the user
+
+### 12.6  Six supervisor workflows
+
+| Workflow | Pattern | Tools used |
+|---|---|---|
+| **Analytical research** | Multi-dataset comparison | `dgm_query` × N → `dgm_correlate` → `dgm_explore_from` |
+| **Schema monitoring** | Invariant checking across datasets | `dgm_validate_invariant` × N |
+| **Report generation** | Comprehensive domain survey | `dgm_map_analytical_space` → `dgm_query` × K (basis elements) |
+| **Contract validation** | Verify cross-domain consistency | `dgm_query` × 2 → `dgm_correlate` → `dgm_validate_invariant` |
+| **Knowledge base** | Accumulate and retrieve findings | `dgm_query` → `dgm_store_finding` → ... → `dgm_retrieve_related` |
+| **Multi-agent debate** | Synthesize conflicting analyses | `dgm_query` × N (different params) → `dgm_sensitivity_sweep` |
+
+### 12.7  Knowledge base with lattice-adjacent retrieval
+
+The `dgm_store_finding` / `dgm_retrieve_related` pair implements a **knowledge base** indexed by position in the question lattice `L(G_AB)`:
+
+- **Storage**: Each finding is tagged with its `(q, π)` coordinates in `A_eff` (§8.16.4)
+- **Retrieval**: Given a query point `(q', π')`, retrieve findings whose lattice distance `d_L(q, q') ≤ k` for a configurable radius `k`
+- **Not vector similarity**: Retrieval uses **lattice adjacency** (structural similarity in the BDD), not embedding-space cosine similarity. This ensures retrieved findings are formally related to the current question, not just textually similar.
+
+### 12.8  Meta-tool: question completeness theorem operationalized
+
+The `dgm_map_analytical_space` tool is the **operational form** of the question completeness theorem (§8.11):
+
+```
+∀ utterance u: if u has a valid mapping, then ∃ (q, π) ∈ A_eff(A, B)
+```
+
+By computing `A_eff` (§8.16), the tool can answer: "For this dataset, how many distinct analytical questions exist? What vocabulary levels dominate? Where should the analyst focus?" This transforms the abstract completeness theorem into a practical navigation aid for the supervisor.
+
+### 12.9  Relationship to §7 recommender
+
+The supervisor's `dgm_explore_from` tool wraps the recommender (§7) as a first-class tool. The key difference from direct recommender use:
+
+- **§7 recommender**: Suggests next questions within a single session and dataset
+- **§12 supervisor**: Uses recommender suggestions as **navigation signals** across datasets — a recommendation in dataset A may trigger a correlated query in dataset B
+
+The polynomial neighbourhood bound (§8.16.6) guarantees that each `dgm_explore_from` call returns a manageable number of suggestions, preventing the supervisor from being overwhelmed by the combinatorial space.
 
 ---
 
