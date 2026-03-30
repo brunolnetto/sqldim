@@ -8,11 +8,25 @@ import argparse
 def cmd_supervisor(args: argparse.Namespace) -> int:
     """Run the supervisor agent across all known datasets."""
     from sqldim.application.ask import KNOWN_DATASETS
-    from sqldim.core.query.dgm.supervisor._graph import build_supervisor_graph
-    from sqldim.core.query.dgm.supervisor._types import SupervisorContext, SupervisorState
+    from sqldim.core.query.dgm.nl.supervisor._graph import build_supervisor_graph
+    from sqldim.core.query.dgm.nl.supervisor._types import SupervisorContext, SupervisorState
+    from sqldim.core.query.dgm.nl._agents import make_model
 
     available = sorted(KNOWN_DATASETS.keys())
-    context = SupervisorContext(available_datasets=available)
+    model_name: str | None = getattr(args, "model", None)
+    model_provider: str | None = getattr(args, "model_provider", None)
+
+    llm_model = None
+    if model_provider:
+        try:
+            llm_model = make_model(provider=model_provider, model_name=model_name)
+        except Exception as exc:
+            print(f"[sqldim supervisor] Warning: could not build LLM model: {exc}")
+
+    context = SupervisorContext(
+        available_datasets=available,
+        model=llm_model,
+    )
 
     graph = build_supervisor_graph(context=context)
     initial = SupervisorState(utterance=args.question)

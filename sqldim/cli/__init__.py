@@ -10,7 +10,7 @@ Usage:
     sqldim evals run [--dataset DATASET [DATASET ...]] [--tag TAG] [--provider PROVIDER]
     sqldim evals drift [--domain {retail,ecommerce,saas_growth,fintech,user_activity,supply_chain,enterprise,nba_analytics}] [--provider PROVIDER]
     sqldim bench run [CASE ...] [--max-tier TIER] [--source SOURCE]
-    sqldim supervisor "<question>" [--verbose]
+    sqldim supervisor "<question>" [--model MODEL] [--model-provider PROVIDER] [--verbose]
 
 Examples are auto-discovered from sqldim.application.examples.real_world.*
 and sqldim.application.examples.features.* via EXAMPLE_METADATA dicts.
@@ -458,6 +458,19 @@ def build_parser() -> argparse.ArgumentParser:
     supervisor.add_argument(
         "question",
         help="Analytical question to decompose across datasets",
+    )
+    supervisor.add_argument(
+        "--model",
+        default=None,
+        metavar="MODEL",
+        help="LLM model name (e.g. gpt-4o-mini, claude-3-5-sonnet)",
+    )
+    supervisor.add_argument(
+        "--model-provider",
+        default=None,
+        dest="model_provider",
+        metavar="PROVIDER",
+        help="LLM provider (e.g. openai, anthropic)",
     )
     supervisor.add_argument(
         "--verbose",
