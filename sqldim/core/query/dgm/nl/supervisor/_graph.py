@@ -124,9 +124,15 @@ def _stub_execute_tool(state: SupervisorState) -> dict[str, Any]:
     }
 
 
-def _stub_synthesize(state: SupervisorState) -> dict[str, Any]:
-    """Combine all results into a natural-language response."""
+def _stub_synthesize(state: SupervisorState, *, has_model: bool = False) -> dict[str, Any]:
+    """Combine all results into a natural-language response.
+
+    When *has_model* is ``True`` (an LLM is connected via ``context.model``),
+    stub messages omit the "no LLM connected" hint.
+    """
     parts: list[str] = []
+    is_reflected = "reflect" in state.visited_nodes
+
     for r in state.results:
         if not r.success:
             parts.append(f"\u26a0 {r.tool_name}: {r.error}")
@@ -141,10 +147,12 @@ def _stub_synthesize(state: SupervisorState) -> dict[str, Any]:
                     parts.append(
                         f"Questions for '{ds}' ({len(questions)}):\n{q_list}"
                     )
+                elif has_model:
+                    parts.append(f"Dataset '{ds}' is available.")
                 else:
                     parts.append(
                         f"Dataset '{ds}' is available "
-                        "(no LLM connected — pass --model-provider + --model "
+                        "(pass --model-provider + --model "
                         "to generate suggested questions)."
                     )
             elif datasets:
@@ -165,17 +173,33 @@ def _stub_synthesize(state: SupervisorState) -> dict[str, Any]:
         elif r.tool_name == "dgm_query":
             data = r.data if isinstance(r.data, dict) else {}
             dataset = data.get("dataset") or "?"
-            parts.append(
-                f"DGM query on '{dataset}' completed"
-                " (no LLM connected \u2014 pass --model-provider + --model for real results)."
-            )
+            if has_model:
+                parts.append(f"DGM query on '{dataset}' completed.")
+            else:
+                parts.append(
+                    f"DGM query on '{dataset}' completed"
+                    " (pass --model-provider + --model for real results)."
+                )
         else:
             data = r.data if isinstance(r.data, dict) else {}
             summary = ", ".join(f"{k}: {v}" for k, v in data.items() if k != "stub")
             parts.append(
                 f"[{r.tool_name}]{': ' + summary if summary else ' completed.'}"
             )
-    return {"synthesis": "\n\n".join(parts) if parts else "No results produced."}
+
+    body = "\n\n".join(parts) if parts else "No results produced."
+
+    # For vague / reflected inputs, wrap the orientation data in a helpful intro
+    if is_reflected:
+        intro = (
+            "I'm the DGM Supervisor — I can run analytical queries across "
+            "your datasets using the tools listed below. "
+            "Ask me a question about any of these datasets and I'll "
+            "decompose it into the right tool calls.\n"
+        )
+        body = intro + "\n" + body
+
+    return {"synthesis": body}
 
 
 def _stub_respond(state: SupervisorState) -> dict[str, Any]:
@@ -286,13 +310,17 @@ def build_supervisor_graph(
         )
         return {"plan": new_plan, "current_step": 0}
 
+    def _synthesize_node(state: SupervisorState) -> dict[str, Any]:
+        has_model = context is not None and getattr(context, "model", None) is not None
+        return _stub_synthesize(state, has_model=has_model)
+
     # Register nodes (stub implementations; overridable via context/model)
     node_impls: dict[str, Callable[..., dict[str, Any]]] = {
         "plan": _plan_node,
         "reflect": _reflect_node,
         "select_tool": _stub_select_tool,
         "execute_tool": _execute_node,
-        "synthesize": _stub_synthesize,
+        "synthesize": _synthesize_node,
         "respond": _stub_respond,
     }
 
