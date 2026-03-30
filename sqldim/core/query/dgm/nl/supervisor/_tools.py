@@ -125,11 +125,16 @@ class DgmWhatCanIAnswerTool(BaseTool):
     def execute(
         self, arguments: dict[str, Any], *, context: Any = None
     ) -> ToolCallResult:
-        datasets = (
+        all_datasets = (
             list(context.available_datasets)
             if context is not None and hasattr(context, "available_datasets")
             else []
         )
+        requested = arguments.get("dataset", "__all__")
+        if requested and requested != "__all__" and requested in all_datasets:
+            datasets = [requested]
+        else:
+            datasets = all_datasets
         return ToolCallResult(
             tool_name="dgm_what_can_i_answer",
             success=True,

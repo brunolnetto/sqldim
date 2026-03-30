@@ -133,8 +133,22 @@ def _stub_synthesize(state: SupervisorState) -> dict[str, Any]:
         elif r.tool_name == "dgm_what_can_i_answer":
             data = r.data if isinstance(r.data, dict) else {}
             datasets = data.get("datasets", [])
-            if datasets:
-                ds_list = "\n".join(f"  \u2022 {d}" for d in sorted(datasets))
+            questions = data.get("questions", [])
+            if len(datasets) == 1:
+                ds = datasets[0]
+                if questions:
+                    q_list = "\n".join(f"  • {q}" for q in questions)
+                    parts.append(
+                        f"Questions for '{ds}' ({len(questions)}):\n{q_list}"
+                    )
+                else:
+                    parts.append(
+                        f"Dataset '{ds}' is available "
+                        "(no LLM connected — pass --model-provider + --model "
+                        "to generate suggested questions)."
+                    )
+            elif datasets:
+                ds_list = "\n".join(f"  • {d}" for d in sorted(datasets))
                 parts.append(f"Datasets I can see ({len(datasets)}):\n{ds_list}")
             else:
                 parts.append("No datasets are currently available.")
