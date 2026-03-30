@@ -9,7 +9,7 @@ class TestToolCapabilitySchema:
     """Each tool must declare a ToolCapabilitySchema."""
 
     def test_capability_schema_has_required_fields(self) -> None:
-        from sqldim.core.query.dgm.supervisor._types import ToolCapabilitySchema
+        from sqldim.core.query.dgm.nl.supervisor._types import ToolCapabilitySchema
 
         schema = ToolCapabilitySchema(
             name="dgm_query",
@@ -22,7 +22,7 @@ class TestToolCapabilitySchema:
         assert "dataset" in schema.input_schema
 
     def test_capability_schema_frozen(self) -> None:
-        from sqldim.core.query.dgm.supervisor._types import ToolCapabilitySchema
+        from sqldim.core.query.dgm.nl.supervisor._types import ToolCapabilitySchema
 
         schema = ToolCapabilitySchema(
             name="dgm_query",
@@ -39,7 +39,7 @@ class TestToolCallRequest:
     """ToolCallRequest is the supervisor's instruction to invoke a tool."""
 
     def test_request_creation(self) -> None:
-        from sqldim.core.query.dgm.supervisor._types import ToolCallRequest
+        from sqldim.core.query.dgm.nl.supervisor._types import ToolCallRequest
 
         req = ToolCallRequest(
             tool_name="dgm_query",
@@ -50,7 +50,7 @@ class TestToolCallRequest:
         assert req.budget_fraction == 0.25
 
     def test_budget_fraction_range(self) -> None:
-        from sqldim.core.query.dgm.supervisor._types import ToolCallRequest
+        from sqldim.core.query.dgm.nl.supervisor._types import ToolCallRequest
 
         with pytest.raises(ValueError, match="budget_fraction"):
             ToolCallRequest(
@@ -62,7 +62,7 @@ class TestToolCallResult:
     """ToolCallResult wraps a single tool invocation output."""
 
     def test_success_result(self) -> None:
-        from sqldim.core.query.dgm.supervisor._types import ToolCallResult
+        from sqldim.core.query.dgm.nl.supervisor._types import ToolCallResult
 
         result = ToolCallResult(
             tool_name="dgm_query",
@@ -74,7 +74,7 @@ class TestToolCallResult:
         assert result.data == {"rows": 42}
 
     def test_failure_result_has_error(self) -> None:
-        from sqldim.core.query.dgm.supervisor._types import ToolCallResult
+        from sqldim.core.query.dgm.nl.supervisor._types import ToolCallResult
 
         result = ToolCallResult(
             tool_name="dgm_query",
@@ -90,7 +90,7 @@ class TestSupervisorPlan:
     """SupervisorPlan decomposes a user question into ordered tool calls."""
 
     def test_plan_creation(self) -> None:
-        from sqldim.core.query.dgm.supervisor._types import (
+        from sqldim.core.query.dgm.nl.supervisor._types import (
             SupervisorPlan,
             ToolCallRequest,
         )
@@ -119,7 +119,7 @@ class TestSupervisorPlan:
         assert plan.total_budget_fraction == pytest.approx(1.0)
 
     def test_plan_budget_exceeds_one_raises(self) -> None:
-        from sqldim.core.query.dgm.supervisor._types import (
+        from sqldim.core.query.dgm.nl.supervisor._types import (
             SupervisorPlan,
             ToolCallRequest,
         )
@@ -142,7 +142,7 @@ class TestSupervisorState:
     """SupervisorState threads through the LangGraph supervisor."""
 
     def test_initial_state(self) -> None:
-        from sqldim.core.query.dgm.supervisor._types import SupervisorState
+        from sqldim.core.query.dgm.nl.supervisor._types import SupervisorState
 
         state = SupervisorState(utterance="Compare ecommerce and social")
         assert state.utterance == "Compare ecommerce and social"
@@ -151,7 +151,7 @@ class TestSupervisorState:
         assert state.synthesis is None
 
     def test_state_tracks_visited_nodes(self) -> None:
-        from sqldim.core.query.dgm.supervisor._types import SupervisorState
+        from sqldim.core.query.dgm.nl.supervisor._types import SupervisorState
 
         state = SupervisorState(
             utterance="test",
@@ -164,7 +164,7 @@ class TestSupervisorContext:
     """SupervisorContext carries runtime deps."""
 
     def test_context_lists_available_datasets(self) -> None:
-        from sqldim.core.query.dgm.supervisor._types import SupervisorContext
+        from sqldim.core.query.dgm.nl.supervisor._types import SupervisorContext
 
         ctx = SupervisorContext(
             available_datasets=["ecommerce", "social_network"],

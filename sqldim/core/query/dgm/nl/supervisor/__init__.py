@@ -1,6 +1,6 @@
 """DGM Supervisor Agent — composable analytical tool orchestration (§12)."""
 
-from sqldim.core.query.dgm.supervisor._types import (
+from sqldim.core.query.dgm.nl.supervisor._types import (
     SupervisorContext,
     SupervisorPlan,
     SupervisorState,

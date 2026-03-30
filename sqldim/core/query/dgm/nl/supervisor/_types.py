@@ -76,6 +76,14 @@ class SupervisorPlan(BaseModel):
 
     goal: str
     steps: list[ToolCallRequest]
+    confidence: float = 1.0
+
+    @field_validator("confidence")
+    @classmethod
+    def _confidence_in_range(cls, v: float) -> float:
+        if not (0.0 <= v <= 1.0):
+            raise ValueError(f"confidence must be in [0, 1], got {v}")
+        return v
 
     @property
     def total_budget_fraction(self) -> float:

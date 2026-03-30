@@ -42,3 +42,14 @@ from sqldim.core.query.dgm.nl._graph import (  # noqa: F401
     route_budget_decision,
     build_nl_graph,
 )
+from sqldim.core.query.dgm.nl.supervisor import (  # noqa: F401
+    SupervisorContext,
+    SupervisorPlan,
+    SupervisorState,
+    ToolCallRequest,
+    ToolCallResult,
+    ToolCapabilitySchema,
+)
+from sqldim.core.query.dgm.nl.supervisor._graph import (  # noqa: F401
+    build_supervisor_graph,
+)
