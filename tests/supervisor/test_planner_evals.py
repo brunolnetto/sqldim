@@ -70,13 +70,21 @@ _ROUTING_CASES: list[tuple[str, list[str], tuple[float, float]]] = [
     ("Count users who signed up in Q1",
      ["dgm_query"], (0.5, 1.0)),
 
-    # ── Ill-defined — low confidence; planner degrades to dgm_query ──────
-    ("",           ["dgm_query"], (0.0, 0.3)),
-    ("?",          ["dgm_query"], (0.0, 0.4)),
-    ("help",       ["dgm_query"], (0.0, 0.4)),
-    ("analyze",    ["dgm_query"], (0.0, 0.5)),
-    ("interesting",["dgm_query"], (0.0, 0.5)),
-    ("tell me",    ["dgm_query"], (0.0, 0.5)),
+    # ── Ill-defined — low confidence; planner returns empty plan; reflect handles orientation ──
+    ("",            [], (0.0, 0.3)),
+    ("?",           [], (0.0, 0.4)),
+    ("help",        [], (0.0, 0.4)),
+    ("analyze",     [], (0.0, 0.5)),
+    ("interesting", [], (0.0, 0.5)),
+    ("tell me",     [], (0.0, 0.5)),
+
+    # ── Dataset-specific question routing ─────────────────────────────────
+    ("Which questions do you suggest for the dataset social_network?",
+     ["dgm_what_can_i_answer"], (0.5, 1.0)),
+    ("What questions can you answer for ecommerce?",
+     ["dgm_what_can_i_answer"], (0.5, 1.0)),
+    ("What can you answer for retail?",
+     ["dgm_what_can_i_answer"], (0.5, 1.0)),
 ]
 
 _CASE_IDS = [c[0][:40] or "<empty>" for c in _ROUTING_CASES]

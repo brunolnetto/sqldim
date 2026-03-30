@@ -54,7 +54,7 @@ _CLEAR: list[str] = [
     "Who are the top contributors?",
 ]
 
-_RECURSION_LIMIT = 25  # reflected plans have 3 steps → ~10 node invocations
+_RECURSION_LIMIT = 25  # reflected plans have ≥2 steps → ~8 node invocations
 
 
 def _invoke(utterance: str, thread_id: str) -> dict:
@@ -125,17 +125,16 @@ class TestReflectPlanEnrichment:
         )
 
     @pytest.mark.parametrize("utterance", _ILL_DEFINED, ids=_ILL_DEFINED_IDS)
-    def test_reflected_plan_has_at_least_three_steps(
+    def test_reflected_plan_adds_orientation_steps(
         self, utterance: str
     ) -> None:
-        """Reflected plan = 2 orientation + original step(s), so ≥ 3 total."""
+        """Reflected plan = 2 orientation + original step(s); total is always ≥ 2."""
         plan = decompose_question(utterance, _CTX)
-        # Simulate reflect: orientation budget = 0.5, rest rescaled
         original_steps = list(plan.steps)
         orientation_count = 2
         total_steps = orientation_count + len(original_steps)
-        assert total_steps >= 3, (
-            f"Expected ≥3 steps after reflect for '{utterance}', "
+        assert total_steps >= 2, (
+            f"Expected ≥2 steps after reflect for '{utterance}', "
             f"got {total_steps}"
         )
 
@@ -210,21 +209,29 @@ class TestReflectSynthesisQuality:
 
 
 class TestReflectPreservesOriginalIntent:
-    """The original plan step is still executed after the orientation steps."""
+    """After reflection, the orientation steps run and the plan goal is intact."""
 
     @pytest.mark.parametrize("utterance", _ILL_DEFINED, ids=_ILL_DEFINED_IDS)
-    def test_original_tool_executed_after_orientation(
+    def test_only_orientation_tools_executed_for_vague_input(
         self, utterance: str
     ) -> None:
-        """dgm_query (the default fallback) must appear in results."""
+        """For ill-defined inputs the empty original plan means only the two
+        orientation steps execute — no spurious dgm_query on a random dataset."""
         result = _invoke(utterance, f"intent-{abs(hash(utterance))}")
         raw = result.get("results", [])
         executed = [
             r.tool_name if hasattr(r, "tool_name") else r["tool_name"]
             for r in raw
         ]
-        assert "dgm_query" in executed, (
-            f"Expected dgm_query in results for '{utterance}', got {executed}"
+        assert "dgm_what_can_i_answer" in executed, (
+            f"Expected dgm_what_can_i_answer in results for '{utterance}', got {executed}"
+        )
+        assert "dgm_map_analytical_space" in executed, (
+            f"Expected dgm_map_analytical_space in results for '{utterance}', got {executed}"
+        )
+        assert "dgm_query" not in executed, (
+            f"Unexpected dgm_query for ill-defined '{utterance}' — "
+            f"empty-original-plan should produce only orientation steps, got {executed}"
         )
 
     @pytest.mark.parametrize("utterance", _ILL_DEFINED, ids=_ILL_DEFINED_IDS)

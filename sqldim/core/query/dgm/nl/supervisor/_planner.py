@@ -69,11 +69,19 @@ question into an ordered plan of DGM tool calls.
 Rules:
 - Include ONLY tools that directly contribute to answering the question.
 - For "which datasets / what data do you know about" style questions → dgm_what_can_i_answer
-- For "what tools / capabilities do you have" style questions → dgm_map_analytical_space
-- For analytical domain questions (churn, revenue, counts, trends…) → dgm_query, picking
-  the most relevant dataset from the available_datasets list.
+  with dataset="__all__".
+- For "which questions / what can you answer for [dataset X]?" style questions →
+  dgm_what_can_i_answer with dataset=X (use the exact dataset name from available_datasets).
+- For "what tools / capabilities do you have" style questions → dgm_map_analytical_space.
+- For analytical domain questions (churn, revenue, counts, trends…) → dgm_query, choosing
+  the most TOPICALLY RELEVANT dataset from the available_datasets list — do NOT default to
+  the first dataset alphabetically.  If no dataset is clearly relevant, use dgm_what_can_i_answer.
 - For comparison / cross-domain questions → two dgm_query steps or dgm_correlate.
-- budget_fraction values MUST sum to exactly 1.0 across all steps.
+- For very short, vague, or purely conversational inputs with no analytical content (e.g.
+  "hello", "hi", "help", "?", single-word greetings) → return an EMPTY steps list [],
+  set confidence ≤ 0.3, and explain in reasoning that no analytical intent was detected.
+  Do NOT default to dgm_query when there is no clear analytical intent.
+- budget_fraction values MUST sum to exactly 1.0 across all steps (or omit if steps is empty).
 - confidence: 0.9 for a clear question; 0.7 for a reasonable one; < 0.5 for vague/too short.
 - reasoning: one sentence explaining which tool(s) you selected and why.
 """
@@ -154,22 +162,19 @@ _DATASET_PHRASES = [
     "available dataset", "what data", "which data", "available data",
     "what can you see", "what do you see", "what do you know",
     "can you see", "you see",
+    # questions-about-a-specific-dataset patterns
+    "which questions", "what questions", "question for", "questions for",
+    "for the dataset", "what can you answer", "what can i ask",
 ]
 
 
-def _score_confidence(utterance: str, wants_datasets: bool, wants_tools: bool) -> float:
-    utt = utterance.strip()
-    if not utt:
-        return 0.1
-    if len(utt) < _REFLECT_MIN_LENGTH:
-        return 0.3
-    if wants_datasets and wants_tools:
-        return 0.9
-    if wants_datasets or wants_tools:
-        return 0.7
-    if set(utt.lower().split()) & _QUESTION_MARKERS:
-        return 0.55
-    return 0.35
+def _find_mentioned_dataset(utterance: str, datasets: list[str]) -> str | None:
+    """Return the first dataset name appearing verbatim in *utterance*, or None."""
+    utt_lower = utterance.lower()
+    for ds in datasets:
+        if ds.lower() in utt_lower:
+            return ds
+    return None
 
 
 def _keyword_decompose(
@@ -177,12 +182,13 @@ def _keyword_decompose(
     context: SupervisorContext | None,
 ) -> SupervisorPlan:
     """Phrase/keyword routing — used when no LLM is configured."""
-    datasets = context.available_datasets if context else []
-    utt = utterance.lower()
+    datasets = list(context.available_datasets) if context else []
+    utt = utterance.strip()
+    utt_lower = utt.lower()
 
-    wants_datasets = any(phrase in utt for phrase in _DATASET_PHRASES)
-    wants_tools = any(w in utt for w in ["tool", "capabilit"])
-    confidence = _score_confidence(utterance, wants_datasets, wants_tools)
+    wants_datasets = any(phrase in utt_lower for phrase in _DATASET_PHRASES)
+    wants_tools = any(w in utt_lower for w in ["tool", "capabilit"])
+    has_analytical_markers = bool(set(utt_lower.split()) & _QUESTION_MARKERS)
 
     if wants_datasets and wants_tools:
         steps: list[ToolCallRequest] = [
@@ -197,14 +203,17 @@ def _keyword_decompose(
                 budget_fraction=0.5,
             ),
         ]
+        confidence = 0.9
     elif wants_datasets:
+        target_ds = _find_mentioned_dataset(utterance, datasets) or "__all__"
         steps = [
             ToolCallRequest(
                 tool_name="dgm_what_can_i_answer",
-                arguments={"dataset": "__all__"},
+                arguments={"dataset": target_ds},
                 budget_fraction=1.0,
             ),
         ]
+        confidence = 0.7
     elif wants_tools:
         steps = [
             ToolCallRequest(
@@ -213,7 +222,8 @@ def _keyword_decompose(
                 budget_fraction=1.0,
             ),
         ]
-    else:
+        confidence = 0.7
+    elif has_analytical_markers:
         target = datasets[0] if datasets else "unknown"
         steps = [
             ToolCallRequest(
@@ -222,6 +232,17 @@ def _keyword_decompose(
                 budget_fraction=1.0,
             ),
         ]
+        confidence = 0.55
+    else:
+        # Unknown / vague intent — return empty plan; reflect handles orientation
+        steps = []
+        confidence = 0.35
+
+    # Short-utterance and empty-utterance confidence penalty
+    if not utt:
+        confidence = 0.1
+    elif len(utt) < _REFLECT_MIN_LENGTH:
+        confidence = min(confidence, 0.3)
 
     return SupervisorPlan(goal=utterance, steps=steps, confidence=confidence)
 
