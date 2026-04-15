@@ -52,7 +52,7 @@ jobs:
 
       - name: Upload coverage to Codecov
         if: matrix.python-version == '3.13' && !cancelled()
-        uses: codecov/codecov-action@v5
+        uses: codecov/codecov-action@v6
         with:
           token: ${{ secrets.CODECOV_TOKEN }}
           files: ./coverage.xml
@@ -63,7 +63,7 @@ jobs:
 
       - name: Upload test results to Codecov
         if: matrix.python-version == '3.13' && !cancelled()
-        uses: codecov/codecov-action@v5
+        uses: codecov/codecov-action@v6
         with:
           token: ${{ secrets.CODECOV_TOKEN }}
           files: ./junit.xml
