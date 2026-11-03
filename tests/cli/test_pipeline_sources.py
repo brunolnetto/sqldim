@@ -63,7 +63,7 @@ class TestPipelineSourceABC:
             PipelineSource()  # type: ignore[abstract]
 
     def test_data_dataset_is_pipeline_source(self):
-        ds = load_dataset("ecommerce")
+        ds = load_dataset("commerce")
         src = DatasetPipelineSource(ds)
         assert isinstance(src, PipelineSource)
 
@@ -88,12 +88,12 @@ class TestPipelineSourceABC:
 
 class TestDatasetPipelineSource:
     def test_label_contains_dataset_class_name(self):
-        ds = load_dataset("ecommerce")
+        ds = load_dataset("commerce")
         src = DatasetPipelineSource(ds)
         assert src.label.startswith("dataset:")
 
     def test_setup_creates_connection(self):
-        ds = load_dataset("ecommerce")
+        ds = load_dataset("commerce")
         src = DatasetPipelineSource(ds)
         src.setup()
         try:
@@ -103,7 +103,7 @@ class TestDatasetPipelineSource:
             src.teardown()
 
     def test_get_table_names_non_empty(self):
-        ds = load_dataset("ecommerce")
+        ds = load_dataset("commerce")
         src = DatasetPipelineSource(ds)
         src.setup()
         try:
@@ -113,20 +113,20 @@ class TestDatasetPipelineSource:
             src.teardown()
 
     def test_get_connection_before_setup_raises(self):
-        ds = load_dataset("ecommerce")
+        ds = load_dataset("commerce")
         src = DatasetPipelineSource(ds)
         with pytest.raises(RuntimeError, match="setup()"):
             src.get_connection()
 
     def test_teardown_idempotent(self):
-        ds = load_dataset("ecommerce")
+        ds = load_dataset("commerce")
         src = DatasetPipelineSource(ds)
         src.setup()
         src.teardown()
         src.teardown()  # second teardown must not raise
 
     def test_schema_can_be_built_from_source(self):
-        ds = load_dataset("ecommerce")
+        ds = load_dataset("commerce")
         src = DatasetPipelineSource(ds)
         src.setup()
         try:
@@ -309,7 +309,7 @@ class TestRunAskFromSource:
         monkeypatch.setattr("sqldim.application.ask.make_model", lambda *a, **kw: None)
 
     def test_dataset_source_returns_zero(self, capsys):
-        ds = load_dataset("ecommerce")
+        ds = load_dataset("commerce")
         src = DatasetPipelineSource(ds)
         rc = run_ask_from_source("show me customers", src)
         assert rc == 0
@@ -338,7 +338,7 @@ class TestRunAskFromSource:
         assert "medallion:gold" in out
 
     def test_verbose_prints_prop_count(self, capsys):
-        ds = load_dataset("ecommerce")
+        ds = load_dataset("commerce")
         src = DatasetPipelineSource(ds)
         run_ask_from_source("test", src, verbose=True)
         out = capsys.readouterr().out
@@ -346,7 +346,7 @@ class TestRunAskFromSource:
 
     def test_teardown_called_even_on_success(self, capsys):
         """DatasetPipelineSource connection should be None after the call."""
-        ds = load_dataset("ecommerce")
+        ds = load_dataset("commerce")
         src = DatasetPipelineSource(ds)
         run_ask_from_source("test", src)
         # After teardown the internal connection should be gone
@@ -361,42 +361,68 @@ class TestRunAskFromSource:
 class TestAskParserNewFlags:
     def test_source_defaults_to_dataset(self):
         parser = build_parser()
-        args = parser.parse_args(["ask", "ecommerce", "test"])
+        args = parser.parse_args(["nl", "ask", "test", "--dataset", "commerce"])
         assert args.source == "dataset"
 
     def test_source_medallion_accepted(self):
         parser = build_parser()
-        args = parser.parse_args(["ask", "ecommerce", "test", "--source", "medallion"])
+        args = parser.parse_args(
+            ["nl", "ask", "test", "--dataset", "commerce", "--source", "medallion"]
+        )
         assert args.source == "medallion"
 
     def test_source_observatory_accepted(self):
         parser = build_parser()
         args = parser.parse_args(
-            ["ask", "ecommerce", "test", "--source", "observatory"]
+            ["nl", "ask", "test", "--dataset", "commerce", "--source", "observatory"]
         )
         assert args.source == "observatory"
 
     def test_source_invalid_rejected(self):
         parser = build_parser()
         with pytest.raises(SystemExit):
-            parser.parse_args(["ask", "ecommerce", "test", "--source", "invalid"])
+            parser.parse_args(
+                ["nl", "ask", "test", "--dataset", "commerce", "--source", "invalid"]
+            )
 
     def test_layer_defaults_to_gold(self):
         parser = build_parser()
-        args = parser.parse_args(["ask", "ecommerce", "test", "--source", "medallion"])
+        args = parser.parse_args(
+            ["nl", "ask", "test", "--dataset", "commerce", "--source", "medallion"]
+        )
         assert args.layer == "gold"
 
     def test_layer_bronze_accepted(self):
         parser = build_parser()
         args = parser.parse_args(
-            ["ask", "ecommerce", "test", "--source", "medallion", "--layer", "bronze"]
+            [
+                "nl",
+                "ask",
+                "test",
+                "--dataset",
+                "commerce",
+                "--source",
+                "medallion",
+                "--layer",
+                "bronze",
+            ]
         )
         assert args.layer == "bronze"
 
     def test_layer_silver_accepted(self):
         parser = build_parser()
         args = parser.parse_args(
-            ["ask", "ecommerce", "test", "--source", "medallion", "--layer", "silver"]
+            [
+                "nl",
+                "ask",
+                "test",
+                "--dataset",
+                "commerce",
+                "--source",
+                "medallion",
+                "--layer",
+                "silver",
+            ]
         )
         assert args.layer == "silver"
 
@@ -405,9 +431,11 @@ class TestAskParserNewFlags:
         with pytest.raises(SystemExit):
             parser.parse_args(
                 [
+                    "nl",
                     "ask",
-                    "ecommerce",
                     "test",
+                    "--dataset",
+                    "commerce",
                     "--source",
                     "medallion",
                     "--layer",
@@ -417,16 +445,18 @@ class TestAskParserNewFlags:
 
     def test_db_path_default_is_none(self):
         parser = build_parser()
-        args = parser.parse_args(["ask", "ecommerce", "test"])
+        args = parser.parse_args(["nl", "ask", "test", "--dataset", "commerce"])
         assert args.db_path is None
 
     def test_db_path_accepts_string(self):
         parser = build_parser()
         args = parser.parse_args(
             [
+                "nl",
                 "ask",
-                "ecommerce",
                 "test",
+                "--dataset",
+                "commerce",
                 "--source",
                 "medallion",
                 "--db-path",
@@ -451,11 +481,23 @@ class TestMainAskWithSource:
         monkeypatch.setattr("sqldim.application.ask.make_model", lambda *a, **kw: None)
 
     def test_main_ask_dataset_source_returns_zero(self, capsys):
-        rc = main(["ask", "ecommerce", "show me customers", "--source", "dataset"])
+        rc = main(
+            [
+                "nl",
+                "ask",
+                "show me customers",
+                "--dataset",
+                "commerce",
+                "--source",
+                "dataset",
+            ]
+        )
         assert rc == 0
 
     def test_main_ask_unknown_dataset_returns_one(self, capsys):
-        rc = main(["ask", "unknown_ds", "test", "--source", "dataset"])
+        rc = main(
+            ["nl", "ask", "test", "--dataset", "unknown_ds", "--source", "dataset"]
+        )
         assert rc == 1
 
     def test_main_ask_model_creation_fails_returns_one(self, capsys):
@@ -467,19 +509,49 @@ class TestMainAskWithSource:
             "sqldim.application.ask.make_model",
             side_effect=RuntimeError("bad provider"),
         ):
-            rc = main(["ask", "ecommerce", "test", "--model-provider", "openai"])
+            rc = main(
+                [
+                    "nl",
+                    "ask",
+                    "test",
+                    "--dataset",
+                    "commerce",
+                    "--model-provider",
+                    "openai",
+                ]
+            )
         assert rc == 1
         out = capsys.readouterr().out
         assert "Could not create model" in out
 
     def test_main_ask_medallion_source_returns_zero(self, capsys):
         """--source medallion builds MedallionPipelineSource from :memory: db."""
-        rc = main(["ask", "ecommerce", "show revenue", "--source", "medallion"])
+        rc = main(
+            [
+                "nl",
+                "ask",
+                "show revenue",
+                "--dataset",
+                "commerce",
+                "--source",
+                "medallion",
+            ]
+        )
         assert rc == 0
 
     def test_main_ask_observatory_source_returns_zero(self, capsys):
         """--source observatory builds DriftObservatory from :memory: db."""
-        rc = main(["ask", "ecommerce", "show datasets", "--source", "observatory"])
+        rc = main(
+            [
+                "nl",
+                "ask",
+                "show datasets",
+                "--dataset",
+                "commerce",
+                "--source",
+                "observatory",
+            ]
+        )
         assert rc == 0
 
 
@@ -607,41 +679,57 @@ class TestMakeModel:
 class TestAskParserModelFlags:
     def test_model_provider_defaults_to_ollama(self):
         parser = build_parser()
-        args = parser.parse_args(["ask", "ecommerce", "test"])
+        args = parser.parse_args(["nl", "ask", "test", "--dataset", "commerce"])
         assert args.model_provider == "ollama"
 
     def test_model_provider_openai_accepted(self):
         parser = build_parser()
         args = parser.parse_args(
-            ["ask", "ecommerce", "test", "--model-provider", "openai"]
+            ["nl", "ask", "test", "--dataset", "commerce", "--model-provider", "openai"]
         )
         assert args.model_provider == "openai"
 
     def test_model_provider_anthropic_accepted(self):
         parser = build_parser()
         args = parser.parse_args(
-            ["ask", "ecommerce", "test", "--model-provider", "anthropic"]
+            [
+                "nl",
+                "ask",
+                "test",
+                "--dataset",
+                "commerce",
+                "--model-provider",
+                "anthropic",
+            ]
         )
         assert args.model_provider == "anthropic"
 
     def test_model_provider_gemini_accepted(self):
         parser = build_parser()
         args = parser.parse_args(
-            ["ask", "ecommerce", "test", "--model-provider", "gemini"]
+            ["nl", "ask", "test", "--dataset", "commerce", "--model-provider", "gemini"]
         )
         assert args.model_provider == "gemini"
 
     def test_model_provider_groq_accepted(self):
         parser = build_parser()
         args = parser.parse_args(
-            ["ask", "ecommerce", "test", "--model-provider", "groq"]
+            ["nl", "ask", "test", "--dataset", "commerce", "--model-provider", "groq"]
         )
         assert args.model_provider == "groq"
 
     def test_model_provider_mistral_accepted(self):
         parser = build_parser()
         args = parser.parse_args(
-            ["ask", "ecommerce", "test", "--model-provider", "mistral"]
+            [
+                "nl",
+                "ask",
+                "test",
+                "--dataset",
+                "commerce",
+                "--model-provider",
+                "mistral",
+            ]
         )
         assert args.model_provider == "mistral"
 
@@ -649,18 +737,26 @@ class TestAskParserModelFlags:
         parser = build_parser()
         with pytest.raises(SystemExit):
             parser.parse_args(
-                ["ask", "ecommerce", "test", "--model-provider", "cohere"]
+                [
+                    "nl",
+                    "ask",
+                    "test",
+                    "--dataset",
+                    "commerce",
+                    "--model-provider",
+                    "cohere",
+                ]
             )
 
     def test_model_name_defaults_to_none(self):
         parser = build_parser()
-        args = parser.parse_args(["ask", "ecommerce", "test"])
+        args = parser.parse_args(["nl", "ask", "test", "--dataset", "commerce"])
         assert args.model_name is None
 
     def test_model_name_custom_accepted(self):
         parser = build_parser()
         args = parser.parse_args(
-            ["ask", "ecommerce", "test", "--model", "llama3.3:latest"]
+            ["nl", "ask", "test", "--dataset", "commerce", "--model", "llama3.3:latest"]
         )
         assert args.model_name == "llama3.3:latest"
 
@@ -668,9 +764,11 @@ class TestAskParserModelFlags:
         parser = build_parser()
         args = parser.parse_args(
             [
+                "nl",
                 "ask",
-                "ecommerce",
                 "test",
+                "--dataset",
+                "commerce",
                 "--model-provider",
                 "openai",
                 "--model",
@@ -682,12 +780,12 @@ class TestAskParserModelFlags:
 
 
 # ---------------------------------------------------------------------------
-# RetailMedallionPipelineSource — lifecycle tests
+# CommerceMedallionPipelineSource — lifecycle tests
 # ---------------------------------------------------------------------------
 
 
-class TestRetailMedallionPipelineSource:
-    """Exercise the RetailMedallionPipelineSource lifecycle (setup/teardown)."""
+class TestCommerceMedallionPipelineSource:
+    """Exercise the CommerceMedallionPipelineSource lifecycle (setup/teardown)."""
 
     @pytest.fixture(scope="class")
     def _built_src(self, _dataset_pipeline_cache):
@@ -695,14 +793,15 @@ class TestRetailMedallionPipelineSource:
 
         Avoids a ~17 s Faker build by cloning the cached retail DuckDB file
         into an in-memory connection and attaching it to a
-        ``RetailMedallionPipelineSource`` instance directly.
+        ``CommerceMedallionPipelineSource`` instance directly.
         """
         import duckdb
-        from sqldim.application.datasets.domains.retail.sources.medallion import (
-            RetailMedallionPipelineSource,
+        from sqldim.application.datasets.domains.commerce.sources.medallion import (
+            CommerceMedallionPipelineSource,
         )
-        db_path = _dataset_pipeline_cache["retail"]
-        src = RetailMedallionPipelineSource(seed=42)
+
+        db_path = _dataset_pipeline_cache["commerce"]
+        src = CommerceMedallionPipelineSource(seed=42)
         # Bypass build_pipeline: restore the pre-built state from the cache file.
         con = duckdb.connect(":memory:")
         con.execute(f"ATTACH '{db_path}' AS _cache (READ_ONLY)")
@@ -725,54 +824,57 @@ class TestRetailMedallionPipelineSource:
         assert "fct_cohort_retention" in tables
 
     def test_get_table_names_returns_gold_tables(self, _built_src):
-        from sqldim.application.datasets.domains.retail.sources.medallion import (
+        from sqldim.application.datasets.domains.commerce.sources.medallion import (
             GOLD_TABLES,
         )
+
         names = _built_src.get_table_names()
         assert names == list(GOLD_TABLES)
 
     def test_get_connection_before_setup_raises(self):
-        from sqldim.application.datasets.domains.retail.sources.medallion import (
-            RetailMedallionPipelineSource,
+        from sqldim.application.datasets.domains.commerce.sources.medallion import (
+            CommerceMedallionPipelineSource,
         )
 
-        src = RetailMedallionPipelineSource()
+        src = CommerceMedallionPipelineSource()
         with pytest.raises(RuntimeError, match="setup()"):
             src.get_connection()
 
     def test_teardown_closes_connection(self, monkeypatch):
-        from sqldim.application.datasets.domains.retail.sources.medallion import (
-            RetailMedallionPipelineSource,
+        from sqldim.application.datasets.domains.commerce.sources.medallion import (
+            CommerceMedallionPipelineSource,
         )
+
         monkeypatch.setattr(
-            "sqldim.application.datasets.domains.retail.sources.medallion.build_pipeline",
+            "sqldim.application.datasets.domains.commerce.sources.medallion.build_pipeline",
             lambda con, **kw: None,
         )
-        src = RetailMedallionPipelineSource(seed=42)
+        src = CommerceMedallionPipelineSource(seed=42)
         src.setup()
         src.teardown()
         assert src._con is None
 
     def test_teardown_idempotent(self, monkeypatch):
-        from sqldim.application.datasets.domains.retail.sources.medallion import (
-            RetailMedallionPipelineSource,
+        from sqldim.application.datasets.domains.commerce.sources.medallion import (
+            CommerceMedallionPipelineSource,
         )
+
         monkeypatch.setattr(
-            "sqldim.application.datasets.domains.retail.sources.medallion.build_pipeline",
+            "sqldim.application.datasets.domains.commerce.sources.medallion.build_pipeline",
             lambda con, **kw: None,
         )
-        src = RetailMedallionPipelineSource(seed=42)
+        src = CommerceMedallionPipelineSource(seed=42)
         src.setup()
         src.teardown()
         src.teardown()  # must not raise
 
     def test_label_property(self):
-        from sqldim.application.datasets.domains.retail.sources.medallion import (
-            RetailMedallionPipelineSource,
+        from sqldim.application.datasets.domains.commerce.sources.medallion import (
+            CommerceMedallionPipelineSource,
         )
 
-        src = RetailMedallionPipelineSource()
-        assert src.label == "medallion:retail:gold"
+        src = CommerceMedallionPipelineSource()
+        assert src.label == "medallion:commerce:gold"
 
 
 # ---------------------------------------------------------------------------
@@ -785,7 +887,7 @@ class TestRetailGoldSources:
 
     def test_dim_customer_setup_and_teardown(self):
         import duckdb
-        from sqldim.application.datasets.domains.retail.sources.gold import (
+        from sqldim.application.datasets.domains.commerce.sources.gold import (
             DimCustomerSource,
         )
 
@@ -800,7 +902,7 @@ class TestRetailGoldSources:
 
     def test_fct_daily_sales_setup_and_teardown(self):
         import duckdb
-        from sqldim.application.datasets.domains.retail.sources.gold import (
+        from sqldim.application.datasets.domains.commerce.sources.gold import (
             FctDailySalesSource,
         )
 
@@ -816,7 +918,7 @@ class TestRetailGoldSources:
 
     def test_fct_cohort_retention_setup_and_teardown(self):
         import duckdb
-        from sqldim.application.datasets.domains.retail.sources.gold import (
+        from sqldim.application.datasets.domains.commerce.sources.gold import (
             FctCohortRetentionSource,
         )
 
@@ -842,11 +944,12 @@ class TestRetailPipelineBuilder:
         cache.  Each test clones into its own in-memory connection via ATTACH +
         CREATE TABLE AS SELECT so it can mutate freely without affecting peers.
         """
-        return _dataset_pipeline_cache["retail"]
+        return _dataset_pipeline_cache["commerce"]
 
     def _clone(self, db_path: str):
         """Return a fresh in-memory DuckDB populated from *db_path*."""
         import duckdb
+
         con = duckdb.connect(":memory:")
         con.execute(f"ATTACH '{db_path}' AS _src (READ_ONLY)")
         tables = con.execute(
@@ -859,7 +962,7 @@ class TestRetailPipelineBuilder:
         return con
 
     def test_rebuild_from_bronze_preserves_gold_tables(self, _built_pipeline):
-        from sqldim.application.datasets.domains.retail.pipeline.builder import (
+        from sqldim.application.datasets.domains.commerce.pipeline.builder import (
             rebuild_from_bronze,
         )
 
@@ -870,7 +973,7 @@ class TestRetailPipelineBuilder:
         assert count_after == count_before
 
     def test_rebuild_gold_recreates_gold_from_silver(self, _built_pipeline):
-        from sqldim.application.datasets.domains.retail.pipeline.builder import (
+        from sqldim.application.datasets.domains.commerce.pipeline.builder import (
             rebuild_gold,
             GOLD_TABLES,
         )
@@ -882,14 +985,18 @@ class TestRetailPipelineBuilder:
             assert t in tables
 
     def test_rebuild_fact_orders_recreates_fact_table(self, _built_pipeline):
-        from sqldim.application.datasets.domains.retail.pipeline.builder import (
+        from sqldim.application.datasets.domains.commerce.pipeline.builder import (
             rebuild_fact_orders,
         )
 
         con = self._clone(_built_pipeline)
-        count_before = con.execute("SELECT COUNT(*) FROM silver_fact_orders").fetchone()[0]
+        count_before = con.execute(
+            "SELECT COUNT(*) FROM silver_fact_orders"
+        ).fetchone()[0]
         rebuild_fact_orders(con)
-        count_after = con.execute("SELECT COUNT(*) FROM silver_fact_orders").fetchone()[0]
+        count_after = con.execute("SELECT COUNT(*) FROM silver_fact_orders").fetchone()[
+            0
+        ]
         # Row count is preserved after a full rebuild
         assert count_after == count_before
 
@@ -905,7 +1012,6 @@ class TestDatasetPipelineSourceAlreadyLoadedBranch:
     def test_already_loaded_source_is_skipped(self):
         """Use a self-inserting source: its table has rows after setup(), so
         snapshot() is never called and the `already_loaded` continue is hit."""
-        import duckdb
         from sqldim.application._pipeline_sources import DatasetPipelineSource
         from sqldim.application.datasets.base import BaseSource, SourceProvider
         from sqldim.application.datasets.dataset import Dataset
@@ -923,7 +1029,9 @@ class TestDatasetPipelineSourceAlreadyLoadedBranch:
                 con.execute(f"DROP TABLE IF EXISTS {table}")
 
             def snapshot(self):
-                raise AssertionError("snapshot() must NOT be called when already_loaded")
+                raise AssertionError(
+                    "snapshot() must NOT be called when already_loaded"
+                )
 
         ds = Dataset("test_self_insert", [(SelfInsertingSource(), "my_table")])
         src = DatasetPipelineSource(ds)

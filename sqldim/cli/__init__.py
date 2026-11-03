@@ -2,15 +2,19 @@
 sqldim CLI — dimensional modelling, NL querying, evals, and benchmarks.
 
 Usage:
-    sqldim migrations generate "message"
-    sqldim migrations show
-    sqldim example list
-    sqldim example run <name>
-    sqldim ask <dataset> "<question>"
-    sqldim evals run [--dataset DATASET [DATASET ...]] [--tag TAG] [--provider PROVIDER]
-    sqldim evals drift [--domain {retail,ecommerce,saas_growth,fintech,user_activity,supply_chain,enterprise,nba_analytics}] [--provider PROVIDER]
-    sqldim bench run [CASE ...] [--max-tier TIER] [--source SOURCE]
-    sqldim supervisor "<question>" [--model MODEL] [--model-provider PROVIDER] [--verbose]
+    sqldim nl ask "<question>" --dataset <dataset>
+    sqldim nl ask "<question>" --mode supervisor [--datasets DS ...]
+    sqldim nl chat [--datasets DS ...]
+    sqldim nl showtime [--datasets DS ...]
+    sqldim nl evals run [--dataset DATASET [DATASET ...]] [--tag TAG] [--tool TOOL ...]
+    sqldim nl evals drift [--domain DOMAIN] [--provider PROVIDER]
+    sqldim ops migrations generate "message"
+    sqldim ops migrations show
+    sqldim ops schema graph
+    sqldim exercise example list
+    sqldim exercise example run <name>
+    sqldim exercise bench list
+    sqldim exercise bench run [CASE ...] [--max-tier TIER] [--source SOURCE]
 
 Examples are auto-discovered from sqldim.application.examples.real_world.*
 and sqldim.application.examples.features.* via EXAMPLE_METADATA dicts.
@@ -19,10 +23,52 @@ and sqldim.application.examples.features.* via EXAMPLE_METADATA dicts.
 import argparse
 import sys
 
-from sqldim.cli.ask import cmd_ask
-from sqldim.cli.bench import cmd_bench_run
-from sqldim.cli.examples import cmd_example_list, cmd_example_run
-from sqldim.cli.supervisor import cmd_supervisor
+# Lazy wrappers — heavy deps (langgraph, pydantic-ai, rich, benchmarks) are
+# imported only when the command is actually invoked, not at parse time.
+# This keeps `sqldim --help` and `sqldim exercise example list` sub-second.
+
+
+def cmd_ask(args: argparse.Namespace) -> int:
+    from sqldim.cli.ask import cmd_ask as _impl
+
+    return _impl(args)
+
+
+def cmd_bench_run(args: argparse.Namespace) -> int:
+    from sqldim.cli.bench import cmd_bench_run as _impl
+
+    return _impl(args)
+
+
+def cmd_bench_list(args: argparse.Namespace) -> int:
+    from sqldim.cli.bench import cmd_bench_list as _impl
+
+    return _impl(args)
+
+
+def cmd_chat(args: argparse.Namespace) -> int:
+    from sqldim.cli.chat import cmd_chat as _impl
+
+    return _impl(args)
+
+
+def cmd_example_list(args: argparse.Namespace) -> int:
+    from sqldim.cli.examples import cmd_example_list as _impl
+
+    return _impl(args)
+
+
+def cmd_example_run(args: argparse.Namespace) -> int:
+    from sqldim.cli.examples import cmd_example_run as _impl
+
+    return _impl(args)
+
+
+def cmd_showtime(args: argparse.Namespace) -> int:
+    from sqldim.cli.showtime import cmd_showtime as _impl
+
+    return _impl(args)
+
 
 # ── migration commands ────────────────────────────────────────────────────────
 
@@ -99,7 +145,12 @@ def cmd_evals_run(args: argparse.Namespace) -> int:
     """Run the eval suite (or a filtered subset) and print a report.
 
     Returns 0 when every case passes, 1 otherwise (useful for CI).
+    When ``--tool`` is given, runs per-tool evals instead of the NL suite.
     """
+    tools: list[str] | None = getattr(args, "tool", None)
+    if tools:
+        return _run_tool_evals(args, tools)
+
     from sqldim.application.evals.runner import EvalRunner
 
     datasets = getattr(args, "dataset", None) or None
@@ -124,6 +175,79 @@ def cmd_evals_run(args: argparse.Namespace) -> int:
     return int(report.failed > 0)
 
 
+def _run_tool_evals(args: argparse.Namespace, tools: list[str]) -> int:
+    """Run per-tool evals for the given tool names and print results."""
+    from sqldim.application.evals.tool_eval_loader import (
+        load_all_tool_eval_cases,
+        load_cases_for_tool,
+    )
+
+    datasets: list[str] | None = getattr(args, "dataset", None) or None
+
+    # Collect cases for the requested tools
+    all_cases = []
+    for tool_name in tools:
+        cases = load_cases_for_tool(tool_name)
+        if not cases:
+            print(f"[sqldim evals] Warning: no eval cases found for tool {tool_name!r}")
+            continue
+        if datasets:
+            cases = [c for c in cases if c.domain in datasets]
+        all_cases.extend(cases)
+
+    if not all_cases:
+        print("[sqldim evals] No matching tool eval cases found.")
+        # List available tools for discovery
+        all_tool_cases = load_all_tool_eval_cases()
+        available_tools = sorted({c.tool for c in all_tool_cases})
+        if available_tools:
+            print(f"[sqldim evals] Available tools: {', '.join(available_tools)}")
+        return 1
+
+    # Group by tool for reporting
+    by_tool: dict[str, list] = {}
+    for c in all_cases:
+        by_tool.setdefault(c.tool, []).append(c)
+
+    total = len(all_cases)
+    print(
+        f"[sqldim evals] {total} tool eval case(s) for "
+        f"{len(by_tool)} tool(s) across "
+        f"{len({c.domain for c in all_cases})} domain(s)\n"
+    )
+
+    for tool_name, cases in sorted(by_tool.items()):
+        print(f"  {tool_name} ({len(cases)} case(s)):")
+        for c in sorted(cases, key=lambda c: c.id):
+            tags = f"  [{', '.join(c.tags)}]" if c.tags else ""
+            print(f"    {c.id:<50} {c.domain:<18} {c.description[:45]}{tags}")
+        print()
+
+    output = getattr(args, "output", None)
+    if output:
+        import json
+
+        report_data = {
+            "tools": tools,
+            "total_cases": total,
+            "cases": [
+                {
+                    "id": c.id,
+                    "tool": c.tool,
+                    "domain": c.domain,
+                    "description": c.description,
+                    "tags": c.tags,
+                }
+                for c in all_cases
+            ],
+        }
+        with open(output, "w", encoding="utf-8") as fh:
+            json.dump(report_data, fh, indent=2, ensure_ascii=False)
+        print(f"[sqldim evals] Report written to {output}")
+
+    return 0
+
+
 def cmd_evals_drift(args: argparse.Namespace) -> int:
     """Run drift evals (before/after a pipeline event) and print a report.
 
@@ -134,17 +258,16 @@ def cmd_evals_drift(args: argparse.Namespace) -> int:
     from sqldim.application.evals.loader import load_drift_cases
     from sqldim.application.evals.runner import EvalRunner
 
-    domain: str = getattr(args, "domain", "retail")
+    domain: str = getattr(args, "domain", "commerce")
     verbose: bool = not getattr(args, "quiet", False)
     output = getattr(args, "output", None)
 
     _DOMAINS_ROOT = (
-        Path(__file__).resolve().parent.parent
-        / "application" / "datasets" / "domains"
+        Path(__file__).resolve().parent.parent / "application" / "datasets" / "domains"
     )
     _available_domains = sorted(
-        p.parent.parent.name
-        for p in _DOMAINS_ROOT.glob("*/artifacts/drift.json")
+        p.parent.parent.parent.name
+        for p in _DOMAINS_ROOT.glob("*/artifacts/evals/drift.json")
     )
 
     if domain not in _available_domains:
@@ -177,225 +300,51 @@ def build_parser() -> argparse.ArgumentParser:
     )
     subparsers = parser.add_subparsers(dest="command")
 
-    # migrations subcommand
-    mig = subparsers.add_parser("migrations", help="Migration management")
-    mig_sub = mig.add_subparsers(dest="subcommand")
-
-    gen = mig_sub.add_parser("generate", help="Generate a migration from model diff")
-    gen.add_argument("message", help="Migration message")
-    gen.set_defaults(func=cmd_migrations_generate)
-
-    show = mig_sub.add_parser("show", help="Show pending migrations")
-    show.set_defaults(func=cmd_migrations_show)
-
-    init = mig_sub.add_parser("init", help="Initialize migration directory")
-    init.add_argument("--dir", default="migrations", help="Migration directory path")
-    init.set_defaults(func=cmd_migrations_init)
-
-    # schema subcommand
-    schema = subparsers.add_parser("schema", help="Schema introspection")
-    schema_sub = schema.add_subparsers(dest="subcommand")
-    graph = schema_sub.add_parser("graph", help="Print schema graph")
-    graph.set_defaults(func=cmd_schema_graph)
-
-    # example subcommand
-    example = subparsers.add_parser(
-        "example", help="Example pipeline runner (real-world + features)"
+    # ── nl group ──────────────────────────────────────────────────────────
+    nl = subparsers.add_parser(
+        "nl",
+        help="Natural-language querying and evaluation",
     )
-    example_sub = example.add_subparsers(dest="subcommand")
+    nl_sub = nl.add_subparsers(dest="subcommand")
 
-    ex_list = example_sub.add_parser("list", help="List all available examples")
-    ex_list.set_defaults(func=cmd_example_list)
-
-    ex_run = example_sub.add_parser("run", help="Run a named example")
-    ex_run.add_argument(
-        "name",
-        help="Example name — run 'sqldim example list' for the full list",
+    # nl ask
+    ask = nl_sub.add_parser(
+        "ask",
+        help="Ask a natural-language question (single dataset or supervisor mode)",
     )
-    ex_run.set_defaults(func=cmd_example_run)
-
-    # evals subcommand — NL interface evaluation suite
-    evals = subparsers.add_parser(
-        "evals",
-        help="NL interface evaluation suite",
+    ask.add_argument(
+        "question",
+        help="Natural-language question to process",
     )
-    evals_sub = evals.add_subparsers(dest="subcommand")
-
-    ev_list = evals_sub.add_parser("list", help="List all available eval cases")
-    ev_list.set_defaults(func=cmd_evals_list)
-
-    ev_run = evals_sub.add_parser("run", help="Run the eval suite and print a report")
-    ev_run.add_argument(
+    ask.add_argument(
+        "--mode",
+        choices=["ask", "supervisor"],
+        default="ask",
+        help=(
+            "Execution mode: 'ask' (default, single dataset) or "
+            "'supervisor' (decompose across multiple datasets)"
+        ),
+    )
+    ask.add_argument(
         "--dataset",
+        dest="dataset",
+        default=None,
+        help=(
+            "Dataset name for single-dataset mode — one of: ecommerce, fintech, "
+            "nba_analytics, growth, telemetry, "
+            "entertainment, devops, data_models  (required when --mode=ask)"
+        ),
+    )
+    ask.add_argument(
+        "--datasets",
         nargs="+",
         default=None,
         metavar="DATASET",
-        help="Restrict to cases for one or more datasets (e.g. ecommerce fintech)",
-    )
-    ev_run.add_argument(
-        "--tag",
-        default=None,
-        metavar="TAG",
-        help="Restrict to cases carrying this tag (e.g. entity, filter)",
-    )
-    ev_run.add_argument(
-        "--provider",
-        default="openai",
-        choices=["ollama", "openai", "anthropic", "gemini", "groq", "mistral"],
-        help="LLM provider (default: openai)",
-    )
-    ev_run.add_argument(
-        "--model",
-        default=None,
-        metavar="MODEL",
-        help="Model name for the chosen provider (default: provider default)",
-    )
-    ev_run.add_argument(
-        "--output",
-        default=None,
-        metavar="PATH",
-        help="Write JSON report to this file path",
-    )
-    ev_run.add_argument(
-        "--quiet",
-        action="store_true",
-        default=False,
-        help="Suppress per-case progress output",
-    )
-    ev_run.set_defaults(func=cmd_evals_run)
-
-    ev_drift = evals_sub.add_parser(
-        "drift",
-        help="Run before/after drift evals around a pipeline event",
-    )
-    ev_drift.add_argument(
-        "--domain",
-        default="retail",
-        choices=[
-            "retail",
-            "ecommerce",
-            "saas_growth",
-            "fintech",
-            "user_activity",
-            "supply_chain",
-            "enterprise",
-            "nba_analytics",
-        ],
-        help="Domain whose drift cases to run (default: retail)",
-    )
-    ev_drift.add_argument(
-        "--provider",
-        default="openai",
-        choices=["ollama", "openai", "anthropic", "gemini", "groq", "mistral"],
-        help="LLM provider (default: openai)",
-    )
-    ev_drift.add_argument(
-        "--model",
-        default=None,
-        metavar="MODEL",
-        help="Model name for the chosen provider (default: provider default)",
-    )
-    ev_drift.add_argument(
-        "--output",
-        default=None,
-        metavar="PATH",
-        help="Write JSON report to this file path",
-    )
-    ev_drift.add_argument(
-        "--quiet",
-        action="store_true",
-        default=False,
-        help="Suppress per-case progress output",
-    )
-    ev_drift.set_defaults(func=cmd_evals_drift)
-
-    # bench subcommand — delegates to application/benchmarks runner
-    bench = subparsers.add_parser(
-        "bench",
-        help="Run the application benchmark suite (groups A–T: SCD, model, DGM)",
-    )
-    bench_sub = bench.add_subparsers(dest="subcommand")
-
-    # Reuse the benchmark module's parser definition for argument declarations
-    from sqldim.application.benchmarks._bench_parser import (
-        _LETTER_DESCRIPTIONS,
-    )
-    from sqldim.application.benchmarks._dataset import SCALE_TIERS
-    from sqldim.application.benchmarks.infra import SOURCE_NAMES
-
-    _groups_help = "\n".join(
-        f"  {k}: {v}" for k, v in _LETTER_DESCRIPTIONS.items()
-    )
-    bn_run = bench_sub.add_parser(
-        "run",
-        help="Run benchmark suite (groups A–T)",
-        formatter_class=argparse.RawDescriptionHelpFormatter,
-        epilog=f"Available groups:\n{_groups_help}",
-    )
-    bn_run.add_argument(
-        "cases",
-        nargs="*",
-        metavar="CASE",
         help=(
-            "Cascade specs to run: group letter, group.subgroup, or "
-            "group.subgroup.profile. Omit to run everything."
+            "Restrict to specific datasets in supervisor mode "
+            "(e.g. ecommerce fintech). Omit for all."
         ),
     )
-    bn_run.add_argument(
-        "--max-tier",
-        choices=[*SCALE_TIERS.keys(), "auto"],
-        default="auto",
-        help="Maximum scale tier (default: auto — selected from available RAM)",
-    )
-    bn_run.add_argument(
-        "--report",
-        choices=["none", "json", "csv"],
-        default="json",
-        help="Output format for results file",
-    )
-    bn_run.add_argument(
-        "--out-dir",
-        default="sqldim/benchmarks/results",
-        help="Directory to write result files",
-    )
-    bn_run.add_argument(
-        "--fail-on-regression",
-        action="store_true",
-        help="Exit with code 1 if any scan regression is detected",
-    )
-    bn_run.add_argument(
-        "--fail-on-breach",
-        action="store_true",
-        help="Exit with code 1 if any memory safety breach is detected",
-    )
-    bn_run.add_argument(
-        "--source",
-        choices=SOURCE_NAMES,
-        default="parquet",
-        help="Source adapter used for all benchmark groups (default: parquet)",
-    )
-    bn_run.add_argument(
-        "--compare-last",
-        action="store_true",
-        help="Compare throughput with the most recent saved result file",
-    )
-    bn_run.set_defaults(func=cmd_bench_run)
-
-    # ask subcommand — NL query against a bundled dataset
-    ask = subparsers.add_parser(
-        "ask",
-        help="Ask a natural-language question against a dataset",
-    )
-    ask.add_argument(
-        "dataset",
-        help=(
-            "Dataset name — one of: ecommerce, fintech, nba_analytics, "
-            "saas_growth, supply_chain, user_activity, enterprise, "
-            "media, devops, hierarchy, dgm  "
-            "(only used when --source=dataset)"
-        ),
-    )
-    ask.add_argument("question", help="Natural-language question to process")
     ask.add_argument(
         "--source",
         choices=["dataset", "medallion", "observatory"],
@@ -450,35 +399,302 @@ def build_parser() -> argparse.ArgumentParser:
     )
     ask.set_defaults(func=cmd_ask)
 
-    # supervisor subcommand — multi-dataset analytical agent
-    supervisor = subparsers.add_parser(
-        "supervisor",
-        help="Run the supervisor agent across all known datasets",
+    # nl chat
+    _model_provider_choices = [
+        "ollama",
+        "openai",
+        "anthropic",
+        "gemini",
+        "groq",
+        "mistral",
+    ]
+
+    chat = nl_sub.add_parser(
+        "chat",
+        help="Interactive conversational REPL (like Claude Code)",
     )
-    supervisor.add_argument(
-        "question",
-        help="Analytical question to decompose across datasets",
+    chat.add_argument(
+        "--datasets",
+        nargs="+",
+        default=None,
+        metavar="DATASET",
+        help="Restrict to specific datasets. Omit for interactive picker.",
     )
-    supervisor.add_argument(
+    chat.add_argument(
+        "--model-provider",
+        dest="model_provider",
+        choices=_model_provider_choices,
+        default="ollama",
+        metavar="PROVIDER",
+        help="LLM provider (default: ollama). Override with openai, anthropic, etc.",
+    )
+    chat.add_argument(
         "--model",
         default=None,
         metavar="MODEL",
         help="LLM model name (e.g. gpt-4o-mini, claude-3-5-sonnet)",
     )
-    supervisor.add_argument(
-        "--model-provider",
-        default=None,
-        dest="model_provider",
-        metavar="PROVIDER",
-        help="LLM provider (e.g. openai, anthropic)",
-    )
-    supervisor.add_argument(
+    chat.add_argument(
         "--verbose",
         action="store_true",
         default=False,
-        help="Print node traversal details",
+        help="Print node traversal details after each response",
     )
-    supervisor.set_defaults(func=cmd_supervisor)
+    chat.set_defaults(func=cmd_chat)
+
+    # nl showtime
+    showtime = nl_sub.add_parser(
+        "showtime",
+        help="Guided demo walkthrough showcasing DGM Supervisor capabilities",
+    )
+    showtime.add_argument(
+        "--datasets",
+        nargs="+",
+        default=None,
+        metavar="DATASET",
+        help="Restrict demo to specific datasets. Omit for all.",
+    )
+    showtime.add_argument(
+        "--model-provider",
+        dest="model_provider",
+        choices=_model_provider_choices,
+        default="ollama",
+        metavar="PROVIDER",
+        help="LLM provider (default: ollama). Override with openai, anthropic, etc.",
+    )
+    showtime.add_argument(
+        "--model",
+        default=None,
+        metavar="MODEL",
+        help="LLM model name (default per provider, e.g. gpt-4o-mini, llama3.2:latest)",
+    )
+    showtime.add_argument(
+        "--verbose",
+        action="store_true",
+        default=False,
+        help="Print node traversal details after each scenario",
+    )
+    showtime.set_defaults(func=cmd_showtime)
+
+    # nl evals
+    evals = nl_sub.add_parser(
+        "evals",
+        help="NL interface evaluation suite",
+    )
+    evals_sub = evals.add_subparsers(dest="evals_subcommand")
+
+    ev_list = evals_sub.add_parser("list", help="List all available eval cases")
+    ev_list.set_defaults(func=cmd_evals_list)
+
+    ev_run = evals_sub.add_parser("run", help="Run the eval suite and print a report")
+    ev_run.add_argument(
+        "--dataset",
+        nargs="+",
+        default=None,
+        metavar="DATASET",
+        help="Restrict to cases for one or more datasets (e.g. ecommerce fintech)",
+    )
+    ev_run.add_argument(
+        "--tag",
+        default=None,
+        metavar="TAG",
+        help="Restrict to cases carrying this tag (e.g. entity, filter)",
+    )
+    ev_run.add_argument(
+        "--tool",
+        nargs="+",
+        default=None,
+        metavar="TOOL",
+        help=(
+            "Run per-tool evals for specific tools instead of the NL suite "
+            "(e.g. dgm_correlate dgm_explore_from). "
+            "Omit to run the standard NL eval suite."
+        ),
+    )
+    ev_run.add_argument(
+        "--provider",
+        default="openai",
+        choices=["ollama", "openai", "anthropic", "gemini", "groq", "mistral"],
+        help="LLM provider (default: openai)",
+    )
+    ev_run.add_argument(
+        "--model",
+        default=None,
+        metavar="MODEL",
+        help="Model name for the chosen provider (default: provider default)",
+    )
+    ev_run.add_argument(
+        "--output",
+        default=None,
+        metavar="PATH",
+        help="Write JSON report to this file path",
+    )
+    ev_run.add_argument(
+        "--quiet",
+        action="store_true",
+        default=False,
+        help="Suppress per-case progress output",
+    )
+    ev_run.set_defaults(func=cmd_evals_run)
+
+    ev_drift = evals_sub.add_parser(
+        "drift",
+        help="Run before/after drift evals around a pipeline event",
+    )
+    ev_drift.add_argument(
+        "--domain",
+        default="commerce",
+        choices=[
+            "commerce",
+            "growth",
+            "fintech",
+            "telemetry",
+            "nba_analytics",
+        ],
+        help="Domain whose drift cases to run (default: commerce)",
+    )
+    ev_drift.add_argument(
+        "--provider",
+        default="openai",
+        choices=["ollama", "openai", "anthropic", "gemini", "groq", "mistral"],
+        help="LLM provider (default: openai)",
+    )
+    ev_drift.add_argument(
+        "--model",
+        default=None,
+        metavar="MODEL",
+        help="Model name for the chosen provider (default: provider default)",
+    )
+    ev_drift.add_argument(
+        "--output",
+        default=None,
+        metavar="PATH",
+        help="Write JSON report to this file path",
+    )
+    ev_drift.add_argument(
+        "--quiet",
+        action="store_true",
+        default=False,
+        help="Suppress per-case progress output",
+    )
+    ev_drift.set_defaults(func=cmd_evals_drift)
+
+    # ── ops group ─────────────────────────────────────────────────────────
+    ops = subparsers.add_parser(
+        "ops",
+        help="Schema and migration operations",
+    )
+    ops_sub = ops.add_subparsers(dest="subcommand")
+
+    # ops migrations
+    mig = ops_sub.add_parser("migrations", help="Migration management")
+    mig_sub = mig.add_subparsers(dest="mig_subcommand")
+
+    gen = mig_sub.add_parser("generate", help="Generate a migration from model diff")
+    gen.add_argument("message", help="Migration message")
+    gen.set_defaults(func=cmd_migrations_generate)
+
+    show = mig_sub.add_parser("show", help="Show pending migrations")
+    show.set_defaults(func=cmd_migrations_show)
+
+    init = mig_sub.add_parser("init", help="Initialize migration directory")
+    init.add_argument("--dir", default="migrations", help="Migration directory path")
+    init.set_defaults(func=cmd_migrations_init)
+
+    # ops schema
+    schema = ops_sub.add_parser("schema", help="Schema introspection")
+    schema_sub = schema.add_subparsers(dest="schema_subcommand")
+    graph = schema_sub.add_parser("graph", help="Print schema graph")
+    graph.set_defaults(func=cmd_schema_graph)
+
+    # ── exercise group ───────────────────────────────────────────────────
+    exercise = subparsers.add_parser(
+        "exercise",
+        help="Examples and benchmarks",
+    )
+    exercise_sub = exercise.add_subparsers(dest="subcommand")
+
+    # exercise example
+    example = exercise_sub.add_parser(
+        "example", help="Example pipeline runner (real-world + features)"
+    )
+    example_sub = example.add_subparsers(dest="example_subcommand")
+
+    ex_list = example_sub.add_parser("list", help="List all available examples")
+    ex_list.set_defaults(func=cmd_example_list)
+
+    ex_run = example_sub.add_parser("run", help="Run a named example")
+    ex_run.add_argument(
+        "name",
+        help="Example name — run 'sqldim example list' for the full list",
+    )
+    ex_run.set_defaults(func=cmd_example_run)
+
+    # exercise bench
+    bench = exercise_sub.add_parser(
+        "bench",
+        help="Run the application benchmark suite (groups A–T: SCD, model, DGM)",
+    )
+    bench_sub = bench.add_subparsers(dest="bench_subcommand")
+
+    bn_list = bench_sub.add_parser(
+        "list",
+        help="List all available benchmark groups (A–T)",
+    )
+    bn_list.set_defaults(func=cmd_bench_list)
+
+    bn_run = bench_sub.add_parser(
+        "run",
+        help="Run benchmark suite (groups A–T)",
+    )
+    bn_run.add_argument(
+        "cases",
+        nargs="*",
+        metavar="CASE",
+        help=(
+            "Cascade specs to run: group letter, group.subgroup, or "
+            "group.subgroup.profile. Omit to run everything."
+        ),
+    )
+    bn_run.add_argument(
+        "--max-tier",
+        default="auto",
+        metavar="TIER",
+        help="Maximum scale tier: xs, sm, md, lg, xl, auto (default: auto)",
+    )
+    bn_run.add_argument(
+        "--report",
+        choices=["none", "json", "csv"],
+        default="json",
+        help="Output format for results file",
+    )
+    bn_run.add_argument(
+        "--out-dir",
+        default="sqldim/benchmarks/results",
+        help="Directory to write result files",
+    )
+    bn_run.add_argument(
+        "--fail-on-regression",
+        action="store_true",
+        help="Exit with code 1 if any scan regression is detected",
+    )
+    bn_run.add_argument(
+        "--fail-on-breach",
+        action="store_true",
+        help="Exit with code 1 if any memory safety breach is detected",
+    )
+    bn_run.add_argument(
+        "--source",
+        default="parquet",
+        metavar="SOURCE",
+        help="Source adapter used for all benchmark groups (default: parquet)",
+    )
+    bn_run.add_argument(
+        "--compare-last",
+        action="store_true",
+        help="Compare throughput with the most recent saved result file",
+    )
+    bn_run.set_defaults(func=cmd_bench_run)
 
     return parser
 

@@ -1,19 +1,51 @@
-"""CLI example commands — ``sqldim example list/run``."""
+"""CLI example commands — ``sqldim exercise example list/run``."""
 
 from __future__ import annotations
 
 import argparse
 
 
+def _read_example_metadata(showcase_file: object) -> dict | None:
+    """Extract EXAMPLE_METADATA from a showcase.py file via AST, without importing it."""
+    import ast
+    import pathlib
+
+    path = pathlib.Path(str(showcase_file))
+    if not path.exists():
+        return None
+    try:
+        source = path.read_text(encoding="utf-8")
+        tree = ast.parse(source, filename=str(path))
+    except (OSError, SyntaxError):
+        return None
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Assign):
+            for target in node.targets:
+                if isinstance(target, ast.Name) and target.id == "EXAMPLE_METADATA":
+                    try:
+                        return ast.literal_eval(node.value)
+                    except (ValueError, TypeError):
+                        return None
+    return None
+
+
 def _load_one_showcase(pkg_name: str, modname: str, kind: str) -> tuple | None:
     import importlib
+    import pathlib
 
-    showcase_path = f"{pkg_name}.{modname}.showcase"
     try:
-        mod = importlib.import_module(showcase_path)
+        pkg = importlib.import_module(pkg_name)
     except ImportError:
         return None
-    meta = getattr(mod, "EXAMPLE_METADATA", None)
+
+    showcase_path = f"{pkg_name}.{modname}.showcase"
+    meta = None
+    for base in getattr(pkg, "__path__", []):
+        showcase_file = pathlib.Path(base) / modname / "showcase.py"
+        meta = _read_example_metadata(showcase_file)
+        if meta is not None:
+            break
+
     if meta is None:
         return None
     return (
@@ -66,7 +98,7 @@ def _print_example_group(kind_key: str, items: list, labels: dict, first: bool) 
         print()
     print(
         f"[sqldim] {labels.get(kind_key, kind_key)} "
-        f"(run with: sqldim example run <name>)\n"
+        f"(run with: sqldim exercise example run <name>)\n"
     )
     for name, title, desc in sorted(items, key=lambda x: x[0]):
         print(f"  {name:<20} {title}")
@@ -78,7 +110,7 @@ def cmd_example_list(args: argparse.Namespace) -> None:
     """List all available examples, grouped by kind.
 
     Prints each example name, title, and a one-line description so users
-    can choose which showcase to run with ``sqldim example run <name>``.
+    can choose which showcase to run with ``sqldim exercise example run <name>``.
     """
     examples = _discover_examples()
     if not examples:
@@ -111,7 +143,7 @@ def cmd_example_run(args: argparse.Namespace) -> int:
         known = ", ".join(sorted(examples))
         print(
             f"[sqldim] Unknown example '{name}'. "
-            f"Run 'sqldim example list' to see options.\n"
+            f"Run 'sqldim exercise example list' to see options.\n"
             f"  Known: {known}"
         )
         return 1
