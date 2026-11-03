@@ -124,7 +124,7 @@ class TestHierarchyRoller:
 class TestOrgChartSource:
     def test_teardown_drops_tables(self):
         import duckdb
-        from sqldim.application.datasets.domains.hierarchy import OrgChartSource
+        from sqldim.application.datasets.domains.data_models import OrgChartSource
 
         src = OrgChartSource()
         con = duckdb.connect()
@@ -138,7 +138,7 @@ class TestOrgChartSource:
         assert "org_dim_closure" not in tables
 
     def test_snapshot_raises_not_implemented(self):
-        from sqldim.application.datasets.domains.hierarchy import OrgChartSource
+        from sqldim.application.datasets.domains.data_models import OrgChartSource
 
         src = OrgChartSource()
         with pytest.raises(NotImplementedError):

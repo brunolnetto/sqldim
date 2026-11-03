@@ -18,7 +18,7 @@ from __future__ import annotations
 import duckdb
 
 #: OLTP tables created by :func:`build_pipeline`.
-TABLE_NAMES: list[str] = ['github_issues']
+TABLE_NAMES: list[str] = ["github_issues"]
 
 
 def build_pipeline(con: duckdb.DuckDBPyConnection, *, seed: int = 42) -> None:

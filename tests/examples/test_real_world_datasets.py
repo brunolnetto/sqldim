@@ -1,10 +1,10 @@
 """
-Tests for sqldim/examples/datasets/{nba_analytics,saas_growth,user_activity}.py
+Tests for sqldim/examples/datasets/{nba_analytics,growth,user_activity}.py
 
 Coverage targets
 ----------------
 sqldim/examples/datasets/nba_analytics.py
-sqldim/examples/datasets/saas_growth.py
+sqldim/examples/datasets/growth.py
 sqldim/examples/datasets/user_activity.py
 sqldim/examples/datasets/fintech.py
 sqldim/examples/datasets/supply_chain.py
@@ -19,8 +19,8 @@ from sqldim.application.datasets import DatasetFactory
 from sqldim.sources.batch.sql import SQLSource
 
 from sqldim.application.datasets.domains.nba_analytics import PlayerSeasonsSource
-from sqldim.application.datasets.domains.saas_growth import SaaSUsersSource
-from sqldim.application.datasets.domains.user_activity import (
+from sqldim.application.datasets.domains.growth import SaaSUsersSource
+from sqldim.application.datasets.domains.telemetry import (
     DevicesSource,
     EventsSource,
 )
@@ -28,7 +28,7 @@ from sqldim.application.datasets.domains.fintech import (
     CounterpartiesSource,
     TransactionsSource,
 )
-from sqldim.application.datasets.domains.supply_chain import (
+from sqldim.application.datasets.domains.commerce import (
     SuppliersSource,
     ReceiptsSource,
 )

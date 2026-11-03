@@ -19,7 +19,9 @@ from sqldim.application.examples.real_world.ecommerce.models import (
     ProductCampaignBridge,
     OrderFact,
 )
-from sqldim.application.datasets.domains.ecommerce.dataset import ecommerce_dataset
+from sqldim.application.datasets.domains.commerce.dataset import (
+    commerce_dataset as ecommerce_dataset,
+)
 from sqldim.core.kimball.dimensions.scd.handler import SCDHandler
 from sqldim.migrations.context import DimensionalMigrationContext
 

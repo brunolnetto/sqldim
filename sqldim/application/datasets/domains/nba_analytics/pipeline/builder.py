@@ -18,7 +18,7 @@ from __future__ import annotations
 import duckdb
 
 #: OLTP tables created by :func:`build_pipeline`.
-TABLE_NAMES: list[str] = ['teams', 'player_seasons', 'games', 'game_details']
+TABLE_NAMES: list[str] = ["teams", "player_seasons", "games", "game_details"]
 
 
 def build_pipeline(con: duckdb.DuckDBPyConnection, *, seed: int = 42) -> None:
@@ -26,7 +26,9 @@ def build_pipeline(con: duckdb.DuckDBPyConnection, *, seed: int = 42) -> None:
 
     Tables created: ``teams``, ``player_seasons``, ``games``, ``game_details``.
     """
-    from sqldim.application.datasets.domains.nba_analytics.dataset import nba_analytics_dataset
+    from sqldim.application.datasets.domains.nba_analytics.dataset import (
+        nba_analytics_dataset,
+    )
 
     nba_analytics_dataset.setup(con)
 

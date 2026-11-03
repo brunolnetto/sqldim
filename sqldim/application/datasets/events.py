@@ -27,8 +27,8 @@ Usage example
 -------------
 ::
 
-    from sqldim.application.datasets.domains.ecommerce.sources import CustomersSource, OrdersSource
-    from sqldim.application.datasets.domains.ecommerce.events import CustomerBulkCancelEvent
+    from sqldim.application.datasets.domains.commerce.sources import CustomersSource, OrdersSource
+    from sqldim.application.datasets.domains.commerce.events import CustomerBulkCancelEvent
     from sqldim.application.datasets.events import EventRepository
 
     repo = (

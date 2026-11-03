@@ -130,8 +130,8 @@ class TestDatasetFactory:
     def test_create_returns_instance_for_registered_name(self):
         from sqldim.application.datasets.base import DatasetFactory
 
-        # "customers" is registered by ecommerce.py at import time
-        from sqldim.application.datasets.domains import ecommerce  # noqa: F401 (trigger registration)
+        # Trigger registration by importing a domain with @DatasetFactory.register
+        from sqldim.application.datasets.domains import commerce  # noqa: F401
 
         names = DatasetFactory.available()
         if names:
@@ -168,20 +168,20 @@ class TestDatasetFactory:
 
 class TestSchematicSourceMethods:
     def test_dim_ddl_property(self):
-        from sqldim.application.datasets.domains.ecommerce import CustomersSource
+        from sqldim.application.datasets.domains.commerce import CustomersSource
 
         src = CustomersSource(n=2)
         assert isinstance(src.DIM_DDL, str)
         assert len(src.DIM_DDL) > 0
 
     def test_oltp_ddl_property(self):
-        from sqldim.application.datasets.domains.ecommerce import CustomersSource
+        from sqldim.application.datasets.domains.commerce import CustomersSource
 
         src = CustomersSource(n=2)
         assert isinstance(src.OLTP_DDL, str)
 
     def test_snapshot_returns_sql_source(self):
-        from sqldim.application.datasets.domains.ecommerce import CustomersSource
+        from sqldim.application.datasets.domains.commerce import CustomersSource
         from sqldim.sources import SQLSource
 
         src = CustomersSource(n=3)
@@ -189,7 +189,7 @@ class TestSchematicSourceMethods:
         assert isinstance(result, SQLSource)
 
     def test_event_batch_returns_sql_source(self):
-        from sqldim.application.datasets.domains.ecommerce import CustomersSource
+        from sqldim.application.datasets.domains.commerce import CustomersSource
         from sqldim.sources import SQLSource
 
         src = CustomersSource(n=3)
@@ -197,20 +197,20 @@ class TestSchematicSourceMethods:
         assert isinstance(result, SQLSource)
 
     def test_event_batch_raises_for_n_gt_1(self):
-        from sqldim.application.datasets.domains.ecommerce import CustomersSource
+        from sqldim.application.datasets.domains.commerce import CustomersSource
 
         src = CustomersSource(n=3)
         with pytest.raises(ValueError, match="event batch"):
             src.event_batch(n=2)
 
     def test_initial_property(self):
-        from sqldim.application.datasets.domains.ecommerce import CustomersSource
+        from sqldim.application.datasets.domains.commerce import CustomersSource
 
         src = CustomersSource(n=3)
         assert len(src.initial) == 3
 
     def test_events_property(self):
-        from sqldim.application.datasets.domains.ecommerce import CustomersSource
+        from sqldim.application.datasets.domains.commerce import CustomersSource
 
         src = CustomersSource(n=4)
         # events list is populated in constructor
@@ -225,7 +225,7 @@ class TestSchematicSourceMethods:
 
 class TestCustomersSource:
     def test_moved_count(self):
-        from sqldim.application.datasets.domains.ecommerce import CustomersSource
+        from sqldim.application.datasets.domains.commerce import CustomersSource
 
         src = CustomersSource(n=6)
         # every even-indexed customer has moved (3 out of 6)
@@ -234,21 +234,21 @@ class TestCustomersSource:
 
 class TestOrdersSource:
     def test_oltp_ddl_property(self):
-        from sqldim.application.datasets.domains.ecommerce import OrdersSource
+        from sqldim.application.datasets.domains.commerce import OrdersSource
 
         src = OrdersSource(n=3)
         assert isinstance(src.OLTP_DDL, str)
         assert len(src.OLTP_DDL) > 0
 
     def test_dim_ddl_property(self):
-        from sqldim.application.datasets.domains.ecommerce import OrdersSource
+        from sqldim.application.datasets.domains.commerce import OrdersSource
 
         src = OrdersSource(n=3)
         assert isinstance(src.DIM_DDL, str)
         assert len(src.DIM_DDL) > 0
 
     def test_snapshot_returns_placed_events(self):
-        from sqldim.application.datasets.domains.ecommerce import OrdersSource
+        from sqldim.application.datasets.domains.commerce import OrdersSource
         from sqldim.sources import SQLSource
 
         src = OrdersSource(n=3)
@@ -256,7 +256,7 @@ class TestOrdersSource:
         assert isinstance(result, SQLSource)
 
     def test_orders_property(self):
-        from sqldim.application.datasets.domains.ecommerce import OrdersSource
+        from sqldim.application.datasets.domains.commerce import OrdersSource
 
         src = OrdersSource(n=5)
         orders = src.orders
@@ -271,14 +271,14 @@ class TestOrdersSource:
 
 class TestAccountsSource:
     def test_oltp_ddl_property(self):
-        from sqldim.application.datasets.domains.enterprise import AccountsSource
+        from sqldim.application.datasets.domains.growth import AccountsSource
 
         src = AccountsSource(n=3)
         assert isinstance(src.OLTP_DDL, str)
         assert len(src.OLTP_DDL) > 0
 
     def test_snapshot_calls_snapshot_for_date(self):
-        from sqldim.application.datasets.domains.enterprise import AccountsSource
+        from sqldim.application.datasets.domains.growth import AccountsSource
 
         src = AccountsSource(n=3)
         result = src.snapshot()
@@ -385,25 +385,25 @@ class TestDatasetSpec:
 
 class TestMoviesSource:
     def test_oltp_ddl_property(self):
-        from sqldim.application.datasets.domains.media import MoviesSource
+        from sqldim.application.datasets.domains.entertainment import MoviesSource
 
         src = MoviesSource(n_movies=2, n_actors=3)
         assert isinstance(src.OLTP_DDL, str)
 
     def test_edge_ddl_property(self):
-        from sqldim.application.datasets.domains.media import MoviesSource
+        from sqldim.application.datasets.domains.entertainment import MoviesSource
 
         src = MoviesSource(n_movies=2, n_actors=3)
         assert isinstance(src.EDGE_DDL, str)
 
     def test_actors_ddl_property(self):
-        from sqldim.application.datasets.domains.media import MoviesSource
+        from sqldim.application.datasets.domains.entertainment import MoviesSource
 
         src = MoviesSource(n_movies=2, n_actors=3)
         assert isinstance(src.ACTORS_DDL, str)
 
     def test_snapshot_returns_cast_snapshot(self):
-        from sqldim.application.datasets.domains.media import MoviesSource
+        from sqldim.application.datasets.domains.entertainment import MoviesSource
         from sqldim.sources import SQLSource
 
         src = MoviesSource(n_movies=2, n_actors=3)
@@ -411,7 +411,7 @@ class TestMoviesSource:
         assert isinstance(result, SQLSource)
 
     def test_new_releases_returns_sql_source(self):
-        from sqldim.application.datasets.domains.media import MoviesSource
+        from sqldim.application.datasets.domains.entertainment import MoviesSource
         from sqldim.sources import SQLSource
 
         src = MoviesSource(n_movies=2, n_actors=3)
@@ -419,14 +419,14 @@ class TestMoviesSource:
         assert isinstance(result, SQLSource)
 
     def test_new_releases_raises_for_n_gt_1(self):
-        from sqldim.application.datasets.domains.media import MoviesSource
+        from sqldim.application.datasets.domains.entertainment import MoviesSource
 
         src = MoviesSource(n_movies=2, n_actors=3)
         with pytest.raises(ValueError, match="event batch"):
             src.new_releases(n=2)
 
     def test_actor_map(self):
-        from sqldim.application.datasets.domains.media import MoviesSource
+        from sqldim.application.datasets.domains.entertainment import MoviesSource
 
         src = MoviesSource(n_movies=2, n_actors=3)
         result = src.actor_map()
@@ -434,21 +434,21 @@ class TestMoviesSource:
         assert len(result) >= 1
 
     def test_actors_property(self):
-        from sqldim.application.datasets.domains.media import MoviesSource
+        from sqldim.application.datasets.domains.entertainment import MoviesSource
 
         src = MoviesSource(n_movies=2, n_actors=3)
         assert isinstance(src.actors, list)
         assert len(src.actors) >= 1
 
     def test_movies_property(self):
-        from sqldim.application.datasets.domains.media import MoviesSource
+        from sqldim.application.datasets.domains.entertainment import MoviesSource
 
         src = MoviesSource(n_movies=2, n_actors=3)
         assert isinstance(src.movies, list)
         assert len(src.movies) >= 1
 
     def test_cast_property(self):
-        from sqldim.application.datasets.domains.media import MoviesSource
+        from sqldim.application.datasets.domains.entertainment import MoviesSource
 
         src = MoviesSource(n_movies=2, n_actors=3)
         assert isinstance(src.cast, list)
@@ -602,7 +602,9 @@ class TestDGMShowcaseSource:
     """Cover the two uncovered branches in DGMShowcaseSource."""
 
     def test_teardown_drops_all_tables(self):
-        from sqldim.application.datasets.domains.dgm.sources import DGMShowcaseSource
+        from sqldim.application.datasets.domains.data_models.sources import (
+            DGMShowcaseSource,
+        )
 
         src = DGMShowcaseSource()
         con = duckdb.connect()
@@ -617,7 +619,9 @@ class TestDGMShowcaseSource:
         assert "dgm_showcase_sale" not in tables_after
 
     def test_snapshot_raises_not_implemented(self):
-        from sqldim.application.datasets.domains.dgm.sources import DGMShowcaseSource
+        from sqldim.application.datasets.domains.data_models.sources import (
+            DGMShowcaseSource,
+        )
 
         src = DGMShowcaseSource()
         with pytest.raises(NotImplementedError, match="static fixture"):

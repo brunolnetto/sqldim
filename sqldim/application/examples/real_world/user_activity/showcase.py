@@ -25,7 +25,7 @@ from __future__ import annotations
 
 import duckdb
 
-from sqldim.application.datasets.domains.user_activity.sources import (
+from sqldim.application.datasets.domains.telemetry.sources import (
     DevicesSource,
     EventsSource,
 )

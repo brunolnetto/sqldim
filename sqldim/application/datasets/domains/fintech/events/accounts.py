@@ -12,9 +12,7 @@ def apply_risk_downgrade(con: duckdb.DuckDBPyConnection) -> None:
     account currently rated ``'medium'``.  The risk-tier distribution visible
     to NL queries shifts toward high-risk immediately.
     """
-    con.execute(
-        "UPDATE accounts SET risk_tier = 'high' WHERE risk_tier = 'medium'"
-    )
+    con.execute("UPDATE accounts SET risk_tier = 'high' WHERE risk_tier = 'medium'")
 
 
 __all__ = ["apply_risk_downgrade"]

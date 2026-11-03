@@ -1,4 +1,4 @@
-"""Tests for the social_network domain pipeline builder.
+"""Tests for the entertainment domain's social_network pipeline builder.
 
 Red-green: these tests are written first, then the domain implementation
 makes them pass.  Each test asserts exactly one thing.
@@ -18,7 +18,7 @@ import pytest
 @pytest.fixture(scope="module")
 def social_network_con() -> duckdb.DuckDBPyConnection:
     """Build the social_network pipeline in-memory and return the connection."""
-    from sqldim.application.datasets.domains.social_network.pipeline.builder import (
+    from sqldim.application.datasets.domains.entertainment.pipeline.builder import (
         build_pipeline,
     )
 
@@ -59,11 +59,15 @@ _EXPECTED_OLTP = {
 class TestSocialNetworkPipelineStructure:
     """Verify all expected tables are created."""
 
-    def test_build_creates_oltp_tables(self, social_network_con: duckdb.DuckDBPyConnection) -> None:
+    def test_build_creates_oltp_tables(
+        self, social_network_con: duckdb.DuckDBPyConnection
+    ) -> None:
         tables = _table_names(social_network_con)
         assert _EXPECTED_OLTP.issubset(tables)
 
-    def test_no_graph_tables(self, social_network_con: duckdb.DuckDBPyConnection) -> None:
+    def test_no_graph_tables(
+        self, social_network_con: duckdb.DuckDBPyConnection
+    ) -> None:
         tables = _table_names(social_network_con)
         assert "grafo_vertices" not in tables
         assert "grafo_arestas" not in tables
@@ -77,25 +81,39 @@ class TestSocialNetworkPipelineStructure:
 class TestSocialNetworkRowCounts:
     """Each OLTP table must have the exact row count from the lecture data."""
 
-    def test_pessoa_row_count(self, social_network_con: duckdb.DuckDBPyConnection) -> None:
+    def test_pessoa_row_count(
+        self, social_network_con: duckdb.DuckDBPyConnection
+    ) -> None:
         assert _row_count(social_network_con, "pessoa") == 10
 
-    def test_livro_row_count(self, social_network_con: duckdb.DuckDBPyConnection) -> None:
+    def test_livro_row_count(
+        self, social_network_con: duckdb.DuckDBPyConnection
+    ) -> None:
         assert _row_count(social_network_con, "livro") == 8
 
-    def test_genero_row_count(self, social_network_con: duckdb.DuckDBPyConnection) -> None:
+    def test_genero_row_count(
+        self, social_network_con: duckdb.DuckDBPyConnection
+    ) -> None:
         assert _row_count(social_network_con, "genero") == 7
 
-    def test_leitura_row_count(self, social_network_con: duckdb.DuckDBPyConnection) -> None:
+    def test_leitura_row_count(
+        self, social_network_con: duckdb.DuckDBPyConnection
+    ) -> None:
         assert _row_count(social_network_con, "leitura") == 15
 
-    def test_conexao_social_row_count(self, social_network_con: duckdb.DuckDBPyConnection) -> None:
+    def test_conexao_social_row_count(
+        self, social_network_con: duckdb.DuckDBPyConnection
+    ) -> None:
         assert _row_count(social_network_con, "conexao_social") == 16
 
-    def test_livro_genero_row_count(self, social_network_con: duckdb.DuckDBPyConnection) -> None:
+    def test_livro_genero_row_count(
+        self, social_network_con: duckdb.DuckDBPyConnection
+    ) -> None:
         assert _row_count(social_network_con, "livro_genero") == 11
 
-    def test_pessoa_preferencia_row_count(self, social_network_con: duckdb.DuckDBPyConnection) -> None:
+    def test_pessoa_preferencia_row_count(
+        self, social_network_con: duckdb.DuckDBPyConnection
+    ) -> None:
         assert _row_count(social_network_con, "pessoa_preferencia") == 14
 
 
@@ -110,4 +128,46 @@ class TestSocialNetworkDiscovery:
     def test_dataset_metadata_discoverable(self) -> None:
         from sqldim.application.ask import KNOWN_DATASETS
 
-        assert "social_network" in KNOWN_DATASETS
+        assert "entertainment" in KNOWN_DATASETS
+
+
+class TestSocialNetworkSourceTeardown:
+    """SocialNetworkSource.teardown drops all OLTP tables."""
+
+    def test_teardown_drops_all_tables(self) -> None:
+        import duckdb
+        from sqldim.application.datasets.domains.entertainment.sources.social_network import (
+            SocialNetworkSource,
+        )
+
+        con = duckdb.connect(":memory:")
+        src = SocialNetworkSource()
+        src.setup(con)
+        src.teardown(con)
+
+        tables = {
+            r[0]
+            for r in con.execute(
+                "SELECT table_name FROM information_schema.tables WHERE table_schema = 'main'"
+            ).fetchall()
+        }
+        assert "pessoa" not in tables
+        assert "livro" not in tables
+
+    def test_snapshot_raises_not_implemented(self) -> None:
+        from sqldim.application.datasets.domains.entertainment.sources.social_network import (
+            SocialNetworkSource,
+        )
+        import pytest
+
+        with pytest.raises(NotImplementedError, match="static fixture"):
+            SocialNetworkSource().snapshot()
+
+
+class TestSocialNetworkEventsPackage:
+    """The events sub-package must be importable and declare __all__."""
+
+    def test_events_subpackage_importable(self) -> None:
+        import sqldim.application.datasets.domains.entertainment.events as events
+
+        assert "apply_new_release" in events.__all__

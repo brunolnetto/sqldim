@@ -24,7 +24,7 @@ from __future__ import annotations
 
 import duckdb
 
-from sqldim.application.datasets.domains.saas_growth.sources import (
+from sqldim.application.datasets.domains.growth.sources import (
     SaaSUsersSource,
     SaaSSessionsSource,
 )

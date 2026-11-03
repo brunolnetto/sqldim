@@ -21,8 +21,8 @@ from sqldim.application.examples.real_world.supply_chain.models import (
     ReceiptFact,
     InventoryFact,
 )
-from sqldim.application.datasets.domains.supply_chain.dataset import (
-    supply_chain_dataset,
+from sqldim.application.datasets.domains.commerce.dataset import (
+    commerce_dataset as supply_chain_dataset,
 )
 from sqldim.core.kimball.dimensions.scd.handler import SCDHandler
 from sqldim.core.graph import GraphModel

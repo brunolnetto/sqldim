@@ -15,7 +15,7 @@ from __future__ import annotations
 
 import duckdb
 
-from sqldim.application.datasets.domains.hierarchy import OrgChartSource
+from sqldim.application.datasets.domains.data_models import OrgChartSource
 from sqldim.application.examples.features.hierarchy.models import OrgDimModel
 
 

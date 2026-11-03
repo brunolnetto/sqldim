@@ -13,22 +13,17 @@ Import directly from the sub-package or let the parent
 ``sqldim.application.datasets`` hub re-export everything::
 
     from sqldim.application.datasets import ProductsSource    # hub re-export
-    from sqldim.application.datasets.domains.ecommerce import ProductsSource
-    from sqldim.application.datasets.domains.ecommerce.sources import ProductsSource
+    from sqldim.application.datasets.domains.commerce import ProductsSource
+    from sqldim.application.datasets.domains.commerce.sources import ProductsSource
 
 Domains
 -------
-dgm           — DGMShowcaseSource (static fixture; no Faker dependency)
-ecommerce     — ProductsSource, CustomersSource, StoresSource, OrdersSource
-                sources.star  — LoyaltyCustomersSource, CatalogProductsSource, FulfillmentOrdersSource
-enterprise    — EmployeesSource, AccountsSource
+commerce      — ProductsSource, CustomersSource, StoresSource, OrdersSource, LoyaltyCustomersSource, CatalogProductsSource, FulfillmentOrdersSource (OLTP) + DimCustomerSource, FctDailySalesSource, FctCohortRetentionSource (gold) + SuppliersSource, WarehousesSource, SKUsSource, ReceiptsSource (supply-chain)
+growth        — EmployeesSource, AccountsSource, SaaSUsersSource, SaaSSessionsSource
 fintech       — AccountsSource, CounterpartiesSource, TransactionsSource
-hierarchy     — OrgChartSource (static fixture; no Faker dependency)
-media         — MoviesSource
+data_models   — DGMShowcaseSource, OrgChartSource (static fixtures; no Faker dependency)
+entertainment — MoviesSource, SocialNetworkSource
 nba_analytics — PlayerSeasonsSource
-saas_growth   — SaaSUsersSource
-supply_chain  — SuppliersSource, WarehousesSource, SKUsSource, ReceiptsSource
-user_activity — DevicesSource, EventsSource
+telemetry     — DevicesSource, EventsSource, PipelineSpanSource, MetricSampleSource
 devops        — GitHubIssuesSource
-observability — PipelineSpanSource, MetricSampleSource
 """

@@ -28,7 +28,7 @@ from sqldim.core.kimball.dimensions.scd.processors.scd_engine import (
 )
 from sqldim.core.query.dgm import DGMQuery
 
-from sqldim.application.datasets.domains.ecommerce import (
+from sqldim.application.datasets.domains.commerce import (
     ProductsSource,
     CustomersSource,
 )

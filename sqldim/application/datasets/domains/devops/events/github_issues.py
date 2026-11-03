@@ -12,9 +12,7 @@ def apply_issue_resolution(con: duckdb.DuckDBPyConnection) -> None:
     where ``state = 'open'``.  Open/closed issue count queries will
     show the shift immediately.
     """
-    con.execute(
-        "UPDATE github_issues SET state = 'closed' WHERE state = 'open'"
-    )
+    con.execute("UPDATE github_issues SET state = 'closed' WHERE state = 'open'")
 
 
 __all__ = ["apply_issue_resolution"]

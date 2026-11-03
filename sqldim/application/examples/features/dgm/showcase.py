@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import duckdb
 
-from sqldim.application.datasets.domains.dgm import DGMShowcaseSource
+from sqldim.application.datasets.domains.data_models import DGMShowcaseSource
 from sqldim.application.examples.features.dgm._demos_dql import (
     demo_edge_kind_classification,
     demo_b1_filter,
