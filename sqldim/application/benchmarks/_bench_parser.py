@@ -6,9 +6,10 @@ Extracted from runner.py to keep that module focused on execution logic.
 from __future__ import annotations
 
 import argparse
+from typing import TYPE_CHECKING
 
-from sqldim.application.benchmarks._dataset import SCALE_TIERS
-from sqldim.application.benchmarks.suite import BenchmarkResult, SOURCE_NAMES
+if TYPE_CHECKING:
+    from sqldim.application.benchmarks.suite import BenchmarkResult
 
 __all__ = [
     "BENCH_HIERARCHY",
@@ -175,6 +176,9 @@ def _build_groups_epilog() -> str:
 
 
 def build_parser() -> argparse.ArgumentParser:
+    from sqldim.application.benchmarks._dataset import SCALE_TIERS
+    from sqldim.application.benchmarks.suite import SOURCE_NAMES
+
     p = argparse.ArgumentParser(
         prog="python -m sqldim.application.benchmarks.runner",
         description="sqldim comprehensive benchmark suite",

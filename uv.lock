@@ -1,15 +1,15 @@
 version = 1
-revision = 2
+revision = 5
 requires-python = ">=3.11"
 resolution-markers = [
     "python_full_version >= '3.14' and sys_platform == 'win32'",
     "python_full_version >= '3.14' and sys_platform == 'emscripten'",
     "python_full_version >= '3.14' and sys_platform != 'emscripten' and sys_platform != 'win32'",
     "python_full_version == '3.13.*' and sys_platform == 'win32'",
-    "python_full_version < '3.13' and sys_platform == 'win32'",
     "python_full_version == '3.13.*' and sys_platform == 'emscripten'",
-    "python_full_version < '3.13' and sys_platform == 'emscripten'",
     "python_full_version == '3.13.*' and sys_platform != 'emscripten' and sys_platform != 'win32'",
+    "python_full_version < '3.13' and sys_platform == 'win32'",
+    "python_full_version < '3.13' and sys_platform == 'emscripten'",
     "python_full_version < '3.13' and sys_platform != 'emscripten' and sys_platform != 'win32'",
 ]
 
@@ -633,14 +633,14 @@ name = "cohere"
 version = "5.20.7"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
-    { name = "fastavro", marker = "sys_platform != 'emscripten'" },
-    { name = "httpx", marker = "sys_platform != 'emscripten'" },
-    { name = "pydantic", marker = "sys_platform != 'emscripten'" },
-    { name = "pydantic-core", marker = "sys_platform != 'emscripten'" },
-    { name = "requests", marker = "sys_platform != 'emscripten'" },
-    { name = "tokenizers", marker = "sys_platform != 'emscripten'" },
-    { name = "types-requests", marker = "sys_platform != 'emscripten'" },
-    { name = "typing-extensions", marker = "sys_platform != 'emscripten'" },
+    { name = "fastavro" },
+    { name = "httpx" },
+    { name = "pydantic" },
+    { name = "pydantic-core" },
+    { name = "requests" },
+    { name = "tokenizers" },
+    { name = "types-requests" },
+    { name = "typing-extensions" },
 ]
 sdist = { url = "https://files.pythonhosted.org/packages/44/0b/96e2b55a0114ed9d69b3154565f54b764e7530735426290b000f467f4c0f/cohere-5.20.7.tar.gz", hash = "sha256:997ed85fabb3a1e4a4c036fdb520382e7bfa670db48eb59a026803b6f7061dbb", size = 184986, upload-time = "2026-02-25T01:22:18.673Z" }
 wheels = [
@@ -4196,8 +4196,8 @@ name = "secretstorage"
 version = "3.5.0"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
-    { name = "cryptography", marker = "sys_platform != 'emscripten' and sys_platform != 'win32'" },
-    { name = "jeepney", marker = "sys_platform != 'emscripten' and sys_platform != 'win32'" },
+    { name = "cryptography" },
+    { name = "jeepney" },
 ]
 sdist = { url = "https://files.pythonhosted.org/packages/1c/03/e834bcd866f2f8a49a85eaff47340affa3bfa391ee9912a952a1faa68c7b/secretstorage-3.5.0.tar.gz", hash = "sha256:f04b8e4689cbce351744d5537bf6b1329c6fc68f91fa666f60a380edddcd11be", size = 19884, upload-time = "2025-11-23T19:02:53.191Z" }
 wheels = [
@@ -4301,7 +4301,7 @@ asyncio = [
 [[package]]
 name = "sqldim"
 version = "2.0.0"
-source = { virtual = "." }
+source = { editable = "." }
 dependencies = [
     { name = "alembic" },
     { name = "duckdb" },
@@ -4319,6 +4319,10 @@ cdc = [
 ]
 deltalake = [
     { name = "deltalake" },
+]
+interactive = [
+    { name = "prompt-toolkit" },
+    { name = "rich" },
 ]
 kafka = [
     { name = "confluent-kafka" },
@@ -4355,13 +4359,11 @@ dev = [
     { name = "aiosqlite" },
     { name = "bandit" },
     { name = "faker" },
-    { name = "mistralai" },
     { name = "mypy" },
     { name = "pandas" },
     { name = "pip-audit" },
     { name = "polars" },
     { name = "pyarrow" },
-    { name = "pydantic-ai" },
     { name = "pydantic-ai-slim", extra = ["mistral"] },
     { name = "pytest" },
     { name = "pytest-asyncio" },
@@ -4395,27 +4397,27 @@ requires-dist = [
     { name = "polars", marker = "extra == 'kafka'", specifier = ">=0.20" },
     { name = "polars", marker = "extra == 'kinesis'", specifier = ">=0.20" },
     { name = "polars", marker = "extra == 'streaming'", specifier = ">=0.20" },
+    { name = "prompt-toolkit", marker = "extra == 'interactive'", specifier = ">=3" },
     { name = "pydantic-ai", marker = "extra == 'nl'", specifier = ">=0.0.14" },
     { name = "pydantic-settings", specifier = ">=2.2.1" },
     { name = "pytz", specifier = ">=2026.1.post1" },
+    { name = "rich", marker = "extra == 'interactive'", specifier = ">=14" },
     { name = "sqlalchemy", extras = ["asyncio"], specifier = ">=2.0.29" },
     { name = "sqlglot", marker = "extra == 'lineage'", specifier = ">=30.0.1" },
     { name = "sqlmodel", specifier = ">=0.0.34" },
 ]
-provides-extras = ["kafka", "kafka-native", "kinesis", "cdc", "deltalake", "streaming", "otel", "lineage", "nl"]
+provides-extras = ["kafka", "kafka-native", "kinesis", "cdc", "deltalake", "streaming", "otel", "lineage", "nl", "interactive"]
 
 [package.metadata.requires-dev]
 dev = [
     { name = "aiosqlite", specifier = ">=0.22.1" },
     { name = "bandit", extras = ["toml"], specifier = ">=1.7.5" },
     { name = "faker", specifier = ">=37.0.0" },
-    { name = "mistralai", specifier = ">=2.1.3" },
     { name = "mypy", specifier = ">=1.10.0" },
     { name = "pandas", specifier = ">=3.0.1" },
     { name = "pip-audit", specifier = ">=2.6.1" },
     { name = "polars", specifier = ">=1.39.0" },
     { name = "pyarrow", specifier = ">=23.0.1" },
-    { name = "pydantic-ai", extras = ["mistral"], specifier = ">=1.71.0" },
     { name = "pydantic-ai-slim", extras = ["mistral"], specifier = ">=1.71.0" },
     { name = "pytest", specifier = ">=9.0.2" },
     { name = "pytest-asyncio", specifier = ">=1.3.0" },
@@ -4572,7 +4574,7 @@ name = "tokenizers"
 version = "0.22.2"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
-    { name = "huggingface-hub", marker = "sys_platform != 'emscripten'" },
+    { name = "huggingface-hub" },
 ]
 sdist = { url = "https://files.pythonhosted.org/packages/73/6f/f80cfef4a312e1fb34baf7d85c72d4411afde10978d4657f8cdd811d3ccc/tokenizers-0.22.2.tar.gz", hash = "sha256:473b83b915e547aa366d1eee11806deaf419e17be16310ac0a14077f1e28f917", size = 372115, upload-time = "2026-01-05T10:45:15.988Z" }
 wheels = [
@@ -4706,7 +4708,7 @@ name = "types-requests"
 version = "2.32.4.20260324"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
-    { name = "urllib3", marker = "sys_platform != 'emscripten'" },
+    { name = "urllib3" },
 ]
 sdist = { url = "https://files.pythonhosted.org/packages/6c/b1/66bafdc85965e5aa3db42e1b9128bf8abe252edd7556d00a07ef437a3e0e/types_requests-2.32.4.20260324.tar.gz", hash = "sha256:33a2a9ccb1de7d4e4da36e347622c35418f6761269014cc32857acabd5df739e", size = 23765, upload-time = "2026-03-24T04:06:35.106Z" }
 wheels = [
