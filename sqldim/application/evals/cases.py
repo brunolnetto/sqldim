@@ -63,12 +63,20 @@ class EvalCase:
 
 
 # ---------------------------------------------------------------------------
-# Master registry — populated from per-domain artifacts/evals.json
+# Master registry — populated lazily from per-domain artifacts/evals.json
 # ---------------------------------------------------------------------------
 
-from sqldim.application.evals.loader import load_eval_suite  # noqa: E402
-
-#: All eval cases across all datasets. Consumed by :class:`EvalRunner`.
-EVAL_SUITE: list[EvalCase] = load_eval_suite()
+EVAL_SUITE: list[EvalCase]
 
 __all__ = ["EvalCase", "EVAL_SUITE"]
+
+
+def __getattr__(name: str) -> object:
+    if name == "EVAL_SUITE":
+        from sqldim.application.evals.loader import load_eval_suite
+
+        suite = load_eval_suite()
+        # Cache so subsequent accesses hit __dict__ directly (no __getattr__ call).
+        globals()["EVAL_SUITE"] = suite
+        return suite
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")

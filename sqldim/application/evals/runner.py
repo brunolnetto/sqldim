@@ -39,6 +39,7 @@ from sqldim.core.query.dgm.nl._agent_types import DGMContext, NLInterfaceState
 from sqldim.core.query.dgm.nl._agents import make_model
 from sqldim.core.query.dgm.nl._graph import build_nl_graph
 from sqldim.application.evals.cases import EVAL_SUITE, EvalCase
+from sqldim.application.evals.drift import DriftEvalCase, DriftEvalReport
 from sqldim.application.evals.metrics import (
     check_columns_present,
     check_has_result,
@@ -206,7 +207,9 @@ class EvalReport:
         lines = [header, ""]
 
         # ── per-dataset table ───────────────────────────────────────────────
-        lines.append(f"  {'Dataset':<22} {'Pass':>6} {'Total':>6} {'Score':>7} {'Hops':>5} {'Latency':>10}")
+        lines.append(
+            f"  {'Dataset':<22} {'Pass':>6} {'Total':>6} {'Score':>7} {'Hops':>5} {'Latency':>10}"
+        )
         lines.append("  " + "-" * 60)
         for ds, rs in sorted(self.by_dataset().items()):
             n = len(rs)
@@ -356,12 +359,18 @@ class EvalRunner:
         # ── result rows mini-table ─────────────────────────────────────────
         if result.result_rows and result.columns:
             col_w = [
-                max(len(c), max((len(str(r[i])) for r in result.result_rows if i < len(r)), default=0))
+                max(
+                    len(c),
+                    max(
+                        (len(str(r[i])) for r in result.result_rows if i < len(r)),
+                        default=0,
+                    ),
+                )
                 for i, c in enumerate(result.columns)
             ]
             header = "  ".join(c.ljust(col_w[i]) for i, c in enumerate(result.columns))
             sep = "  ".join("-" * col_w[i] for i in range(len(result.columns)))
-            print(f"      answer:")
+            print("      answer:")
             print(f"        {header}")
             print(f"        {sep}")
             for row in result.result_rows:
@@ -380,12 +389,18 @@ class EvalRunner:
             exp_rows_data: list[list[str]] = exp_res.get("rows", [])[:5]
             if exp_cols and exp_rows_data:
                 ecol_w = [
-                    max(len(c), max((len(str(r[i])) for r in exp_rows_data if i < len(r)), default=0))
+                    max(
+                        len(c),
+                        max(
+                            (len(str(r[i])) for r in exp_rows_data if i < len(r)),
+                            default=0,
+                        ),
+                    )
                     for i, c in enumerate(exp_cols)
                 ]
                 eheader = "  ".join(c.ljust(ecol_w[i]) for i, c in enumerate(exp_cols))
                 esep = "  ".join("-" * ecol_w[i] for i in range(len(exp_cols)))
-                print(f"      expected:")
+                print("      expected:")
                 print(f"        {eheader}")
                 print(f"        {esep}")
                 for erow in exp_rows_data:
@@ -435,6 +450,7 @@ class EvalRunner:
         _logfire_warning: type | None = None
         try:
             from logfire._internal.config import LogfireNotConfiguredWarning
+
             _logfire_warning = LogfireNotConfiguredWarning
         except ImportError:  # pragma: no cover
             pass
@@ -535,7 +551,7 @@ class EvalRunner:
         The connection is kept open across steps 2-4 so the agent observes the
         mutated state in step 4 without rebuilding the full pipeline.
         """
-        from sqldim.application.evals.drift import DriftEvalReport, DriftPairResult
+        from sqldim.application.evals.drift import DriftPairResult
 
         model = make_model(self.provider, self.model_name)
         report = DriftEvalReport(
@@ -548,6 +564,7 @@ class EvalRunner:
             warnings.filterwarnings("ignore", message=".*logfire.*")
             try:
                 from logfire._internal.config import LogfireNotConfiguredWarning
+
                 warnings.filterwarnings("ignore", category=LogfireNotConfiguredWarning)
             except ImportError:  # pragma: no cover
                 pass
@@ -606,8 +623,14 @@ class EvalRunner:
     def _extract_state_fields(
         raw_state: dict[str, Any],
     ) -> tuple[
-        list[str], dict[str, Any] | None, str | None, str | None, int, list[str],
-        dict[str, float], list[list[str]]
+        list[str],
+        dict[str, Any] | None,
+        str | None,
+        str | None,
+        int,
+        list[str],
+        dict[str, float],
+        list[list[str]],
     ]:
         """Unpack the eight result fields from *raw_state*."""
         result_dict: dict[str, Any] | None = raw_state.get("result")
@@ -692,8 +715,11 @@ class EvalRunner:
         tid = f"eval-{case.id}{thread_id_suffix}"
         t0 = time.perf_counter()
         raw_state, error = self._invoke_graph_safe(
-            graph, case.utterance, tid,
-            self.recursion_limit, self.case_timeout_s,
+            graph,
+            case.utterance,
+            tid,
+            self.recursion_limit,
+            self.case_timeout_s,
         )
         latency_ms = (time.perf_counter() - t0) * 1000
 
@@ -721,7 +747,9 @@ class EvalRunner:
             node_timings,
             result_rows,
         ) = self._extract_state_fields(raw_state)
-        checks = self._build_checks(case, result_dict, sql_generated, visited_nodes, expected_result_dict)
+        checks = self._build_checks(
+            case, result_dict, sql_generated, visited_nodes, expected_result_dict
+        )
         all_passed, score = self._compute_pass_score(checks, error)
 
         return EvalResult(
@@ -763,6 +791,7 @@ class EvalRunner:
 
         def _run() -> dict[str, Any]:
             from langgraph.errors import GraphRecursionError as _GRE  # noqa: F401
+
             return graph.invoke(
                 NLInterfaceState(utterance=utterance).model_dump(),
                 config={
