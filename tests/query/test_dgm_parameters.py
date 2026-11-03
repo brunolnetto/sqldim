@@ -136,12 +136,18 @@ class TestParameterSlot:
             slot.name = "changed"  # type: ignore[misc]
 
     def test_equality(self) -> None:
-        a = ParameterSlot("k", ParameterFamily.STRATEGY, ParameterTypeKind.DISCRETE_INFINITE)
-        b = ParameterSlot("k", ParameterFamily.STRATEGY, ParameterTypeKind.DISCRETE_INFINITE)
+        a = ParameterSlot(
+            "k", ParameterFamily.STRATEGY, ParameterTypeKind.DISCRETE_INFINITE
+        )
+        b = ParameterSlot(
+            "k", ParameterFamily.STRATEGY, ParameterTypeKind.DISCRETE_INFINITE
+        )
         assert a == b
 
     def test_repr_contains_name(self) -> None:
-        slot = ParameterSlot("as_of", ParameterFamily.TEMPORAL, ParameterTypeKind.CONTINUOUS)
+        slot = ParameterSlot(
+            "as_of", ParameterFamily.TEMPORAL, ParameterTypeKind.CONTINUOUS
+        )
         assert "as_of" in repr(slot)
 
 
@@ -155,7 +161,9 @@ class TestParameterSpace:
 
     @pytest.fixture()
     def temporal_slot(self) -> ParameterSlot:
-        return ParameterSlot("as_of", ParameterFamily.TEMPORAL, ParameterTypeKind.CONTINUOUS)
+        return ParameterSlot(
+            "as_of", ParameterFamily.TEMPORAL, ParameterTypeKind.CONTINUOUS
+        )
 
     @pytest.fixture()
     def strategy_slot(self) -> ParameterSlot:

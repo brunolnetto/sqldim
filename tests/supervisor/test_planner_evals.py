@@ -16,75 +16,67 @@ import pytest
 from sqldim.core.query.dgm.nl.supervisor._planner import decompose_question
 from sqldim.core.query.dgm.nl.supervisor._types import SupervisorContext
 
-_CTX = SupervisorContext(
-    available_datasets=["ecommerce", "retail", "social_network"]
-)
+_CTX = SupervisorContext(available_datasets=["ecommerce", "retail", "social_network"])
 
 # ---------------------------------------------------------------------------
 # (utterance, expected_tool_sequence, confidence_range)
 # ---------------------------------------------------------------------------
 _ROUTING_CASES: list[tuple[str, list[str], tuple[float, float]]] = [
     # ── Clear dataset intent ──────────────────────────────────────────────
-    ("Which datasets can you see?",
-     ["dgm_what_can_i_answer"], (0.5, 1.0)),
-    ("What data is available to me?",
-     ["dgm_what_can_i_answer"], (0.5, 1.0)),
-    ("What datasets do you know about?",
-     ["dgm_what_can_i_answer"], (0.5, 1.0)),
-    ("Show me available datasets",
-     ["dgm_what_can_i_answer"], (0.5, 1.0)),
-
+    ("Which datasets can you see?", ["dgm_what_can_i_answer"], (0.5, 1.0)),
+    ("What data is available to me?", ["dgm_what_can_i_answer"], (0.5, 1.0)),
+    ("What datasets do you know about?", ["dgm_what_can_i_answer"], (0.5, 1.0)),
+    ("Show me available datasets", ["dgm_what_can_i_answer"], (0.5, 1.0)),
     # ── Clear tool intent ─────────────────────────────────────────────────
-    ("What tools do you have?",
-     ["dgm_map_analytical_space"], (0.5, 1.0)),
-    ("What are your analytical capabilities?",
-     ["dgm_map_analytical_space"], (0.5, 1.0)),
+    ("What tools do you have?", ["dgm_map_analytical_space"], (0.5, 1.0)),
+    (
+        "What are your analytical capabilities?",
+        ["dgm_map_analytical_space"],
+        (0.5, 1.0),
+    ),
     # 'can you' is no longer a tool keyword (too broad); 'list' is a question
     # marker so confidence ≥ 0.5 but routing falls back to dgm_query
-    ("Can you list what you can do?",
-     ["dgm_query"], (0.5, 1.0)),
-
+    ("Can you list what you can do?", ["dgm_query"], (0.5, 1.0)),
     # ── Both dataset + tool intent ────────────────────────────────────────
-    ("Which datasets can you see and what tools do you have?",
-     ["dgm_what_can_i_answer", "dgm_map_analytical_space"], (0.7, 1.0)),
-    ("Show me available data and your capabilities",
-     ["dgm_what_can_i_answer", "dgm_map_analytical_space"], (0.7, 1.0)),
-
+    (
+        "Which datasets can you see and what tools do you have?",
+        ["dgm_what_can_i_answer", "dgm_map_analytical_space"],
+        (0.7, 1.0),
+    ),
+    (
+        "Show me available data and your capabilities",
+        ["dgm_what_can_i_answer", "dgm_map_analytical_space"],
+        (0.7, 1.0),
+    ),
     # ── Domain-specific analytical queries → dgm_query ───────────────────
-    ("How many orders were placed last month?",
-     ["dgm_query"], (0.5, 1.0)),
-    ("Top 5 customers by revenue",
-     ["dgm_query"], (0.5, 1.0)),
-    ("Who are the best sales reps?",
-     ["dgm_query"], (0.5, 1.0)),
-    ("Compare ecommerce and retail performance",
-     ["dgm_query"], (0.5, 1.0)),
-    ("Show me the churn rate over the last year",
-     ["dgm_query"], (0.5, 1.0)),
-    ("What is the average order value?",
-     ["dgm_query"], (0.5, 1.0)),
-    ("Find the top contributors by commit count",
-     ["dgm_query"], (0.5, 1.0)),
-    ("List all active subscriptions",
-     ["dgm_query"], (0.5, 1.0)),
-    ("Count users who signed up in Q1",
-     ["dgm_query"], (0.5, 1.0)),
-
+    ("How many orders were placed last month?", ["dgm_query"], (0.5, 1.0)),
+    ("Top 5 customers by revenue", ["dgm_query"], (0.5, 1.0)),
+    ("Who are the best sales reps?", ["dgm_query"], (0.5, 1.0)),
+    ("Compare ecommerce and retail performance", ["dgm_query"], (0.5, 1.0)),
+    ("Show me the churn rate over the last year", ["dgm_query"], (0.5, 1.0)),
+    ("What is the average order value?", ["dgm_query"], (0.5, 1.0)),
+    ("Find the top contributors by commit count", ["dgm_query"], (0.5, 1.0)),
+    ("List all active subscriptions", ["dgm_query"], (0.5, 1.0)),
+    ("Count users who signed up in Q1", ["dgm_query"], (0.5, 1.0)),
     # ── Ill-defined — low confidence; planner returns empty plan; reflect handles orientation ──
-    ("",            [], (0.0, 0.3)),
-    ("?",           [], (0.0, 0.4)),
-    ("help",        [], (0.0, 0.4)),
-    ("analyze",     [], (0.0, 0.5)),
+    ("", [], (0.0, 0.3)),
+    ("?", [], (0.0, 0.4)),
+    ("help", [], (0.0, 0.4)),
+    ("analyze", [], (0.0, 0.5)),
     ("interesting", [], (0.0, 0.5)),
-    ("tell me",     [], (0.0, 0.5)),
-
+    ("tell me", [], (0.0, 0.5)),
     # ── Dataset-specific question routing ─────────────────────────────────
-    ("Which questions do you suggest for the dataset social_network?",
-     ["dgm_what_can_i_answer"], (0.5, 1.0)),
-    ("What questions can you answer for ecommerce?",
-     ["dgm_what_can_i_answer"], (0.5, 1.0)),
-    ("What can you answer for retail?",
-     ["dgm_what_can_i_answer"], (0.5, 1.0)),
+    (
+        "Which questions do you suggest for the dataset social_network?",
+        ["dgm_what_can_i_answer"],
+        (0.5, 1.0),
+    ),
+    (
+        "What questions can you answer for ecommerce?",
+        ["dgm_what_can_i_answer"],
+        (0.5, 1.0),
+    ),
+    ("What can you answer for retail?", ["dgm_what_can_i_answer"], (0.5, 1.0)),
 ]
 
 _CASE_IDS = [c[0][:40] or "<empty>" for c in _ROUTING_CASES]
@@ -139,9 +131,7 @@ class TestPlannerBudgetInvariant:
     def test_budget_sums_to_at_most_one(self, utterance: str) -> None:
         plan = decompose_question(utterance, _CTX)
         total = sum(s.budget_fraction for s in plan.steps)
-        assert total <= 1.0 + 1e-9, (
-            f"'{utterance}' budget sum={total:.6f} > 1.0"
-        )
+        assert total <= 1.0 + 1e-9, f"'{utterance}' budget sum={total:.6f} > 1.0"
 
 
 class TestPlannerNoContext:
@@ -214,3 +204,79 @@ class TestPlannerConfidenceThresholds:
         assert plan.confidence < 0.5, (
             f"'{utterance}' confidence={plan.confidence:.2f} unexpectedly high"
         )
+
+
+class TestLLMDecomposePath:
+    """Cover the pydantic-ai LLM code path in _llm_decompose and decompose_question."""
+
+    def test_llm_path_returns_plan_from_mock(self) -> None:
+        """_llm_decompose is called when a model is provided; mock Agent for speed."""
+        from unittest.mock import MagicMock, patch
+
+        from sqldim.core.query.dgm.nl.supervisor._planner import (
+            _PlanResult,
+            _PlannerStep,
+            decompose_question,
+        )
+        from sqldim.core.query.dgm.nl.supervisor._types import SupervisorContext
+
+        mock_output = _PlanResult(
+            steps=[
+                _PlannerStep(
+                    tool_name="dgm_query",
+                    arguments={"dataset": "ecommerce"},
+                    budget_fraction=1.0,
+                )
+            ],
+            confidence=0.9,
+            reasoning="ecommerce query",
+        )
+        mock_run = MagicMock()
+        mock_run.output = mock_output
+        mock_agent_instance = MagicMock()
+        mock_agent_instance.run_sync.return_value = mock_run
+
+        ctx = SupervisorContext(available_datasets=["ecommerce"])
+        with patch("pydantic_ai.Agent", return_value=mock_agent_instance):
+            plan = decompose_question("top revenue products", ctx, model=MagicMock())
+
+        assert plan.steps[0].tool_name == "dgm_query"
+        assert plan.confidence == pytest.approx(0.9)
+
+    def test_llm_path_falls_back_when_agent_raises(self) -> None:
+        """On any exception from Agent, decompose_question silently falls back."""
+        from unittest.mock import MagicMock, patch
+
+        from sqldim.core.query.dgm.nl.supervisor._planner import decompose_question
+        from sqldim.core.query.dgm.nl.supervisor._types import SupervisorContext
+
+        ctx = SupervisorContext(available_datasets=["ecommerce"])
+        with patch("pydantic_ai.Agent", side_effect=RuntimeError("api down")):
+            plan = decompose_question("How many orders?", ctx, model=MagicMock())
+
+        # Fell back to keyword decompose — "how" is a question marker → dgm_query
+        assert plan is not None
+        assert plan.steps[0].tool_name == "dgm_query"
+
+    def test_llm_path_empty_steps_falls_back_to_keyword(self) -> None:
+        """_llm_decompose falls back when LLM returns zero steps."""
+        from unittest.mock import MagicMock, patch
+
+        from sqldim.core.query.dgm.nl.supervisor._planner import (
+            _PlanResult,
+            decompose_question,
+        )
+        from sqldim.core.query.dgm.nl.supervisor._types import SupervisorContext
+
+        mock_output = _PlanResult(steps=[], confidence=0.2, reasoning="unclear")
+        mock_run = MagicMock()
+        mock_run.output = mock_output
+        mock_agent_instance = MagicMock()
+        mock_agent_instance.run_sync.return_value = mock_run
+
+        ctx = SupervisorContext(available_datasets=["ecommerce"])
+        with patch("pydantic_ai.Agent", return_value=mock_agent_instance):
+            plan = decompose_question("?", ctx, model=MagicMock())
+
+        # LLM returned [] → _keyword_decompose handles it
+        assert plan is not None

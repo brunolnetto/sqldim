@@ -77,6 +77,7 @@ class SupervisorPlan(BaseModel):
     goal: str
     steps: list[ToolCallRequest]
     confidence: float = 1.0
+    reasoning: str = ""
 
     @field_validator("confidence")
     @classmethod
@@ -93,9 +94,7 @@ class SupervisorPlan(BaseModel):
     def _budget_within_bounds(self) -> "SupervisorPlan":
         total = self.total_budget_fraction
         if total > 1.0 + 1e-9:
-            raise ValueError(
-                f"Total budget fraction {total:.3f} exceeds 1.0"
-            )
+            raise ValueError(f"Total budget fraction {total:.3f} exceeds 1.0")
         return self
 
     model_config = {"arbitrary_types_allowed": True}
@@ -116,6 +115,10 @@ class SupervisorState(BaseModel):
     synthesis: str | None = None
     visited_nodes: list[str] = []
     node_timings: dict[str, float] = {}
+    conversation_history: list[dict[str, str]] = []
+    planner_log: dict[str, Any] = {}
+    fallback_count: int = 0
+    failure_reasons: list[str] = []
 
     model_config = {"arbitrary_types_allowed": True}
 
@@ -132,3 +135,4 @@ class SupervisorContext:
     available_datasets: list[str]
     budget: Any = None
     model: Any = None
+    memory: list[dict[str, str]] = field(default_factory=list)

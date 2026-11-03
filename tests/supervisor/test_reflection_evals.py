@@ -28,11 +28,12 @@ import pytest
 
 from sqldim.core.query.dgm.nl.supervisor._graph import build_supervisor_graph
 from sqldim.core.query.dgm.nl.supervisor._planner import decompose_question
-from sqldim.core.query.dgm.nl.supervisor._types import SupervisorContext, SupervisorState
-
-_CTX = SupervisorContext(
-    available_datasets=["ecommerce", "retail", "social_network"]
+from sqldim.core.query.dgm.nl.supervisor._types import (
+    SupervisorContext,
+    SupervisorState,
 )
+
+_CTX = SupervisorContext(available_datasets=["ecommerce", "retail", "social_network"])
 
 _ILL_DEFINED: list[str] = [
     "",
@@ -82,8 +83,7 @@ class TestReflectNodeActivation:
         result = _invoke(utterance, f"act-ill-{abs(hash(utterance))}")
         visited = result.get("visited_nodes", [])
         assert "reflect" in visited, (
-            f"Expected reflect for ill-defined '{utterance}', "
-            f"visited={visited}"
+            f"Expected reflect for ill-defined '{utterance}', visited={visited}"
         )
 
     @pytest.mark.parametrize("utterance", _CLEAR)
@@ -91,8 +91,7 @@ class TestReflectNodeActivation:
         result = _invoke(utterance, f"act-clear-{abs(hash(utterance))}")
         visited = result.get("visited_nodes", [])
         assert "reflect" not in visited, (
-            f"Unexpected reflect for clear '{utterance}', "
-            f"visited={visited}"
+            f"Unexpected reflect for clear '{utterance}', visited={visited}"
         )
 
 
@@ -105,15 +104,12 @@ class TestReflectPlanEnrichment:
     """The reflect node prepends orientation steps to the plan."""
 
     @pytest.mark.parametrize("utterance", _ILL_DEFINED, ids=_ILL_DEFINED_IDS)
-    def test_reflected_plan_orientation_steps_executed(
-        self, utterance: str
-    ) -> None:
+    def test_reflected_plan_orientation_steps_executed(self, utterance: str) -> None:
         """After reflection, results must include both orientation tools."""
         result = _invoke(utterance, f"enrich-{abs(hash(utterance))}")
         raw = result.get("results", [])
         executed = [
-            r.tool_name if hasattr(r, "tool_name") else r["tool_name"]
-            for r in raw
+            r.tool_name if hasattr(r, "tool_name") else r["tool_name"] for r in raw
         ]
         assert "dgm_what_can_i_answer" in executed, (
             f"Expected dgm_what_can_i_answer in results for '{utterance}', "
@@ -125,17 +121,14 @@ class TestReflectPlanEnrichment:
         )
 
     @pytest.mark.parametrize("utterance", _ILL_DEFINED, ids=_ILL_DEFINED_IDS)
-    def test_reflected_plan_adds_orientation_steps(
-        self, utterance: str
-    ) -> None:
+    def test_reflected_plan_adds_orientation_steps(self, utterance: str) -> None:
         """Reflected plan = 2 orientation + original step(s); total is always ≥ 2."""
         plan = decompose_question(utterance, _CTX)
         original_steps = list(plan.steps)
         orientation_count = 2
         total_steps = orientation_count + len(original_steps)
         assert total_steps >= 2, (
-            f"Expected ≥2 steps after reflect for '{utterance}', "
-            f"got {total_steps}"
+            f"Expected ≥2 steps after reflect for '{utterance}', got {total_steps}"
         )
 
 
@@ -193,14 +186,10 @@ class TestReflectSynthesisQuality:
         ), f"Expected domain context in synthesis for 'interesting', got: {synthesis!r}"
 
     @pytest.mark.parametrize("utterance", _ILL_DEFINED, ids=_ILL_DEFINED_IDS)
-    def test_all_ill_defined_produce_non_empty_synthesis(
-        self, utterance: str
-    ) -> None:
+    def test_all_ill_defined_produce_non_empty_synthesis(self, utterance: str) -> None:
         result = _invoke(utterance, f"synth-nonempty-{abs(hash(utterance))}")
         synthesis = result.get("synthesis", "") or ""
-        assert len(synthesis) > 0, (
-            f"Synthesis was empty for ill-defined '{utterance}'"
-        )
+        assert len(synthesis) > 0, f"Synthesis was empty for ill-defined '{utterance}'"
 
 
 # ---------------------------------------------------------------------------
@@ -220,8 +209,7 @@ class TestReflectPreservesOriginalIntent:
         result = _invoke(utterance, f"intent-{abs(hash(utterance))}")
         raw = result.get("results", [])
         executed = [
-            r.tool_name if hasattr(r, "tool_name") else r["tool_name"]
-            for r in raw
+            r.tool_name if hasattr(r, "tool_name") else r["tool_name"] for r in raw
         ]
         assert "dgm_what_can_i_answer" in executed, (
             f"Expected dgm_what_can_i_answer in results for '{utterance}', got {executed}"
@@ -244,6 +232,4 @@ class TestReflectPreservesOriginalIntent:
             goal = plan_data.get("goal", "")
         else:
             goal = getattr(plan_data, "goal", "")
-        assert goal == utterance, (
-            f"Plan goal '{goal}' ≠ utterance '{utterance}'"
-        )
+        assert goal == utterance, f"Plan goal '{goal}' ≠ utterance '{utterance}'"

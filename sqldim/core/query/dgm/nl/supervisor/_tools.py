@@ -48,9 +48,7 @@ class BaseTool(ABC):
         self, arguments: dict[str, Any], *, context: Any = None
     ) -> ToolCallResult: ...
 
-    def compose(
-        self, left: ToolCallResult, right: ToolCallResult
-    ) -> ToolCallResult:
+    def compose(self, left: ToolCallResult, right: ToolCallResult) -> ToolCallResult:
         """Default composition: merge data dicts."""
         merged = {}
         if isinstance(left.data, dict):
@@ -98,11 +96,76 @@ class DgmQueryTool(BaseTool):
     def execute(
         self, arguments: dict[str, Any], *, context: Any = None
     ) -> ToolCallResult:
+        dataset = arguments.get("dataset")
+        question = arguments.get("question", "")
+        model = getattr(context, "model", None) if context else None
+        available = list(getattr(context, "available_datasets", [])) if context else []
+
+        if not model or not dataset or dataset not in available:
+            return ToolCallResult(
+                tool_name="dgm_query",
+                success=True,
+                data={"dataset": dataset, "question": question, "stub": True},
+                cost_actual=0,
+            )
+
+        # Real execution: run the full NL pipeline against the named dataset.
+        graph_result: dict[str, Any] = {}
+        try:
+            from langgraph.checkpoint.memory import MemorySaver
+
+            from sqldim.application._pipeline_sources import DatasetPipelineSource
+            from sqldim.application.ask import (
+                build_registry_from_schema,
+                load_dataset,
+                make_default_budget,
+            )
+            from sqldim.core.query.dgm.nl._agent_types import (
+                DGMContext,
+                NLInterfaceState,
+            )
+            from sqldim.core.query.dgm.nl._graph import build_nl_graph
+
+            ds = load_dataset(dataset)
+            source = DatasetPipelineSource(ds)
+            source.setup()
+            try:
+                con = source.get_connection()
+                table_names = source.get_table_names()
+                registry = build_registry_from_schema(con, table_names)
+                budget = make_default_budget()
+                ctx = DGMContext(entity_registry=registry, budget=budget, con=con)
+                graph = build_nl_graph(
+                    checkpointer=MemorySaver(), context=ctx, model=model
+                )
+                initial = NLInterfaceState(utterance=question)
+                graph_result = graph.invoke(
+                    initial.model_dump(),
+                    config={
+                        "configurable": {"thread_id": f"dgm-query-{dataset}"},
+                        "recursion_limit": 25,
+                    },
+                )
+            finally:
+                source.teardown()
+        except Exception as exc:  # noqa: BLE001
+            return ToolCallResult(
+                tool_name="dgm_query",
+                success=False,
+                error=str(exc),
+                data={"dataset": dataset, "question": question},
+            )
+
         return ToolCallResult(
             tool_name="dgm_query",
             success=True,
-            data={"dataset": arguments.get("dataset"), "stub": True},
-            cost_actual=0,
+            data={
+                "dataset": dataset,
+                "question": question,
+                "explanation": graph_result.get("explanation"),
+                "query_result": graph_result.get("result"),
+            },
+            cost_actual=500,
         )
 
 

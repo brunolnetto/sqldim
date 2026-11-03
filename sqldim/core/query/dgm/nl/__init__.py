@@ -15,6 +15,13 @@ from sqldim.core.query.dgm.nl._functions import (  # noqa: F401
     resolve_band,
     classify_temporal_intent,
     classify_compositional_intent,
+    classify_allen_relation,
+    classify_temporal_window,
+    extract_where_filters,
+    detect_date_trunc_grain,
+    infer_join_tables,
+    classify_graph_intent,
+    apply_annotation_suggestions,
     apply_schema_evolution,
 )
 from sqldim.core.query.dgm.nl._agent_types import (  # noqa: F401

@@ -54,7 +54,9 @@ class TestToolCallRequest:
 
         with pytest.raises(ValueError, match="budget_fraction"):
             ToolCallRequest(
-                tool_name="t", arguments={}, budget_fraction=1.5,
+                tool_name="t",
+                arguments={},
+                budget_fraction=1.5,
             )
 
 
@@ -129,10 +131,14 @@ class TestSupervisorPlan:
                 goal="oops",
                 steps=[
                     ToolCallRequest(
-                        tool_name="a", arguments={}, budget_fraction=0.8,
+                        tool_name="a",
+                        arguments={},
+                        budget_fraction=0.8,
                     ),
                     ToolCallRequest(
-                        tool_name="b", arguments={}, budget_fraction=0.8,
+                        tool_name="b",
+                        arguments={},
+                        budget_fraction=0.8,
                     ),
                 ],
             )
@@ -159,6 +165,40 @@ class TestSupervisorState:
         )
         assert len(state.visited_nodes) == 2
 
+    def test_state_has_conversation_history(self) -> None:
+        from sqldim.core.query.dgm.nl.supervisor._types import SupervisorState
+
+        state = SupervisorState(
+            utterance="follow-up question",
+            conversation_history=[
+                {"role": "user", "content": "first question"},
+                {"role": "assistant", "content": "first answer"},
+            ],
+        )
+        assert len(state.conversation_history) == 2
+        assert state.conversation_history[0]["role"] == "user"
+
+    def test_state_conversation_history_defaults_empty(self) -> None:
+        from sqldim.core.query.dgm.nl.supervisor._types import SupervisorState
+
+        state = SupervisorState(utterance="test")
+        assert state.conversation_history == []
+
+    def test_confidence_out_of_range_raises(self) -> None:
+        from sqldim.core.query.dgm.nl.supervisor._types import (
+            SupervisorPlan,
+            ToolCallRequest,
+        )
+
+        with pytest.raises(ValueError, match="confidence"):
+            SupervisorPlan(
+                goal="test",
+                steps=[
+                    ToolCallRequest(tool_name="t", arguments={}, budget_fraction=1.0)
+                ],
+                confidence=1.5,
+            )
+
 
 class TestSupervisorContext:
     """SupervisorContext carries runtime deps."""
@@ -171,3 +211,18 @@ class TestSupervisorContext:
             budget=None,
         )
         assert "social_network" in ctx.available_datasets
+
+    def test_context_has_memory(self) -> None:
+        from sqldim.core.query.dgm.nl.supervisor._types import SupervisorContext
+
+        ctx = SupervisorContext(
+            available_datasets=["ecommerce"],
+            memory=[{"role": "user", "content": "earlier question"}],
+        )
+        assert len(ctx.memory) == 1
+
+    def test_context_memory_defaults_empty(self) -> None:
+        from sqldim.core.query.dgm.nl.supervisor._types import SupervisorContext
+
+        ctx = SupervisorContext(available_datasets=[])
+        assert ctx.memory == []

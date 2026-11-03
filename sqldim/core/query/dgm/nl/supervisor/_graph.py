@@ -124,7 +124,9 @@ def _stub_execute_tool(state: SupervisorState) -> dict[str, Any]:
     }
 
 
-def _stub_synthesize(state: SupervisorState, *, has_model: bool = False) -> dict[str, Any]:
+def _stub_synthesize(
+    state: SupervisorState, *, has_model: bool = False
+) -> dict[str, Any]:
     """Combine all results into a natural-language response.
 
     When *has_model* is ``True`` (an LLM is connected via ``context.model``),
@@ -144,9 +146,7 @@ def _stub_synthesize(state: SupervisorState, *, has_model: bool = False) -> dict
                 ds = datasets[0]
                 if questions:
                     q_list = "\n".join(f"  • {q}" for q in questions)
-                    parts.append(
-                        f"Questions for '{ds}' ({len(questions)}):\n{q_list}"
-                    )
+                    parts.append(f"Questions for '{ds}' ({len(questions)}):\n{q_list}")
                 elif has_model:
                     parts.append(f"Dataset '{ds}' is available.")
                 else:
@@ -173,13 +173,33 @@ def _stub_synthesize(state: SupervisorState, *, has_model: bool = False) -> dict
         elif r.tool_name == "dgm_query":
             data = r.data if isinstance(r.data, dict) else {}
             dataset = data.get("dataset") or "?"
-            if has_model:
-                parts.append(f"DGM query on '{dataset}' completed.")
-            else:
-                parts.append(
-                    f"DGM query on '{dataset}' completed"
-                    " (pass --model-provider + --model for real results)."
-                )
+            question = data.get("question")
+            question_hint = f" for '{question}'" if question else ""
+            explanation = data.get("explanation")
+            query_result = data.get("query_result")
+            if explanation:
+                parts.append(explanation)
+            if query_result and isinstance(query_result, dict):
+                count = query_result.get("count", 0)
+                cols = query_result.get("columns", [])
+                rows = query_result.get("rows", [])
+                if rows:
+                    rows_text = "\n".join(f"  {row}" for row in rows[:5])
+                    suffix = f"\n  ... ({count - 5} more rows)" if count > 5 else ""
+                    parts.append(
+                        f"Query on '{dataset}': {count} rows,"
+                        f" columns: {', '.join(cols)}\n{rows_text}{suffix}"
+                    )
+                else:
+                    parts.append(f"Query on '{dataset}' returned no rows.")
+            elif not explanation:
+                if has_model:
+                    parts.append(f"DGM query on '{dataset}'{question_hint} completed.")
+                else:
+                    parts.append(
+                        f"DGM query on '{dataset}'{question_hint} completed"
+                        " (stub — pass --model-provider + --model for real results)."
+                    )
         else:
             data = r.data if isinstance(r.data, dict) else {}
             summary = ", ".join(f"{k}: {v}" for k, v in data.items() if k != "stub")
@@ -205,6 +225,96 @@ def _stub_synthesize(state: SupervisorState, *, has_model: bool = False) -> dict
 def _stub_respond(state: SupervisorState) -> dict[str, Any]:
     """Format the final response."""
     return {}
+
+
+def _llm_synthesize(state: SupervisorState, model: Any) -> dict[str, Any]:
+    """Use the LLM to synthesize tool results into a coherent answer."""
+    try:
+        from pydantic_ai import Agent  # lazy import
+
+        parts: list[str] = []
+        for r in state.results:
+            if not r.success:
+                parts.append(f"[{r.tool_name}] ERROR: {r.error}")
+                continue
+            data = r.data if isinstance(r.data, dict) else {}
+            if r.tool_name == "dgm_query":
+                ds = data.get("dataset", "?")
+                explanation = data.get("explanation") or ""
+                qr = data.get("query_result")
+                if explanation:
+                    parts.append(f"[dgm_query / {ds}]\n{explanation}")
+                if qr and isinstance(qr, dict):
+                    rows = qr.get("rows", [])
+                    count = qr.get("count", len(rows))
+                    cols = qr.get("columns", [])
+                    if rows:
+                        preview = "\n".join(str(row) for row in rows[:5])
+                        parts.append(
+                            f"Query result on '{ds}' ({count} rows,"
+                            f" columns: {', '.join(cols)}):\n{preview}"
+                        )
+                    else:
+                        parts.append(f"Query on '{ds}' returned no rows.")
+                elif not explanation:
+                    parts.append(f"[dgm_query / {ds}] query completed (no data).")
+            elif r.tool_name == "dgm_what_can_i_answer":
+                datasets = data.get("datasets", [])
+                questions = data.get("questions", [])
+                if datasets:
+                    parts.append(
+                        f"Available datasets ({len(datasets)}): {', '.join(datasets)}"
+                    )
+                if questions:
+                    parts.append(
+                        "Sample questions:\n"
+                        + "\n".join(f"  \u2022 {q}" for q in questions[:5])
+                    )
+            elif r.tool_name == "dgm_map_analytical_space":
+                tools = data.get("tools", [])
+                if tools:
+                    tool_list = "\n".join(
+                        f"  \u2022 {t['name']}: {t['description']}" for t in tools
+                    )
+                    parts.append(f"Available tools ({len(tools)}):\n{tool_list}")
+            else:
+                summary = {
+                    k: v for k, v in data.items() if k != "stub" and v is not None
+                }
+                if summary:
+                    parts.append(f"[{r.tool_name}] {summary}")
+
+        if not parts:
+            return _stub_synthesize(state, has_model=True)
+
+        tool_context = "\n\n".join(parts)
+        history_lines = [
+            f"{m.get('role', '').capitalize()}: {m.get('content', '')}"
+            for m in (state.conversation_history or [])
+            if m.get("role") and m.get("content")
+        ]
+        prompt_parts = [f"Question: {state.utterance}"]
+        if history_lines:
+            prompt_parts.append("Prior conversation:\n" + "\n".join(history_lines))
+        prompt_parts.append(f"Tool results:\n{tool_context}")
+        prompt_parts.append("Provide a concise, data-driven answer.")
+
+        agent = Agent(
+            model=model,
+            system_prompt=(
+                "You are an expert data analyst. Given the tool execution results, "
+                "answer the user's question concisely and precisely. "
+                "Reference specific numbers and findings. "
+                "Keep the response under 200 words unless the data demands more detail."
+            ),
+        )
+        llm_result = agent.run_sync(
+            "\n\n".join(prompt_parts),
+            model_settings={"timeout": 30.0},
+        )
+        return {"synthesis": llm_result.output}
+    except Exception:  # noqa: BLE001
+        return _stub_synthesize(state, has_model=True)
 
 
 # ---------------------------------------------------------------------------
@@ -253,18 +363,29 @@ def build_supervisor_graph(
     # runtime context (available datasets, budget, model) at call time.
     def _plan_node(state: SupervisorState) -> dict[str, Any]:
         from sqldim.core.query.dgm.nl.supervisor._planner import decompose_question
+
+        # Inject conversation history into planner context for follow-ups
+        history = state.conversation_history
+        if context is not None and history:
+            context.memory = list(history)
+
         plan = decompose_question(state.utterance, context)
         return {"plan": plan, "current_step": 0}
 
     def _execute_node(state: SupervisorState) -> dict[str, Any]:
-        from sqldim.core.query.dgm.nl.supervisor._tools import TOOL_REGISTRY as _REGISTRY
-        if state.plan is None or state.current_step >= len(state.plan.steps):
-            return {}
+        from sqldim.core.query.dgm.nl.supervisor._tools import (
+            TOOL_REGISTRY as _REGISTRY,
+        )
+
+        if state.plan is None or state.current_step >= len(
+            state.plan.steps
+        ):  # pragma: no cover
+            return {}  # pragma: no cover
         step = state.plan.steps[state.current_step]
         tool = _REGISTRY.get(step.tool_name)
         if tool is not None:
             result = tool.execute(step.arguments, context=context)
-        else:
+        else:  # pragma: no cover  — keyword planner only generates registered tools
             result = ToolCallResult(
                 tool_name=step.tool_name,
                 success=False,
@@ -288,7 +409,9 @@ def build_supervisor_graph(
         original_total = sum(s.budget_fraction for s in original_steps) or 1.0
         scale = (1.0 - orientation_budget) / original_total
         rescaled = [
-            s.model_copy(update={"budget_fraction": round(s.budget_fraction * scale, 6)})
+            s.model_copy(
+                update={"budget_fraction": round(s.budget_fraction * scale, 6)}
+            )
             for s in original_steps
         ]
         orientation = [
@@ -312,7 +435,18 @@ def build_supervisor_graph(
 
     def _synthesize_node(state: SupervisorState) -> dict[str, Any]:
         has_model = context is not None and getattr(context, "model", None) is not None
-        return _stub_synthesize(state, has_model=has_model)
+        if has_model:
+            result = _llm_synthesize(state, context.model)
+        else:
+            result = _stub_synthesize(state, has_model=False)
+
+        # Append this exchange to conversation history for multi-turn memory
+        history = list(state.conversation_history)
+        history.append({"role": "user", "content": state.utterance})
+        if result.get("synthesis"):
+            history.append({"role": "assistant", "content": result["synthesis"]})
+        result["conversation_history"] = history
+        return result
 
     # Register nodes (stub implementations; overridable via context/model)
     node_impls: dict[str, Callable[..., dict[str, Any]]] = {

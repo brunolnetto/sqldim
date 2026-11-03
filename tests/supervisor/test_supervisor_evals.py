@@ -70,8 +70,7 @@ class TestPlannerDomainRouting:
         plan = decompose_question(case.utterance, _CTX)
         tool_names = [s.tool_name for s in plan.steps]
         assert "dgm_query" in tool_names, (
-            f"[{case.id}] '{case.utterance}' routed to {tool_names}, "
-            f"expected dgm_query"
+            f"[{case.id}] '{case.utterance}' routed to {tool_names}, expected dgm_query"
         )
 
 
@@ -86,10 +85,7 @@ class TestPlannerDatasetSelection:
 
     @pytest.fixture
     def cases_mentioning_dataset(self) -> list[EvalCase]:
-        return [
-            c for c in EVAL_SUITE
-            if c.dataset.lower() in c.utterance.lower()
-        ]
+        return [c for c in EVAL_SUITE if c.dataset.lower() in c.utterance.lower()]
 
     def test_at_least_one_case_mentions_dataset(
         self, cases_mentioning_dataset: list[EvalCase]
@@ -142,9 +138,7 @@ class TestPlannerDomainBudget:
     def test_budget_at_most_one(self, case: EvalCase) -> None:
         plan = decompose_question(case.utterance, _CTX)
         total = sum(s.budget_fraction for s in plan.steps)
-        assert total <= 1.0 + 1e-9, (
-            f"[{case.id}] budget sum={total:.6f} > 1.0"
-        )
+        assert total <= 1.0 + 1e-9, f"[{case.id}] budget sum={total:.6f} > 1.0"
 
 
 # ---------------------------------------------------------------------------
@@ -181,9 +175,7 @@ class TestGraphDomainExecution:
     def test_graph_produces_synthesis(self, case: EvalCase) -> None:
         result = _invoke(case.utterance, f"domain-{case.id}")
         synthesis = result.get("synthesis", "") or ""
-        assert len(synthesis) > 0, (
-            f"[{case.id}] Empty synthesis for '{case.utterance}'"
-        )
+        assert len(synthesis) > 0, f"[{case.id}] Empty synthesis for '{case.utterance}'"
 
     @pytest.mark.parametrize(
         "case",
@@ -236,8 +228,7 @@ class TestGraphDatasetSpecificQuery:
             f"got {plan.steps[0].tool_name}"
         )
         assert plan.steps[0].arguments.get("dataset") == dataset, (
-            f"Expected dataset='{dataset}' in arguments, "
-            f"got {plan.steps[0].arguments}"
+            f"Expected dataset='{dataset}' in arguments, got {plan.steps[0].arguments}"
         )
 
     @pytest.mark.parametrize("dataset", _ALL_DATASETS)
@@ -246,6 +237,5 @@ class TestGraphDatasetSpecificQuery:
         result = _invoke(utterance, f"dsq-{dataset}")
         synthesis = (result.get("synthesis", "") or "").lower()
         assert dataset.lower() in synthesis, (
-            f"Synthesis for '{utterance}' doesn't mention '{dataset}': "
-            f"{synthesis!r}"
+            f"Synthesis for '{utterance}' doesn't mention '{dataset}': {synthesis!r}"
         )
