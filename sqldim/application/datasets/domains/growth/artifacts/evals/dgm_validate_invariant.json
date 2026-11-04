@@ -1,0 +1,27 @@
+{
+  "tool": "dgm_validate_invariant",
+  "domain": "growth",
+  "cases": [
+    {
+      "id": "growth.validate_invariant",
+      "tool": "dgm_validate_invariant",
+      "description": "Validate non-negative balance invariant for growth",
+      "arguments": {
+        "invariant": "balance_non_negative",
+        "dataset": "growth"
+      },
+      "expected": {
+        "success": true,
+        "tool_name": "dgm_validate_invariant",
+        "data_keys": [
+          "valid",
+          "violations"
+        ],
+        "data_checks": {}
+      },
+      "tags": [
+        "invariant"
+      ]
+    }
+  ]
+}

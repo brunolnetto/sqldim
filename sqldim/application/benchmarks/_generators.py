@@ -7,22 +7,22 @@ from __future__ import annotations
 
 _PROFILE_META: dict[str, dict] = {
     "products": {
-        "source_class": "sqldim.application.datasets.domains.ecommerce.ProductsSource",
+        "source_class": "sqldim.application.datasets.domains.commerce.ProductsSource",
         "natural_key": "product_id",
         "track_columns": ["name", "category", "price"],
     },
     "employees": {
-        "source_class": "sqldim.application.datasets.domains.enterprise.EmployeesSource",
+        "source_class": "sqldim.application.datasets.domains.growth.EmployeesSource",
         "natural_key": "employee_id",
         "track_columns": ["title", "department"],
     },
     "customers": {
-        "source_class": "sqldim.application.datasets.domains.ecommerce.CustomersSource",
+        "source_class": "sqldim.application.datasets.domains.commerce.CustomersSource",
         "natural_key": "customer_id",
         "track_columns": ["full_name", "email"],
     },
     "saas_users": {
-        "source_class": "sqldim.application.datasets.domains.saas_growth.SaaSUsersSource",
+        "source_class": "sqldim.application.datasets.domains.growth.SaaSUsersSource",
         "natural_key": "user_id",
         "track_columns": ["plan_tier"],
     },

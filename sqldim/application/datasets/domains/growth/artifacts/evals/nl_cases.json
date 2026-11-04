@@ -1,0 +1,147 @@
+{
+  "domain": "growth",
+  "cases": [
+    {
+      "id": "growth.01.headcount_by_department",
+      "dataset": "growth",
+      "utterance": "how many employees are in each department?",
+      "expect_result": true,
+      "expect_columns": [
+        "department"
+      ],
+      "expect_table": "employees",
+      "tags": [
+        "metric",
+        "aggregation",
+        "hr"
+      ],
+      "expected_sql": "SELECT department, COUNT(*) AS headcount FROM employees GROUP BY department ORDER BY headcount DESC"
+    },
+    {
+      "id": "growth.02.total_balance_by_account_type",
+      "dataset": "growth",
+      "utterance": "what is the total account balance broken down by account type?",
+      "expect_result": true,
+      "expect_columns": [
+        "account_type"
+      ],
+      "expect_table": "accounts",
+      "tags": [
+        "metric",
+        "aggregation",
+        "finance"
+      ],
+      "expected_sql": "SELECT account_type, SUM(balance) AS total_balance FROM accounts GROUP BY account_type ORDER BY total_balance DESC"
+    },
+    {
+      "id": "growth.03.employees_by_title",
+      "dataset": "growth",
+      "utterance": "how many employees hold each job title?",
+      "expect_result": true,
+      "expect_columns": [
+        "title"
+      ],
+      "expect_table": "employees",
+      "tags": [
+        "metric",
+        "aggregation",
+        "hr"
+      ],
+      "expected_sql": "SELECT title, COUNT(*) AS count FROM employees GROUP BY title ORDER BY count DESC"
+    },
+    {
+      "id": "growth.04.avg_account_balance",
+      "dataset": "growth",
+      "utterance": "what is the average account balance across all accounts?",
+      "expect_result": true,
+      "expect_columns": [],
+      "expect_table": "accounts",
+      "tags": [
+        "metric",
+        "aggregation",
+        "finance"
+      ],
+      "expected_sql": "SELECT AVG(balance) AS avg_balance FROM accounts"
+    },
+    {
+      "id": "growth.05.users_by_plan_tier",
+      "dataset": "growth",
+      "utterance": "how many users are on each plan tier?",
+      "expect_result": true,
+      "expect_columns": [
+        "plan_tier"
+      ],
+      "expect_table": "saas_users",
+      "tags": [
+        "metric",
+        "aggregation",
+        "segmentation"
+      ],
+      "expected_sql": "SELECT plan_tier, COUNT(*) AS user_count FROM saas_users GROUP BY plan_tier ORDER BY user_count DESC"
+    },
+    {
+      "id": "growth.06.users_by_acquisition_source",
+      "dataset": "growth",
+      "utterance": "which acquisition sources brought in the most users?",
+      "expect_result": true,
+      "expect_columns": [
+        "acq_source"
+      ],
+      "expect_table": "saas_users",
+      "tags": [
+        "metric",
+        "aggregation",
+        "growth"
+      ],
+      "expected_sql": "SELECT acq_source, COUNT(*) AS signup_count FROM saas_users GROUP BY acq_source ORDER BY signup_count DESC"
+    },
+    {
+      "id": "growth.07.device_mix",
+      "dataset": "growth",
+      "utterance": "what is the breakdown of users by device type?",
+      "expect_result": true,
+      "expect_columns": [
+        "device"
+      ],
+      "expect_table": "saas_users",
+      "tags": [
+        "metric",
+        "aggregation",
+        "breakdown"
+      ],
+      "expected_sql": "SELECT device, COUNT(*) AS user_count FROM saas_users GROUP BY device ORDER BY user_count DESC"
+    },
+    {
+      "id": "growth.08.sessions_by_event_type",
+      "dataset": "growth",
+      "utterance": "how many sessions are there per event type?",
+      "expect_result": true,
+      "expect_columns": [
+        "event_type"
+      ],
+      "expect_table": "saas_sessions",
+      "tags": [
+        "metric",
+        "aggregation",
+        "engagement"
+      ],
+      "expected_sql": "SELECT event_type, COUNT(*) AS session_count FROM saas_sessions GROUP BY event_type ORDER BY session_count DESC"
+    },
+    {
+      "id": "growth.09.sessions_per_user",
+      "dataset": "growth",
+      "utterance": "how many sessions has each user had?",
+      "expect_result": true,
+      "expect_columns": [
+        "user_id"
+      ],
+      "expect_table": "saas_sessions",
+      "tags": [
+        "metric",
+        "aggregation",
+        "engagement"
+      ],
+      "expected_sql": "SELECT user_id, COUNT(*) AS session_count FROM saas_sessions GROUP BY user_id ORDER BY session_count DESC"
+    }
+  ]
+}

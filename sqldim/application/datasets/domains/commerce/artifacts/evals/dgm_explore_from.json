@@ -1,0 +1,46 @@
+{
+  "tool": "dgm_explore_from",
+  "domain": "commerce",
+  "cases": [
+    {
+      "id": "commerce.explore_from",
+      "tool": "dgm_explore_from",
+      "description": "Explore forward from an ecommerce result",
+      "arguments": {
+        "result": {},
+        "direction": "forward"
+      },
+      "expected": {
+        "success": true,
+        "tool_name": "dgm_explore_from",
+        "data_keys": [
+          "suggestions"
+        ],
+        "data_checks": {}
+      },
+      "tags": [
+        "exploration"
+      ]
+    },
+    {
+      "id": "commerce.explore_from",
+      "tool": "dgm_explore_from",
+      "description": "Explore forward from a retail result",
+      "arguments": {
+        "result": {},
+        "direction": "forward"
+      },
+      "expected": {
+        "success": true,
+        "tool_name": "dgm_explore_from",
+        "data_keys": [
+          "suggestions"
+        ],
+        "data_checks": {}
+      },
+      "tags": [
+        "exploration"
+      ]
+    }
+  ]
+}

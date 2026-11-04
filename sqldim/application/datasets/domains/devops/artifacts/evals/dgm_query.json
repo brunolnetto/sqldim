@@ -1,0 +1,72 @@
+{
+  "tool": "dgm_query",
+  "domain": "devops",
+  "cases": [
+    {
+      "id": "devops.query.issues_by_state",
+      "tool": "dgm_query",
+      "description": "how many GitHub issues are open versus closed?",
+      "arguments": {
+        "dataset": "devops",
+        "question": "how many GitHub issues are open versus closed?"
+      },
+      "expected": {
+        "success": true,
+        "tool_name": "dgm_query",
+        "data_keys": [
+          "dataset",
+          "question"
+        ],
+        "data_checks": {}
+      },
+      "tags": [
+        "query",
+        "analytical"
+      ]
+    },
+    {
+      "id": "devops.query.issues_by_author",
+      "tool": "dgm_query",
+      "description": "how many issues has each author opened?",
+      "arguments": {
+        "dataset": "devops",
+        "question": "how many issues has each author opened?"
+      },
+      "expected": {
+        "success": true,
+        "tool_name": "dgm_query",
+        "data_keys": [
+          "dataset",
+          "question"
+        ],
+        "data_checks": {}
+      },
+      "tags": [
+        "query",
+        "analytical"
+      ]
+    },
+    {
+      "id": "devops.query.issues_by_label",
+      "tool": "dgm_query",
+      "description": "how many issues are there for each label?",
+      "arguments": {
+        "dataset": "devops",
+        "question": "how many issues are there for each label?"
+      },
+      "expected": {
+        "success": true,
+        "tool_name": "dgm_query",
+        "data_keys": [
+          "dataset",
+          "question"
+        ],
+        "data_checks": {}
+      },
+      "tags": [
+        "query",
+        "analytical"
+      ]
+    }
+  ]
+}

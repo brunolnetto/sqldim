@@ -1,0 +1,138 @@
+{
+  "tool": "dgm_query",
+  "domain": "commerce",
+  "cases": [
+    {
+      "id": "commerce.query.total_revenue",
+      "tool": "dgm_query",
+      "description": "what is the total revenue from all orders?",
+      "arguments": {
+        "dataset": "commerce",
+        "question": "what is the total revenue from all orders?"
+      },
+      "expected": {
+        "success": true,
+        "tool_name": "dgm_query",
+        "data_keys": [
+          "dataset",
+          "question"
+        ],
+        "data_checks": {}
+      },
+      "tags": [
+        "query",
+        "analytical"
+      ]
+    },
+    {
+      "id": "commerce.query.avg_order_value",
+      "tool": "dgm_query",
+      "description": "what is the average order value?",
+      "arguments": {
+        "dataset": "commerce",
+        "question": "what is the average order value?"
+      },
+      "expected": {
+        "success": true,
+        "tool_name": "dgm_query",
+        "data_keys": [
+          "dataset",
+          "question"
+        ],
+        "data_checks": {}
+      },
+      "tags": [
+        "query",
+        "analytical"
+      ]
+    },
+    {
+      "id": "commerce.query.orders_per_customer",
+      "tool": "dgm_query",
+      "description": "how many orders has each customer placed?",
+      "arguments": {
+        "dataset": "commerce",
+        "question": "how many orders has each customer placed?"
+      },
+      "expected": {
+        "success": true,
+        "tool_name": "dgm_query",
+        "data_keys": [
+          "dataset",
+          "question"
+        ],
+        "data_checks": {}
+      },
+      "tags": [
+        "query",
+        "analytical"
+      ]
+    },
+    {
+      "id": "commerce.query.revenue_by_segment",
+      "tool": "dgm_query",
+      "description": "what is the total revenue by customer segment?",
+      "arguments": {
+        "dataset": "commerce",
+        "question": "what is the total revenue by customer segment?"
+      },
+      "expected": {
+        "success": true,
+        "tool_name": "dgm_query",
+        "data_keys": [
+          "dataset",
+          "question"
+        ],
+        "data_checks": {}
+      },
+      "tags": [
+        "query",
+        "analytical"
+      ]
+    },
+    {
+      "id": "commerce.query.avg_order_by_segment",
+      "tool": "dgm_query",
+      "description": "what is the revenue per order for each customer segment?",
+      "arguments": {
+        "dataset": "commerce",
+        "question": "what is the revenue per order for each customer segment?"
+      },
+      "expected": {
+        "success": true,
+        "tool_name": "dgm_query",
+        "data_keys": [
+          "dataset",
+          "question"
+        ],
+        "data_checks": {}
+      },
+      "tags": [
+        "query",
+        "analytical"
+      ]
+    },
+    {
+      "id": "commerce.query.new_vs_returning",
+      "tool": "dgm_query",
+      "description": "how many new versus returning customers did we have per segment?",
+      "arguments": {
+        "dataset": "commerce",
+        "question": "how many new versus returning customers did we have per segment?"
+      },
+      "expected": {
+        "success": true,
+        "tool_name": "dgm_query",
+        "data_keys": [
+          "dataset",
+          "question"
+        ],
+        "data_checks": {}
+      },
+      "tags": [
+        "query",
+        "analytical"
+      ]
+    }
+  ]
+}

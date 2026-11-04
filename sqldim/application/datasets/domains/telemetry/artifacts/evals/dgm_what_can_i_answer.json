@@ -1,0 +1,56 @@
+{
+  "tool": "dgm_what_can_i_answer",
+  "domain": "telemetry",
+  "cases": [
+    {
+      "id": "telemetry.what_can_i_answer.specific",
+      "tool": "dgm_what_can_i_answer",
+      "description": "List answerable questions specifically for telemetry",
+      "arguments": {
+        "dataset": "telemetry"
+      },
+      "expected": {
+        "success": true,
+        "tool_name": "dgm_what_can_i_answer",
+        "data_keys": [
+          "datasets",
+          "questions"
+        ],
+        "data_checks": {
+          "datasets_includes": [
+            "telemetry"
+          ]
+        }
+      },
+      "tags": [
+        "discovery",
+        "specific"
+      ]
+    },
+    {
+      "id": "telemetry.what_can_i_answer.all",
+      "tool": "dgm_what_can_i_answer",
+      "description": "Discover all datasets (should include telemetry)",
+      "arguments": {
+        "dataset": "__all__"
+      },
+      "expected": {
+        "success": true,
+        "tool_name": "dgm_what_can_i_answer",
+        "data_keys": [
+          "datasets",
+          "questions"
+        ],
+        "data_checks": {
+          "datasets_includes": [
+            "telemetry"
+          ]
+        }
+      },
+      "tags": [
+        "discovery",
+        "all"
+      ]
+    }
+  ]
+}

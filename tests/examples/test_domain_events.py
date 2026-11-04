@@ -190,7 +190,7 @@ class TestCustomerBulkCancelEvent:
         return AggregateState(tables)
 
     def _event(self):
-        from sqldim.application.datasets.domains.ecommerce.events.customers import (
+        from sqldim.application.datasets.domains.commerce.events.customers import (
             CustomerBulkCancelEvent,
         )
 
@@ -256,7 +256,7 @@ class TestCustomerBulkCancelEvent:
 
     def test_stamp_ts_row_returns_row_unchanged_for_other_customer(self):
         """_stamp_ts_row returns the row unchanged when customer_id doesn't match (line 46)."""
-        from sqldim.application.datasets.domains.ecommerce.events.customers import (
+        from sqldim.application.datasets.domains.commerce.events.customers import (
             _stamp_ts_row,
         )
 
@@ -270,7 +270,7 @@ class TestCustomerBulkCancelEvent:
 
 class TestCustomerAddressChangedEvent:
     def _event(self):
-        from sqldim.application.datasets.domains.ecommerce.events.customers import (
+        from sqldim.application.datasets.domains.commerce.events.customers import (
             CustomerAddressChangedEvent,
         )
 
@@ -320,7 +320,7 @@ class TestCustomerAddressChangedEvent:
 
 class TestProductStockOutEvent:
     def _event(self):
-        from sqldim.application.datasets.domains.ecommerce.events.products import (
+        from sqldim.application.datasets.domains.commerce.events.products import (
             ProductStockOutEvent,
         )
 
@@ -380,7 +380,7 @@ class TestProductStockOutEvent:
 
     def test_apply_stock_out_leaves_other_products_unchanged(self):
         """_apply_stock_out_to_product returns row unchanged for non-matching product_id (line 23)."""
-        from sqldim.application.datasets.domains.ecommerce.events.products import (
+        from sqldim.application.datasets.domains.commerce.events.products import (
             _apply_stock_out_to_product,
         )
 
@@ -394,7 +394,7 @@ class TestProductStockOutEvent:
 
 class TestUserPlanUpgradedEvent:
     def _event(self):
-        from sqldim.application.datasets.domains.saas_growth.events.users import (
+        from sqldim.application.datasets.domains.growth.events.users import (
             UserPlanUpgradedEvent,
         )
 
@@ -451,7 +451,7 @@ class TestUserPlanUpgradedEvent:
 
 class TestUserChurnedEvent:
     def _event(self):
-        from sqldim.application.datasets.domains.saas_growth.events.users import (
+        from sqldim.application.datasets.domains.growth.events.users import (
             UserChurnedEvent,
         )
 
@@ -502,11 +502,14 @@ class TestDevopsApplyIssueResolution:
                 state    VARCHAR
             )
         """)
-        con.executemany("INSERT INTO github_issues VALUES (?, ?, ?)", [
-            (1, "Bug A", "open"),
-            (2, "Bug B", "open"),
-            (3, "Closed already", "closed"),
-        ])
+        con.executemany(
+            "INSERT INTO github_issues VALUES (?, ?, ?)",
+            [
+                (1, "Bug A", "open"),
+                (2, "Bug B", "open"),
+                (3, "Closed already", "closed"),
+            ],
+        )
         return con
 
     def test_closes_open_issues(self):
@@ -516,7 +519,9 @@ class TestDevopsApplyIssueResolution:
 
         con = self._setup_con()
         apply_issue_resolution(con)
-        rows = con.execute("SELECT state FROM github_issues ORDER BY issue_id").fetchall()
+        rows = con.execute(
+            "SELECT state FROM github_issues ORDER BY issue_id"
+        ).fetchall()
         assert all(s == "closed" for (s,) in rows)
 
     def test_closed_count_increases(self):
@@ -562,15 +567,18 @@ class TestDgmApplySegmentUpgrade:
                 segment     VARCHAR
             )
         """)
-        con.executemany("INSERT INTO dgm_showcase_customer VALUES (?, ?, ?)", [
-            (1, "west", "standard"),
-            (2, "west", "trial"),
-            (3, "east", "standard"),
-        ])
+        con.executemany(
+            "INSERT INTO dgm_showcase_customer VALUES (?, ?, ?)",
+            [
+                (1, "west", "standard"),
+                (2, "west", "trial"),
+                (3, "east", "standard"),
+            ],
+        )
         return con
 
     def test_upgrades_west_to_premium(self):
-        from sqldim.application.datasets.domains.dgm.events.customers import (
+        from sqldim.application.datasets.domains.data_models.events.dgm import (
             apply_segment_upgrade,
         )
 
@@ -582,7 +590,7 @@ class TestDgmApplySegmentUpgrade:
         assert all(s == "premium" for (s,) in rows)
 
     def test_east_unchanged(self):
-        from sqldim.application.datasets.domains.dgm.events.customers import (
+        from sqldim.application.datasets.domains.data_models.events.dgm import (
             apply_segment_upgrade,
         )
 
@@ -594,7 +602,7 @@ class TestDgmApplySegmentUpgrade:
         assert seg == "standard"
 
     def test_scenarios_reexport(self):
-        from sqldim.application.datasets.domains.dgm.events.scenarios import (
+        from sqldim.application.datasets.domains.data_models.events.scenarios import (
             apply_segment_upgrade,
         )
 
@@ -619,14 +627,17 @@ class TestHierarchyApplyRevenueSurge:
                 revenue  DOUBLE
             )
         """)
-        con.executemany("INSERT INTO sales_fact VALUES (?, ?)", [
-            (1, 100.0),
-            (2, 200.0),
-        ])
+        con.executemany(
+            "INSERT INTO sales_fact VALUES (?, ?)",
+            [
+                (1, 100.0),
+                (2, 200.0),
+            ],
+        )
         return con
 
     def test_default_20_pct_increase(self):
-        from sqldim.application.datasets.domains.hierarchy.events.sales_fact import (
+        from sqldim.application.datasets.domains.data_models.events.hierarchy import (
             apply_revenue_surge,
         )
 
@@ -637,7 +648,7 @@ class TestHierarchyApplyRevenueSurge:
         assert abs(rows[1][0] - 240.0) < 0.01
 
     def test_custom_factor(self):
-        from sqldim.application.datasets.domains.hierarchy.events.sales_fact import (
+        from sqldim.application.datasets.domains.data_models.events.hierarchy import (
             apply_revenue_surge,
         )
 
@@ -647,7 +658,7 @@ class TestHierarchyApplyRevenueSurge:
         assert abs(rows[0][0] - 200.0) < 0.01
 
     def test_scenarios_reexport(self):
-        from sqldim.application.datasets.domains.hierarchy.events.scenarios import (
+        from sqldim.application.datasets.domains.data_models.events.scenarios import (
             apply_revenue_surge,
         )
 
@@ -676,10 +687,13 @@ class TestMediaApplyNewRelease:
                 released_at DATE
             )
         """)
-        con.executemany("INSERT INTO actors VALUES (?, ?)", [
-            (1, "Alice"),
-            (2, "Bob"),
-        ])
+        con.executemany(
+            "INSERT INTO actors VALUES (?, ?)",
+            [
+                (1, "Alice"),
+                (2, "Bob"),
+            ],
+        )
         # existing movie
         con.execute(
             "INSERT INTO movies VALUES (1, 'Alice', 1, 'Old Film', '2020-01-01')"
@@ -687,12 +701,14 @@ class TestMediaApplyNewRelease:
         return con
 
     def test_inserts_rows_for_all_actors(self):
-        from sqldim.application.datasets.domains.media.events.movies import (
+        from sqldim.application.datasets.domains.entertainment.events.movies import (
             apply_new_release,
         )
 
         con = self._setup_con()
-        apply_new_release(con, movie_id=999, title="New Blockbuster", released_at="2024-06-01")
+        apply_new_release(
+            con, movie_id=999, title="New Blockbuster", released_at="2024-06-01"
+        )
         new_rows = con.execute(
             "SELECT actor_id FROM movies WHERE movie_id = 999 ORDER BY actor_id"
         ).fetchall()
@@ -700,7 +716,7 @@ class TestMediaApplyNewRelease:
         assert new_rows[0][0] == 1 and new_rows[1][0] == 2
 
     def test_title_set_correctly(self):
-        from sqldim.application.datasets.domains.media.events.movies import (
+        from sqldim.application.datasets.domains.entertainment.events.movies import (
             apply_new_release,
         )
 
@@ -713,7 +729,7 @@ class TestMediaApplyNewRelease:
         assert titles[0][0] == "New Blockbuster"
 
     def test_scenarios_reexport(self):
-        from sqldim.application.datasets.domains.media.events.scenarios import (
+        from sqldim.application.datasets.domains.entertainment.events.scenarios import (
             apply_new_release,
         )
 
@@ -740,11 +756,14 @@ class TestFintechApplySanctionsWave:
                 is_sanctioned BOOLEAN DEFAULT FALSE
             )
         """)
-        con.executemany("INSERT INTO counterparties VALUES (?, ?, ?)", [
-            (1, "RU", False),
-            (2, "IR", False),
-            (3, "US", False),
-        ])
+        con.executemany(
+            "INSERT INTO counterparties VALUES (?, ?, ?)",
+            [
+                (1, "RU", False),
+                (2, "IR", False),
+                (3, "US", False),
+            ],
+        )
         return con
 
     def test_sanctions_high_risk_countries(self):
@@ -757,8 +776,8 @@ class TestFintechApplySanctionsWave:
         rows = con.execute(
             "SELECT country_code, is_sanctioned FROM counterparties ORDER BY cp_id"
         ).fetchall()
-        assert rows[0][1] is True   # RU → sanctioned
-        assert rows[1][1] is True   # IR → sanctioned
+        assert rows[0][1] is True  # RU → sanctioned
+        assert rows[1][1] is True  # IR → sanctioned
         assert rows[2][1] is False  # US → unchanged
 
     def test_already_sanctioned_stays_sanctioned(self):
@@ -789,29 +808,30 @@ class TestSupplyChainApplyWarehouseClosure:
                 is_active BOOLEAN DEFAULT TRUE
             )
         """)
-        con.executemany("INSERT INTO warehouses VALUES (?, ?, ?)", [
-            (1, "EMEA", True),
-            (2, "EMEA", True),
-            (3, "APAC", True),
-        ])
+        con.executemany(
+            "INSERT INTO warehouses VALUES (?, ?, ?)",
+            [
+                (1, "EMEA", True),
+                (2, "EMEA", True),
+                (3, "APAC", True),
+            ],
+        )
         return con
 
     def test_deactivates_matching_region(self):
-        from sqldim.application.datasets.domains.supply_chain.events.warehouses import (
+        from sqldim.application.datasets.domains.commerce.events.warehouses import (
             apply_warehouse_closure,
         )
 
         con = self._setup_con()
         apply_warehouse_closure(con)  # default EMEA
-        rows = con.execute(
-            "SELECT is_active FROM warehouses ORDER BY wh_id"
-        ).fetchall()
+        rows = con.execute("SELECT is_active FROM warehouses ORDER BY wh_id").fetchall()
         assert rows[0][0] is False
         assert rows[1][0] is False
         assert rows[2][0] is True  # APAC untouched
 
     def test_custom_region(self):
-        from sqldim.application.datasets.domains.supply_chain.events.warehouses import (
+        from sqldim.application.datasets.domains.commerce.events.warehouses import (
             apply_warehouse_closure,
         )
 
@@ -829,46 +849,53 @@ class TestSupplyChainApplyWarehouseClosure:
 
 
 class TestEcommerceApplyStockOut:
-    """Tests for ``apply_stock_out`` — the missing line (category-filter path)."""
+    """Tests for ``apply_stock_out`` — clears category price in commerce schema."""
 
     def _setup_con(self):
         import duckdb
 
         con = duckdb.connect(":memory:")
         con.execute("""
-            CREATE TABLE products (
+            CREATE TABLE raw_products (
                 product_id  INTEGER PRIMARY KEY,
                 category    VARCHAR,
-                stock_units INTEGER
+                price       DOUBLE
             )
         """)
-        con.executemany("INSERT INTO products VALUES (?, ?, ?)", [
-            (1, "Electronics", 10),
-            (2, "Electronics", 5),
-            (3, "Apparel", 8),
-        ])
+        con.executemany(
+            "INSERT INTO raw_products VALUES (?, ?, ?)",
+            [
+                (1, "gadgets", 99.99),
+                (2, "gadgets", 49.99),
+                (3, "tools", 19.99),
+            ],
+        )
         return con
 
-    def test_zeros_electronics_stock(self):
-        from sqldim.application.datasets.domains.ecommerce.events.products_drift import (
+    def test_zeros_electronics_stock(self, monkeypatch):
+        from sqldim.application.datasets.domains.commerce.events import products_drift
+        from sqldim.application.datasets.domains.commerce.events.products_drift import (
             apply_stock_out,
         )
 
+        monkeypatch.setattr(products_drift, "rebuild_from_bronze", lambda con: None)
         con = self._setup_con()
-        apply_stock_out(con, category="Electronics")
+        apply_stock_out(con, category="gadgets")
         rows = con.execute(
-            "SELECT stock_units FROM products WHERE category = 'Electronics'"
+            "SELECT price FROM raw_products WHERE category = 'gadgets'"
         ).fetchall()
-        assert all(s == 0 for (s,) in rows)
+        assert all(p == 1.00 for (p,) in rows)
 
-    def test_other_category_unchanged(self):
-        from sqldim.application.datasets.domains.ecommerce.events.products_drift import (
+    def test_other_category_unchanged(self, monkeypatch):
+        from sqldim.application.datasets.domains.commerce.events import products_drift
+        from sqldim.application.datasets.domains.commerce.events.products_drift import (
             apply_stock_out,
         )
 
+        monkeypatch.setattr(products_drift, "rebuild_from_bronze", lambda con: None)
         con = self._setup_con()
-        apply_stock_out(con, category="Electronics")
-        apparel = con.execute(
-            "SELECT stock_units FROM products WHERE category = 'Apparel'"
+        apply_stock_out(con, category="gadgets")
+        tools_price = con.execute(
+            "SELECT price FROM raw_products WHERE category = 'tools'"
         ).fetchone()[0]
-        assert apparel == 8
+        assert tools_price == 19.99

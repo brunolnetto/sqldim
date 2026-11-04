@@ -14,7 +14,9 @@ from __future__ import annotations
 import duckdb
 import pytest
 
-from sqldim.application.datasets.domains.dgm.sources.dgm import DGMShowcaseSource
+from sqldim.application.datasets.domains.data_models.sources.dgm import (
+    DGMShowcaseSource,
+)
 from sqldim.application.examples.features.dgm.showcase import (
     demo_annotation_sigma,
     demo_b1_b2_having,

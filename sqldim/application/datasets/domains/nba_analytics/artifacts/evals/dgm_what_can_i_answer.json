@@ -1,0 +1,56 @@
+{
+  "tool": "dgm_what_can_i_answer",
+  "domain": "nba_analytics",
+  "cases": [
+    {
+      "id": "nba_analytics.what_can_i_answer.specific",
+      "tool": "dgm_what_can_i_answer",
+      "description": "List answerable questions specifically for nba_analytics",
+      "arguments": {
+        "dataset": "nba_analytics"
+      },
+      "expected": {
+        "success": true,
+        "tool_name": "dgm_what_can_i_answer",
+        "data_keys": [
+          "datasets",
+          "questions"
+        ],
+        "data_checks": {
+          "datasets_includes": [
+            "nba_analytics"
+          ]
+        }
+      },
+      "tags": [
+        "discovery",
+        "specific"
+      ]
+    },
+    {
+      "id": "nba_analytics.what_can_i_answer.all",
+      "tool": "dgm_what_can_i_answer",
+      "description": "Discover all datasets (should include nba_analytics)",
+      "arguments": {
+        "dataset": "__all__"
+      },
+      "expected": {
+        "success": true,
+        "tool_name": "dgm_what_can_i_answer",
+        "data_keys": [
+          "datasets",
+          "questions"
+        ],
+        "data_checks": {
+          "datasets_includes": [
+            "nba_analytics"
+          ]
+        }
+      },
+      "tags": [
+        "discovery",
+        "all"
+      ]
+    }
+  ]
+}

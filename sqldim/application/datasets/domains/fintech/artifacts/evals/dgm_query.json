@@ -1,0 +1,72 @@
+{
+  "tool": "dgm_query",
+  "domain": "fintech",
+  "cases": [
+    {
+      "id": "fintech.query.total_volume",
+      "tool": "dgm_query",
+      "description": "what is the total transaction volume in USD?",
+      "arguments": {
+        "dataset": "fintech",
+        "question": "what is the total transaction volume in USD?"
+      },
+      "expected": {
+        "success": true,
+        "tool_name": "dgm_query",
+        "data_keys": [
+          "dataset",
+          "question"
+        ],
+        "data_checks": {}
+      },
+      "tags": [
+        "query",
+        "analytical"
+      ]
+    },
+    {
+      "id": "fintech.query.volume_by_type",
+      "tool": "dgm_query",
+      "description": "break down the total transaction volume by transaction type",
+      "arguments": {
+        "dataset": "fintech",
+        "question": "break down the total transaction volume by transaction type"
+      },
+      "expected": {
+        "success": true,
+        "tool_name": "dgm_query",
+        "data_keys": [
+          "dataset",
+          "question"
+        ],
+        "data_checks": {}
+      },
+      "tags": [
+        "query",
+        "analytical"
+      ]
+    },
+    {
+      "id": "fintech.query.volume_by_channel",
+      "tool": "dgm_query",
+      "description": "what is the transaction volume per channel?",
+      "arguments": {
+        "dataset": "fintech",
+        "question": "what is the transaction volume per channel?"
+      },
+      "expected": {
+        "success": true,
+        "tool_name": "dgm_query",
+        "data_keys": [
+          "dataset",
+          "question"
+        ],
+        "data_checks": {}
+      },
+      "tags": [
+        "query",
+        "analytical"
+      ]
+    }
+  ]
+}

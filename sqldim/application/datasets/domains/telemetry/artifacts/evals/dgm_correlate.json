@@ -1,0 +1,26 @@
+{
+  "tool": "dgm_correlate",
+  "domain": "telemetry",
+  "cases": [
+    {
+      "id": "telemetry.correlate",
+      "tool": "dgm_correlate",
+      "description": "Correlate telemetry results with another analysis",
+      "arguments": {
+        "left": {},
+        "right": {}
+      },
+      "expected": {
+        "success": true,
+        "tool_name": "dgm_correlate",
+        "data_keys": [
+          "correlation"
+        ],
+        "data_checks": {}
+      },
+      "tags": [
+        "correlation"
+      ]
+    }
+  ]
+}

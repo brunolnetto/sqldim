@@ -1,0 +1,26 @@
+{
+  "tool": "dgm_correlate",
+  "domain": "nba_analytics",
+  "cases": [
+    {
+      "id": "nba_analytics.correlate",
+      "tool": "dgm_correlate",
+      "description": "Correlate nba_analytics results with another analysis",
+      "arguments": {
+        "left": {},
+        "right": {}
+      },
+      "expected": {
+        "success": true,
+        "tool_name": "dgm_correlate",
+        "data_keys": [
+          "correlation"
+        ],
+        "data_checks": {}
+      },
+      "tags": [
+        "correlation"
+      ]
+    }
+  ]
+}

@@ -1,0 +1,27 @@
+{
+  "tool": "dgm_validate_invariant",
+  "domain": "telemetry",
+  "cases": [
+    {
+      "id": "telemetry.validate_invariant",
+      "tool": "dgm_validate_invariant",
+      "description": "Validate positive session duration invariant for telemetry",
+      "arguments": {
+        "invariant": "session_duration_positive",
+        "dataset": "telemetry"
+      },
+      "expected": {
+        "success": true,
+        "tool_name": "dgm_validate_invariant",
+        "data_keys": [
+          "valid",
+          "violations"
+        ],
+        "data_checks": {}
+      },
+      "tags": [
+        "invariant"
+      ]
+    }
+  ]
+}

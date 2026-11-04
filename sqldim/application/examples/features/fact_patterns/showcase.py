@@ -24,8 +24,8 @@ from sqldim.core.loaders.fact.accumulating import LazyAccumulatingLoader
 from sqldim.core.loaders.fact.snapshot import LazySnapshotLoader
 from sqldim.sinks import DuckDBSink
 
-from sqldim.application.datasets.domains.ecommerce import OrdersSource
-from sqldim.application.datasets.domains.enterprise import AccountsSource
+from sqldim.application.datasets.domains.commerce import OrdersSource
+from sqldim.application.datasets.domains.growth import AccountsSource
 from sqldim.application.examples.features.utils import make_tmp_db
 
 

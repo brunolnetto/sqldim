@@ -1063,7 +1063,9 @@ class TestAgentToolBodies:
         result = tool_fn(rc, 1, 3)
         assert result == []
 
-    def test_make_entity_agent_model_none_calls_ollama(self, monkeypatch: pytest.MonkeyPatch):
+    def test_make_entity_agent_model_none_calls_ollama(
+        self, monkeypatch: pytest.MonkeyPatch
+    ):
         """Cover _agents.py line 174: model=None path calls make_ollama_model."""
         import sqldim.core.query.dgm.nl._agents as _agents_mod
         from pydantic_ai.models.test import TestModel
@@ -1080,7 +1082,9 @@ class TestAgentToolBodies:
         assert len(called) == 1
         assert agent is not None
 
-    def test_make_temporal_agent_model_none_calls_ollama(self, monkeypatch: pytest.MonkeyPatch):
+    def test_make_temporal_agent_model_none_calls_ollama(
+        self, monkeypatch: pytest.MonkeyPatch
+    ):
         """Cover make_temporal_agent model=None path."""
         import sqldim.core.query.dgm.nl._agents as _agents_mod
         from pydantic_ai.models.test import TestModel
@@ -1097,7 +1101,9 @@ class TestAgentToolBodies:
         assert len(called) == 1
         assert agent is not None
 
-    def test_make_compositional_agent_model_none_calls_ollama(self, monkeypatch: pytest.MonkeyPatch):
+    def test_make_compositional_agent_model_none_calls_ollama(
+        self, monkeypatch: pytest.MonkeyPatch
+    ):
         """Cover make_compositional_agent model=None path."""
         import sqldim.core.query.dgm.nl._agents as _agents_mod
         from pydantic_ai.models.test import TestModel
@@ -1114,7 +1120,9 @@ class TestAgentToolBodies:
         assert len(called) == 1
         assert agent is not None
 
-    def test_make_ranking_agent_model_none_calls_ollama(self, monkeypatch: pytest.MonkeyPatch):
+    def test_make_ranking_agent_model_none_calls_ollama(
+        self, monkeypatch: pytest.MonkeyPatch
+    ):
         """Cover make_ranking_agent model=None path."""
         import sqldim.core.query.dgm.nl._agents as _agents_mod
         from pydantic_ai.models.test import TestModel
@@ -1131,7 +1139,9 @@ class TestAgentToolBodies:
         assert len(called) == 1
         assert agent is not None
 
-    def test_make_explanation_agent_model_none_calls_ollama(self, monkeypatch: pytest.MonkeyPatch):
+    def test_make_explanation_agent_model_none_calls_ollama(
+        self, monkeypatch: pytest.MonkeyPatch
+    ):
         """Cover make_explanation_agent model=None path."""
         import sqldim.core.query.dgm.nl._agents as _agents_mod
         from pydantic_ai.models.test import TestModel
@@ -1667,7 +1677,9 @@ class TestBuildNLGraphWithContext:
             cost_estimate=1.0,
         )
         clarify_decision = ClarifyDecision(
-            options=[ExportPlan(query_target=QueryTarget.SQL_DUCKDB, query_text="SELECT 1")],
+            options=[
+                ExportPlan(query_target=QueryTarget.SQL_DUCKDB, query_text="SELECT 1")
+            ],
             cost_per_option=[],
         )
         # Mock gate to return ClarifyDecision -> routes to clarification node
@@ -1710,7 +1722,9 @@ class TestBuildNLGraphWithContext:
             "recursion_limit": 25,
         }
         clarify_decision = ClarifyDecision(
-            options=[ExportPlan(query_target=QueryTarget.SQL_DUCKDB, query_text="SELECT 1")],
+            options=[
+                ExportPlan(query_target=QueryTarget.SQL_DUCKDB, query_text="SELECT 1")
+            ],
             cost_per_option=[],
         )
         with patch.object(ExecutionGate, "gate", return_value=clarify_decision):

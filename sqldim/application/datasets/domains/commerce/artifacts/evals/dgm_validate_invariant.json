@@ -1,0 +1,48 @@
+{
+  "tool": "dgm_validate_invariant",
+  "domain": "commerce",
+  "cases": [
+    {
+      "id": "commerce.validate_invariant",
+      "tool": "dgm_validate_invariant",
+      "description": "Validate non-negative revenue invariant for ecommerce",
+      "arguments": {
+        "invariant": "revenue_non_negative",
+        "dataset": "commerce"
+      },
+      "expected": {
+        "success": true,
+        "tool_name": "dgm_validate_invariant",
+        "data_keys": [
+          "valid",
+          "violations"
+        ],
+        "data_checks": {}
+      },
+      "tags": [
+        "invariant"
+      ]
+    },
+    {
+      "id": "commerce.validate_invariant",
+      "tool": "dgm_validate_invariant",
+      "description": "Validate non-negative inventory invariant for retail",
+      "arguments": {
+        "invariant": "inventory_non_negative",
+        "dataset": "commerce"
+      },
+      "expected": {
+        "success": true,
+        "tool_name": "dgm_validate_invariant",
+        "data_keys": [
+          "valid",
+          "violations"
+        ],
+        "data_checks": {}
+      },
+      "tags": [
+        "invariant"
+      ]
+    }
+  ]
+}

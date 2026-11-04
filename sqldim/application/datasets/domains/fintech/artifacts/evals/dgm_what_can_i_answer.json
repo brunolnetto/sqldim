@@ -1,0 +1,56 @@
+{
+  "tool": "dgm_what_can_i_answer",
+  "domain": "fintech",
+  "cases": [
+    {
+      "id": "fintech.what_can_i_answer.specific",
+      "tool": "dgm_what_can_i_answer",
+      "description": "List answerable questions specifically for fintech",
+      "arguments": {
+        "dataset": "fintech"
+      },
+      "expected": {
+        "success": true,
+        "tool_name": "dgm_what_can_i_answer",
+        "data_keys": [
+          "datasets",
+          "questions"
+        ],
+        "data_checks": {
+          "datasets_includes": [
+            "fintech"
+          ]
+        }
+      },
+      "tags": [
+        "discovery",
+        "specific"
+      ]
+    },
+    {
+      "id": "fintech.what_can_i_answer.all",
+      "tool": "dgm_what_can_i_answer",
+      "description": "Discover all datasets (should include fintech)",
+      "arguments": {
+        "dataset": "__all__"
+      },
+      "expected": {
+        "success": true,
+        "tool_name": "dgm_what_can_i_answer",
+        "data_keys": [
+          "datasets",
+          "questions"
+        ],
+        "data_checks": {
+          "datasets_includes": [
+            "fintech"
+          ]
+        }
+      },
+      "tags": [
+        "discovery",
+        "all"
+      ]
+    }
+  ]
+}

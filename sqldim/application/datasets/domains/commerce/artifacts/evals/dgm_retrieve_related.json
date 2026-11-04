@@ -1,0 +1,46 @@
+{
+  "tool": "dgm_retrieve_related",
+  "domain": "commerce",
+  "cases": [
+    {
+      "id": "commerce.retrieve_related",
+      "tool": "dgm_retrieve_related",
+      "description": "Retrieve findings related to customer segmentation",
+      "arguments": {
+        "query": "customer segmentation",
+        "max_results": 5
+      },
+      "expected": {
+        "success": true,
+        "tool_name": "dgm_retrieve_related",
+        "data_keys": [
+          "findings"
+        ],
+        "data_checks": {}
+      },
+      "tags": [
+        "knowledge-base"
+      ]
+    },
+    {
+      "id": "commerce.retrieve_related",
+      "tool": "dgm_retrieve_related",
+      "description": "Retrieve findings related to inventory patterns",
+      "arguments": {
+        "query": "inventory patterns",
+        "max_results": 5
+      },
+      "expected": {
+        "success": true,
+        "tool_name": "dgm_retrieve_related",
+        "data_keys": [
+          "findings"
+        ],
+        "data_checks": {}
+      },
+      "tags": [
+        "knowledge-base"
+      ]
+    }
+  ]
+}

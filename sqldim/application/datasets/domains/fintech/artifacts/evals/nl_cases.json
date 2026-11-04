@@ -1,0 +1,96 @@
+{
+  "domain": "fintech",
+  "cases": [
+    {
+      "id": "fintech.01.total_transaction_volume",
+      "dataset": "fintech",
+      "utterance": "what is the total transaction volume in USD?",
+      "expect_result": true,
+      "expect_columns": [],
+      "expect_table": "transactions",
+      "tags": [
+        "metric",
+        "aggregation"
+      ],
+      "expected_sql": "SELECT SUM(amount_usd) AS total_transaction_volume FROM transactions"
+    },
+    {
+      "id": "fintech.02.volume_by_txn_type",
+      "dataset": "fintech",
+      "utterance": "break down the total transaction volume by transaction type",
+      "expect_result": true,
+      "expect_columns": [
+        "txn_type"
+      ],
+      "expect_table": "transactions",
+      "tags": [
+        "metric",
+        "aggregation",
+        "breakdown"
+      ],
+      "expected_sql": "SELECT txn_type, SUM(amount_usd) AS total_volume FROM transactions GROUP BY txn_type ORDER BY total_volume DESC"
+    },
+    {
+      "id": "fintech.03.volume_by_channel",
+      "dataset": "fintech",
+      "utterance": "what is the transaction volume per channel?",
+      "expect_result": true,
+      "expect_columns": [
+        "channel"
+      ],
+      "expect_table": "transactions",
+      "tags": [
+        "metric",
+        "aggregation",
+        "breakdown"
+      ],
+      "expected_sql": "SELECT channel, SUM(amount_usd) AS transaction_volume FROM transactions GROUP BY channel ORDER BY transaction_volume DESC"
+    },
+    {
+      "id": "fintech.04.accounts_by_risk_tier",
+      "dataset": "fintech",
+      "utterance": "how many accounts fall into each risk tier?",
+      "expect_result": true,
+      "expect_columns": [
+        "risk_tier"
+      ],
+      "expect_table": "accounts",
+      "tags": [
+        "metric",
+        "aggregation",
+        "risk"
+      ],
+      "expected_sql": "SELECT risk_tier, COUNT(*) AS account_count FROM accounts GROUP BY risk_tier ORDER BY account_count DESC"
+    },
+    {
+      "id": "fintech.05.sanctioned_counterparty_exposure",
+      "dataset": "fintech",
+      "utterance": "what is the total USD exposure to sanctioned counterparties?",
+      "expect_result": true,
+      "expect_columns": [],
+      "expect_table": "transactions",
+      "tags": [
+        "metric",
+        "risk",
+        "compliance"
+      ],
+      "expected_sql": "SELECT SUM(t.amount_usd) AS total_usd_exposure FROM transactions t JOIN counterparties c ON t.counterparty_id = c.cp_id WHERE c.is_sanctioned = TRUE"
+    },
+    {
+      "id": "fintech.06.avg_transaction_by_account_type",
+      "dataset": "fintech",
+      "utterance": "what is the average transaction amount for each account type?",
+      "expect_result": true,
+      "expect_columns": [
+        "account_type"
+      ],
+      "expect_table": "accounts",
+      "tags": [
+        "metric",
+        "aggregation",
+        "breakdown"
+      ],
+      "expected_sql": "SELECT a.account_type, AVG(t.amount_usd) AS avg_transaction_amount FROM accounts a JOIN transactions t ON a.account_id = t.account_id GROUP BY a.account_type ORDER BY avg_transaction_amount DESC"
+    }
+  ]
+}

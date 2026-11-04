@@ -46,11 +46,11 @@ Example
 
     import duckdb
     from sqldim.application.datasets import Dataset
-    from sqldim.application.datasets.domains.ecommerce import (
+    from sqldim.application.datasets.domains.commerce import (
         CustomersSource, ProductsSource, OrdersSource,
     )
 
-    pipeline = Dataset("ecommerce", [
+    pipeline = Dataset("commerce", [
         (CustomersSource(n=100), "raw_customers"),
         (ProductsSource(n=50),   "raw_products"),
         (OrdersSource(n=200),    "raw_orders"),    # references customers + products
@@ -175,9 +175,7 @@ class Dataset:
         lines = [f"Dataset '{self.name}' ({len(self.sources)} sources):"]
         for src, table in self.sources:
             provider_name = (
-                src.provider.name
-                if src.provider is not None
-                else type(src).__name__
+                src.provider.name if src.provider is not None else type(src).__name__
             )
             lines.append(f"  {table:35s}  ← {provider_name}")
         return "\n".join(lines)

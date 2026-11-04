@@ -48,31 +48,39 @@ class TestDevopsDataset:
         assert "devops" in repr(devops_dataset)
 
 
-class TestDgmDataset:
+class TestDataModelsDataset:
     def test_import_and_tables(self):
-        from sqldim.application.datasets.domains.dgm.dataset import dgm_dataset
+        from sqldim.application.datasets.domains.data_models.dataset import (
+            data_models_dataset,
+        )
 
-        assert dgm_dataset.table_names() == ["dgm_showcase"]
+        assert data_models_dataset.table_names() == ["dgm_showcase", "org_dim"]
 
     def test_setup_teardown(self):
-        # DGMShowcaseSource now uses the Dataset alias as a prefix.
-        # Dataset alias "dgm_showcase" → tables dgm_showcase_{customer,product,...}
-        from sqldim.application.datasets.domains.dgm.dataset import dgm_dataset
+        from sqldim.application.datasets.domains.data_models.dataset import (
+            data_models_dataset,
+        )
 
         con = duckdb.connect()
-        dgm_dataset.setup(con)
+        data_models_dataset.setup(con)
         tables = con.execute("SHOW TABLES").fetchdf()["name"].tolist()
         assert "dgm_showcase_customer" in tables
         assert "dgm_showcase_product" in tables
         assert "dgm_showcase_sale" in tables
-        dgm_dataset.teardown(con)
+        assert "org_dim" in tables
+        assert "org_dim_closure" in tables
+        assert "sales_fact" in tables
+        data_models_dataset.teardown(con)
         tables = con.execute("SHOW TABLES").fetchdf()["name"].tolist()
         assert not any(t.startswith("dgm_showcase") for t in tables)
+        assert "org_dim" not in tables
 
     def test_custom_prefix(self):
-        # Verify the source truly honours any alias — not hardcoded to "dgm_showcase"
+        # Verify DGMShowcaseSource honours any alias — not hardcoded to "dgm_showcase"
         from sqldim.application.datasets.dataset import Dataset
-        from sqldim.application.datasets.domains.dgm.sources import DGMShowcaseSource
+        from sqldim.application.datasets.domains.data_models.sources import (
+            DGMShowcaseSource,
+        )
 
         ds = Dataset("test_dgm", [(DGMShowcaseSource(), "custom_prefix")])
         con = duckdb.connect()
@@ -83,99 +91,161 @@ class TestDgmDataset:
         tables = con.execute("SHOW TABLES").fetchdf()["name"].tolist()
         assert not any(t.startswith("custom_prefix") for t in tables)
 
-    def test_snapshots_excluded_for_static_fixture(self):
-        # DGMShowcaseSource is a static fixture; snapshot() raises NotImplementedError
-        # so Dataset.snapshots() silently excludes it and returns {}
-        from sqldim.application.datasets.domains.dgm.dataset import dgm_dataset
+    def test_snapshots_excluded_for_static_fixtures(self):
+        # Both DGMShowcaseSource and OrgChartSource are static fixtures;
+        # snapshot() raises NotImplementedError so Dataset.snapshots() returns {}
+        from sqldim.application.datasets.domains.data_models.dataset import (
+            data_models_dataset,
+        )
 
-        snaps = dgm_dataset.snapshots()
+        snaps = data_models_dataset.snapshots()
         assert snaps == {}
 
     def test_repr(self):
-        from sqldim.application.datasets.domains.dgm.dataset import dgm_dataset
+        from sqldim.application.datasets.domains.data_models.dataset import (
+            data_models_dataset,
+        )
 
-        assert "dgm" in repr(dgm_dataset)
+        assert "data_models" in repr(data_models_dataset)
 
 
 class TestEcommerceDataset:
+    """Backward-compat class — exercises the new commerce_dataset OLTP tables."""
+
     def test_import_and_tables(self):
-        from sqldim.application.datasets.domains.ecommerce.dataset import (
-            ecommerce_dataset,
+        from sqldim.application.datasets.domains.commerce.dataset import (
+            commerce_dataset,
         )
 
-        assert set(ecommerce_dataset.table_names()) == {
-            "customers",
-            "products",
-            "stores",
-            "orders",
-        }
+        oltp_tables = {"customers", "products", "stores", "orders"}
+        assert oltp_tables.issubset(set(commerce_dataset.table_names()))
 
     def test_setup_teardown(self):
-        from sqldim.application.datasets.domains.ecommerce.dataset import (
-            ecommerce_dataset,
+        from sqldim.application.datasets.domains.commerce.dataset import (
+            commerce_dataset,
         )
 
         con = duckdb.connect()
-        ecommerce_dataset.setup(con)
+        commerce_dataset.setup(con)
         tables = con.execute("SHOW TABLES").fetchdf()["name"].tolist()
         for t in ("customers", "products", "stores", "orders"):
             assert t in tables
-        ecommerce_dataset.teardown(con)
+        commerce_dataset.teardown(con)
         tables = con.execute("SHOW TABLES").fetchdf()["name"].tolist()
         for t in ("customers", "products", "stores", "orders"):
             assert t not in tables
 
     def test_snapshots(self):
-        from sqldim.application.datasets.domains.ecommerce.dataset import (
-            ecommerce_dataset,
+        from sqldim.application.datasets.domains.commerce.dataset import (
+            commerce_dataset,
         )
 
-        snaps = ecommerce_dataset.snapshots()
+        snaps = commerce_dataset.snapshots()
         assert "customers" in snaps
 
     def test_repr(self):
-        from sqldim.application.datasets.domains.ecommerce.dataset import (
-            ecommerce_dataset,
+        from sqldim.application.datasets.domains.commerce.dataset import (
+            commerce_dataset,
         )
 
-        assert "ecommerce" in repr(ecommerce_dataset)
+        assert "commerce" in repr(commerce_dataset)
 
 
-class TestEnterpriseDataset:
+class TestCommerceDataset:
+    _ALL_TABLES = {
+        "customers",
+        "products",
+        "stores",
+        "orders",
+        "dim_customer",
+        "fct_daily_sales",
+        "fct_cohort_retention",
+        "suppliers",
+        "warehouses",
+        "skus",
+        "receipts",
+    }
+
     def test_import_and_tables(self):
-        from sqldim.application.datasets.domains.enterprise.dataset import (
-            enterprise_dataset,
+        from sqldim.application.datasets.domains.commerce.dataset import (
+            commerce_dataset,
         )
 
-        assert set(enterprise_dataset.table_names()) == {"employees", "accounts"}
+        assert set(commerce_dataset.table_names()) == self._ALL_TABLES
 
     def test_setup_teardown(self):
-        from sqldim.application.datasets.domains.enterprise.dataset import (
-            enterprise_dataset,
+        from sqldim.application.datasets.domains.commerce.dataset import (
+            commerce_dataset,
         )
 
         con = duckdb.connect()
-        enterprise_dataset.setup(con)
+        commerce_dataset.setup(con)
+        tables = con.execute("SHOW TABLES").fetchdf()["name"].tolist()
+        for t in self._ALL_TABLES:
+            assert t in tables, f"{t!r} missing after setup"
+        commerce_dataset.teardown(con)
+        tables = con.execute("SHOW TABLES").fetchdf()["name"].tolist()
+        for t in self._ALL_TABLES:
+            assert t not in tables, f"{t!r} still present after teardown"
+
+    def test_snapshots_include_oltp(self):
+        from sqldim.application.datasets.domains.commerce.dataset import (
+            commerce_dataset,
+        )
+
+        snaps = commerce_dataset.snapshots()
+        # OLTP sources expose snapshot(); must be present
+        assert "customers" in snaps
+        assert "orders" in snaps
+
+    def test_repr(self):
+        from sqldim.application.datasets.domains.commerce.dataset import (
+            commerce_dataset,
+        )
+
+        assert "commerce" in repr(commerce_dataset)
+
+
+class TestGrowthDataset:
+    def test_import_and_tables(self):
+        from sqldim.application.datasets.domains.growth.dataset import (
+            growth_dataset,
+        )
+
+        assert set(growth_dataset.table_names()) == {
+            "employees",
+            "accounts",
+            "saas_users",
+            "saas_sessions",
+        }
+
+    def test_setup_teardown(self):
+        from sqldim.application.datasets.domains.growth.dataset import (
+            growth_dataset,
+        )
+
+        con = duckdb.connect()
+        growth_dataset.setup(con)
         tables = con.execute("SHOW TABLES").fetchdf()["name"].tolist()
         assert "employees" in tables and "accounts" in tables
-        enterprise_dataset.teardown(con)
+        growth_dataset.teardown(con)
         tables = con.execute("SHOW TABLES").fetchdf()["name"].tolist()
         assert "employees" not in tables and "accounts" not in tables
 
     def test_snapshots(self):
-        from sqldim.application.datasets.domains.enterprise.dataset import (
-            enterprise_dataset,
+        from sqldim.application.datasets.domains.growth.dataset import (
+            growth_dataset,
         )
 
-        snaps = enterprise_dataset.snapshots()
+        snaps = growth_dataset.snapshots()
         assert "employees" in snaps
 
     def test_repr(self):
-        from sqldim.application.datasets.domains.enterprise.dataset import (
-            enterprise_dataset,
+        from sqldim.application.datasets.domains.growth.dataset import (
+            growth_dataset,
         )
 
-        assert "enterprise" in repr(enterprise_dataset)
+        assert "growth" in repr(growth_dataset)
 
 
 class TestFintechDataset:
@@ -211,78 +281,48 @@ class TestFintechDataset:
         assert "fintech" in repr(fintech_dataset)
 
 
-class TestHierarchyDataset:
+class TestEntertainmentDataset:
     def test_import_and_tables(self):
-        # Alias is "org_dim" — the primary table OrgChartSource creates
-        from sqldim.application.datasets.domains.hierarchy.dataset import (
-            hierarchy_dataset,
+        from sqldim.application.datasets.domains.entertainment.dataset import (
+            entertainment_dataset,
         )
 
-        assert hierarchy_dataset.table_names() == ["org_dim"]
+        assert set(entertainment_dataset.table_names()) == {
+            "actors",
+            "movies",
+            "social_network",
+        }
 
     def test_setup_teardown(self):
-        # OrgChartSource creates org_dim (primary), org_dim_closure, and sales_fact
-        from sqldim.application.datasets.domains.hierarchy.dataset import (
-            hierarchy_dataset,
+        from sqldim.application.datasets.domains.entertainment.dataset import (
+            entertainment_dataset,
         )
 
         con = duckdb.connect()
-        hierarchy_dataset.setup(con)
-        tables = con.execute("SHOW TABLES").fetchdf()["name"].tolist()
-        assert "org_dim" in tables
-        assert "org_dim_closure" in tables
-        assert "sales_fact" in tables
-        hierarchy_dataset.teardown(con)
-        tables = con.execute("SHOW TABLES").fetchdf()["name"].tolist()
-        assert "org_dim" not in tables
-
-    def test_snapshots_excluded_for_static_fixture(self):
-        # OrgChartSource is a static fixture; snapshot() raises NotImplementedError
-        from sqldim.application.datasets.domains.hierarchy.dataset import (
-            hierarchy_dataset,
-        )
-
-        snaps = hierarchy_dataset.snapshots()
-        assert snaps == {}
-
-    def test_repr(self):
-        from sqldim.application.datasets.domains.hierarchy.dataset import (
-            hierarchy_dataset,
-        )
-
-        assert "hierarchy" in repr(hierarchy_dataset)
-
-
-class TestMediaDataset:
-    def test_import_and_tables(self):
-        from sqldim.application.datasets.domains.media.dataset import media_dataset
-
-        assert set(media_dataset.table_names()) == {"actors", "movies"}
-
-    def test_setup_teardown(self):
-        from sqldim.application.datasets.domains.media.dataset import media_dataset
-
-        con = duckdb.connect()
-        media_dataset.setup(con)
+        entertainment_dataset.setup(con)
         tables = con.execute("SHOW TABLES").fetchdf()["name"].tolist()
         assert "movies" in tables
         assert "actors" in tables
-        media_dataset.teardown(con)
+        entertainment_dataset.teardown(con)
         tables = con.execute("SHOW TABLES").fetchdf()["name"].tolist()
         assert "movies" not in tables
         assert "actors" not in tables
 
     def test_snapshots(self):
-        from sqldim.application.datasets.domains.media.dataset import media_dataset
+        from sqldim.application.datasets.domains.entertainment.dataset import (
+            entertainment_dataset,
+        )
 
-        snaps = media_dataset.snapshots()
+        snaps = entertainment_dataset.snapshots()
         assert "movies" in snaps
         assert "actors" in snaps
 
     def test_repr(self):
-        from sqldim.application.datasets.domains.media.dataset import media_dataset
+        from sqldim.application.datasets.domains.entertainment.dataset import (
+            entertainment_dataset,
+        )
 
-        assert "media" in repr(media_dataset)
+        assert "entertainment" in repr(entertainment_dataset)
 
 
 class TestNbaAnalyticsDataset:
@@ -378,118 +418,121 @@ class TestNbaAnalyticsDataset:
 
 class TestSaasGrowthDataset:
     def test_import_and_tables(self):
-        from sqldim.application.datasets.domains.saas_growth.dataset import (
-            saas_growth_dataset,
+        from sqldim.application.datasets.domains.growth.dataset import (
+            growth_dataset,
         )
 
-        assert set(saas_growth_dataset.table_names()) == {"saas_users", "saas_sessions"}
+        assert "saas_users" in growth_dataset.table_names()
+        assert "saas_sessions" in growth_dataset.table_names()
 
     def test_setup_teardown(self):
-        from sqldim.application.datasets.domains.saas_growth.dataset import (
-            saas_growth_dataset,
+        from sqldim.application.datasets.domains.growth.dataset import (
+            growth_dataset,
         )
 
         con = duckdb.connect()
-        saas_growth_dataset.setup(con)
+        growth_dataset.setup(con)
         tables = con.execute("SHOW TABLES").fetchdf()["name"].tolist()
         assert "saas_users" in tables
-        saas_growth_dataset.teardown(con)
+        growth_dataset.teardown(con)
         tables = con.execute("SHOW TABLES").fetchdf()["name"].tolist()
         assert "saas_users" not in tables
 
     def test_snapshots(self):
-        from sqldim.application.datasets.domains.saas_growth.dataset import (
-            saas_growth_dataset,
+        from sqldim.application.datasets.domains.growth.dataset import (
+            growth_dataset,
         )
 
-        snaps = saas_growth_dataset.snapshots()
+        snaps = growth_dataset.snapshots()
         assert "saas_users" in snaps
 
     def test_repr(self):
-        from sqldim.application.datasets.domains.saas_growth.dataset import (
-            saas_growth_dataset,
+        from sqldim.application.datasets.domains.growth.dataset import (
+            growth_dataset,
         )
 
-        assert "saas_growth" in repr(saas_growth_dataset)
+        assert "growth" in repr(growth_dataset)
 
 
-class TestSupplyChainDataset:
+class TestCommerceSupplyChainSources:
     def test_import_and_tables(self):
-        from sqldim.application.datasets.domains.supply_chain.dataset import (
-            supply_chain_dataset,
+        from sqldim.application.datasets.domains.commerce.dataset import (
+            commerce_dataset,
         )
 
-        assert set(supply_chain_dataset.table_names()) == {
-            "suppliers",
-            "warehouses",
-            "skus",
-            "receipts",
-        }
+        assert {"suppliers", "warehouses", "skus", "receipts"}.issubset(
+            set(commerce_dataset.table_names())
+        )
 
     def test_setup_teardown(self):
-        from sqldim.application.datasets.domains.supply_chain.dataset import (
-            supply_chain_dataset,
+        from sqldim.application.datasets.domains.commerce.dataset import (
+            commerce_dataset,
         )
 
         con = duckdb.connect()
-        supply_chain_dataset.setup(con)
+        commerce_dataset.setup(con)
         tables = con.execute("SHOW TABLES").fetchdf()["name"].tolist()
         assert "suppliers" in tables and "receipts" in tables
-        supply_chain_dataset.teardown(con)
+        commerce_dataset.teardown(con)
         tables = con.execute("SHOW TABLES").fetchdf()["name"].tolist()
         assert "suppliers" not in tables
 
     def test_snapshots(self):
-        from sqldim.application.datasets.domains.supply_chain.dataset import (
-            supply_chain_dataset,
+        from sqldim.application.datasets.domains.commerce.dataset import (
+            commerce_dataset,
         )
 
-        snaps = supply_chain_dataset.snapshots()
+        snaps = commerce_dataset.snapshots()
         assert "suppliers" in snaps
 
     def test_repr(self):
-        from sqldim.application.datasets.domains.supply_chain.dataset import (
-            supply_chain_dataset,
+        from sqldim.application.datasets.domains.commerce.dataset import (
+            commerce_dataset,
         )
 
-        assert "supply_chain" in repr(supply_chain_dataset)
+        assert "commerce" in repr(commerce_dataset)
 
 
-class TestUserActivityDataset:
+class TestTelemetryDataset:
     def test_import_and_tables(self):
-        from sqldim.application.datasets.domains.user_activity.dataset import (
-            user_activity_dataset,
+        from sqldim.application.datasets.domains.telemetry.dataset import (
+            telemetry_dataset,
         )
 
-        assert set(user_activity_dataset.table_names()) == {"devices", "page_events"}
+        assert set(telemetry_dataset.table_names()) == {
+            "devices",
+            "page_events",
+            "pipeline_spans",
+            "metric_samples",
+        }
 
     def test_setup_teardown(self):
-        from sqldim.application.datasets.domains.user_activity.dataset import (
-            user_activity_dataset,
+        from sqldim.application.datasets.domains.telemetry.dataset import (
+            telemetry_dataset,
         )
 
         con = duckdb.connect()
-        user_activity_dataset.setup(con)
+        telemetry_dataset.setup(con)
         tables = con.execute("SHOW TABLES").fetchdf()["name"].tolist()
         assert "devices" in tables and "page_events" in tables
-        user_activity_dataset.teardown(con)
+        telemetry_dataset.teardown(con)
         tables = con.execute("SHOW TABLES").fetchdf()["name"].tolist()
         assert "devices" not in tables
 
     def test_snapshots(self):
-        from sqldim.application.datasets.domains.user_activity.dataset import (
-            user_activity_dataset,
+        from sqldim.application.datasets.domains.telemetry.dataset import (
+            telemetry_dataset,
         )
 
-        snaps = user_activity_dataset.snapshots()
+        snaps = telemetry_dataset.snapshots()
         assert "devices" in snaps
 
     def test_repr(self):
-        from sqldim.application.datasets.domains.user_activity.dataset import (
-            user_activity_dataset,
+        from sqldim.application.datasets.domains.telemetry.dataset import (
+            telemetry_dataset,
         )
 
-        assert "user_activity" in repr(user_activity_dataset)
+        assert "telemetry" in repr(telemetry_dataset)
 
 
 # ---------------------------------------------------------------------------
@@ -505,55 +548,52 @@ class TestDomainEvents:
 
         assert events.__all__ == []
 
-    def test_dgm_events_empty(self):
-        from sqldim.application.datasets.domains.dgm import events
+    def test_data_models_events_exports(self):
+        from sqldim.application.datasets.domains.data_models import events
 
-        assert events.__all__ == []
+        assert "apply_segment_upgrade" in events.__all__
+        assert "apply_revenue_surge" in events.__all__
 
-    def test_ecommerce_events_exports(self):
-        from sqldim.application.datasets.domains.ecommerce import events
+    def test_commerce_events_exports(self):
+        from sqldim.application.datasets.domains.commerce import events
 
         assert "CustomerBulkCancelEvent" in events.__all__
         assert "CustomerAddressChangedEvent" in events.__all__
         assert "ProductStockOutEvent" in events.__all__
 
-    def test_enterprise_events_empty(self):
-        from sqldim.application.datasets.domains.enterprise import events
+    def test_growth_events_exports(self):
+        from sqldim.application.datasets.domains.growth import events
 
-        assert events.__all__ == []
+        assert "UserPlanUpgradedEvent" in events.__all__
+        assert "UserChurnedEvent" in events.__all__
 
     def test_fintech_events_empty(self):
         from sqldim.application.datasets.domains.fintech import events
 
         assert events.__all__ == []
 
-    def test_hierarchy_events_empty(self):
-        from sqldim.application.datasets.domains.hierarchy import events
+    def test_entertainment_events_exports(self):
+        from sqldim.application.datasets.domains.entertainment import events
 
-        assert events.__all__ == []
-
-    def test_media_events_empty(self):
-        from sqldim.application.datasets.domains.media import events
-
-        assert events.__all__ == []
+        assert "apply_new_release" in events.__all__
 
     def test_nba_analytics_events_empty(self):
         from sqldim.application.datasets.domains.nba_analytics import events
 
         assert events.__all__ == []
 
-    def test_saas_growth_events_exports(self):
-        from sqldim.application.datasets.domains.saas_growth import events
+    def test_commerce_events_supply_chain(self):
+        from sqldim.application.datasets.domains.commerce.events.scenarios import (
+            apply_supplier_disruption,
+            apply_warehouse_closure,
+            apply_cost_shock,
+        )
 
-        assert "UserPlanUpgradedEvent" in events.__all__
-        assert "UserChurnedEvent" in events.__all__
+        assert callable(apply_supplier_disruption)
+        assert callable(apply_warehouse_closure)
+        assert callable(apply_cost_shock)
 
-    def test_supply_chain_events_empty(self):
-        from sqldim.application.datasets.domains.supply_chain import events
-
-        assert events.__all__ == []
-
-    def test_user_activity_events_empty(self):
-        from sqldim.application.datasets.domains.user_activity import events
+    def test_telemetry_events_empty(self):
+        from sqldim.application.datasets.domains.telemetry import events
 
         assert events.__all__ == []

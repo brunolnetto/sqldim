@@ -1,0 +1,27 @@
+{
+  "tool": "dgm_validate_invariant",
+  "domain": "nba_analytics",
+  "cases": [
+    {
+      "id": "nba_analytics.validate_invariant",
+      "tool": "dgm_validate_invariant",
+      "description": "Validate non-negative points invariant for nba_analytics",
+      "arguments": {
+        "invariant": "points_non_negative",
+        "dataset": "nba_analytics"
+      },
+      "expected": {
+        "success": true,
+        "tool_name": "dgm_validate_invariant",
+        "data_keys": [
+          "valid",
+          "violations"
+        ],
+        "data_checks": {}
+      },
+      "tags": [
+        "invariant"
+      ]
+    }
+  ]
+}

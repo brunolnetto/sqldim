@@ -18,17 +18,17 @@ def domain_pipeline_cache(
     """Return the pre-built domain pipeline cache for drift structural tests.
 
     Eight of the nine drift-suite domains come directly from the session-wide
-    ``_dataset_pipeline_cache``.  The ``observability`` domain is built here
-    lazily, using *patched* build_pipeline functions so that the 12-domain
+    ``_dataset_pipeline_cache``.  The ``telemetry`` domain is built here
+    lazily, using *patched* build_pipeline functions so that the 10-domain
     telemetry collection run reuses cached file snapshots instead of
-    re-running expensive Faker builds.  This reduces the observability build
+    re-running expensive Faker builds.  This reduces the telemetry build
     from ~44s to ~3s.
     """
     cache = dict(_dataset_pipeline_cache)
 
-    if "observability" not in cache:
-        tmpdir = tmp_path_factory.mktemp("domain_pipeline_obs")
-        db_path = str(tmpdir / "observability.duckdb")
+    if "telemetry" not in cache:
+        tmpdir = tmp_path_factory.mktemp("domain_pipeline_tel")
+        db_path = str(tmpdir / "telemetry.duckdb")
 
         # For every domain already in the cache, replace its build_pipeline
         # with a fast version that restores from the cached .duckdb file.
@@ -47,31 +47,33 @@ def domain_pipeline_cache(
 
         patches: list[mock._patch] = []  # type: ignore[type-arg]
         for domain, cached_path in cache.items():
-            mod_path = (
-                f"sqldim.application.datasets.domains.{domain}.pipeline.builder"
-            )
+            mod_path = f"sqldim.application.datasets.domains.{domain}.pipeline.builder"
             try:
                 mod = importlib.import_module(mod_path)
-                p = mock.patch.object(mod, "build_pipeline", _make_fast_builder(cached_path))
+                p = mock.patch.object(
+                    mod, "build_pipeline", _make_fast_builder(cached_path)
+                )
                 patches.append(p)
                 p.start()
             except (ImportError, AttributeError):
                 pass
 
         try:
-            obs_mod = importlib.import_module(
-                "sqldim.application.datasets.domains.observability.pipeline.builder"
+            tel_mod = importlib.import_module(
+                "sqldim.application.datasets.domains.telemetry.pipeline.builder"
             )
             con = duckdb.connect(":memory:")
             try:
-                obs_mod.build_pipeline(con)
+                tel_mod.build_pipeline(con)
                 con.execute(f"ATTACH '{db_path}' AS _out")
                 tables = con.execute(
                     "SELECT table_name FROM information_schema.tables "
                     "WHERE table_catalog = 'memory' AND table_schema = 'main'"
                 ).fetchall()
                 for (tbl,) in tables:
-                    con.execute(f"CREATE TABLE _out.main.{tbl} AS SELECT * FROM main.{tbl}")
+                    con.execute(
+                        f"CREATE TABLE _out.main.{tbl} AS SELECT * FROM main.{tbl}"
+                    )
                 con.execute("CHECKPOINT _out")
                 con.execute("DETACH _out")
             finally:
@@ -80,7 +82,6 @@ def domain_pipeline_cache(
             for p in patches:
                 p.stop()
 
-        cache["observability"] = db_path
+        cache["telemetry"] = db_path
 
     yield cache
-

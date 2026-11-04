@@ -24,73 +24,76 @@ pytestmark = pytest.mark.filterwarnings(
 class TestBenchRunParser:
     def test_cases_positional(self):
         parser = build_parser()
-        args = parser.parse_args(["bench", "run", "A", "B.scd"])
+        args = parser.parse_args(["exercise", "bench", "run", "A", "B.scd"])
         assert args.cases == ["A", "B.scd"]
 
     def test_cases_default_empty(self):
         parser = build_parser()
-        args = parser.parse_args(["bench", "run"])
+        args = parser.parse_args(["exercise", "bench", "run"])
         assert args.cases == []
 
     def test_max_tier_flag(self):
         parser = build_parser()
-        args = parser.parse_args(["bench", "run", "--max-tier", "m"])
+        args = parser.parse_args(["exercise", "bench", "run", "--max-tier", "m"])
         assert args.max_tier == "m"
 
     def test_max_tier_default_auto(self):
         parser = build_parser()
-        args = parser.parse_args(["bench", "run"])
+        args = parser.parse_args(["exercise", "bench", "run"])
         assert args.max_tier == "auto"
 
     def test_report_flag(self):
         parser = build_parser()
-        args = parser.parse_args(["bench", "run", "--report", "csv"])
+        args = parser.parse_args(["exercise", "bench", "run", "--report", "csv"])
         assert args.report == "csv"
 
     def test_report_default_json(self):
         parser = build_parser()
-        args = parser.parse_args(["bench", "run"])
+        args = parser.parse_args(["exercise", "bench", "run"])
         assert args.report == "json"
 
     def test_out_dir_flag(self):
         parser = build_parser()
-        args = parser.parse_args(["bench", "run", "--out-dir", "/tmp/results"])
+        args = parser.parse_args(
+            ["exercise", "bench", "run", "--out-dir", "/tmp/results"]
+        )
         assert args.out_dir == "/tmp/results"
 
     def test_source_flag(self):
         parser = build_parser()
-        args = parser.parse_args(["bench", "run", "--source", "parquet"])
+        args = parser.parse_args(["exercise", "bench", "run", "--source", "parquet"])
         assert args.source == "parquet"
 
     def test_source_default_parquet(self):
         parser = build_parser()
-        args = parser.parse_args(["bench", "run"])
+        args = parser.parse_args(["exercise", "bench", "run"])
         assert args.source == "parquet"
 
     def test_fail_on_regression_flag(self):
         parser = build_parser()
-        args = parser.parse_args(["bench", "run", "--fail-on-regression"])
+        args = parser.parse_args(["exercise", "bench", "run", "--fail-on-regression"])
         assert args.fail_on_regression is True
 
     def test_fail_on_regression_default_false(self):
         parser = build_parser()
-        args = parser.parse_args(["bench", "run"])
+        args = parser.parse_args(["exercise", "bench", "run"])
         assert args.fail_on_regression is False
 
     def test_fail_on_breach_flag(self):
         parser = build_parser()
-        args = parser.parse_args(["bench", "run", "--fail-on-breach"])
+        args = parser.parse_args(["exercise", "bench", "run", "--fail-on-breach"])
         assert args.fail_on_breach is True
 
     def test_compare_last_flag(self):
         parser = build_parser()
-        args = parser.parse_args(["bench", "run", "--compare-last"])
+        args = parser.parse_args(["exercise", "bench", "run", "--compare-last"])
         assert args.compare_last is True
 
     def test_func_set_to_cmd_bench_run(self):
         parser = build_parser()
-        args = parser.parse_args(["bench", "run"])
-        from sqldim.cli.bench import cmd_bench_run
+        args = parser.parse_args(["exercise", "bench", "run"])
+        from sqldim.cli import cmd_bench_run
+
         assert args.func is cmd_bench_run
 
 
@@ -114,12 +117,13 @@ class TestBenchRunCommand:
         # The function is imported locally inside cmd_bench_run so we patch
         # the canonical location in the benchmarks runner module.
         import sqldim.application.benchmarks.runner as _runner_mod
+
         monkeypatch.setattr(_runner_mod, "main", _fake_main)
 
     def _run(self, extra_args: list[str]) -> int:
         from sqldim.cli import main
 
-        return main(["bench", "run"] + extra_args)
+        return main(["exercise", "bench", "run"] + extra_args)
 
     def test_basic_invocation_returns_zero(self):
         rc = self._run(["--report", "none"])
@@ -194,4 +198,3 @@ class TestBenchParserFunction:
         args = p.parse_args([])
         # The bench parser should accept args without errors
         assert args is not None
-

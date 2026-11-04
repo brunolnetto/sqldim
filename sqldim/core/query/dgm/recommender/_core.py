@@ -405,10 +405,7 @@ class DGMRecommender:
                     Suggestion(
                         kind=SuggestionKind.STRATEGY_SHIFT,
                         band="parametric",
-                        text=(
-                            f"Use DAG-aware strategy on CAUSAL bridge"
-                            f" {ann.bridge}"
-                        ),
+                        text=(f"Use DAG-aware strategy on CAUSAL bridge {ann.bridge}"),
                         priority=60,
                     )
                 )

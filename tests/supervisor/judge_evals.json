@@ -1,0 +1,994 @@
+{
+  "description": "LLM judge eval cases for the DGM supervisor pipeline (§12 evals).",
+  "pass_threshold": 0.6,
+  "cases": [
+    {
+      "id": "judge.01.ecommerce_revenue",
+      "utterance": "what is the total revenue from all orders?",
+      "tags": [
+        "analytical",
+        "single-tool",
+        "ecommerce"
+      ],
+      "expected": {
+        "planning": {
+          "tools": [
+            "dgm_query"
+          ],
+          "dataset": null,
+          "confidence_min": 0.5
+        },
+        "execution": {
+          "all_succeed": true,
+          "result_count": 1
+        },
+        "synthesis": {
+          "must_mention": [
+            "query",
+            "completed"
+          ],
+          "must_not_mention": [
+            "error",
+            "failed"
+          ],
+          "semantic_criteria": "Should indicate a DGM query was run on a dataset"
+        }
+      }
+    },
+    {
+      "id": "judge.02.retail_top_customers",
+      "utterance": "Top 5 customers by revenue",
+      "tags": [
+        "analytical",
+        "single-tool",
+        "retail"
+      ],
+      "expected": {
+        "planning": {
+          "tools": [
+            "dgm_query"
+          ],
+          "dataset": null,
+          "confidence_min": 0.5
+        },
+        "execution": {
+          "all_succeed": true,
+          "result_count": 1
+        },
+        "synthesis": {
+          "must_mention": [
+            "query",
+            "completed"
+          ],
+          "must_not_mention": [
+            "error",
+            "failed"
+          ],
+          "semantic_criteria": "Should describe a query completion on a dataset"
+        }
+      }
+    },
+    {
+      "id": "judge.03.social_network_followers",
+      "utterance": "Who are the most followed users in social_network?",
+      "tags": [
+        "analytical",
+        "single-tool",
+        "entertainment"
+      ],
+      "expected": {
+        "planning": {
+          "tools": [
+            "dgm_query"
+          ],
+          "dataset": null,
+          "confidence_min": 0.5
+        },
+        "execution": {
+          "all_succeed": true,
+          "result_count": 1
+        },
+        "synthesis": {
+          "must_mention": [
+            "query",
+            "completed"
+          ],
+          "must_not_mention": [
+            "error",
+            "failed"
+          ],
+          "semantic_criteria": "Should indicate a query was executed successfully"
+        }
+      }
+    },
+    {
+      "id": "judge.04.devops_commits",
+      "utterance": "Find the top contributors by commit count",
+      "tags": [
+        "analytical",
+        "single-tool",
+        "devops"
+      ],
+      "expected": {
+        "planning": {
+          "tools": [
+            "dgm_query"
+          ],
+          "dataset": null,
+          "confidence_min": 0.5
+        },
+        "execution": {
+          "all_succeed": true,
+          "result_count": 1
+        },
+        "synthesis": {
+          "must_mention": [
+            "query",
+            "completed"
+          ],
+          "must_not_mention": [
+            "error",
+            "failed"
+          ],
+          "semantic_criteria": "Should confirm an analytical query ran successfully"
+        }
+      }
+    },
+    {
+      "id": "judge.05.fintech_subscriptions",
+      "utterance": "List all active subscriptions",
+      "tags": [
+        "analytical",
+        "single-tool",
+        "fintech"
+      ],
+      "expected": {
+        "planning": {
+          "tools": [
+            "dgm_query"
+          ],
+          "dataset": null,
+          "confidence_min": 0.5
+        },
+        "execution": {
+          "all_succeed": true,
+          "result_count": 1
+        },
+        "synthesis": {
+          "must_mention": [
+            "query",
+            "completed"
+          ],
+          "must_not_mention": [
+            "error",
+            "failed"
+          ],
+          "semantic_criteria": "Should indicate a listing query was executed"
+        }
+      }
+    },
+    {
+      "id": "judge.06.saas_churn",
+      "utterance": "Show me the churn rate over the last year",
+      "tags": [
+        "analytical",
+        "single-tool",
+        "saas_growth"
+      ],
+      "expected": {
+        "planning": {
+          "tools": [
+            "dgm_query"
+          ],
+          "dataset": null,
+          "confidence_min": 0.5
+        },
+        "execution": {
+          "all_succeed": true,
+          "result_count": 1
+        },
+        "synthesis": {
+          "must_mention": [
+            "query",
+            "completed"
+          ],
+          "must_not_mention": [
+            "error",
+            "failed"
+          ],
+          "semantic_criteria": "Should describe a churn-related query completion"
+        }
+      }
+    },
+    {
+      "id": "judge.07.avg_order_value",
+      "utterance": "What is the average order value?",
+      "tags": [
+        "analytical",
+        "single-tool",
+        "ecommerce"
+      ],
+      "expected": {
+        "planning": {
+          "tools": [
+            "dgm_query"
+          ],
+          "dataset": null,
+          "confidence_min": 0.5
+        },
+        "execution": {
+          "all_succeed": true,
+          "result_count": 1
+        },
+        "synthesis": {
+          "must_mention": [
+            "query",
+            "completed"
+          ],
+          "must_not_mention": [
+            "error",
+            "failed"
+          ],
+          "semantic_criteria": "Should confirm an aggregation query executed"
+        }
+      }
+    },
+    {
+      "id": "judge.08.user_signups",
+      "utterance": "Count users who signed up in Q1",
+      "tags": [
+        "analytical",
+        "single-tool",
+        "user_activity"
+      ],
+      "expected": {
+        "planning": {
+          "tools": [
+            "dgm_query"
+          ],
+          "dataset": null,
+          "confidence_min": 0.5
+        },
+        "execution": {
+          "all_succeed": true,
+          "result_count": 1
+        },
+        "synthesis": {
+          "must_mention": [
+            "query",
+            "completed"
+          ],
+          "must_not_mention": [
+            "error",
+            "failed"
+          ],
+          "semantic_criteria": "Should confirm a count query was executed"
+        }
+      }
+    },
+    {
+      "id": "judge.09.dataset_discovery_all",
+      "utterance": "Which datasets can you see?",
+      "tags": [
+        "discovery",
+        "dataset",
+        "single-tool"
+      ],
+      "expected": {
+        "planning": {
+          "tools": [
+            "dgm_what_can_i_answer"
+          ],
+          "dataset": null,
+          "confidence_min": 0.5
+        },
+        "execution": {
+          "all_succeed": true,
+          "result_count": 1
+        },
+        "synthesis": {
+          "must_mention": [
+            "dataset"
+          ],
+          "must_not_mention": [
+            "error",
+            "failed"
+          ],
+          "semantic_criteria": "Should list available datasets with their names"
+        }
+      }
+    },
+    {
+      "id": "judge.10.dataset_discovery_alt",
+      "utterance": "What data is available to me?",
+      "tags": [
+        "discovery",
+        "dataset",
+        "single-tool"
+      ],
+      "expected": {
+        "planning": {
+          "tools": [
+            "dgm_what_can_i_answer"
+          ],
+          "dataset": null,
+          "confidence_min": 0.5
+        },
+        "execution": {
+          "all_succeed": true,
+          "result_count": 1
+        },
+        "synthesis": {
+          "must_mention": [
+            "dataset"
+          ],
+          "must_not_mention": [
+            "error",
+            "failed"
+          ],
+          "semantic_criteria": "Should enumerate the datasets the system knows about"
+        }
+      }
+    },
+    {
+      "id": "judge.11.tool_capabilities",
+      "utterance": "What tools do you have?",
+      "tags": [
+        "discovery",
+        "tools",
+        "single-tool"
+      ],
+      "expected": {
+        "planning": {
+          "tools": [
+            "dgm_map_analytical_space"
+          ],
+          "dataset": null,
+          "confidence_min": 0.5
+        },
+        "execution": {
+          "all_succeed": true,
+          "result_count": 1
+        },
+        "synthesis": {
+          "must_mention": [
+            "tool"
+          ],
+          "must_not_mention": [
+            "error",
+            "failed"
+          ],
+          "semantic_criteria": "Should list the available analytical tools with descriptions"
+        }
+      }
+    },
+    {
+      "id": "judge.12.tool_capabilities_alt",
+      "utterance": "What are your analytical capabilities?",
+      "tags": [
+        "discovery",
+        "tools",
+        "single-tool"
+      ],
+      "expected": {
+        "planning": {
+          "tools": [
+            "dgm_map_analytical_space"
+          ],
+          "dataset": null,
+          "confidence_min": 0.5
+        },
+        "execution": {
+          "all_succeed": true,
+          "result_count": 1
+        },
+        "synthesis": {
+          "must_mention": [
+            "tool"
+          ],
+          "must_not_mention": [
+            "error",
+            "failed"
+          ],
+          "semantic_criteria": "Should describe the system's analytical tool capabilities"
+        }
+      }
+    },
+    {
+      "id": "judge.13.dataset_plus_tools",
+      "utterance": "Which datasets can you see and what tools do you have?",
+      "tags": [
+        "discovery",
+        "multi-tool",
+        "dataset",
+        "tools"
+      ],
+      "expected": {
+        "planning": {
+          "tools": [
+            "dgm_what_can_i_answer",
+            "dgm_map_analytical_space"
+          ],
+          "dataset": null,
+          "confidence_min": 0.7
+        },
+        "execution": {
+          "all_succeed": true,
+          "result_count": 2
+        },
+        "synthesis": {
+          "must_mention": [
+            "dataset",
+            "tool"
+          ],
+          "must_not_mention": [
+            "error",
+            "failed"
+          ],
+          "semantic_criteria": "Should list both available datasets and available tools"
+        }
+      }
+    },
+    {
+      "id": "judge.14.dataset_plus_tools_alt",
+      "utterance": "Show me available data and your capabilities",
+      "tags": [
+        "discovery",
+        "multi-tool",
+        "dataset",
+        "tools"
+      ],
+      "expected": {
+        "planning": {
+          "tools": [
+            "dgm_what_can_i_answer",
+            "dgm_map_analytical_space"
+          ],
+          "dataset": null,
+          "confidence_min": 0.7
+        },
+        "execution": {
+          "all_succeed": true,
+          "result_count": 2
+        },
+        "synthesis": {
+          "must_mention": [
+            "dataset",
+            "tool"
+          ],
+          "must_not_mention": [
+            "error",
+            "failed"
+          ],
+          "semantic_criteria": "Should present both data availability and tool capability information"
+        }
+      }
+    },
+    {
+      "id": "judge.15.dataset_specific_ecommerce",
+      "utterance": "Which questions can you answer for ecommerce?",
+      "tags": [
+        "discovery",
+        "dataset-specific",
+        "ecommerce"
+      ],
+      "expected": {
+        "planning": {
+          "tools": [
+            "dgm_what_can_i_answer"
+          ],
+          "dataset": "commerce",
+          "confidence_min": 0.5
+        },
+        "execution": {
+          "all_succeed": true,
+          "result_count": 1
+        },
+        "synthesis": {
+          "must_mention": [
+            "commerce"
+          ],
+          "must_not_mention": [
+            "error",
+            "failed"
+          ],
+          "semantic_criteria": "Should identify the canonical commerce dataset for the legacy ecommerce term."
+        }
+      }
+    },
+    {
+      "id": "judge.16.dataset_specific_social_network",
+      "utterance": "What can you answer for entertainment?",
+      "tags": [
+        "discovery",
+        "dataset-specific",
+        "entertainment"
+      ],
+      "expected": {
+        "planning": {
+          "tools": [
+            "dgm_what_can_i_answer"
+          ],
+          "dataset": "entertainment",
+          "confidence_min": 0.5
+        },
+        "execution": {
+          "all_succeed": true,
+          "result_count": 1
+        },
+        "synthesis": {
+          "must_mention": [
+            "entertainment"
+          ],
+          "must_not_mention": [
+            "error",
+            "failed"
+          ],
+          "semantic_criteria": "Should specifically reference the entertainment dataset"
+        }
+      }
+    },
+    {
+      "id": "judge.17.dataset_specific_retail",
+      "utterance": "What questions can I ask about retail?",
+      "tags": [
+        "discovery",
+        "dataset-specific",
+        "retail"
+      ],
+      "expected": {
+        "planning": {
+          "tools": [
+            "dgm_what_can_i_answer"
+          ],
+          "dataset": "commerce",
+          "confidence_min": 0.5
+        },
+        "execution": {
+          "all_succeed": true,
+          "result_count": 1
+        },
+        "synthesis": {
+          "must_mention": [
+            "commerce"
+          ],
+          "must_not_mention": [
+            "error",
+            "failed"
+          ],
+          "semantic_criteria": "Should identify the canonical commerce dataset for the legacy retail term."
+        }
+      }
+    },
+    {
+      "id": "judge.18.vague_hello",
+      "utterance": "hello.",
+      "tags": [
+        "vague",
+        "greeting",
+        "reflect"
+      ],
+      "expected": {
+        "planning": {
+          "tools": [
+            "dgm_what_can_i_answer",
+            "dgm_map_analytical_space"
+          ],
+          "dataset": null,
+          "confidence_min": 0.3
+        },
+        "execution": {
+          "all_succeed": true,
+          "result_count": 2
+        },
+        "synthesis": {
+          "must_mention": [
+            "dataset",
+            "tool"
+          ],
+          "must_not_mention": [
+            "error",
+            "failed"
+          ],
+          "semantic_criteria": "Should produce a welcoming orientation listing datasets and tools after reflect"
+        }
+      }
+    },
+    {
+      "id": "judge.19.vague_help",
+      "utterance": "help",
+      "tags": [
+        "vague",
+        "greeting",
+        "reflect"
+      ],
+      "expected": {
+        "planning": {
+          "tools": [
+            "dgm_what_can_i_answer",
+            "dgm_map_analytical_space"
+          ],
+          "dataset": null,
+          "confidence_min": 0.3
+        },
+        "execution": {
+          "all_succeed": true,
+          "result_count": 2
+        },
+        "synthesis": {
+          "must_mention": [
+            "dataset",
+            "tool"
+          ],
+          "must_not_mention": [
+            "error",
+            "failed"
+          ],
+          "semantic_criteria": "Should provide orientation help listing available datasets and tools"
+        }
+      }
+    },
+    {
+      "id": "judge.20.vague_question_mark",
+      "utterance": "?",
+      "tags": [
+        "vague",
+        "greeting",
+        "reflect"
+      ],
+      "expected": {
+        "planning": {
+          "tools": [
+            "dgm_what_can_i_answer",
+            "dgm_map_analytical_space"
+          ],
+          "dataset": null,
+          "confidence_min": 0.3
+        },
+        "execution": {
+          "all_succeed": true,
+          "result_count": 2
+        },
+        "synthesis": {
+          "must_mention": [
+            "dataset",
+            "tool"
+          ],
+          "must_not_mention": [
+            "error",
+            "failed"
+          ],
+          "semantic_criteria": "Should provide helpful orientation since no analytical intent was detected"
+        }
+      }
+    },
+    {
+      "id": "judge.21.vague_empty",
+      "utterance": "",
+      "tags": [
+        "vague",
+        "empty",
+        "reflect"
+      ],
+      "expected": {
+        "planning": {
+          "tools": [
+            "dgm_what_can_i_answer",
+            "dgm_map_analytical_space"
+          ],
+          "dataset": null,
+          "confidence_min": 0.05
+        },
+        "execution": {
+          "all_succeed": true,
+          "result_count": 2
+        },
+        "synthesis": {
+          "must_mention": [
+            "dataset",
+            "tool"
+          ],
+          "must_not_mention": [
+            "error",
+            "failed"
+          ],
+          "semantic_criteria": "Should produce a full orientation response listing available datasets and tools. This IS the correct and complete answer for an empty utterance; score synthesis 0.9 or 1.0 if datasets and tools are listed."
+        }
+      }
+    },
+    {
+      "id": "judge.22.vague_analyze",
+      "utterance": "analyze",
+      "tags": [
+        "vague",
+        "reflect"
+      ],
+      "expected": {
+        "planning": {
+          "tools": [
+            "dgm_what_can_i_answer",
+            "dgm_map_analytical_space"
+          ],
+          "dataset": null,
+          "confidence_min": 0.3
+        },
+        "execution": {
+          "all_succeed": true,
+          "result_count": 2
+        },
+        "synthesis": {
+          "must_mention": [
+            "dataset"
+          ],
+          "must_not_mention": [
+            "error",
+            "failed"
+          ],
+          "semantic_criteria": "Should provide orientation when a vague analytical term is given without context"
+        }
+      }
+    },
+    {
+      "id": "judge.23.compare_cross_domain",
+      "utterance": "Compare ecommerce and retail performance",
+      "tags": [
+        "analytical",
+        "cross-domain",
+        "single-tool"
+      ],
+      "expected": {
+        "planning": {
+          "tools": [
+            "dgm_query"
+          ],
+          "dataset": null,
+          "confidence_min": 0.5
+        },
+        "execution": {
+          "all_succeed": true,
+          "result_count": 1
+        },
+        "synthesis": {
+          "must_mention": [
+            "query",
+            "completed"
+          ],
+          "must_not_mention": [
+            "error",
+            "failed"
+          ],
+          "semantic_criteria": "Should indicate a comparison query was attempted"
+        }
+      }
+    },
+    {
+      "id": "judge.24.commerce_supply_chain_trend",
+      "utterance": "Show me the trend of deliveries over time in supply_chain",
+      "tags": [
+        "analytical",
+        "single-tool",
+        "commerce"
+      ],
+      "expected": {
+        "planning": {
+          "tools": [
+            "dgm_query"
+          ],
+          "dataset": null,
+          "confidence_min": 0.5
+        },
+        "execution": {
+          "all_succeed": true,
+          "result_count": 1
+        },
+        "synthesis": {
+          "must_mention": [
+            "query",
+            "completed"
+          ],
+          "must_not_mention": [
+            "error",
+            "failed"
+          ],
+          "semantic_criteria": "Should confirm a trend analysis query executed"
+        }
+      }
+    },
+    {
+      "id": "judge.25.observability_errors",
+      "utterance": "How many errors occurred in the last week?",
+      "tags": [
+        "analytical",
+        "single-tool",
+        "observability"
+      ],
+      "expected": {
+        "planning": {
+          "tools": [
+            "dgm_query"
+          ],
+          "dataset": null,
+          "confidence_min": 0.5
+        },
+        "execution": {
+          "all_succeed": true,
+          "result_count": 1
+        },
+        "synthesis": {
+          "must_mention": [
+            "query",
+            "completed"
+          ],
+          "must_not_mention": [
+            "failed"
+          ],
+          "semantic_criteria": "Should confirm a count-based query was run"
+        }
+      }
+    },
+    {
+      "id": "judge.26.media_engagement",
+      "utterance": "What is the average engagement per post?",
+      "tags": [
+        "analytical",
+        "single-tool",
+        "media"
+      ],
+      "expected": {
+        "planning": {
+          "tools": [
+            "dgm_query"
+          ],
+          "dataset": null,
+          "confidence_min": 0.5
+        },
+        "execution": {
+          "all_succeed": true,
+          "result_count": 1
+        },
+        "synthesis": {
+          "must_mention": [
+            "query",
+            "completed"
+          ],
+          "must_not_mention": [
+            "error",
+            "failed"
+          ],
+          "semantic_criteria": "Should describe an engagement metric query completion"
+        }
+      }
+    },
+    {
+      "id": "judge.27.dataset_specific_devops",
+      "utterance": "Which questions can you answer for devops?",
+      "tags": [
+        "discovery",
+        "dataset-specific",
+        "devops"
+      ],
+      "expected": {
+        "planning": {
+          "tools": [
+            "dgm_what_can_i_answer"
+          ],
+          "dataset": "devops",
+          "confidence_min": 0.5
+        },
+        "execution": {
+          "all_succeed": true,
+          "result_count": 1
+        },
+        "synthesis": {
+          "must_mention": [
+            "devops"
+          ],
+          "must_not_mention": [
+            "error",
+            "failed"
+          ],
+          "semantic_criteria": "Should specifically describe what the devops dataset offers"
+        }
+      }
+    },
+    {
+      "id": "judge.28.nba_analytics_query",
+      "utterance": "Who are the top scorers in nba_analytics?",
+      "tags": [
+        "analytical",
+        "single-tool",
+        "nba_analytics"
+      ],
+      "expected": {
+        "planning": {
+          "tools": [
+            "dgm_query"
+          ],
+          "dataset": null,
+          "confidence_min": 0.5
+        },
+        "execution": {
+          "all_succeed": true,
+          "result_count": 1
+        },
+        "synthesis": {
+          "must_mention": [
+            "query",
+            "completed"
+          ],
+          "must_not_mention": [
+            "error",
+            "failed"
+          ],
+          "semantic_criteria": "Should confirm a ranking query was executed on nba_analytics"
+        }
+      }
+    },
+    {
+      "id": "judge.29.enterprise_hierarchy",
+      "utterance": "How many teams exist in the enterprise hierarchy?",
+      "tags": [
+        "analytical",
+        "single-tool",
+        "enterprise"
+      ],
+      "expected": {
+        "planning": {
+          "tools": [
+            "dgm_what_can_i_answer",
+            "dgm_map_analytical_space"
+          ],
+          "dataset": null,
+          "confidence_min": 0.3
+        },
+        "execution": {
+          "all_succeed": true,
+          "result_count": 2
+        },
+        "synthesis": {
+          "must_mention": [
+            "datasets",
+            "tools"
+          ],
+          "must_not_mention": [
+            "error",
+            "failed"
+          ],
+          "semantic_criteria": "Should provide orientation by listing available datasets and tools rather than executing a query against an ambiguous domain."
+        }
+      }
+    },
+    {
+      "id": "judge.30.vague_interesting",
+      "utterance": "interesting",
+      "tags": [
+        "vague",
+        "reflect"
+      ],
+      "expected": {
+        "planning": {
+          "tools": [
+            "dgm_what_can_i_answer",
+            "dgm_map_analytical_space"
+          ],
+          "dataset": null,
+          "confidence_min": 0.3
+        },
+        "execution": {
+          "all_succeed": true,
+          "result_count": 2
+        },
+        "synthesis": {
+          "must_mention": [
+            "dataset"
+          ],
+          "must_not_mention": [
+            "error",
+            "failed"
+          ],
+          "semantic_criteria": "Should provide orientation for ambiguous input with no analytical intent"
+        }
+      }
+    }
+  ]
+}

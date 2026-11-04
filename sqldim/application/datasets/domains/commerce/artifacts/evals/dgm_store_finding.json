@@ -1,0 +1,58 @@
+{
+  "tool": "dgm_store_finding",
+  "domain": "commerce",
+  "cases": [
+    {
+      "id": "commerce.store_finding",
+      "tool": "dgm_store_finding",
+      "description": "Store a revenue finding from ecommerce",
+      "arguments": {
+        "finding": "Revenue concentrated in top 10% of customers",
+        "tags": [
+          "commerce",
+          "analysis"
+        ]
+      },
+      "expected": {
+        "success": true,
+        "tool_name": "dgm_store_finding",
+        "data_keys": [
+          "stored",
+          "finding_id"
+        ],
+        "data_checks": {
+          "stored_equals": true
+        }
+      },
+      "tags": [
+        "knowledge-base"
+      ]
+    },
+    {
+      "id": "commerce.store_finding",
+      "tool": "dgm_store_finding",
+      "description": "Store a stockout finding from retail",
+      "arguments": {
+        "finding": "Stockout events cluster around promotions",
+        "tags": [
+          "commerce",
+          "analysis"
+        ]
+      },
+      "expected": {
+        "success": true,
+        "tool_name": "dgm_store_finding",
+        "data_keys": [
+          "stored",
+          "finding_id"
+        ],
+        "data_checks": {
+          "stored_equals": true
+        }
+      },
+      "tags": [
+        "knowledge-base"
+      ]
+    }
+  ]
+}

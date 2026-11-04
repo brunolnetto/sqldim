@@ -6,9 +6,9 @@ OLTP-style Faker-backed dataset generators.
 **Dataset** groups multiple related sources (FK-ordered)::
 
     from sqldim.application.datasets import Dataset
-    from sqldim.application.datasets.domains.ecommerce import CustomersSource, OrdersSource
+    from sqldim.application.datasets.domains.commerce import CustomersSource, OrdersSource
 
-    pipeline = Dataset("ecommerce", [
+    pipeline = Dataset("commerce", [
         (CustomersSource(n=100), "raw_customers"),
         (OrdersSource(n=200),    "raw_orders"),
     ])
@@ -24,18 +24,15 @@ Each *Source class implements:
 
 Domains
 -------
-dgm           — DGMShowcaseSource (static fixture; no Faker dependency)
-ecommerce     — LoyaltyCustomersSource, CatalogProductsSource, FulfillmentOrdersSource, StoresSource, CustomersSource, ProductsSource, OrdersSource
-enterprise    — EmployeesSource, AccountsSource
+ecommerce     — (merged into commerce — use commerce domain instead)
+commerce      — LoyaltyCustomersSource, CatalogProductsSource, FulfillmentOrdersSource, StoresSource, CustomersSource, ProductsSource, OrdersSource (OLTP) + DimCustomerSource, FctDailySalesSource, FctCohortRetentionSource (gold) + SuppliersSource, WarehousesSource, SKUsSource, ReceiptsSource (supply-chain)
+growth        — EmployeesSource, AccountsSource, SaaSUsersSource, SaaSSessionsSource
 fintech       — AccountsSource, CounterpartiesSource, TransactionsSource
-hierarchy     — OrgChartSource (static fixture; no Faker dependency)
-media         — MoviesSource
+data_models   — DGMShowcaseSource, OrgChartSource (static fixtures; no Faker dependency)
+entertainment — MoviesSource, SocialNetworkSource
 nba_analytics — PlayerSeasonsSource
-saas_growth   — SaaSUsersSource
-supply_chain  — SuppliersSource, WarehousesSource, SKUsSource, ReceiptsSource
-user_activity — DevicesSource, EventsSource
+telemetry     — DevicesSource, EventsSource, PipelineSpanSource, MetricSampleSource
 devops        — GitHubIssuesSource
-observability — PipelineSpanSource, MetricSampleSource
 """
 
 from sqldim.application.datasets.base import (
@@ -60,12 +57,14 @@ from sqldim.application.datasets.schema import (
 )
 
 # Faker-free sources — always importable
-from sqldim.application.datasets.domains.hierarchy import OrgChartSource
-from sqldim.application.datasets.domains.dgm import DGMShowcaseSource
+from sqldim.application.datasets.domains.data_models import (
+    DGMShowcaseSource,
+    OrgChartSource,
+)
 
 # Faker-dependent sources — imported only when faker is available
 try:
-    from sqldim.application.datasets.domains.ecommerce import (
+    from sqldim.application.datasets.domains.commerce import (
         LoyaltyCustomersSource,
         CatalogProductsSource,
         FulfillmentOrdersSource,
@@ -74,11 +73,14 @@ try:
         StoresSource,
         OrdersSource,
     )
-    from sqldim.application.datasets.domains.enterprise import (
+    from sqldim.application.datasets.domains.growth import (
         EmployeesSource,
         AccountsSource,
     )
-    from sqldim.application.datasets.domains.media import MoviesSource
+    from sqldim.application.datasets.domains.entertainment import (
+        MoviesSource,
+        SocialNetworkSource,
+    )
     from sqldim.application.datasets.domains.devops import GitHubIssuesSource
 
     # Real-world domain datasets
@@ -88,18 +90,16 @@ try:
         TransactionsSource,
     )
     from sqldim.application.datasets.domains.nba_analytics import PlayerSeasonsSource
-    from sqldim.application.datasets.domains.saas_growth import SaaSUsersSource
-    from sqldim.application.datasets.domains.supply_chain import (
+    from sqldim.application.datasets.domains.growth import SaaSUsersSource
+    from sqldim.application.datasets.domains.commerce import (
         SuppliersSource,
         WarehousesSource,
         SKUsSource,
         ReceiptsSource,
     )
-    from sqldim.application.datasets.domains.user_activity import (
+    from sqldim.application.datasets.domains.telemetry import (
         DevicesSource,
         EventsSource,
-    )
-    from sqldim.application.datasets.domains.observability import (
         PipelineSpanSource,
         MetricSampleSource,
     )
@@ -119,9 +119,8 @@ __all__ = [
     "DatasetSpec",
     "ChangeRule",
     "EventSpec",
-    # dgm showcase (no Faker required)
+    # data_models (no Faker required)
     "DGMShowcaseSource",
-    # hierarchy (no Faker required)
     "OrgChartSource",
     # e-commerce (requires faker)
     "LoyaltyCustomersSource",
@@ -131,11 +130,12 @@ __all__ = [
     "CustomersSource",
     "StoresSource",
     "OrdersSource",
-    # enterprise (requires faker)
+    # growth (requires faker)
     "EmployeesSource",
     "AccountsSource",
-    # media (requires faker)
+    # entertainment (requires faker)
     "MoviesSource",
+    "SocialNetworkSource",
     # devops (requires faker)
     "GitHubIssuesSource",
     # fintech (requires faker)
@@ -144,17 +144,16 @@ __all__ = [
     "TransactionsSource",
     # nba_analytics (requires faker)
     "PlayerSeasonsSource",
-    # saas_growth (requires faker)
+    # growth (requires faker)
     "SaaSUsersSource",
-    # supply_chain (requires faker)
+    # supply-chain sources (now part of commerce domain; requires faker)
     "SuppliersSource",
     "WarehousesSource",
     "SKUsSource",
     "ReceiptsSource",
-    # user_activity (requires faker)
+    # telemetry (devices/events + pipeline spans/metrics)
     "DevicesSource",
     "EventsSource",
-    # observability (real execution telemetry)
     "PipelineSpanSource",
     "MetricSampleSource",
     # domain-event infrastructure

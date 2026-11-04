@@ -1,0 +1,149 @@
+{
+  "domain": "telemetry",
+  "cases": [
+    {
+      "id": "telemetry.01.events_by_device_type",
+      "dataset": "telemetry",
+      "utterance": "how many page events come from each device type?",
+      "expect_result": true,
+      "expect_columns": [
+        "device_type"
+      ],
+      "expect_table": "devices",
+      "tags": [
+        "metric",
+        "aggregation",
+        "breakdown"
+      ],
+      "expected_sql": "SELECT d.device_type, COUNT(*) AS event_count FROM page_events pe JOIN devices d ON pe.device_id = d.device_id GROUP BY d.device_type ORDER BY event_count DESC"
+    },
+    {
+      "id": "telemetry.02.browser_share",
+      "dataset": "telemetry",
+      "utterance": "what is the browser share across all devices?",
+      "expect_result": true,
+      "expect_columns": [
+        "browser_type"
+      ],
+      "expect_table": "devices",
+      "tags": [
+        "metric",
+        "aggregation",
+        "breakdown"
+      ],
+      "expected_sql": "SELECT browser_type, COUNT(*) AS device_count FROM devices GROUP BY browser_type ORDER BY device_count DESC"
+    },
+    {
+      "id": "telemetry.03.top_visited_urls",
+      "dataset": "telemetry",
+      "utterance": "which URLs were visited the most?",
+      "expect_result": true,
+      "expect_columns": [
+        "url"
+      ],
+      "expect_table": "page_events",
+      "tags": [
+        "metric",
+        "aggregation",
+        "ranking"
+      ],
+      "expected_sql": "SELECT url, COUNT(*) AS visit_count FROM page_events GROUP BY url ORDER BY visit_count DESC"
+    },
+    {
+      "id": "telemetry.04.events_per_host",
+      "dataset": "telemetry",
+      "utterance": "how many page events were recorded per host?",
+      "expect_result": true,
+      "expect_columns": [
+        "host"
+      ],
+      "expect_table": "page_events",
+      "tags": [
+        "metric",
+        "aggregation",
+        "breakdown"
+      ],
+      "expected_sql": "SELECT host, COUNT(*) AS event_count FROM page_events GROUP BY host ORDER BY event_count DESC"
+    },
+    {
+      "id": "telemetry.05.top_referrers",
+      "dataset": "telemetry",
+      "utterance": "which referrers drive the most traffic?",
+      "expect_result": true,
+      "expect_columns": [
+        "referrer"
+      ],
+      "expect_table": "page_events",
+      "tags": [
+        "metric",
+        "aggregation",
+        "ranking"
+      ],
+      "expected_sql": "SELECT referrer, COUNT(*) AS traffic_count FROM page_events GROUP BY referrer ORDER BY traffic_count DESC"
+    },
+    {
+      "id": "telemetry.06.spans_by_status",
+      "dataset": "telemetry",
+      "utterance": "how many pipeline spans are ok versus error?",
+      "expect_result": true,
+      "expect_columns": [
+        "status"
+      ],
+      "expect_table": "pipeline_spans",
+      "tags": [
+        "metric",
+        "aggregation",
+        "reliability"
+      ],
+      "expected_sql": "SELECT status, COUNT(*) AS span_count FROM pipeline_spans GROUP BY status ORDER BY span_count DESC"
+    },
+    {
+      "id": "telemetry.07.avg_duration_by_domain",
+      "dataset": "telemetry",
+      "utterance": "what is the average span duration per domain?",
+      "expect_result": true,
+      "expect_columns": [
+        "domain"
+      ],
+      "expect_table": "pipeline_spans",
+      "tags": [
+        "metric",
+        "aggregation",
+        "performance"
+      ],
+      "expected_sql": "SELECT domain, AVG(duration_s) AS avg_duration_s FROM pipeline_spans GROUP BY domain ORDER BY avg_duration_s DESC"
+    },
+    {
+      "id": "telemetry.08.avg_metric_by_name",
+      "dataset": "telemetry",
+      "utterance": "what is the average value for each metric?",
+      "expect_result": true,
+      "expect_columns": [
+        "name"
+      ],
+      "expect_table": "metric_samples",
+      "tags": [
+        "metric",
+        "aggregation",
+        "overview"
+      ],
+      "expected_sql": "SELECT name, AVG(value) AS avg_value FROM metric_samples GROUP BY name ORDER BY avg_value DESC"
+    },
+    {
+      "id": "telemetry.09.metric_count_by_kind",
+      "dataset": "telemetry",
+      "utterance": "how many metric samples are there for each kind?",
+      "expect_result": true,
+      "expect_columns": [
+        "kind"
+      ],
+      "expect_table": "metric_samples",
+      "tags": [
+        "metric",
+        "aggregation",
+        "classification"
+      ],
+      "expected_sql": "SELECT kind, COUNT(*) AS sample_count FROM metric_samples GROUP BY kind ORDER BY sample_count DESC"
+    }
+  ]
+}

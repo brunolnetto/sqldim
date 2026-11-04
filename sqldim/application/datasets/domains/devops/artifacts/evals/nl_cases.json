@@ -1,0 +1,66 @@
+{
+  "domain": "devops",
+  "cases": [
+    {
+      "id": "devops.01.issues_by_state",
+      "dataset": "devops",
+      "utterance": "how many GitHub issues are open versus closed?",
+      "expect_result": true,
+      "expect_columns": [
+        "state"
+      ],
+      "expect_table": "github_issues",
+      "tags": [
+        "metric",
+        "aggregation",
+        "triage"
+      ],
+      "expected_sql": "SELECT state, COUNT(*) AS issue_count FROM github_issues GROUP BY state ORDER BY issue_count DESC"
+    },
+    {
+      "id": "devops.02.issues_by_label",
+      "dataset": "devops",
+      "utterance": "how many issues are there for each label?",
+      "expect_result": true,
+      "expect_columns": [
+        "labels"
+      ],
+      "expect_table": "github_issues",
+      "tags": [
+        "metric",
+        "aggregation",
+        "triage"
+      ],
+      "expected_sql": "SELECT labels, COUNT(*) AS issue_count FROM github_issues GROUP BY labels ORDER BY issue_count DESC"
+    },
+    {
+      "id": "devops.03.issues_per_author",
+      "dataset": "devops",
+      "utterance": "how many issues has each author opened?",
+      "expect_result": true,
+      "expect_columns": [
+        "author"
+      ],
+      "expect_table": "github_issues",
+      "tags": [
+        "metric",
+        "aggregation",
+        "authorship"
+      ],
+      "expected_sql": "SELECT author, COUNT(*) AS issue_count FROM github_issues GROUP BY author ORDER BY issue_count DESC"
+    },
+    {
+      "id": "devops.04.total_issues",
+      "dataset": "devops",
+      "utterance": "how many GitHub issues exist in total?",
+      "expect_result": true,
+      "expect_columns": [],
+      "expect_table": "github_issues",
+      "tags": [
+        "metric",
+        "count"
+      ],
+      "expected_sql": "SELECT COUNT(*) AS total_issues FROM github_issues"
+    }
+  ]
+}

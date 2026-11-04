@@ -29,7 +29,7 @@ from sqldim.sinks import DuckDBSink, MotherDuckSink, SinkAdapter
 from sqldim.sources import _DatasetSource
 
 from sqldim.application.datasets.domains.devops import GitHubIssuesSource
-from sqldim.application.datasets.domains.ecommerce import ProductsSource
+from sqldim.application.datasets.domains.commerce import ProductsSource
 from sqldim.application.examples.features.utils import make_tmp_db
 
 
@@ -80,9 +80,7 @@ def _report_and_teardown(
         print(f"    [{flag}] #{r[0]}  {r[1]:<42}  [{r[2]}]")
 
 
-def _run_scd2_load(
-    staging_db: str, warehouse_db: str, src: GitHubIssuesSource
-) -> Any:
+def _run_scd2_load(staging_db: str, warehouse_db: str, src: GitHubIssuesSource) -> Any:
     """Run one SCD2 load batch; returns the :class:`SCDResult`."""
     source = _DatasetSource(staging_db, "issues", "github_staging")
     with DuckDBSink(warehouse_db) as sink:

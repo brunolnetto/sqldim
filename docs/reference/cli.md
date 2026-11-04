@@ -77,20 +77,20 @@ sqldim schema graph
 
 ---
 
-## `example` — Example Pipeline Runner
+## `exercise` — Examples and Benchmarks
 
-### `example list`
+### `exercise example list`
 
 List all available real-world examples.
 
 ```bash
-sqldim example list
+sqldim exercise example list
 ```
 
 Output:
 
 ```
-[sqldim] Available examples (run with: sqldim example run <name>):
+[sqldim] Available examples (run with: sqldim exercise example run <name>):
 
   nba              NBA Analytics
                    Cumulative arrays + SCD Type 2 + dual-paradigm graph projection
@@ -102,14 +102,14 @@ Output:
                    Bitmask datelist encoding + L7/L28 retention metrics
 ```
 
-### `example run <name>`
+### `exercise example run <name>`
 
 Run a named real-world example showcase.
 
 ```bash
-sqldim example run nba
-sqldim example run saas
-sqldim example run user-activity
+sqldim exercise example run nba
+sqldim exercise example run saas
+sqldim exercise example run user-activity
 ```
 
 | Argument | Description |

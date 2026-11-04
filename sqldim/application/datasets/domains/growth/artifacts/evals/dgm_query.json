@@ -1,0 +1,138 @@
+{
+  "tool": "dgm_query",
+  "domain": "growth",
+  "cases": [
+    {
+      "id": "growth.query.headcount_by_dept",
+      "tool": "dgm_query",
+      "description": "how many employees are in each department?",
+      "arguments": {
+        "dataset": "growth",
+        "question": "how many employees are in each department?"
+      },
+      "expected": {
+        "success": true,
+        "tool_name": "dgm_query",
+        "data_keys": [
+          "dataset",
+          "question"
+        ],
+        "data_checks": {}
+      },
+      "tags": [
+        "query",
+        "analytical"
+      ]
+    },
+    {
+      "id": "growth.query.balance_by_account_type",
+      "tool": "dgm_query",
+      "description": "what is the total account balance broken down by account type?",
+      "arguments": {
+        "dataset": "growth",
+        "question": "what is the total account balance broken down by account type?"
+      },
+      "expected": {
+        "success": true,
+        "tool_name": "dgm_query",
+        "data_keys": [
+          "dataset",
+          "question"
+        ],
+        "data_checks": {}
+      },
+      "tags": [
+        "query",
+        "analytical"
+      ]
+    },
+    {
+      "id": "growth.query.employees_by_title",
+      "tool": "dgm_query",
+      "description": "how many employees hold each job title?",
+      "arguments": {
+        "dataset": "growth",
+        "question": "how many employees hold each job title?"
+      },
+      "expected": {
+        "success": true,
+        "tool_name": "dgm_query",
+        "data_keys": [
+          "dataset",
+          "question"
+        ],
+        "data_checks": {}
+      },
+      "tags": [
+        "query",
+        "analytical"
+      ]
+    },
+    {
+      "id": "growth.query.users_by_plan_tier",
+      "tool": "dgm_query",
+      "description": "how many users are on each plan tier?",
+      "arguments": {
+        "dataset": "growth",
+        "question": "how many users are on each plan tier?"
+      },
+      "expected": {
+        "success": true,
+        "tool_name": "dgm_query",
+        "data_keys": [
+          "dataset",
+          "question"
+        ],
+        "data_checks": {}
+      },
+      "tags": [
+        "query",
+        "analytical"
+      ]
+    },
+    {
+      "id": "growth.query.users_by_acquisition",
+      "tool": "dgm_query",
+      "description": "which acquisition sources brought in the most users?",
+      "arguments": {
+        "dataset": "growth",
+        "question": "which acquisition sources brought in the most users?"
+      },
+      "expected": {
+        "success": true,
+        "tool_name": "dgm_query",
+        "data_keys": [
+          "dataset",
+          "question"
+        ],
+        "data_checks": {}
+      },
+      "tags": [
+        "query",
+        "analytical"
+      ]
+    },
+    {
+      "id": "growth.query.device_mix",
+      "tool": "dgm_query",
+      "description": "what is the breakdown of users by device type?",
+      "arguments": {
+        "dataset": "growth",
+        "question": "what is the breakdown of users by device type?"
+      },
+      "expected": {
+        "success": true,
+        "tool_name": "dgm_query",
+        "data_keys": [
+          "dataset",
+          "question"
+        ],
+        "data_checks": {}
+      },
+      "tags": [
+        "query",
+        "analytical"
+      ]
+    }
+  ]
+}

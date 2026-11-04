@@ -97,14 +97,23 @@ class _BrokenStream:
 
 
 class TestOpenLineageImportGuard:
-    def test_raises_import_error_without_dep(self):
-        with pytest.raises(ImportError, match="pip install sqldim\\[lineage\\]"):
+    def test_raises_import_error_without_dep(self, monkeypatch):
+        import builtins
+
+        original_import = builtins.__import__
+
+        def import_without_openlineage(
+            name, globals=None, locals=None, fromlist=(), level=0
+        ):
+            if name == "openlineage.client" or name.startswith("openlineage.client."):
+                raise ImportError("simulated missing optional dependency")
+
+            return original_import(name, globals, locals, fromlist, level)
+
+        monkeypatch.setattr(builtins, "__import__", import_without_openlineage)
+
+        with pytest.raises(ImportError, match=r"pip install sqldim\[lineage\]"):
             OpenLineageEmitter()
-
-
-# ---------------------------------------------------------------------------
-# OpenLineageEmitter — mocked SDK
-# ---------------------------------------------------------------------------
 
 
 class TestOpenLineageEmitterMocked:

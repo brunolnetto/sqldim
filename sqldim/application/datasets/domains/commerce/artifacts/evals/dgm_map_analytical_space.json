@@ -1,0 +1,48 @@
+{
+  "tool": "dgm_map_analytical_space",
+  "domain": "commerce",
+  "cases": [
+    {
+      "id": "commerce.map_analytical_space",
+      "tool": "dgm_map_analytical_space",
+      "description": "Map analytical space for ecommerce",
+      "arguments": {
+        "dataset": "commerce"
+      },
+      "expected": {
+        "success": true,
+        "tool_name": "dgm_map_analytical_space",
+        "data_keys": [
+          "tools"
+        ],
+        "data_checks": {
+          "tools_non_empty": true
+        }
+      },
+      "tags": [
+        "capability"
+      ]
+    },
+    {
+      "id": "commerce.map_analytical_space",
+      "tool": "dgm_map_analytical_space",
+      "description": "Map analytical space for retail",
+      "arguments": {
+        "dataset": "commerce"
+      },
+      "expected": {
+        "success": true,
+        "tool_name": "dgm_map_analytical_space",
+        "data_keys": [
+          "tools"
+        ],
+        "data_checks": {
+          "tools_non_empty": true
+        }
+      },
+      "tags": [
+        "capability"
+      ]
+    }
+  ]
+}

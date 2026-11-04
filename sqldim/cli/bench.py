@@ -1,4 +1,4 @@
-"""CLI bench commands — ``sqldim bench run``.
+"""CLI bench commands — ``sqldim exercise bench {list,run}``.
 
 Thin wrapper around :mod:`sqldim.application.benchmarks.runner` — the
 comprehensive benchmark suite (groups A–T: SCD, model, DGM).  The CLI
@@ -9,16 +9,45 @@ from __future__ import annotations
 
 import argparse
 
-from sqldim.application.benchmarks._bench_parser import build_parser as _build_bench_parser
-
 
 def bench_parser() -> argparse.ArgumentParser:
     """Return the argparse parser defined by the benchmarks module.
 
     Exposed so ``cli/__init__.py`` can merge its arguments into the
-    top-level ``sqldim bench run`` sub-parser.
+    top-level ``sqldim exercise bench run`` sub-parser.
     """
+    from sqldim.application.benchmarks._bench_parser import (
+        build_parser as _build_bench_parser,
+    )
+
     return _build_bench_parser()
+
+
+def cmd_bench_list(args: argparse.Namespace) -> int:
+    """List all available benchmark groups (A–T) with descriptions."""
+    from sqldim.application.benchmarks._bench_parser import (
+        BENCH_HIERARCHY,
+        SUBGROUP_DESCRIPTIONS,
+        _LETTER_DESCRIPTIONS,
+    )
+
+    total_letters = sum(
+        len(letters) for subs in BENCH_HIERARCHY.values() for letters in subs.values()
+    )
+    print(
+        f"[sqldim bench] {total_letters} benchmark group(s) across "
+        f"{len(BENCH_HIERARCHY)} domain(s)\n"
+    )
+
+    for domain, subgroups in sorted(BENCH_HIERARCHY.items()):
+        for subgroup, letters in sorted(subgroups.items()):
+            desc = SUBGROUP_DESCRIPTIONS.get(f"{domain}.{subgroup}", subgroup)
+            print(f"  {domain}.{subgroup} — {desc}")
+            for letter in sorted(letters):
+                letter_desc = _LETTER_DESCRIPTIONS.get(letter, "")
+                print(f"    [{letter}] {letter_desc}")
+            print()
+    return 0
 
 
 def cmd_bench_run(args: argparse.Namespace) -> int:

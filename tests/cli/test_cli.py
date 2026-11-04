@@ -11,7 +11,7 @@ def test_no_subcommand_returns_1():
 
 def test_migrations_init(tmp_path):
     target = str(tmp_path / "migs")
-    rc = main(["migrations", "init", "--dir", target])
+    rc = main(["ops", "migrations", "init", "--dir", target])
     assert rc == 0
     assert os.path.isdir(target)
     assert os.path.isfile(os.path.join(target, "__init__.py"))
@@ -19,27 +19,27 @@ def test_migrations_init(tmp_path):
 
 def test_migrations_init_idempotent(tmp_path):
     target = str(tmp_path / "migs2")
-    main(["migrations", "init", "--dir", target])
-    rc = main(["migrations", "init", "--dir", target])
+    main(["ops", "migrations", "init", "--dir", target])
+    rc = main(["ops", "migrations", "init", "--dir", target])
     assert rc == 0
 
 
 def test_migrations_generate(capsys):
-    rc = main(["migrations", "generate", "add segment column"])
+    rc = main(["ops", "migrations", "generate", "add segment column"])
     assert rc == 0
     out = capsys.readouterr().out
     assert "add segment column" in out
 
 
 def test_migrations_show(capsys):
-    rc = main(["migrations", "show"])
+    rc = main(["ops", "migrations", "show"])
     assert rc == 0
     out = capsys.readouterr().out
     assert "sqldim" in out
 
 
 def test_schema_graph(capsys):
-    rc = main(["schema", "graph"])
+    rc = main(["ops", "schema", "graph"])
     assert rc == 0
 
 
@@ -65,7 +65,7 @@ def test_main_as_module(monkeypatch):
 
 
 def test_example_list(capsys):
-    rc = main(["example", "list"])
+    rc = main(["exercise", "example", "list"])
     assert rc == 0
     out = capsys.readouterr().out
     assert "nba" in out
@@ -74,7 +74,7 @@ def test_example_list(capsys):
 
 
 def test_example_run_unknown_returns_1(capsys):
-    rc = main(["example", "run", "no-such-demo"])
+    rc = main(["exercise", "example", "run", "no-such-demo"])
     assert rc == 1
     out = capsys.readouterr().out
     assert "Unknown example" in out
@@ -82,21 +82,21 @@ def test_example_run_unknown_returns_1(capsys):
 
 
 def test_example_run_nba(capsys):
-    rc = main(["example", "run", "nba"])
+    rc = main(["exercise", "example", "run", "nba"])
     assert rc == 0
     out = capsys.readouterr().out
     assert "NBA" in out or "complete" in out.lower()
 
 
 def test_example_run_saas(capsys):
-    rc = main(["example", "run", "saas"])
+    rc = main(["exercise", "example", "run", "saas"])
     assert rc == 0
     out = capsys.readouterr().out
     assert "SaaS" in out or "complete" in out.lower()
 
 
 def test_example_run_user_activity(capsys):
-    rc = main(["example", "run", "user-activity"])
+    rc = main(["exercise", "example", "run", "user-activity"])
     assert rc == 0
     out = capsys.readouterr().out
     assert "User" in out or "Bitmask" in out or "Activity" in out
@@ -130,7 +130,7 @@ def test_example_run_sync_branch(capsys, monkeypatch):
     # Temporarily override iscoroutinefunction so the else-branch is taken
     monkeypatch.setattr(asyncio, "iscoroutinefunction", lambda fn: False)
 
-    rc = main(["example", "run", "sync_test"])
+    rc = main(["exercise", "example", "run", "sync_test"])
     assert rc == 0
     assert called
 
@@ -155,18 +155,17 @@ def test_discover_examples_import_error_skips_pkg(capsys):
 
 
 def test_discover_examples_showcase_import_error_skips_module():
-    """Line 101: ImportError on the showcase module itself causes silent skip."""
+    """If showcase.py metadata cannot be read (e.g. missing file), that module is skipped."""
     import sqldim.cli.examples as cli_mod
-    import importlib
 
-    real_import = importlib.import_module
+    real_load = cli_mod._load_one_showcase
 
-    def _fake_import(name, *a, **kw):
-        if name.endswith(".showcase") and "nba_analytics" in name:
-            raise ImportError("simulated missing showcase")
-        return real_import(name, *a, **kw)
+    def _fake_load(pkg_name, modname, kind):
+        if modname == "nba_analytics":
+            return None  # simulate missing / unreadable showcase
+        return real_load(pkg_name, modname, kind)
 
-    with mock.patch("importlib.import_module", side_effect=_fake_import):
+    with mock.patch.object(cli_mod, "_load_one_showcase", side_effect=_fake_load):
         result = cli_mod._discover_examples()
     # nba showcase absent; other showcases intact
     assert "nba" not in result
@@ -178,7 +177,7 @@ def test_example_list_no_examples(capsys, monkeypatch):
     import sqldim.cli.examples as cli_mod
 
     monkeypatch.setattr(cli_mod, "_discover_examples", lambda: {})
-    rc = main(["example", "list"])
+    rc = main(["exercise", "example", "list"])
     assert rc == 0
     out = capsys.readouterr().out
     assert "No examples found" in out
@@ -195,7 +194,7 @@ def test_example_list_single_kind_skips_empty_group(capsys, monkeypatch):
             "nba": ("NBA", "desc", "mod", "run", "real_world"),
         },
     )
-    rc = main(["example", "list"])
+    rc = main(["exercise", "example", "list"])
     assert rc == 0
     out = capsys.readouterr().out
     assert "Real-world" in out
@@ -222,20 +221,17 @@ def test_discover_examples_non_package_modules_skipped():
 
 
 def test_discover_examples_none_metadata_skips_module():
-    """Line 101: showcase module that returns EXAMPLE_METADATA=None is silently skipped."""
-    import importlib
-    import types
+    """If _read_example_metadata returns None (no EXAMPLE_METADATA in file), module is skipped."""
     import sqldim.cli.examples as cli_mod
 
-    real_import = importlib.import_module
+    real_read = cli_mod._read_example_metadata
 
-    def _fake_import(name, *a, **kw):
-        if name == "sqldim.application.examples.real_world.nba_analytics.showcase":
-            # Module imports fine but has no EXAMPLE_METADATA → getattr returns None
-            return types.ModuleType(name)
-        return real_import(name, *a, **kw)
+    def _fake_read(showcase_file):
+        if "nba_analytics" in str(showcase_file):
+            return None  # simulate showcase with no EXAMPLE_METADATA
+        return real_read(showcase_file)
 
-    with mock.patch("importlib.import_module", side_effect=_fake_import):
+    with mock.patch.object(cli_mod, "_read_example_metadata", side_effect=_fake_read):
         result = cli_mod._discover_examples()
     # nba_analytics showcase skipped; other showcases still discovered
     assert "nba" not in result

@@ -1,4 +1,5 @@
 """Allow ``python -m sqldim.cli`` invocation."""
+
 import sys
 from sqldim.cli import main
 

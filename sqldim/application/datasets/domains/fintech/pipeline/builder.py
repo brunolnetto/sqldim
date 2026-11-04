@@ -18,7 +18,7 @@ from __future__ import annotations
 import duckdb
 
 #: OLTP tables created by :func:`build_pipeline`.
-TABLE_NAMES: list[str] = ['accounts', 'counterparties', 'transactions']
+TABLE_NAMES: list[str] = ["accounts", "counterparties", "transactions"]
 
 
 def build_pipeline(con: duckdb.DuckDBPyConnection, *, seed: int = 42) -> None:

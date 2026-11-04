@@ -1,0 +1,149 @@
+{
+  "domain": "telemetry",
+  "cases": [
+    {
+      "id": "telemetry.drift.mobile_migration",
+      "event_fn": "apply_mobile_migration",
+      "event_description": "All Tablet devices reclassified as Mobile",
+      "probes": [
+        {
+          "id": "telemetry.drift.probe.devices_by_type",
+          "dataset": "telemetry",
+          "utterance": "how many devices are there of each device type?",
+          "expect_result": true,
+          "expect_columns": [
+            "device_type"
+          ],
+          "tags": [
+            "drift",
+            "metric",
+            "devices"
+          ]
+        },
+        {
+          "id": "telemetry.drift.probe.browser_share",
+          "dataset": "telemetry",
+          "utterance": "what is the browser share across all devices?",
+          "expect_result": true,
+          "expect_columns": [
+            "browser_type"
+          ],
+          "tags": [
+            "drift",
+            "metric",
+            "browsers"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "telemetry.drift.os_migration",
+      "event_fn": "apply_os_migration",
+      "event_description": "All Windows devices reclassified as macOS",
+      "probes": [
+        {
+          "id": "telemetry.drift.probe.devices_by_os",
+          "dataset": "telemetry",
+          "utterance": "how many devices run each operating system?",
+          "expect_result": true,
+          "expect_columns": [
+            "os_type"
+          ],
+          "tags": [
+            "drift",
+            "metric",
+            "devices"
+          ]
+        },
+        {
+          "id": "telemetry.drift.probe.devices_by_type",
+          "dataset": "telemetry",
+          "utterance": "how many devices are there of each device type?",
+          "expect_result": true,
+          "expect_columns": [
+            "device_type"
+          ],
+          "tags": [
+            "drift",
+            "metric",
+            "devices"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "telemetry.drift.error_spike",
+      "event_fn": "apply_error_spike",
+      "event_description": "No-op — real telemetry already reflects actual pipeline errors",
+      "probes": [
+        {
+          "id": "telemetry.drift.probe.spans_by_status",
+          "dataset": "telemetry",
+          "utterance": "how many pipeline spans are ok versus error?",
+          "expect_result": true,
+          "expect_columns": [
+            "status"
+          ],
+          "expect_table": "pipeline_spans",
+          "tags": [
+            "drift",
+            "metric",
+            "reliability"
+          ]
+        },
+        {
+          "id": "telemetry.drift.probe.error_rate_by_domain",
+          "dataset": "telemetry",
+          "utterance": "what is the error rate for each domain?",
+          "expect_result": true,
+          "expect_columns": [
+            "domain"
+          ],
+          "expect_table": "pipeline_spans",
+          "tags": [
+            "drift",
+            "metric",
+            "reliability"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "telemetry.drift.latency_degradation",
+      "event_fn": "apply_latency_degradation",
+      "event_description": "No-op — real telemetry already captures actual metric values",
+      "probes": [
+        {
+          "id": "telemetry.drift.probe.avg_metric_by_name",
+          "dataset": "telemetry",
+          "utterance": "what is the average value for each metric?",
+          "expect_result": true,
+          "expect_columns": [
+            "name"
+          ],
+          "expect_table": "metric_samples",
+          "tags": [
+            "drift",
+            "metric",
+            "performance"
+          ]
+        },
+        {
+          "id": "telemetry.drift.probe.metric_count_by_kind",
+          "dataset": "telemetry",
+          "utterance": "how many metric samples are there for each kind?",
+          "expect_result": true,
+          "expect_columns": [
+            "kind"
+          ],
+          "expect_table": "metric_samples",
+          "tags": [
+            "drift",
+            "metric",
+            "classification"
+          ]
+        }
+      ]
+    }
+  ]
+}

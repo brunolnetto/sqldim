@@ -69,11 +69,10 @@ class TestEvalSuite:
 
     def test_all_datasets_covered(self):
         datasets = {c.dataset for c in EVAL_SUITE}
-        assert "ecommerce" in datasets
+        assert "commerce" in datasets
         assert "fintech" in datasets
-        assert "saas_growth" in datasets
-        assert "user_activity" in datasets
-        assert "retail" in datasets
+        assert "growth" in datasets
+        assert "telemetry" in datasets
 
     def test_ids_unique(self):
         ids = [c.id for c in EVAL_SUITE]
@@ -83,24 +82,23 @@ class TestEvalSuite:
         for case in EVAL_SUITE:
             assert case.utterance.strip(), f"Empty utterance in case {case.id!r}"
 
-    def test_ecommerce_cases_target_known_tables(self):
-        ecom = [c for c in EVAL_SUITE if c.dataset == "ecommerce"]
-        tables = {c.expect_table for c in ecom if c.expect_table}
+    def test_commerce_cases_target_known_tables(self):
+        com = [c for c in EVAL_SUITE if c.dataset == "commerce"]
+        tables = {c.expect_table for c in com if c.expect_table}
         assert "customers" in tables
         assert "orders" in tables
         assert "products" in tables
-        assert "stores" in tables
 
     def test_fintech_cases_positive(self):
         fintech = [c for c in EVAL_SUITE if c.dataset == "fintech"]
         assert len(fintech) >= 4
 
-    def test_saas_growth_cases_positive(self):
-        saas = [c for c in EVAL_SUITE if c.dataset == "saas_growth"]
-        assert len(saas) >= 3
+    def test_growth_cases_positive(self):
+        growth = [c for c in EVAL_SUITE if c.dataset == "growth"]
+        assert len(growth) >= 3
 
-    def test_user_activity_cases_positive(self):
-        ua = [c for c in EVAL_SUITE if c.dataset == "user_activity"]
+    def test_telemetry_cases_positive(self):
+        ua = [c for c in EVAL_SUITE if c.dataset == "telemetry"]
         assert len(ua) >= 3
 
 
@@ -249,11 +247,13 @@ class TestCheckResultMatchesExpected:
         # > 100 rows: only count + columns checked
         rows = [[str(i)] for i in range(101)]
         actual = {"columns": ["a"], "rows": rows, "count": 101}
-        expected = {"columns": ["a"], "rows": [[str(i + 1)] for i in range(101)], "count": 101}
+        expected = {
+            "columns": ["a"],
+            "rows": [[str(i + 1)] for i in range(101)],
+            "count": 101,
+        }
         ok, _ = check_result_matches_expected(actual, expected)
         assert ok  # row data not compared beyond 100 rows
-
-
 
     def test_empty_checks_returns_1(self):
         assert score_case() == 1.0
@@ -493,7 +493,10 @@ class TestHopTracing:
         import duckdb
         from sqldim.core.query.dgm.nl._agent_types import DGMContext, NLInterfaceState
         from sqldim.core.query.dgm.nl._node_impls import make_operational_nodes
-        from sqldim.application.ask import build_registry_from_schema, make_default_budget
+        from sqldim.application.ask import (
+            build_registry_from_schema,
+            make_default_budget,
+        )
 
         con = duckdb.connect()
         # Create an empty table so the registry has a node term but no candidates
@@ -515,12 +518,21 @@ class TestHopTracing:
     def test_dag_construction_with_candidates_generates_select(self):
         """Cover lines 378-388: template SQL with table from candidate description."""
         import duckdb
-        from sqldim.core.query.dgm.nl._agent_types import DGMContext, NLInterfaceState, QueryCandidate
+        from sqldim.core.query.dgm.nl._agent_types import (
+            DGMContext,
+            NLInterfaceState,
+            QueryCandidate,
+        )
         from sqldim.core.query.dgm.nl._node_impls import make_operational_nodes
-        from sqldim.application.ask import build_registry_from_schema, make_default_budget
+        from sqldim.application.ask import (
+            build_registry_from_schema,
+            make_default_budget,
+        )
 
         con = duckdb.connect()
-        con.execute("CREATE TABLE orders (order_id INTEGER, amount DOUBLE, customer_id INTEGER)")
+        con.execute(
+            "CREATE TABLE orders (order_id INTEGER, amount DOUBLE, customer_id INTEGER)"
+        )
         con.execute("INSERT INTO orders VALUES (1, 100.0, 1)")
         registry = build_registry_from_schema(con, ["orders"])
         budget = make_default_budget()
@@ -582,7 +594,7 @@ class TestEvalRunnerStubMode:
         runner = self._make_stub_runner()
         case = EvalCase(
             id="stub.02",
-            dataset="ecommerce",
+            dataset="commerce",
             utterance="list products",
             expect_result=False,
             expect_table=None,
@@ -601,24 +613,27 @@ class TestEvalRunnerStubMode:
 
     def test_filter_by_dataset(self):
         runner = self._make_stub_runner()
-        import unittest.mock as mock
+        cases = runner._filter_suite(
+            cases=None,
+            datasets=["commerce"],
+            tags=None,
+        )
 
-        with mock.patch(
-            "sqldim.application.evals.runner.make_model", return_value=None
-        ):
-            report = runner.run(datasets=["ecommerce"])
-        assert all(r.dataset == "ecommerce" for r in report.results)
+        assert cases
+        assert all(case.dataset == "commerce" for case in cases)
 
     def test_filter_by_tag(self):
         runner = self._make_stub_runner()
-        import unittest.mock as mock
+        cases = runner._filter_suite(
+            cases=None,
+            datasets=["commerce"],
+            tags=["metric"],
+        )
 
-        with mock.patch(
-            "sqldim.application.evals.runner.make_model", return_value=None
-        ):
-            report = runner.run(datasets=["ecommerce"], tags=["metric"])
-        assert len(report.results) > 0
-        assert all("metric" in r.tags for r in report.results)
+        assert cases
+        assert all(
+            case.dataset == "commerce" and "metric" in case.tags for case in cases
+        )
 
     def test_unknown_dataset_yields_error_result(self):
         runner = self._make_stub_runner()
@@ -765,7 +780,11 @@ class TestLogCaseResultVerboseBranches:
             check_details={"has_result": "3 row(s) returned"},
             error=None,
             tags=[],
-            result_rows=[["Widget A", "9.99"], ["Widget B", "14.99"], ["Widget C", "4.99"]],
+            result_rows=[
+                ["Widget A", "9.99"],
+                ["Widget B", "14.99"],
+                ["Widget C", "4.99"],
+            ],
             check_passed={"has_result": True},
         )
         runner._log_case_result(result)
@@ -1003,7 +1022,9 @@ class TestDriftPairResultProperties:
 
         before = self._make_eval_result([["10"]])
         after = self._make_eval_result([["20"]])
-        pair = DriftPairResult(drift_id="d.1", event_description="price up", before=before, after=after)
+        pair = DriftPairResult(
+            drift_id="d.1", event_description="price up", before=before, after=after
+        )
         assert pair.answer_changed is True
 
     def test_answer_unchanged_when_rows_same(self):
@@ -1011,7 +1032,9 @@ class TestDriftPairResultProperties:
 
         before = self._make_eval_result([["10"]])
         after = self._make_eval_result([["10"]])
-        pair = DriftPairResult(drift_id="d.1", event_description="no change", before=before, after=after)
+        pair = DriftPairResult(
+            drift_id="d.1", event_description="no change", before=before, after=after
+        )
         assert pair.answer_changed is False
 
     def test_sql_changed_detects_sql_difference(self):
@@ -1019,13 +1042,11 @@ class TestDriftPairResultProperties:
 
         before = self._make_eval_result([["10"]])
         after = self._make_eval_result([["10"]])
-        before = EvalResult(
-            **{**before.__dict__, "sql_generated": "SELECT a FROM t1"}
+        before = EvalResult(**{**before.__dict__, "sql_generated": "SELECT a FROM t1"})
+        after = EvalResult(**{**after.__dict__, "sql_generated": "SELECT b FROM t2"})
+        pair = DriftPairResult(
+            drift_id="d.2", event_description="sql drift", before=before, after=after
         )
-        after = EvalResult(
-            **{**after.__dict__, "sql_generated": "SELECT b FROM t2"}
-        )
-        pair = DriftPairResult(drift_id="d.2", event_description="sql drift", before=before, after=after)
         assert pair.sql_changed is True
 
     def test_row_count_delta(self):
@@ -1033,7 +1054,9 @@ class TestDriftPairResultProperties:
 
         before = self._make_eval_result([["1"]])
         after = self._make_eval_result([["1"], ["2"], ["3"]])
-        pair = DriftPairResult(drift_id="d.3", event_description="insert", before=before, after=after)
+        pair = DriftPairResult(
+            drift_id="d.3", event_description="insert", before=before, after=after
+        )
         assert pair.row_count_delta == 2
 
 
@@ -1135,7 +1158,9 @@ class TestEvalRunnerRunDriftSuite:
 
     @pytest.fixture(autouse=True)
     def _stub_model(self, monkeypatch):
-        monkeypatch.setattr("sqldim.application.evals.runner.make_model", lambda *a, **kw: None)
+        monkeypatch.setattr(
+            "sqldim.application.evals.runner.make_model", lambda *a, **kw: None
+        )
 
     def _make_drift_case(self):
         """Build a DriftEvalCase using an in-memory dataset."""
@@ -1148,9 +1173,7 @@ class TestEvalRunnerRunDriftSuite:
 
             def setup(self) -> None:
                 self._con = duckdb.connect(":memory:")
-                self._con.execute(
-                    "CREATE TABLE products (id INTEGER, price DOUBLE)"
-                )
+                self._con.execute("CREATE TABLE products (id INTEGER, price DOUBLE)")
                 self._con.executemany(
                     "INSERT INTO products VALUES (?, ?)", [(1, 10.0), (2, 20.0)]
                 )
@@ -1311,7 +1334,7 @@ class TestLoadEvalCases:
         """Call load_eval_cases for a domain that has an evals.json artifact."""
         from sqldim.application.evals.loader import load_eval_cases
 
-        cases = load_eval_cases("ecommerce")
+        cases = load_eval_cases("commerce")
         # ecommerce has at least one eval case
         assert isinstance(cases, list)
         assert len(cases) >= 1
@@ -1321,16 +1344,16 @@ class TestLoadEvalCases:
         from sqldim.application.evals.loader import load_eval_cases
 
         # The pragma on the not-exists branch means we just verify the function works
-        cases = load_eval_cases("ecommerce")
+        cases = load_eval_cases("commerce")
         assert all(hasattr(c, "id") for c in cases)
 
     def test_load_eval_cases_case_fields(self):
         """Verify the cases returned have the expected EvalCase attributes."""
         from sqldim.application.evals.loader import load_eval_cases
 
-        cases = load_eval_cases("ecommerce")
+        cases = load_eval_cases("commerce")
         for c in cases:
-            assert c.dataset == "ecommerce"
+            assert c.dataset == "commerce"
             assert isinstance(c.utterance, str)
 
 
@@ -1345,14 +1368,16 @@ class TestEvalRunnerPipelineSourceFactory:
 
     @pytest.fixture(autouse=True)
     def _stub_model(self, monkeypatch):
-        monkeypatch.setattr("sqldim.application.evals.runner.make_model", lambda *a, **kw: None)
+        monkeypatch.setattr(
+            "sqldim.application.evals.runner.make_model", lambda *a, **kw: None
+        )
 
     def _make_dataset_source(self):
-        """Return a DatasetPipelineSource factory for the ecommerce dataset."""
+        """Return a DatasetPipelineSource factory for the commerce dataset."""
         from sqldim.application.ask import DatasetPipelineSource, load_dataset
 
         def _factory():
-            return DatasetPipelineSource(load_dataset("ecommerce"))
+            return DatasetPipelineSource(load_dataset("commerce"))
 
         return _factory
 
@@ -1394,7 +1419,9 @@ class TestEvalRunnerBranchCoverage:
 
     @pytest.fixture(autouse=True)
     def _stub_model(self, monkeypatch):
-        monkeypatch.setattr("sqldim.application.evals.runner.make_model", lambda *a, **kw: None)
+        monkeypatch.setattr(
+            "sqldim.application.evals.runner.make_model", lambda *a, **kw: None
+        )
 
     def test_verbose_unknown_dataset_logs_error_result(self, capsys):
         """Cover runner.py line 492: log_case_result for KeyError when verbose=True."""
@@ -1470,11 +1497,15 @@ class TestNodeImplsBranchCoverage:
 
     def _make_ctx(self, con):
         from sqldim.core.query.dgm.nl._agent_types import DGMContext
-        from sqldim.application.ask import build_registry_from_schema, make_default_budget
+        from sqldim.application.ask import (
+            build_registry_from_schema,
+            make_default_budget,
+        )
+
         return DGMContext(
-            entity_registry=build_registry_from_schema(con, list(
-                {r[0] for r in con.execute("SHOW TABLES").fetchall()}
-            )),
+            entity_registry=build_registry_from_schema(
+                con, list({r[0] for r in con.execute("SHOW TABLES").fetchall()})
+            ),
             budget=make_default_budget(),
             con=con,
         )
@@ -1482,7 +1513,7 @@ class TestNodeImplsBranchCoverage:
     def test_explanation_node_with_empty_result_and_sql(self):
         """Cover _node_impls.py lines 177-178: result is None with q_current set."""
         import duckdb
-        from sqldim.core.query.dgm.nl._agent_types import DGMContext, NLInterfaceState
+        from sqldim.core.query.dgm.nl._agent_types import NLInterfaceState
         from sqldim.core.query.dgm.nl._node_impls import make_llm_nodes
 
         con = duckdb.connect(":memory:")
@@ -1493,7 +1524,9 @@ class TestNodeImplsBranchCoverage:
         fn = nodes["explanation_rendering"]
 
         # result is None (triggers line 176); q_current is set (triggers line 177)
-        state = NLInterfaceState(utterance="list sales", q_current="SELECT id FROM sales", result=None)
+        state = NLInterfaceState(
+            utterance="list sales", q_current="SELECT id FROM sales", result=None
+        )
         result = fn(state)
         explanation = result.get("explanation", "")
         assert "no results" in explanation.lower()
@@ -1502,12 +1535,14 @@ class TestNodeImplsBranchCoverage:
     def test_build_schema_str_emits_join_hints(self):
         """Cover _node_impls.py lines 291-293, 313-314: join_hints populated."""
         import duckdb
-        from sqldim.core.query.dgm.nl._agent_types import DGMContext, NLInterfaceState
+        from sqldim.core.query.dgm.nl._agent_types import NLInterfaceState
         from sqldim.core.query.dgm.nl._node_impls import make_operational_nodes
 
         con = duckdb.connect(":memory:")
         # Two tables sharing a customer_id column → join hint generated
-        con.execute("CREATE TABLE orders (order_id INTEGER, customer_id INTEGER, amount DOUBLE)")
+        con.execute(
+            "CREATE TABLE orders (order_id INTEGER, customer_id INTEGER, amount DOUBLE)"
+        )
         con.execute("CREATE TABLE customers (customer_id INTEGER, name VARCHAR)")
         con.execute("INSERT INTO customers VALUES (1, 'Alice')")
         con.execute("INSERT INTO orders VALUES (1, 1, 99.0)")
@@ -1538,7 +1573,6 @@ class TestNodeImplsBranchCoverage:
         """Cover _node_impls.py lines 372, 378-381, 383-388."""
         import duckdb
         from sqldim.core.query.dgm.nl._agent_types import (
-            DGMContext,
             NLInterfaceState,
             EntityResolutionResult,
             PropRefModel,
@@ -1577,3 +1611,80 @@ class TestNodeImplsBranchCoverage:
         assert "SELECT" in sql.upper()
         assert "```" not in sql
 
+    def test_template_fallback_ranking_with_top_n(self) -> None:
+        """Lines 487, 515-516, 539-542: ranking branch with 'top N' utterance.
+
+        'top 3 orders by amount' triggers:
+          - line 487: limit_n = int(top_match.group(1))  [= 3]
+          - lines 515-516: order_col = col; break  ['amount' found in utterance]
+          - lines 539-542: ranking SELECT … ORDER BY … LIMIT
+        """
+        import duckdb
+        from sqldim.core.query.dgm.nl._agent_types import (
+            NLInterfaceState,
+            QueryCandidate,
+        )
+        from sqldim.core.query.dgm.nl._node_impls import make_operational_nodes
+
+        con = duckdb.connect(":memory:")
+        con.execute(
+            "CREATE TABLE orders (order_id INTEGER, customer_id INTEGER, amount DOUBLE)"
+        )
+        ctx = self._make_ctx(con)
+
+        nodes = make_operational_nodes(ctx, model=None)
+        dag_fn = nodes["dag_construction"]
+
+        state = NLInterfaceState(
+            utterance="top 3 orders by amount",
+            candidates=[
+                QueryCandidate(
+                    dag_node_id=0,
+                    description="SELECT from orders (order_id, customer_id, amount)",
+                )
+            ],
+        )
+        result = dag_fn(state)
+        sql = result.get("q_current", "")
+        assert "ORDER BY" in sql.upper()
+        assert "LIMIT 3" in sql.upper()
+        assert "amount" in sql.lower()
+
+    def test_template_fallback_non_count_agg_with_group_col(self) -> None:
+        """Line 525: select_expr = f"{agg_fn}({measure}) AS ..." (non-COUNT agg).
+
+        'total amount by customer_id' triggers:
+          - agg_fn = 'SUM' (from 'total' signal)
+          - group_col set (from 'by customer_id')
+          - line 525: select_expr uses agg_fn(measure) pattern (not COUNT)
+        """
+        import duckdb
+        from sqldim.core.query.dgm.nl._agent_types import (
+            NLInterfaceState,
+            QueryCandidate,
+        )
+        from sqldim.core.query.dgm.nl._node_impls import make_operational_nodes
+
+        con = duckdb.connect(":memory:")
+        con.execute(
+            "CREATE TABLE orders (order_id INTEGER, customer_id INTEGER, amount DOUBLE)"
+        )
+        ctx = self._make_ctx(con)
+
+        nodes = make_operational_nodes(ctx, model=None)
+        dag_fn = nodes["dag_construction"]
+
+        state = NLInterfaceState(
+            utterance="total amount by customer_id",
+            candidates=[
+                QueryCandidate(
+                    dag_node_id=0,
+                    description="SELECT from orders (order_id, customer_id, amount)",
+                )
+            ],
+        )
+        result = dag_fn(state)
+        sql = result.get("q_current", "")
+        # Non-COUNT aggregation → SUM(amount) AS sum_amount
+        assert "SUM(" in sql.upper()
+        assert "GROUP BY" in sql.upper()

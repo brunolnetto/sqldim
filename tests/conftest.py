@@ -48,11 +48,12 @@ def _preimport_ai_sdks() -> None:
     except ImportError:
         pass
 
-    # Google Gemini (google.genai — the heaviest import by far)
-    try:
-        from pydantic_ai.models.google import GoogleModel  # noqa: F401
-    except ImportError:
-        pass
+    # Google Gemini — skipped here because google.genai import hangs when the
+    # package is installed but the network / auth stack is unavailable.  The
+    # real import cost is < 1 s in production; only test environments are
+    # affected.  Tests that actually exercise GoogleModel live-import it
+    # themselves and are expected to be slow or skipped in CI.
+    pass  # pragma: no cover — intentionally not pre-importing GoogleModel
 
     # Groq
     try:
@@ -83,7 +84,7 @@ def _dataset_pipeline_cache(tmp_path_factory):
 
     Returns a dict mapping dataset name → path to its cached ``.duckdb`` file.
     Used by :func:`_patch_dataset_pipeline_source` to skip repeated Faker builds.
-    The ``observability`` domain is excluded here and built lazily by
+    The ``telemetry`` domain is excluded here and built lazily by
     :func:`domain_pipeline_cache` using patched (fast) builders.
     """
     import importlib
@@ -91,18 +92,16 @@ def _dataset_pipeline_cache(tmp_path_factory):
 
     datasets_to_cache = [
         # Standard cached datasets (used broadly across the test suite)
-        "ecommerce",
+        "commerce",
         "nba_analytics",
         "fintech",
-        "supply_chain",
-        "saas_growth",
-        "user_activity",
+        "growth",
+        "telemetry",
         # Drift-suite-only domains — pre-built here so domain_pipeline_cache
-        # can build observability quickly (patching these fast builders).
-        # observability is intentionally excluded: it rebuilds all 12 domains
+        # can build telemetry quickly (patching these fast builders).
+        # telemetry is intentionally excluded: it rebuilds all 10 domains
         # internally and is best handled lazily in domain_pipeline_cache.
-        "retail",
-        "enterprise",
+        "entertainment",
     ]
 
     cache: dict[str, str] = {}
@@ -126,7 +125,7 @@ def _dataset_pipeline_cache(tmp_path_factory):
             # to cut the build from ~12s (200 customers × 90 days) to ~6s.
             # Structural tests only check table/column existence, not row counts.
             _saved: dict[str, int] = {}
-            if ds_name == "retail":
+            if ds_name == "commerce":
                 for attr, val in [("_N_CUSTOMERS", 50), ("_N_DAYS", 30)]:
                     if hasattr(mod, attr):
                         _saved[attr] = getattr(mod, attr)
@@ -196,9 +195,10 @@ def _patch_dataset_pipeline_source(_dataset_pipeline_cache):
             self._dataset.setup(self._con)
             for src, table in self._dataset.sources:
                 try:
-                    already_loaded = self._con.execute(
-                        f"SELECT COUNT(*) FROM {table}"
-                    ).fetchone()[0] > 0
+                    already_loaded = (
+                        self._con.execute(f"SELECT COUNT(*) FROM {table}").fetchone()[0]
+                        > 0
+                    )
                     if already_loaded:
                         continue
                     snap_sql = src.snapshot().as_sql(self._con)

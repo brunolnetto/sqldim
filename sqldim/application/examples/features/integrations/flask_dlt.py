@@ -65,7 +65,7 @@ import requests  # type: ignore[import-untyped]
 from sqldim.core.kimball.dimensions.scd.processors.scd_engine import LazySCDProcessor
 from sqldim.sinks import DuckDBSink
 
-from sqldim.application.datasets.domains.ecommerce import LoyaltyCustomersSource
+from sqldim.application.datasets.domains.commerce import LoyaltyCustomersSource
 from sqldim.application.datasets.dlt_bridge import DLTBridge
 from sqldim.application.examples.features.integrations.ecommerce_api import (
     build_flask_app,

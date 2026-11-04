@@ -26,7 +26,7 @@ from sqldim.core.loaders.dimension.edge_projection import LazyEdgeProjectionLoad
 from sqldim.core.graph.traversal import DuckDBTraversalEngine
 from sqldim.sinks import DuckDBSink
 
-from sqldim.application.datasets.domains.media import MoviesSource
+from sqldim.application.datasets.domains.entertainment import MoviesSource
 from sqldim.application.examples.features.utils import make_tmp_db
 
 

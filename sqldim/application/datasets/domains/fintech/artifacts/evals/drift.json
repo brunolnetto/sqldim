@@ -1,0 +1,75 @@
+{
+  "domain": "fintech",
+  "cases": [
+    {
+      "id": "fintech.drift.rate_surge",
+      "event_fn": "apply_rate_surge",
+      "event_description": "15% increase on all payment transaction amounts",
+      "probes": [
+        {
+          "id": "fintech.drift.probe.avg_txn_by_type",
+          "dataset": "fintech",
+          "utterance": "what is the average transaction amount for each transaction type?",
+          "expect_result": true,
+          "expect_columns": [
+            "txn_type"
+          ],
+          "tags": [
+            "drift",
+            "metric",
+            "transactions"
+          ]
+        },
+        {
+          "id": "fintech.drift.probe.txn_volume_by_channel",
+          "dataset": "fintech",
+          "utterance": "what is the total transaction volume by channel?",
+          "expect_result": true,
+          "expect_columns": [
+            "channel"
+          ],
+          "tags": [
+            "drift",
+            "metric",
+            "channels"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "fintech.drift.risk_downgrade",
+      "event_fn": "apply_risk_downgrade",
+      "event_description": "Bulk medium\u2192high risk tier downgrade for all accounts",
+      "probes": [
+        {
+          "id": "fintech.drift.probe.accounts_by_risk",
+          "dataset": "fintech",
+          "utterance": "how many accounts are in each risk tier?",
+          "expect_result": true,
+          "expect_columns": [
+            "risk_tier"
+          ],
+          "tags": [
+            "drift",
+            "metric",
+            "risk"
+          ]
+        },
+        {
+          "id": "fintech.drift.probe.avg_txn_by_type",
+          "dataset": "fintech",
+          "utterance": "what is the average transaction amount for each transaction type?",
+          "expect_result": true,
+          "expect_columns": [
+            "txn_type"
+          ],
+          "tags": [
+            "drift",
+            "metric",
+            "transactions"
+          ]
+        }
+      ]
+    }
+  ]
+}

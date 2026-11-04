@@ -181,8 +181,7 @@ class DriftPairResult:
     drift_id: str
     event_description: str
     before: Any  # EvalResult — typed as Any to avoid circular import
-    after: Any   # EvalResult
-
+    after: Any  # EvalResult
 
     @property
     def sql_changed(self) -> bool:
@@ -192,12 +191,8 @@ class DriftPairResult:
     @property
     def answer_changed(self) -> bool:
         """True when the result rows differ between before and after."""
-        b_rows = sorted(
-            str(r) for r in (self.before.result_rows or [])
-        )
-        a_rows = sorted(
-            str(r) for r in (self.after.result_rows or [])
-        )
+        b_rows = sorted(str(r) for r in (self.before.result_rows or []))
+        a_rows = sorted(str(r) for r in (self.after.result_rows or []))
         return b_rows != a_rows
 
     @property
@@ -296,15 +291,24 @@ class DriftEvalReport:
                     a_rows = p.after.result_rows[:4]
                     if cols and (b_rows or a_rows):
                         col_w = [
-                            max(len(c), max(
-                                (len(str(r[i])) for rows in (b_rows, a_rows)
-                                 for r in rows if i < len(r)),
-                                default=0,
-                            ))
+                            max(
+                                len(c),
+                                max(
+                                    (
+                                        len(str(r[i]))
+                                        for rows in (b_rows, a_rows)
+                                        for r in rows
+                                        if i < len(r)
+                                    ),
+                                    default=0,
+                                ),
+                            )
                             for i, c in enumerate(cols)
                         ]
                         _sep = "  "
-                        header = _sep.join(c.ljust(col_w[i]) for i, c in enumerate(cols))
+                        header = _sep.join(
+                            c.ljust(col_w[i]) for i, c in enumerate(cols)
+                        )
                         sep_line = _sep.join("-" * col_w[i] for i in range(len(cols)))
                         lines.append(f"       {header}")
                         lines.append(f"       {sep_line}")
@@ -320,15 +324,19 @@ class DriftEvalReport:
                             lines.append(f"       before  {b_cells}")
                             lines.append(f"       after   {a_cells}")
                         # any extra rows from the longer side
-                        for remaining in b_rows[len(a_rows):]:
+                        for remaining in b_rows[len(a_rows) :]:
                             b_cells = _sep.join(
-                                str(remaining[i] if i < len(remaining) else "").ljust(col_w[i])
+                                str(remaining[i] if i < len(remaining) else "").ljust(
+                                    col_w[i]
+                                )
                                 for i in range(len(cols))
                             )
                             lines.append(f"       before  {b_cells}")
-                        for remaining in a_rows[len(b_rows):]:
+                        for remaining in a_rows[len(b_rows) :]:
                             a_cells = _sep.join(
-                                str(remaining[i] if i < len(remaining) else "").ljust(col_w[i])
+                                str(remaining[i] if i < len(remaining) else "").ljust(
+                                    col_w[i]
+                                )
                                 for i in range(len(cols))
                             )
                             lines.append(f"       after   {a_cells}")
@@ -372,4 +380,9 @@ class DriftEvalReport:
             json.dump(data, fh, indent=2, default=str)
 
 
-__all__ = ["DriftEvalCase", "DriftPairResult", "DriftEvalReport", "make_domain_event_fn"]
+__all__ = [
+    "DriftEvalCase",
+    "DriftPairResult",
+    "DriftEvalReport",
+    "make_domain_event_fn",
+]

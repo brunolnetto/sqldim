@@ -1,0 +1,27 @@
+{
+  "tool": "dgm_map_analytical_space",
+  "domain": "nba_analytics",
+  "cases": [
+    {
+      "id": "nba_analytics.map_analytical_space",
+      "tool": "dgm_map_analytical_space",
+      "description": "Map analytical space for nba_analytics",
+      "arguments": {
+        "dataset": "nba_analytics"
+      },
+      "expected": {
+        "success": true,
+        "tool_name": "dgm_map_analytical_space",
+        "data_keys": [
+          "tools"
+        ],
+        "data_checks": {
+          "tools_non_empty": true
+        }
+      },
+      "tags": [
+        "capability"
+      ]
+    }
+  ]
+}

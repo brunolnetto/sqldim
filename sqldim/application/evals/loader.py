@@ -1,5 +1,5 @@
-"""Auto-discovery loader — reads ``artifacts/evals.json`` and
-``artifacts/drift.json`` from every domain folder and hydrates
+"""Auto-discovery loader — reads ``artifacts/evals/nl_cases.json`` and
+``artifacts/evals/drift.json`` from every domain folder and hydrates
 ``EvalCase`` / ``DriftEvalCase`` objects.
 
 Usage
@@ -16,10 +16,12 @@ from __future__ import annotations
 import importlib
 import json
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from sqldim.application.evals.cases import EvalCase
-from sqldim.application.evals.drift import DriftEvalCase
+
+if TYPE_CHECKING:
+    from sqldim.application.evals.drift import DriftEvalCase
 
 _DOMAINS_ROOT = Path(__file__).resolve().parent.parent / "datasets" / "domains"
 
@@ -34,11 +36,14 @@ def _dict_to_eval_case(d: dict[str, Any]) -> EvalCase:
     pipeline_source_factory: Any = None
 
     ps_tag = d.get("pipeline_source")
-    if ps_tag == "retail_medallion":
-        from sqldim.application.datasets.domains.retail.sources.medallion import (
-            RetailMedallionPipelineSource,
-        )
-        pipeline_source_factory = RetailMedallionPipelineSource
+    if ps_tag == "commerce_medallion":
+
+        def pipeline_source_factory() -> Any:
+            from sqldim.application.datasets.domains.commerce.sources.medallion import (
+                CommerceMedallionPipelineSource,
+            )
+
+            return CommerceMedallionPipelineSource()
 
     return EvalCase(
         id=d["id"],
@@ -56,23 +61,23 @@ def _dict_to_eval_case(d: dict[str, Any]) -> EvalCase:
 
 def _resolve_event_fn(domain: str, fn_name: str):
     """Import *fn_name* from ``domains.{domain}.events.scenarios``."""
-    mod_path = (
-        f"sqldim.application.datasets.domains.{domain}.events.scenarios"
-    )
+    mod_path = f"sqldim.application.datasets.domains.{domain}.events.scenarios"
     mod = importlib.import_module(mod_path)
     return getattr(mod, fn_name)
 
 
 def _make_pipeline_source_factory(domain: str):
     """Return a zero-arg factory that builds a DatasetPipelineSource for *domain*."""
-    if domain == "retail":
-        from sqldim.application.datasets.domains.retail.sources.medallion import (
-            RetailMedallionPipelineSource,
+    if domain == "commerce":
+        from sqldim.application.datasets.domains.commerce.sources.medallion import (
+            CommerceMedallionPipelineSource,
         )
-        return RetailMedallionPipelineSource
+
+        return CommerceMedallionPipelineSource
 
     def _factory(d=domain):
         from sqldim.application.ask import DatasetPipelineSource, load_dataset
+
         return DatasetPipelineSource(load_dataset(d))
 
     return _factory
@@ -84,8 +89,8 @@ def _make_pipeline_source_factory(domain: str):
 
 
 def load_eval_cases(domain: str) -> list[EvalCase]:
-    """Load eval cases for a single *domain* from its ``artifacts/evals.json``."""
-    path = _DOMAINS_ROOT / domain / "artifacts" / "evals.json"
+    """Load eval cases for a single *domain* from its ``artifacts/evals/nl_cases.json``."""
+    path = _DOMAINS_ROOT / domain / "artifacts" / "evals" / "nl_cases.json"
     if not path.exists():  # pragma: no cover
         return []
     with path.open() as f:
@@ -94,19 +99,20 @@ def load_eval_cases(domain: str) -> list[EvalCase]:
 
 
 def load_eval_suite() -> list[EvalCase]:
-    """Load and concatenate eval cases from **all** domain ``artifacts/evals.json`` files."""
+    """Load and concatenate eval cases from **all** domain ``artifacts/evals/nl_cases.json`` files."""
     result: list[EvalCase] = []
-    for artifact in sorted(_DOMAINS_ROOT.glob("*/artifacts/evals.json")):
-        domain = artifact.parent.parent.name
+    for artifact in sorted(_DOMAINS_ROOT.glob("*/artifacts/evals/nl_cases.json")):
         with artifact.open() as f:
             data = json.load(f)
         result.extend(_dict_to_eval_case(c) for c in data.get("cases", []))
     return result
 
 
-def load_drift_cases(domain: str) -> list[DriftEvalCase]:
-    """Load drift cases for a single *domain* from its ``artifacts/drift.json``."""
-    path = _DOMAINS_ROOT / domain / "artifacts" / "drift.json"
+def load_drift_cases(domain: str) -> "list[DriftEvalCase]":
+    """Load drift cases for a single *domain* from its ``artifacts/evals/drift.json``."""
+    from sqldim.application.evals.drift import DriftEvalCase
+
+    path = _DOMAINS_ROOT / domain / "artifacts" / "evals" / "drift.json"
     if not path.exists():  # pragma: no cover
         return []
     with path.open() as f:
@@ -129,10 +135,10 @@ def load_drift_cases(domain: str) -> list[DriftEvalCase]:
     return result
 
 
-def load_drift_suite() -> list[DriftEvalCase]:
-    """Load and concatenate drift cases from **all** domain ``artifacts/drift.json`` files."""
-    result: list[DriftEvalCase] = []
-    for artifact in sorted(_DOMAINS_ROOT.glob("*/artifacts/drift.json")):
-        domain = artifact.parent.parent.name
+def load_drift_suite() -> "list[DriftEvalCase]":
+    """Load and concatenate drift cases from **all** domain ``artifacts/evals/drift.json`` files."""
+    result: list = []
+    for artifact in sorted(_DOMAINS_ROOT.glob("*/artifacts/evals/drift.json")):
+        domain = artifact.parent.parent.parent.name
         result.extend(load_drift_cases(domain))
     return result

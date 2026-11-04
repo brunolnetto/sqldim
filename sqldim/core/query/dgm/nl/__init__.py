@@ -15,6 +15,13 @@ from sqldim.core.query.dgm.nl._functions import (  # noqa: F401
     resolve_band,
     classify_temporal_intent,
     classify_compositional_intent,
+    classify_allen_relation,
+    classify_temporal_window,
+    extract_where_filters,
+    detect_date_trunc_grain,
+    infer_join_tables,
+    classify_graph_intent,
+    apply_annotation_suggestions,
     apply_schema_evolution,
 )
 from sqldim.core.query.dgm.nl._agent_types import (  # noqa: F401
@@ -41,4 +48,15 @@ from sqldim.core.query.dgm.nl._graph import (  # noqa: F401
     route_after_confirmation,
     route_budget_decision,
     build_nl_graph,
+)
+from sqldim.core.query.dgm.nl.supervisor import (  # noqa: F401
+    SupervisorContext,
+    SupervisorPlan,
+    SupervisorState,
+    ToolCallRequest,
+    ToolCallResult,
+    ToolCapabilitySchema,
+)
+from sqldim.core.query.dgm.nl.supervisor._graph import (  # noqa: F401
+    build_supervisor_graph,
 )

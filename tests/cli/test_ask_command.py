@@ -52,8 +52,8 @@ def _make_con_with_tables() -> duckdb.DuckDBPyConnection:
 
 
 class TestKnownDatasets:
-    def test_contains_ecommerce(self):
-        assert "ecommerce" in KNOWN_DATASETS
+    def test_contains_commerce(self):
+        assert "commerce" in KNOWN_DATASETS
 
     def test_contains_fintech(self):
         assert "fintech" in KNOWN_DATASETS
@@ -61,28 +61,22 @@ class TestKnownDatasets:
     def test_contains_nba_analytics(self):
         assert "nba_analytics" in KNOWN_DATASETS
 
-    def test_contains_saas_growth(self):
-        assert "saas_growth" in KNOWN_DATASETS
+    def test_contains_growth(self):
+        assert "growth" in KNOWN_DATASETS
 
-    def test_contains_supply_chain(self):
-        assert "supply_chain" in KNOWN_DATASETS
+    def test_contains_telemetry(self):
+        assert "telemetry" in KNOWN_DATASETS
 
-    def test_contains_user_activity(self):
-        assert "user_activity" in KNOWN_DATASETS
-
-    def test_contains_all_eleven_domains(self):
+    def test_contains_all_eight_domains(self):
         expected = {
-            "ecommerce",
+            "commerce",
             "fintech",
             "nba_analytics",
-            "saas_growth",
-            "supply_chain",
-            "user_activity",
-            "enterprise",
-            "media",
+            "growth",
+            "telemetry",
+            "entertainment",
             "devops",
-            "hierarchy",
-            "dgm",
+            "data_models",
         }
         assert expected <= set(KNOWN_DATASETS)
 
@@ -115,24 +109,21 @@ class TestDiscoverDatasets:
         result = _discover_datasets()
         assert isinstance(result, dict)
 
-    def test_discover_finds_ecommerce(self):
+    def test_discover_finds_commerce(self):
         result = _discover_datasets()
-        assert "ecommerce" in result
+        assert "commerce" in result
 
-    def test_discover_finds_all_eleven(self):
+    def test_discover_finds_all_eight(self):
         result = _discover_datasets()
         expected = {
-            "ecommerce",
+            "commerce",
             "fintech",
             "nba_analytics",
-            "saas_growth",
-            "supply_chain",
-            "user_activity",
-            "enterprise",
-            "media",
+            "growth",
+            "telemetry",
+            "entertainment",
             "devops",
-            "hierarchy",
-            "dgm",
+            "data_models",
         }
         assert expected <= set(result)
 
@@ -142,13 +133,13 @@ class TestDiscoverDatasets:
                 f"{name}: expected 2-tuple, got {entry!r}"
             )
 
-    def test_load_one_dataset_ecommerce(self):
-        result = _load_one_dataset("sqldim.application.datasets.domains", "ecommerce")
+    def test_load_one_dataset_commerce(self):
+        result = _load_one_dataset("sqldim.application.datasets.domains", "commerce")
         assert result is not None
         name, (mod_path, attr) = result
-        assert name == "ecommerce"
-        assert "ecommerce" in mod_path
-        assert attr == "ecommerce_dataset"
+        assert name == "commerce"
+        assert "commerce" in mod_path
+        assert attr == "commerce_dataset"
 
     def test_load_one_dataset_missing_module(self):
         result = _load_one_dataset(
@@ -215,7 +206,6 @@ class TestDiscoverDatasets:
         """Entries where ``ispkg=False`` are silently skipped."""
         import pkgutil
 
-
         def _fake_iter(path):
             # Return one non-package entry that should be skipped
             yield pkgutil.ModuleInfo(None, "not_a_pkg", False)  # type: ignore[arg-type]
@@ -228,21 +218,20 @@ class TestDiscoverDatasets:
         assert "not_a_pkg" not in result
 
 
-
 # ---------------------------------------------------------------------------
 # load_dataset
 # ---------------------------------------------------------------------------
 
 
 class TestLoadDataset:
-    def test_ecommerce_returns_dataset(self):
+    def test_commerce_returns_dataset(self):
         from sqldim.application.datasets.dataset import Dataset
 
-        ds = load_dataset("ecommerce")
+        ds = load_dataset("commerce")
         assert isinstance(ds, Dataset)
 
-    def test_ecommerce_has_expected_tables(self):
-        ds = load_dataset("ecommerce")
+    def test_commerce_has_expected_tables(self):
+        ds = load_dataset("commerce")
         tables = ds.table_names()
         assert len(tables) >= 2
 
@@ -358,7 +347,7 @@ class TestRunAsk:
         monkeypatch.setattr("sqldim.application.ask.make_ollama_model", _raise)
 
     def test_valid_dataset_returns_zero(self, capsys):
-        rc = run_ask("show me customers", "ecommerce")
+        rc = run_ask("show me customers", "commerce")
         assert rc == 0
 
     def test_unknown_dataset_returns_one(self, capsys):
@@ -371,18 +360,18 @@ class TestRunAsk:
         assert "Unknown dataset" in out
 
     def test_valid_run_prints_info(self, capsys):
-        run_ask("show me customers", "ecommerce")
+        run_ask("show me customers", "commerce")
         out = capsys.readouterr().out
         assert len(out) > 0
 
     def test_verbose_prints_table_names(self, capsys):
-        run_ask("show me customers", "ecommerce", verbose=True)
+        run_ask("show me customers", "commerce", verbose=True)
         out = capsys.readouterr().out
         assert "Tables" in out
         assert "customers" in out
 
     def test_verbose_prints_prop_count(self, capsys):
-        run_ask("show me customers", "ecommerce", verbose=True)
+        run_ask("show me customers", "commerce", verbose=True)
         out = capsys.readouterr().out
         assert "PropTerms" in out
 
@@ -396,7 +385,7 @@ class TestRunAsk:
         monkeypatch.setattr(
             "sqldim.application.ask.build_nl_graph", lambda **kw: mock_graph
         )
-        rc = run_ask("show me customers", "ecommerce")
+        rc = run_ask("show me customers", "commerce")
         assert rc == 0
 
     def test_run_ask_prints_explanation(self, monkeypatch, capsys):
@@ -411,7 +400,7 @@ class TestRunAsk:
         monkeypatch.setattr(
             "sqldim.application.ask.build_nl_graph", lambda **kw: mock_graph
         )
-        rc = run_ask("show me customers", "ecommerce")
+        rc = run_ask("show me customers", "commerce")
         assert rc == 0
         out = capsys.readouterr().out
         assert "Here are your top customers." in out
@@ -429,7 +418,7 @@ class TestRunAsk:
         monkeypatch.setattr(
             "sqldim.application.ask.build_nl_graph", lambda **kw: mock_graph
         )
-        rc = run_ask("show me customers", "ecommerce")
+        rc = run_ask("show me customers", "commerce")
         assert rc == 0
         out = capsys.readouterr().out
         assert "7 row(s)" in out
@@ -445,28 +434,46 @@ class TestAskParser:
     def test_parser_has_ask_subcommand(self):
         parser = build_parser()
         # Verify ask subcommand is registered (will error cleanly on unknown)
-        args = parser.parse_args(["ask", "ecommerce", "show customers"])
-        assert args.command == "ask"
+        args = parser.parse_args(
+            ["nl", "ask", "show customers", "--dataset", "commerce"]
+        )
+        assert args.command == "nl"
 
     def test_ask_args_stores_dataset(self):
         parser = build_parser()
-        args = parser.parse_args(["ask", "ecommerce", "how are my customers?"])
-        assert args.dataset == "ecommerce"
+        args = parser.parse_args(
+            ["nl", "ask", "how are my customers?", "--dataset", "commerce"]
+        )
+        assert args.dataset == "commerce"
 
     def test_ask_args_stores_question(self):
         parser = build_parser()
-        args = parser.parse_args(["ask", "ecommerce", "how are my customers?"])
+        args = parser.parse_args(
+            ["nl", "ask", "how are my customers?", "--dataset", "commerce"]
+        )
         assert args.question == "how are my customers?"
 
     def test_ask_verbose_flag(self):
         parser = build_parser()
-        args = parser.parse_args(["ask", "ecommerce", "test", "--verbose"])
+        args = parser.parse_args(
+            ["nl", "ask", "test", "--dataset", "commerce", "--verbose"]
+        )
         assert args.verbose is True
 
     def test_ask_verbose_defaults_to_false(self):
         parser = build_parser()
-        args = parser.parse_args(["ask", "ecommerce", "test"])
+        args = parser.parse_args(["nl", "ask", "test", "--dataset", "commerce"])
         assert args.verbose is False
+
+    def test_ask_mode_defaults_to_ask(self):
+        parser = build_parser()
+        args = parser.parse_args(["nl", "ask", "test", "--dataset", "commerce"])
+        assert args.mode == "ask"
+
+    def test_ask_supervisor_mode(self):
+        parser = build_parser()
+        args = parser.parse_args(["nl", "ask", "test", "--mode", "supervisor"])
+        assert args.mode == "supervisor"
 
 
 # ---------------------------------------------------------------------------
@@ -484,12 +491,18 @@ class TestMainAsk:
         monkeypatch.setattr("sqldim.application.ask.make_model", lambda *a, **kw: None)
 
     def test_main_ask_valid_returns_zero(self, capsys):
-        rc = main(["ask", "ecommerce", "show me customers"])
+        rc = main(["nl", "ask", "show me customers", "--dataset", "commerce"])
         assert rc == 0
 
     def test_main_ask_unknown_dataset_returns_one(self, capsys):
-        rc = main(["ask", "unknown_ds", "test"])
+        rc = main(["nl", "ask", "test", "--dataset", "unknown_ds"])
         assert rc == 1
+
+    def test_main_ask_missing_dataset_returns_one(self, capsys):
+        rc = main(["nl", "ask", "test"])
+        assert rc == 1
+        out = capsys.readouterr().out
+        assert "--dataset is required" in out
 
 
 # ---------------------------------------------------------------------------
@@ -498,7 +511,9 @@ class TestMainAsk:
 
 
 class TestBuildPipelineSource:
-    def test_unknown_source_type_prints_error_and_returns_one(self, capsys, monkeypatch):
+    def test_unknown_source_type_prints_error_and_returns_one(
+        self, capsys, monkeypatch
+    ):
         """cmd_ask returns 1 when _build_pipeline_source gets an unknown source."""
         from sqldim.cli.ask import _build_pipeline_source
         import argparse
@@ -538,4 +553,3 @@ class TestResolveModel:
         sentinel = object()
         result = _resolve_model(sentinel)
         assert result is sentinel
-

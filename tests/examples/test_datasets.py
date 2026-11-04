@@ -7,7 +7,7 @@ Coverage targets
 sqldim/examples/datasets/__init__.py
 sqldim/examples/datasets/base.py
 sqldim/examples/datasets/ecommerce.py
-sqldim/examples/datasets/enterprise.py
+sqldim/examples/datasets/growth.py
 sqldim/examples/datasets/media.py
 sqldim/examples/datasets/devops.py
 """
@@ -531,31 +531,31 @@ class TestGitHubIssuesSource:
 
 class TestEventBatchValueError:
     def test_products_raises(self):
-        from sqldim.application.datasets.domains.ecommerce import ProductsSource
+        from sqldim.application.datasets.domains.commerce import ProductsSource
 
         with pytest.raises(ValueError, match="1 event batch"):
             ProductsSource(n=3, seed=1).event_batch(2)
 
     def test_customers_raises(self):
-        from sqldim.application.datasets.domains.ecommerce import CustomersSource
+        from sqldim.application.datasets.domains.commerce import CustomersSource
 
         with pytest.raises(ValueError, match="1 event batch"):
             CustomersSource(n=3, seed=1).event_batch(2)
 
     def test_stores_raises(self):
-        from sqldim.application.datasets.domains.ecommerce import StoresSource
+        from sqldim.application.datasets.domains.commerce import StoresSource
 
         with pytest.raises(ValueError, match="1 event batch"):
             StoresSource(n=3, seed=1).event_batch(2)
 
     def test_employees_raises(self):
-        from sqldim.application.datasets.domains.enterprise import EmployeesSource
+        from sqldim.application.datasets.domains.growth import EmployeesSource
 
         with pytest.raises(ValueError, match="1 event batch"):
             EmployeesSource(n=3, seed=1).event_batch(2)
 
     def test_movies_raises(self):
-        from sqldim.application.datasets.domains.media import MoviesSource
+        from sqldim.application.datasets.domains.entertainment import MoviesSource
 
         with pytest.raises(ValueError, match="1 event batch"):
             MoviesSource().new_releases(2)
@@ -586,7 +586,7 @@ def test_base_source_setup_raises_not_implemented():
 
 
 def test_orders_source_orders_property():
-    from sqldim.application.datasets.domains.ecommerce import OrdersSource
+    from sqldim.application.datasets.domains.commerce import OrdersSource
 
     src = OrdersSource(n=3, seed=42)
     result = src.orders
@@ -1032,20 +1032,20 @@ class TestDatasetSpec:
 
     def test_orders_spec_source_ddl(self):
         """Smoke-test the real _ORDERS_SPEC used by OrdersSource."""
-        from sqldim.application.datasets.domains.ecommerce import _ORDERS_SPEC
+        from sqldim.application.datasets.domains.commerce import _ORDERS_SPEC
 
         ddl = _ORDERS_SPEC.source.oltp_ddl()
         assert "order_id" in ddl
         assert "{table}" in ddl
 
     def test_orders_spec_fact_ddl(self):
-        from sqldim.application.datasets.domains.ecommerce import _ORDERS_SPEC
+        from sqldim.application.datasets.domains.commerce import _ORDERS_SPEC
 
         ddl = _ORDERS_SPEC.fact.oltp_ddl()
         assert "placed_at" in ddl
 
     def test_accounts_spec_snapshot_ddl(self):
-        from sqldim.application.datasets.domains.enterprise.sources import (
+        from sqldim.application.datasets.domains.growth.sources import (
             _ACCOUNTS_SPEC,
         )
 
@@ -1053,7 +1053,9 @@ class TestDatasetSpec:
         assert "snapshot_date" in ddl
 
     def test_movies_spec_roles(self):
-        from sqldim.application.datasets.domains.media.sources import _MOVIES_SPEC
+        from sqldim.application.datasets.domains.entertainment.sources import (
+            _MOVIES_SPEC,
+        )
 
         assert _MOVIES_SPEC.cast.name == "cast"
         assert _MOVIES_SPEC.edge.name == "edge"
@@ -1125,14 +1127,14 @@ class TestDatasetSpec:
         assert "EventSpec" not in repr(spec)
 
     def test_products_spec_has_events(self):
-        from sqldim.application.datasets.domains.ecommerce.sources import _PRODUCTS_SPEC
+        from sqldim.application.datasets.domains.commerce.sources import _PRODUCTS_SPEC
         from sqldim.application.datasets.schema import EventSpec
 
         assert isinstance(_PRODUCTS_SPEC.events, EventSpec)
         assert _PRODUCTS_SPEC.source.name == "product"
 
     def test_employees_spec_has_events(self):
-        from sqldim.application.datasets.domains.enterprise.sources import (
+        from sqldim.application.datasets.domains.growth.sources import (
             _EMPLOYEES_SPEC,
         )
         from sqldim.application.datasets.schema import EventSpec
@@ -1146,12 +1148,14 @@ class TestDatasetSpec:
         assert isinstance(_GITHUB_SPEC.events, EventSpec)
 
     def test_orders_spec_has_no_events(self):
-        from sqldim.application.datasets.domains.ecommerce import _ORDERS_SPEC
+        from sqldim.application.datasets.domains.commerce import _ORDERS_SPEC
 
         assert _ORDERS_SPEC.events is None
 
     def test_movies_spec_has_no_events(self):
-        from sqldim.application.datasets.domains.media.sources import _MOVIES_SPEC
+        from sqldim.application.datasets.domains.entertainment.sources import (
+            _MOVIES_SPEC,
+        )
 
         assert _MOVIES_SPEC.events is None
 

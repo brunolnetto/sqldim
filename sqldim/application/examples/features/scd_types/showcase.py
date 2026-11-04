@@ -29,12 +29,12 @@ from sqldim.core.kimball.dimensions.scd.processors.scd_engine import (
 )
 from sqldim.sinks import DuckDBSink
 
-from sqldim.application.datasets.domains.ecommerce import (
+from sqldim.application.datasets.domains.commerce import (
     ProductsSource,
     CustomersSource,
     StoresSource,
 )
-from sqldim.application.datasets.domains.enterprise import EmployeesSource
+from sqldim.application.datasets.domains.growth import EmployeesSource
 from sqldim.application.examples.features.utils import make_tmp_db
 
 

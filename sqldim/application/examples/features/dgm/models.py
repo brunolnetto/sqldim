@@ -14,7 +14,7 @@ Five tables form a small analytic star:
 These models are intentionally minimal — just enough to demonstrate the four
 DGM query forms (B1, B1∘B2, B1∘B3, B1∘B2∘B3) and the τ_E edge classifier.
 The matching synthetic fixture data lives in
-:mod:`sqldim.application.datasets.domains.dgm`.
+:mod:`sqldim.application.datasets.domains.data_models`.
 """
 
 from __future__ import annotations
