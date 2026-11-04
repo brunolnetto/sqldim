@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "sqldim"
-version = "2.0.0"
+version = "2.0.1"
 description = "A Python toolkit for Dimensional Modeling (Kimball methodology) using SQLModel."
 readme = "README.md"
 requires-python = ">=3.11"
@@ -97,6 +97,7 @@ dev = [
     "pytest-postgresql>=8.0.0",
     "pyarrow>=23.0.1",
     "pydantic-ai-slim[mistral]>=1.71.0",
+    "logfire>=4.30.0",
 ]
 
 [tool.mypy]
