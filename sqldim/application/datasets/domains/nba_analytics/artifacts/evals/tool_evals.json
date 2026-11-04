@@ -1,0 +1,226 @@
+{
+  "domain": "nba_analytics",
+  "tool_cases": [
+    {
+      "id": "nba_analytics.what_can_i_answer.specific",
+      "tool": "dgm_what_can_i_answer",
+      "description": "List answerable questions specifically for nba_analytics",
+      "arguments": {
+        "dataset": "nba_analytics"
+      },
+      "expected": {
+        "success": true,
+        "tool_name": "dgm_what_can_i_answer",
+        "data_keys": [
+          "datasets",
+          "questions"
+        ],
+        "data_checks": {
+          "datasets_includes": [
+            "nba_analytics"
+          ]
+        }
+      },
+      "tags": [
+        "discovery",
+        "specific"
+      ]
+    },
+    {
+      "id": "nba_analytics.what_can_i_answer.all",
+      "tool": "dgm_what_can_i_answer",
+      "description": "Discover all datasets (should include nba_analytics)",
+      "arguments": {
+        "dataset": "__all__"
+      },
+      "expected": {
+        "success": true,
+        "tool_name": "dgm_what_can_i_answer",
+        "data_keys": [
+          "datasets",
+          "questions"
+        ],
+        "data_checks": {
+          "datasets_includes": [
+            "nba_analytics"
+          ]
+        }
+      },
+      "tags": [
+        "discovery",
+        "all"
+      ]
+    },
+    {
+      "id": "nba_analytics.validate_invariant",
+      "tool": "dgm_validate_invariant",
+      "description": "Validate non-negative points invariant for nba_analytics",
+      "arguments": {
+        "invariant": "points_non_negative",
+        "dataset": "nba_analytics"
+      },
+      "expected": {
+        "success": true,
+        "tool_name": "dgm_validate_invariant",
+        "data_keys": [
+          "valid",
+          "violations"
+        ],
+        "data_checks": {}
+      },
+      "tags": [
+        "invariant"
+      ]
+    },
+    {
+      "id": "nba_analytics.sensitivity_sweep",
+      "tool": "dgm_sensitivity_sweep",
+      "description": "Sweep season_range for scoring efficiency in nba_analytics",
+      "arguments": {
+        "dataset": "nba_analytics",
+        "question": "scoring efficiency by quarter",
+        "param": "season_range"
+      },
+      "expected": {
+        "success": true,
+        "tool_name": "dgm_sensitivity_sweep",
+        "data_keys": [
+          "sweep_results"
+        ],
+        "data_checks": {}
+      },
+      "tags": [
+        "sensitivity"
+      ]
+    },
+    {
+      "id": "nba_analytics.explore_from",
+      "tool": "dgm_explore_from",
+      "description": "Explore forward from an nba_analytics result",
+      "arguments": {
+        "result": {},
+        "direction": "forward"
+      },
+      "expected": {
+        "success": true,
+        "tool_name": "dgm_explore_from",
+        "data_keys": [
+          "suggestions"
+        ],
+        "data_checks": {}
+      },
+      "tags": [
+        "exploration"
+      ]
+    },
+    {
+      "id": "nba_analytics.correlate",
+      "tool": "dgm_correlate",
+      "description": "Correlate nba_analytics results with another analysis",
+      "arguments": {
+        "left": {},
+        "right": {}
+      },
+      "expected": {
+        "success": true,
+        "tool_name": "dgm_correlate",
+        "data_keys": [
+          "correlation"
+        ],
+        "data_checks": {}
+      },
+      "tags": [
+        "correlation"
+      ]
+    },
+    {
+      "id": "nba_analytics.store_finding",
+      "tool": "dgm_store_finding",
+      "description": "Store a scoring efficiency finding from nba_analytics",
+      "arguments": {
+        "finding": "Fourth quarter scoring efficiency declining",
+        "tags": [
+          "nba_analytics",
+          "analysis"
+        ]
+      },
+      "expected": {
+        "success": true,
+        "tool_name": "dgm_store_finding",
+        "data_keys": [
+          "stored",
+          "finding_id"
+        ],
+        "data_checks": {
+          "stored_equals": true
+        }
+      },
+      "tags": [
+        "knowledge-base"
+      ]
+    },
+    {
+      "id": "nba_analytics.retrieve_related",
+      "tool": "dgm_retrieve_related",
+      "description": "Retrieve findings related to player performance trends",
+      "arguments": {
+        "query": "player performance trends",
+        "max_results": 5
+      },
+      "expected": {
+        "success": true,
+        "tool_name": "dgm_retrieve_related",
+        "data_keys": [
+          "findings"
+        ],
+        "data_checks": {}
+      },
+      "tags": [
+        "knowledge-base"
+      ]
+    },
+    {
+      "id": "nba_analytics.map_analytical_space",
+      "tool": "dgm_map_analytical_space",
+      "description": "Map analytical space for nba_analytics",
+      "arguments": {
+        "dataset": "nba_analytics"
+      },
+      "expected": {
+        "success": true,
+        "tool_name": "dgm_map_analytical_space",
+        "data_keys": [
+          "tools"
+        ],
+        "data_checks": {
+          "tools_non_empty": true
+        }
+      },
+      "tags": [
+        "capability"
+      ]
+    },
+    {
+      "id": "nba_analytics.query.total_teams",
+      "tool": "dgm_query",
+      "description": "Run a NL query against the nba_analytics dataset",
+      "arguments": {
+        "dataset": "nba_analytics",
+        "question": "how many NBA teams are in the database?"
+      },
+      "expected": {
+        "success": true,
+        "tool_name": "dgm_query",
+        "data_keys": [
+          "dataset",
+          "question"
+        ],
+        "data_checks": {}
+      },
+      "tags": [
+        "query",
+        "analytical"
+      ]
+    }
+  ]
+}

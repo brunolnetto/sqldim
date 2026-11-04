@@ -1,0 +1,106 @@
+{
+  "tool": "dgm_what_can_i_answer",
+  "domain": "commerce",
+  "cases": [
+    {
+      "id": "commerce.what_can_i_answer.specific",
+      "tool": "dgm_what_can_i_answer",
+      "description": "List answerable questions specifically for ecommerce",
+      "arguments": {
+        "dataset": "commerce"
+      },
+      "expected": {
+        "success": true,
+        "tool_name": "dgm_what_can_i_answer",
+        "data_keys": [
+          "datasets",
+          "questions"
+        ],
+        "data_checks": {
+          "datasets_includes": [
+            "commerce"
+          ]
+        }
+      },
+      "tags": [
+        "discovery",
+        "specific"
+      ]
+    },
+    {
+      "id": "commerce.what_can_i_answer.all",
+      "tool": "dgm_what_can_i_answer",
+      "description": "Discover all datasets (should include ecommerce)",
+      "arguments": {
+        "dataset": "__all__"
+      },
+      "expected": {
+        "success": true,
+        "tool_name": "dgm_what_can_i_answer",
+        "data_keys": [
+          "datasets",
+          "questions"
+        ],
+        "data_checks": {
+          "datasets_includes": [
+            "commerce"
+          ]
+        }
+      },
+      "tags": [
+        "discovery",
+        "all"
+      ]
+    },
+    {
+      "id": "commerce.what_can_i_answer.specific",
+      "tool": "dgm_what_can_i_answer",
+      "description": "List answerable questions specifically for retail",
+      "arguments": {
+        "dataset": "commerce"
+      },
+      "expected": {
+        "success": true,
+        "tool_name": "dgm_what_can_i_answer",
+        "data_keys": [
+          "datasets",
+          "questions"
+        ],
+        "data_checks": {
+          "datasets_includes": [
+            "commerce"
+          ]
+        }
+      },
+      "tags": [
+        "discovery",
+        "specific"
+      ]
+    },
+    {
+      "id": "commerce.what_can_i_answer.all",
+      "tool": "dgm_what_can_i_answer",
+      "description": "Discover all datasets (should include retail)",
+      "arguments": {
+        "dataset": "__all__"
+      },
+      "expected": {
+        "success": true,
+        "tool_name": "dgm_what_can_i_answer",
+        "data_keys": [
+          "datasets",
+          "questions"
+        ],
+        "data_checks": {
+          "datasets_includes": [
+            "commerce"
+          ]
+        }
+      },
+      "tags": [
+        "discovery",
+        "all"
+      ]
+    }
+  ]
+}

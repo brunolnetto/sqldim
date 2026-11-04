@@ -1,0 +1,179 @@
+{
+  "domain": "commerce",
+  "cases": [
+    {
+      "id": "commerce.drift.price_increase",
+      "event_fn": "apply_price_increase",
+      "event_description": "20% product price increase across all categories",
+      "probes": [
+        {
+          "id": "commerce.drift.probe.price_by_category",
+          "dataset": "commerce",
+          "utterance": "what is the average product price by category?",
+          "expect_result": true,
+          "expect_columns": [
+            "category"
+          ],
+          "tags": [
+            "drift",
+            "metric",
+            "pricing"
+          ]
+        },
+        {
+          "id": "commerce.drift.probe.stock_by_category",
+          "dataset": "commerce",
+          "utterance": "what is the total stock available by product category?",
+          "expect_result": true,
+          "expect_columns": [
+            "category"
+          ],
+          "tags": [
+            "drift",
+            "metric",
+            "inventory"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "commerce.drift.loyalty_upgrade",
+      "event_fn": "apply_loyalty_upgrade",
+      "event_description": "Bulk trial→standard and standard→premium segment upgrade",
+      "probes": [
+        {
+          "id": "commerce.drift.probe.customers_by_segment",
+          "dataset": "commerce",
+          "utterance": "how many customers are in each segment?",
+          "expect_result": true,
+          "expect_columns": [
+            "segment"
+          ],
+          "tags": [
+            "drift",
+            "metric",
+            "customers"
+          ]
+        },
+        {
+          "id": "commerce.drift.probe.price_by_category",
+          "dataset": "commerce",
+          "utterance": "what is the average product price by category?",
+          "expect_result": true,
+          "expect_columns": [
+            "category"
+          ],
+          "tags": [
+            "drift",
+            "metric",
+            "pricing"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "commerce.drift.price_increase",
+      "event_fn": "apply_price_increase",
+      "event_description": "20% product price increase applied to all orders",
+      "probes": [
+        {
+          "id": "commerce.drift.probe.revenue_by_segment",
+          "dataset": "commerce",
+          "utterance": "what is the total revenue by customer segment?",
+          "expect_result": true,
+          "expect_columns": [
+            "segment"
+          ],
+          "expect_table": "fct_daily_sales",
+          "tags": [
+            "drift",
+            "metric",
+            "revenue"
+          ]
+        },
+        {
+          "id": "commerce.drift.probe.aov_by_segment",
+          "dataset": "commerce",
+          "utterance": "what is the revenue per order for each customer segment?",
+          "expect_result": true,
+          "expect_columns": [
+            "segment"
+          ],
+          "expect_table": "fct_daily_sales",
+          "tags": [
+            "drift",
+            "metric",
+            "aov"
+          ]
+        },
+        {
+          "id": "commerce.drift.probe.customers_by_region",
+          "dataset": "commerce",
+          "utterance": "how many customers do we have in each region?",
+          "expect_result": true,
+          "expect_columns": [
+            "region"
+          ],
+          "expect_table": "dim_customer",
+          "tags": [
+            "drift",
+            "metric",
+            "region"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "commerce.drift.segment_upgrade",
+      "event_fn": "apply_segment_upgrade",
+      "event_description": "Bulk trial→standard and standard→premium segment upgrades",
+      "probes": [
+        {
+          "id": "commerce.drift.probe.customers_by_segment",
+          "dataset": "commerce",
+          "utterance": "how many customers do we have in each segment?",
+          "expect_result": true,
+          "expect_columns": [
+            "segment"
+          ],
+          "expect_table": "dim_customer",
+          "tags": [
+            "drift",
+            "metric",
+            "segmentation"
+          ]
+        },
+        {
+          "id": "commerce.drift.probe.revenue_by_segment",
+          "dataset": "commerce",
+          "utterance": "what is the total revenue by customer segment?",
+          "expect_result": true,
+          "expect_columns": [
+            "segment"
+          ],
+          "expect_table": "fct_daily_sales",
+          "tags": [
+            "drift",
+            "metric",
+            "revenue"
+          ]
+        },
+        {
+          "id": "commerce.drift.probe.aov_by_segment",
+          "dataset": "commerce",
+          "utterance": "what is the revenue per order for each customer segment?",
+          "expect_result": true,
+          "expect_columns": [
+            "segment"
+          ],
+          "expect_table": "fct_daily_sales",
+          "tags": [
+            "drift",
+            "metric",
+            "aov"
+          ]
+        }
+      ]
+    }
+  ]
+}

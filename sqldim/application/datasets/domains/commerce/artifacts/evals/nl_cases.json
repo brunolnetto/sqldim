@@ -1,0 +1,246 @@
+{
+  "domain": "commerce",
+  "cases": [
+    {
+      "id": "commerce.01.total_revenue",
+      "dataset": "commerce",
+      "utterance": "what is the total revenue from all orders?",
+      "expect_result": true,
+      "expect_columns": [],
+      "expect_table": "orders",
+      "tags": [
+        "metric",
+        "aggregation"
+      ],
+      "expected_sql": "SELECT SUM(quantity * unit_price_at_order) AS total_revenue FROM orders"
+    },
+    {
+      "id": "commerce.02.avg_order_value",
+      "dataset": "commerce",
+      "utterance": "what is the average order value?",
+      "expect_result": true,
+      "expect_columns": [],
+      "expect_table": "orders",
+      "tags": [
+        "metric",
+        "aggregation"
+      ],
+      "expected_sql": "SELECT AVG(quantity * unit_price_at_order) AS avg_order_value FROM orders"
+    },
+    {
+      "id": "commerce.03.orders_per_customer",
+      "dataset": "commerce",
+      "utterance": "how many orders has each customer placed?",
+      "expect_result": true,
+      "expect_columns": [
+        "customer_id"
+      ],
+      "expect_table": "orders",
+      "tags": [
+        "metric",
+        "aggregation"
+      ],
+      "expected_sql": "SELECT customer_id, COUNT(*) AS order_count FROM orders GROUP BY customer_id ORDER BY order_count DESC"
+    },
+    {
+      "id": "commerce.04.revenue_by_category",
+      "dataset": "commerce",
+      "utterance": "what is the total revenue broken down by product category?",
+      "expect_result": true,
+      "expect_columns": [
+        "category"
+      ],
+      "expect_table": "products",
+      "tags": [
+        "metric",
+        "aggregation",
+        "breakdown"
+      ],
+      "expected_sql": "SELECT p.category, SUM(o.quantity * o.unit_price_at_order) AS total_revenue FROM orders o JOIN products p ON o.product_id = p.product_id GROUP BY p.category ORDER BY total_revenue DESC"
+    },
+    {
+      "id": "commerce.05.low_stock_products",
+      "dataset": "commerce",
+      "utterance": "which products have fewer than 20 units in stock?",
+      "expect_result": false,
+      "expect_columns": [],
+      "expect_table": "products",
+      "tags": [
+        "filter",
+        "inventory"
+      ],
+      "expected_sql": "SELECT product_name, stock_units FROM products WHERE stock_units < 20 ORDER BY stock_units"
+    },
+    {
+      "id": "commerce.06.avg_price_by_category",
+      "dataset": "commerce",
+      "utterance": "what is the average unit price per product category?",
+      "expect_result": true,
+      "expect_columns": [
+        "category"
+      ],
+      "expect_table": "products",
+      "tags": [
+        "metric",
+        "aggregation",
+        "breakdown"
+      ],
+      "expected_sql": "SELECT category, AVG(unit_price) AS avg_unit_price FROM products GROUP BY category ORDER BY category"
+    },
+    {
+      "id": "commerce.07.customers_by_loyalty_tier",
+      "dataset": "commerce",
+      "utterance": "how many customers are in each loyalty tier?",
+      "expect_result": true,
+      "expect_columns": [
+        "loyalty_tier"
+      ],
+      "expect_table": "customers",
+      "tags": [
+        "metric",
+        "aggregation",
+        "segmentation"
+      ],
+      "expected_sql": "SELECT loyalty_tier, COUNT(*) AS customer_count FROM customers GROUP BY loyalty_tier ORDER BY customer_count DESC"
+    },
+    {
+      "id": "commerce.08.top_acquisition_channels",
+      "dataset": "commerce",
+      "utterance": "which acquisition channels brought the most customers?",
+      "expect_result": true,
+      "expect_columns": [
+        "acquisition_channel"
+      ],
+      "expect_table": "customers",
+      "tags": [
+        "metric",
+        "aggregation",
+        "breakdown"
+      ],
+      "expected_sql": "SELECT acquisition_channel, COUNT(*) AS customer_count FROM customers GROUP BY acquisition_channel ORDER BY customer_count DESC"
+    },
+    {
+      "id": "commerce.09.stores_by_state",
+      "dataset": "commerce",
+      "utterance": "how many stores are in each state?",
+      "expect_result": true,
+      "expect_columns": [
+        "state"
+      ],
+      "expect_table": "stores",
+      "tags": [
+        "metric",
+        "aggregation"
+      ],
+      "expected_sql": "SELECT state, COUNT(*) AS store_count FROM stores GROUP BY state ORDER BY store_count DESC"
+    },
+    {
+      "id": "commerce.01.revenue_by_segment",
+      "dataset": "commerce",
+      "utterance": "what is the total revenue by customer segment?",
+      "expect_result": true,
+      "expect_columns": [
+        "segment"
+      ],
+      "expect_table": "fct_daily_sales",
+      "tags": [
+        "metric",
+        "aggregation",
+        "segmentation",
+        "gold"
+      ],
+      "expected_sql": "SELECT segment, SUM(total_revenue) AS total_revenue FROM fct_daily_sales GROUP BY segment ORDER BY total_revenue DESC",
+      "pipeline_source": "commerce_medallion"
+    },
+    {
+      "id": "commerce.02.avg_order_value_by_segment",
+      "dataset": "commerce",
+      "utterance": "what is the revenue per order for each customer segment?",
+      "expect_result": true,
+      "expect_columns": [
+        "segment"
+      ],
+      "expect_table": "fct_daily_sales",
+      "tags": [
+        "metric",
+        "aggregation",
+        "segmentation",
+        "gold"
+      ],
+      "expected_sql": "SELECT segment, AVG(total_revenue / total_orders) AS avg_order_value FROM fct_daily_sales GROUP BY segment ORDER BY avg_order_value DESC",
+      "pipeline_source": "commerce_medallion"
+    },
+    {
+      "id": "commerce.03.new_vs_returning_by_segment",
+      "dataset": "commerce",
+      "utterance": "how many new versus returning customers did we have per segment?",
+      "expect_result": true,
+      "expect_columns": [
+        "segment"
+      ],
+      "expect_table": "fct_daily_sales",
+      "tags": [
+        "metric",
+        "aggregation",
+        "retention",
+        "gold"
+      ],
+      "expected_sql": "SELECT segment, SUM(new_customers) AS new_customers, SUM(returning_customers) AS returning_customers FROM fct_daily_sales GROUP BY segment ORDER BY segment",
+      "pipeline_source": "commerce_medallion"
+    },
+    {
+      "id": "commerce.04.d7_retention_by_cohort",
+      "dataset": "commerce",
+      "utterance": "what is the 7-day retention rate for each customer cohort?",
+      "expect_result": true,
+      "expect_columns": [
+        "cohort_date"
+      ],
+      "expect_table": "fct_cohort_retention",
+      "tags": [
+        "metric",
+        "retention",
+        "cohort",
+        "gold"
+      ],
+      "expected_sql": "SELECT cohort_date, (CAST(retained_d7 AS DOUBLE) / cohort_size) * 100.0 AS retention_rate_d7 FROM fct_cohort_retention ORDER BY cohort_date",
+      "pipeline_source": "commerce_medallion"
+    },
+    {
+      "id": "commerce.05.customers_by_region",
+      "dataset": "commerce",
+      "utterance": "how many customers do we have in each region?",
+      "expect_result": true,
+      "expect_columns": [
+        "region"
+      ],
+      "expect_table": "dim_customer",
+      "tags": [
+        "metric",
+        "aggregation",
+        "segmentation",
+        "gold"
+      ],
+      "expected_sql": "SELECT region, COUNT(*) AS customer_count FROM dim_customer GROUP BY region ORDER BY customer_count DESC",
+      "pipeline_source": "commerce_medallion"
+    },
+    {
+      "id": "commerce.06.segment_most_active",
+      "dataset": "commerce",
+      "utterance": "how do customer segments rank by total active customers (new plus returning)?",
+      "expect_result": true,
+      "expect_columns": [
+        "segment"
+      ],
+      "expect_table": "fct_daily_sales",
+      "tags": [
+        "metric",
+        "aggregation",
+        "engagement",
+        "gold"
+      ],
+      "expected_sql": "SELECT segment, SUM(new_customers + returning_customers) AS total_active_customers FROM fct_daily_sales GROUP BY segment ORDER BY total_active_customers DESC",
+      "pipeline_source": "commerce_medallion"
+    }
+  ]
+}

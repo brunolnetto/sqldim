@@ -45,8 +45,21 @@ def _case_id(c: EvalCase) -> str:
     return c.id
 
 
-def _invoke(utterance: str, thread_id: str) -> dict:
-    graph = build_supervisor_graph(context=_CTX)
+def _context_for_case(case: EvalCase) -> SupervisorContext:
+    """Restrict a domain evaluation to the domain it is evaluating."""
+    return SupervisorContext(available_datasets=[case.dataset])
+
+
+def _invoke(
+    utterance: str,
+    thread_id: str,
+    *,
+    dataset: str | None = None,
+) -> dict:
+    context = (
+        SupervisorContext(available_datasets=[dataset]) if dataset is not None else _CTX
+    )
+    graph = build_supervisor_graph(context=context)
     initial = SupervisorState(utterance=utterance)
     return graph.invoke(
         initial.model_dump(),
@@ -67,7 +80,7 @@ class TestPlannerDomainRouting:
 
     @pytest.mark.parametrize("case", EVAL_SUITE, ids=_case_id)
     def test_routes_to_dgm_query(self, case: EvalCase) -> None:
-        plan = decompose_question(case.utterance, _CTX)
+        plan = decompose_question(case.utterance, _context_for_case(case))
         tool_names = [s.tool_name for s in plan.steps]
         assert "dgm_query" in tool_names, (
             f"[{case.id}] '{case.utterance}' routed to {tool_names}, expected dgm_query"
@@ -99,7 +112,7 @@ class TestPlannerDatasetSelection:
         self, cases_mentioning_dataset: list[EvalCase]
     ) -> None:
         for case in cases_mentioning_dataset:
-            plan = decompose_question(case.utterance, _CTX)
+            plan = decompose_question(case.utterance, _context_for_case(case))
             query_steps = [s for s in plan.steps if s.tool_name == "dgm_query"]
             if query_steps:
                 selected = query_steps[0].arguments.get("dataset")
@@ -119,7 +132,7 @@ class TestPlannerDomainConfidence:
 
     @pytest.mark.parametrize("case", EVAL_SUITE, ids=_case_id)
     def test_confidence_above_reflect_threshold(self, case: EvalCase) -> None:
-        plan = decompose_question(case.utterance, _CTX)
+        plan = decompose_question(case.utterance, _context_for_case(case))
         assert plan.confidence >= 0.5, (
             f"[{case.id}] '{case.utterance}' confidence={plan.confidence:.2f} "
             f"< 0.5 reflect threshold — well-formed questions shouldn't trigger reflect"
@@ -136,7 +149,7 @@ class TestPlannerDomainBudget:
 
     @pytest.mark.parametrize("case", EVAL_SUITE, ids=_case_id)
     def test_budget_at_most_one(self, case: EvalCase) -> None:
-        plan = decompose_question(case.utterance, _CTX)
+        plan = decompose_question(case.utterance, _context_for_case(case))
         total = sum(s.budget_fraction for s in plan.steps)
         assert total <= 1.0 + 1e-9, f"[{case.id}] budget sum={total:.6f} > 1.0"
 
@@ -173,7 +186,7 @@ class TestGraphDomainExecution:
         ids=lambda c: c.id,
     )
     def test_graph_produces_synthesis(self, case: EvalCase) -> None:
-        result = _invoke(case.utterance, f"domain-{case.id}")
+        result = _invoke(case.utterance, f"domain-{case.id}", dataset=case.dataset)
         synthesis = result.get("synthesis", "") or ""
         assert len(synthesis) > 0, f"[{case.id}] Empty synthesis for '{case.utterance}'"
 
@@ -183,7 +196,7 @@ class TestGraphDomainExecution:
         ids=lambda c: c.id,
     )
     def test_graph_skips_reflect_for_domain_queries(self, case: EvalCase) -> None:
-        result = _invoke(case.utterance, f"noreflect-{case.id}")
+        result = _invoke(case.utterance, f"noreflect-{case.id}", dataset=case.dataset)
         visited = result.get("visited_nodes", [])
         assert "reflect" not in visited, (
             f"[{case.id}] Unexpected reflect for well-formed '{case.utterance}', "
@@ -197,7 +210,7 @@ class TestGraphDomainExecution:
     )
     def test_graph_mentions_dataset_in_synthesis(self, case: EvalCase) -> None:
         """The synthesis should mention the dataset that was queried."""
-        result = _invoke(case.utterance, f"ds-{case.id}")
+        result = _invoke(case.utterance, f"ds-{case.id}", dataset=case.dataset)
         synthesis = (result.get("synthesis", "") or "").lower()
         # The stub synthesizer at minimum includes the dataset name from
         # dgm_query's result data; check for it.

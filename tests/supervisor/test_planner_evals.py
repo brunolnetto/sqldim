@@ -16,7 +16,9 @@ import pytest
 from sqldim.core.query.dgm.nl.supervisor._planner import decompose_question
 from sqldim.core.query.dgm.nl.supervisor._types import SupervisorContext
 
-_CTX = SupervisorContext(available_datasets=["ecommerce", "retail", "social_network"])
+_CTX = SupervisorContext(
+    available_datasets=["ecommerce", "retail", "social_network", "growth", "devops"]
+)
 
 # ---------------------------------------------------------------------------
 # (utterance, expected_tool_sequence, confidence_range)
@@ -34,9 +36,12 @@ _ROUTING_CASES: list[tuple[str, list[str], tuple[float, float]]] = [
         ["dgm_map_analytical_space"],
         (0.5, 1.0),
     ),
-    # 'can you' is no longer a tool keyword (too broad); 'list' is a question
-    # marker so confidence ≥ 0.5 but routing falls back to dgm_query
-    ("Can you list what you can do?", ["dgm_query"], (0.5, 1.0)),
+    # Natural-language capability discovery
+    (
+        "Can you list what you can do?",
+        ["dgm_map_analytical_space"],
+        (0.5, 1.0),
+    ),
     # ── Both dataset + tool intent ────────────────────────────────────────
     (
         "Which datasets can you see and what tools do you have?",
@@ -135,22 +140,57 @@ class TestPlannerBudgetInvariant:
 
 
 class TestPlannerNoContext:
-    """Planner degrades gracefully when context is None."""
+    """Planner must not invent a dataset when no context is available."""
 
-    def test_no_context_returns_valid_plan(self) -> None:
+    def test_no_context_returns_empty_low_confidence_plan(self) -> None:
         plan = decompose_question("How many users are there?")
         assert plan is not None
-        assert len(plan.steps) >= 1
-        assert plan.steps[0].tool_name == "dgm_query"
-        assert plan.steps[0].arguments.get("dataset") == "unknown"
+        assert plan.steps == []
+        assert plan.confidence < 0.5
 
     def test_no_context_confidence_valid(self) -> None:
         plan = decompose_question("")
         assert 0.0 <= plan.confidence <= 1.0
 
-    def test_no_context_dataset_query_is_unknown(self) -> None:
+    def test_no_context_dataset_query_does_not_invent_domain(self) -> None:
         plan = decompose_question("Show me churn rate")
-        assert plan.steps[0].arguments.get("dataset") == "unknown"
+        assert plan.steps == []
+        assert plan.confidence < 0.5
+
+
+class TestPlannerDatasetResolution:
+    """Dataset resolution respects aliases and available-domain scope."""
+
+    def test_legacy_alias_resolves_to_canonical_domain(self) -> None:
+        context = SupervisorContext(available_datasets=["ecommerce"])
+        plan = decompose_question("How many orders?", context)
+
+        assert plan.steps[0].tool_name == "dgm_query"
+        assert plan.steps[0].arguments["dataset"] == "commerce"
+
+    def test_single_available_domain_is_used_as_context_scope(self) -> None:
+        context = SupervisorContext(available_datasets=["fintech"])
+        plan = decompose_question("How many records exist?", context)
+
+        assert plan.steps[0].tool_name == "dgm_query"
+        assert plan.steps[0].arguments["dataset"] == "fintech"
+
+    def test_multiple_domains_do_not_trigger_arbitrary_fallback(self) -> None:
+        context = SupervisorContext(available_datasets=["commerce", "devops"])
+        plan = decompose_question("How many records exist?", context)
+
+        assert plan.steps == []
+        assert plan.confidence < 0.5
+
+    def test_unavailable_explicit_domain_is_not_overridden_by_scope(self) -> None:
+        context = SupervisorContext(available_datasets=["commerce"])
+        plan = decompose_question(
+            "How many users churned in growth?",
+            context,
+        )
+
+        assert plan.steps == []
+        assert plan.confidence < 0.5
 
 
 class TestPlannerDeterminism:

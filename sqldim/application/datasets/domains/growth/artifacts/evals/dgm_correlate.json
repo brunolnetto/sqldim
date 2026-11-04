@@ -1,0 +1,26 @@
+{
+  "tool": "dgm_correlate",
+  "domain": "growth",
+  "cases": [
+    {
+      "id": "growth.correlate",
+      "tool": "dgm_correlate",
+      "description": "Correlate growth results with another analysis",
+      "arguments": {
+        "left": {},
+        "right": {}
+      },
+      "expected": {
+        "success": true,
+        "tool_name": "dgm_correlate",
+        "data_keys": [
+          "correlation"
+        ],
+        "data_checks": {}
+      },
+      "tags": [
+        "correlation"
+      ]
+    }
+  ]
+}

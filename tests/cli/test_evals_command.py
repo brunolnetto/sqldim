@@ -129,6 +129,58 @@ class TestEvalsRunCommand:
     def _stub_model(self, monkeypatch):
         _stub_runner_patch(monkeypatch)
 
+        import sqldim.application.evals.runner as runner_module
+        from sqldim.application.evals.runner import EvalResult, EvalRunner
+
+        class StubSource:
+            def __init__(self, dataset):
+                self.dataset = dataset
+
+            def setup(self):
+                pass
+
+            def get_connection(self):
+                return None
+
+            def get_table_names(self):
+                return []
+
+            def teardown(self):
+                pass
+
+        def make_stub_result(case):
+            return EvalResult(
+                case_id=case.id,
+                dataset=case.dataset,
+                utterance=case.utterance,
+                passed=True,
+                score=1.0,
+                visited_nodes=["stub"],
+                hop_count=1,
+                latency_ms=0.0,
+                row_count=0,
+                columns=[],
+                sql_generated=None,
+                explanation="Stub evaluation",
+                check_details={},
+                error=None,
+                tags=list(case.tags),
+                check_passed={},
+            )
+
+        def stub_run_on_connection(
+            self, case, con, table_names, model, *, thread_id_suffix=""
+        ):
+            return make_stub_result(case)
+
+        def stub_run_one(self, case, model):
+            return make_stub_result(case)
+
+        monkeypatch.setattr(runner_module, "load_dataset", lambda name: name)
+        monkeypatch.setattr(runner_module, "DatasetPipelineSource", StubSource)
+        monkeypatch.setattr(EvalRunner, "_run_on_connection", stub_run_on_connection)
+        monkeypatch.setattr(EvalRunner, "_run_one", stub_run_one)
+
     def test_evals_run_returns_int(self, capsys):
         rc = main(["nl", "evals", "run", "--dataset", "commerce", "--quiet"])
         assert isinstance(rc, int)
@@ -280,8 +332,20 @@ class TestEvalsDriftParser:
 class TestEvalsDriftCommand:
     @pytest.fixture(autouse=True)
     def _stub_model(self, monkeypatch):
+        from sqldim.application.evals.drift import DriftEvalReport
+        from sqldim.application.evals.runner import EvalRunner
+
+        def stub_run_drift_suite(self, drift_cases):
+            return DriftEvalReport(
+                run_at="2026-01-01T00:00:00+00:00",
+                provider=self.provider,
+                model_name=self.model_name,
+            )
+
         monkeypatch.setattr(
-            "sqldim.application.evals.runner.make_model", lambda *a, **kw: None
+            EvalRunner,
+            "run_drift_suite",
+            stub_run_drift_suite,
         )
 
     def test_valid_domain_returns_0(self, capsys):

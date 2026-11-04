@@ -1,0 +1,248 @@
+{
+  "domain": "data_models",
+  "tool_cases": [
+    {
+      "id": "data_models.what_can_i_answer.specific",
+      "tool": "dgm_what_can_i_answer",
+      "description": "List answerable questions specifically for data_models",
+      "arguments": {
+        "dataset": "data_models"
+      },
+      "expected": {
+        "success": true,
+        "tool_name": "dgm_what_can_i_answer",
+        "data_keys": [
+          "datasets",
+          "questions"
+        ],
+        "data_checks": {
+          "datasets_includes": [
+            "data_models"
+          ]
+        }
+      },
+      "tags": [
+        "discovery",
+        "specific"
+      ]
+    },
+    {
+      "id": "data_models.what_can_i_answer.all",
+      "tool": "dgm_what_can_i_answer",
+      "description": "Discover all datasets (should include data_models)",
+      "arguments": {
+        "dataset": "__all__"
+      },
+      "expected": {
+        "success": true,
+        "tool_name": "dgm_what_can_i_answer",
+        "data_keys": [
+          "datasets",
+          "questions"
+        ],
+        "data_checks": {
+          "datasets_includes": [
+            "data_models"
+          ]
+        }
+      },
+      "tags": [
+        "discovery",
+        "all"
+      ]
+    },
+    {
+      "id": "data_models.validate_invariant",
+      "tool": "dgm_validate_invariant",
+      "description": "Validate node count positivity for data_models lattice",
+      "arguments": {
+        "invariant": "node_count_positive",
+        "dataset": "data_models"
+      },
+      "expected": {
+        "success": true,
+        "tool_name": "dgm_validate_invariant",
+        "data_keys": [
+          "valid",
+          "violations"
+        ],
+        "data_checks": {}
+      },
+      "tags": [
+        "invariant"
+      ]
+    },
+    {
+      "id": "data_models.sensitivity_sweep",
+      "tool": "dgm_sensitivity_sweep",
+      "description": "Sweep lattice_depth for compression ratio in data_models",
+      "arguments": {
+        "dataset": "data_models",
+        "question": "lattice compression ratio trend",
+        "param": "lattice_depth"
+      },
+      "expected": {
+        "success": true,
+        "tool_name": "dgm_sensitivity_sweep",
+        "data_keys": [
+          "sweep_results"
+        ],
+        "data_checks": {}
+      },
+      "tags": [
+        "sensitivity"
+      ]
+    },
+    {
+      "id": "data_models.explore_from",
+      "tool": "dgm_explore_from",
+      "description": "Explore forward from a data_models result",
+      "arguments": {
+        "result": {},
+        "direction": "forward"
+      },
+      "expected": {
+        "success": true,
+        "tool_name": "dgm_explore_from",
+        "data_keys": [
+          "suggestions"
+        ],
+        "data_checks": {}
+      },
+      "tags": [
+        "exploration"
+      ]
+    },
+    {
+      "id": "data_models.correlate",
+      "tool": "dgm_correlate",
+      "description": "Correlate data_models results with another analysis",
+      "arguments": {
+        "left": {},
+        "right": {}
+      },
+      "expected": {
+        "success": true,
+        "tool_name": "dgm_correlate",
+        "data_keys": [
+          "correlation"
+        ],
+        "data_checks": {}
+      },
+      "tags": [
+        "correlation"
+      ]
+    },
+    {
+      "id": "data_models.store_finding",
+      "tool": "dgm_store_finding",
+      "description": "Store a lattice compression finding from data_models",
+      "arguments": {
+        "finding": "Lattice compression exceeds threshold",
+        "tags": [
+          "data_models",
+          "analysis"
+        ]
+      },
+      "expected": {
+        "success": true,
+        "tool_name": "dgm_store_finding",
+        "data_keys": [
+          "stored",
+          "finding_id"
+        ],
+        "data_checks": {
+          "stored_equals": true
+        }
+      },
+      "tags": [
+        "knowledge-base"
+      ]
+    },
+    {
+      "id": "data_models.retrieve_related",
+      "tool": "dgm_retrieve_related",
+      "description": "Retrieve findings related to lattice optimization",
+      "arguments": {
+        "query": "lattice optimization",
+        "max_results": 5
+      },
+      "expected": {
+        "success": true,
+        "tool_name": "dgm_retrieve_related",
+        "data_keys": [
+          "findings"
+        ],
+        "data_checks": {}
+      },
+      "tags": [
+        "knowledge-base"
+      ]
+    },
+    {
+      "id": "data_models.map_analytical_space",
+      "tool": "dgm_map_analytical_space",
+      "description": "Map analytical space for data_models",
+      "arguments": {
+        "dataset": "data_models"
+      },
+      "expected": {
+        "success": true,
+        "tool_name": "dgm_map_analytical_space",
+        "data_keys": [
+          "tools"
+        ],
+        "data_checks": {
+          "tools_non_empty": true
+        }
+      },
+      "tags": [
+        "capability"
+      ]
+    },
+    {
+      "id": "data_models.query.table_overview",
+      "tool": "dgm_query",
+      "description": "Run a NL query against the data_models dataset",
+      "arguments": {
+        "dataset": "data_models",
+        "question": "what tables are available in the data_models dataset?"
+      },
+      "expected": {
+        "success": true,
+        "tool_name": "dgm_query",
+        "data_keys": [
+          "dataset",
+          "question"
+        ],
+        "data_checks": {}
+      },
+      "tags": [
+        "query",
+        "analytical"
+      ]
+    },
+    {
+      "id": "data_models.query.hierarchy_levels",
+      "tool": "dgm_query",
+      "description": "Run a hierarchy-specific NL query against the data_models dataset",
+      "arguments": {
+        "dataset": "data_models",
+        "question": "how many hierarchy levels exist in the org chart?"
+      },
+      "expected": {
+        "success": true,
+        "tool_name": "dgm_query",
+        "data_keys": [
+          "dataset",
+          "question"
+        ],
+        "data_checks": {}
+      },
+      "tags": [
+        "query",
+        "analytical"
+      ]
+    }
+  ]
+}

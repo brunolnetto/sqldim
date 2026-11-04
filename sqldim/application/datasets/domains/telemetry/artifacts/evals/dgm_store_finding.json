@@ -1,0 +1,32 @@
+{
+  "tool": "dgm_store_finding",
+  "domain": "telemetry",
+  "cases": [
+    {
+      "id": "telemetry.store_finding",
+      "tool": "dgm_store_finding",
+      "description": "Store a DAU/MAU finding from telemetry",
+      "arguments": {
+        "finding": "DAU/MAU ratio declining over 30-day window",
+        "tags": [
+          "telemetry",
+          "analysis"
+        ]
+      },
+      "expected": {
+        "success": true,
+        "tool_name": "dgm_store_finding",
+        "data_keys": [
+          "stored",
+          "finding_id"
+        ],
+        "data_checks": {
+          "stored_equals": true
+        }
+      },
+      "tags": [
+        "knowledge-base"
+      ]
+    }
+  ]
+}

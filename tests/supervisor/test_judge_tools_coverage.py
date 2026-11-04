@@ -426,6 +426,7 @@ class TestDgmQueryToolRealExecution:
         )
         assert result.success is True
         assert result.data.get("stub") is True
+        assert {"query_result", "explanation"} <= result.data.keys()
 
     def test_successful_execution_returns_result(self, monkeypatch) -> None:
         """Lines 115-149, 158-167: successful execution path."""
@@ -478,6 +479,11 @@ class TestDgmQueryToolRealExecution:
         )
         assert result.success is True
         assert result.data.get("explanation") == "Total revenue is $1M"
+        assert result.data.get("query_result") == {
+            "count": 3,
+            "columns": ["cat"],
+            "rows": [["A"]],
+        }
         assert result.cost_actual == 500
 
     def test_pipeline_exception_returns_failure(self, monkeypatch) -> None:

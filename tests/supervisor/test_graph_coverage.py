@@ -380,7 +380,7 @@ class TestLlmSynthesize:
         from sqldim.core.query.dgm.nl.supervisor._types import SupervisorContext
 
         context = SupervisorContext(
-            available_datasets=["ecommerce"],
+            available_datasets=["commerce"],
             model=mock_model,
         )
         return build_supervisor_graph(context=context)

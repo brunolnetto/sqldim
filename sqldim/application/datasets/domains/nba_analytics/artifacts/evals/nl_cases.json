@@ -1,0 +1,80 @@
+{
+  "domain": "nba_analytics",
+  "cases": [
+    {
+      "id": "nba_analytics.01.total_teams",
+      "dataset": "nba_analytics",
+      "utterance": "how many NBA teams are in the database?",
+      "expect_result": true,
+      "expect_columns": [],
+      "expect_table": "teams",
+      "tags": [
+        "metric",
+        "count"
+      ],
+      "expected_sql": "SELECT COUNT(*) AS team_count FROM teams"
+    },
+    {
+      "id": "nba_analytics.02.avg_pts_by_position",
+      "dataset": "nba_analytics",
+      "utterance": "what is the average points scored per game by starting position?",
+      "expect_result": true,
+      "expect_columns": [
+        "start_position"
+      ],
+      "expect_table": "game_details",
+      "tags": [
+        "metric",
+        "aggregation",
+        "scoring"
+      ],
+      "expected_sql": "SELECT start_position, AVG(pts) AS avg_pts FROM game_details WHERE start_position IS NOT NULL GROUP BY start_position ORDER BY avg_pts DESC"
+    },
+    {
+      "id": "nba_analytics.03.home_win_pct",
+      "dataset": "nba_analytics",
+      "utterance": "what percentage of games are won by the home team?",
+      "expect_result": true,
+      "expect_columns": [],
+      "expect_table": "games",
+      "tags": [
+        "metric",
+        "aggregation",
+        "home_advantage"
+      ],
+      "expected_sql": "SELECT ROUND(100.0 * SUM(home_team_wins) / COUNT(*), 1) AS home_win_pct FROM games"
+    },
+    {
+      "id": "nba_analytics.04.avg_score_by_season",
+      "dataset": "nba_analytics",
+      "utterance": "what is the average total score per game for each season?",
+      "expect_result": true,
+      "expect_columns": [
+        "season"
+      ],
+      "expect_table": "games",
+      "tags": [
+        "metric",
+        "aggregation",
+        "scoring"
+      ],
+      "expected_sql": "SELECT season, AVG(pts_home + pts_away) AS avg_total_score FROM games GROUP BY season ORDER BY season"
+    },
+    {
+      "id": "nba_analytics.05.games_per_team",
+      "dataset": "nba_analytics",
+      "utterance": "how many games has each team played as the home team?",
+      "expect_result": true,
+      "expect_columns": [
+        "home_team_id"
+      ],
+      "expect_table": "games",
+      "tags": [
+        "metric",
+        "aggregation",
+        "schedule"
+      ],
+      "expected_sql": "SELECT home_team_id, COUNT(*) AS home_games FROM games GROUP BY home_team_id ORDER BY home_games DESC"
+    }
+  ]
+}

@@ -1,0 +1,26 @@
+{
+  "tool": "dgm_retrieve_related",
+  "domain": "devops",
+  "cases": [
+    {
+      "id": "devops.retrieve_related",
+      "tool": "dgm_retrieve_related",
+      "description": "Retrieve findings related to deployment failures",
+      "arguments": {
+        "query": "deployment failures",
+        "max_results": 5
+      },
+      "expected": {
+        "success": true,
+        "tool_name": "dgm_retrieve_related",
+        "data_keys": [
+          "findings"
+        ],
+        "data_checks": {}
+      },
+      "tags": [
+        "knowledge-base"
+      ]
+    }
+  ]
+}

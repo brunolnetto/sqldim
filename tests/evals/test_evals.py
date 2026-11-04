@@ -613,24 +613,27 @@ class TestEvalRunnerStubMode:
 
     def test_filter_by_dataset(self):
         runner = self._make_stub_runner()
-        import unittest.mock as mock
+        cases = runner._filter_suite(
+            cases=None,
+            datasets=["commerce"],
+            tags=None,
+        )
 
-        with mock.patch(
-            "sqldim.application.evals.runner.make_model", return_value=None
-        ):
-            report = runner.run(datasets=["commerce"])
-        assert all(r.dataset == "commerce" for r in report.results)
+        assert cases
+        assert all(case.dataset == "commerce" for case in cases)
 
     def test_filter_by_tag(self):
         runner = self._make_stub_runner()
-        import unittest.mock as mock
+        cases = runner._filter_suite(
+            cases=None,
+            datasets=["commerce"],
+            tags=["metric"],
+        )
 
-        with mock.patch(
-            "sqldim.application.evals.runner.make_model", return_value=None
-        ):
-            report = runner.run(datasets=["commerce"], tags=["metric"])
-        assert len(report.results) > 0
-        assert all("metric" in r.tags for r in report.results)
+        assert cases
+        assert all(
+            case.dataset == "commerce" and "metric" in case.tags for case in cases
+        )
 
     def test_unknown_dataset_yields_error_result(self):
         runner = self._make_stub_runner()

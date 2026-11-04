@@ -1,0 +1,27 @@
+{
+  "tool": "dgm_sensitivity_sweep",
+  "domain": "telemetry",
+  "cases": [
+    {
+      "id": "telemetry.sensitivity_sweep",
+      "tool": "dgm_sensitivity_sweep",
+      "description": "Sweep retention_window for DAU/MAU trend in telemetry",
+      "arguments": {
+        "dataset": "telemetry",
+        "question": "DAU to MAU ratio trend",
+        "param": "retention_window"
+      },
+      "expected": {
+        "success": true,
+        "tool_name": "dgm_sensitivity_sweep",
+        "data_keys": [
+          "sweep_results"
+        ],
+        "data_checks": {}
+      },
+      "tags": [
+        "sensitivity"
+      ]
+    }
+  ]
+}

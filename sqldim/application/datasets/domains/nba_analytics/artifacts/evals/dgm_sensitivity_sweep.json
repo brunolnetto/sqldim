@@ -1,0 +1,27 @@
+{
+  "tool": "dgm_sensitivity_sweep",
+  "domain": "nba_analytics",
+  "cases": [
+    {
+      "id": "nba_analytics.sensitivity_sweep",
+      "tool": "dgm_sensitivity_sweep",
+      "description": "Sweep season_range for scoring efficiency in nba_analytics",
+      "arguments": {
+        "dataset": "nba_analytics",
+        "question": "scoring efficiency by quarter",
+        "param": "season_range"
+      },
+      "expected": {
+        "success": true,
+        "tool_name": "dgm_sensitivity_sweep",
+        "data_keys": [
+          "sweep_results"
+        ],
+        "data_checks": {}
+      },
+      "tags": [
+        "sensitivity"
+      ]
+    }
+  ]
+}

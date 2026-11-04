@@ -332,6 +332,15 @@ _DATASET_ALIASES: dict[str, str] = {
 }
 
 
+def _canonicalize_available_datasets(datasets: list[str]) -> set[str]:
+    """Normalize legacy dataset aliases to canonical domain names."""
+    return {
+        _DATASET_ALIASES.get(name.strip().lower(), name.strip().lower())
+        for name in datasets
+        if name and name.strip()
+    }
+
+
 _CANONICAL_DATASET_NAMES: frozenset[str] = frozenset(
     {
         "commerce",
@@ -358,6 +367,9 @@ _DATASET_TOPIC_TERMS: dict[str, tuple[str, ...]] = {
         "deliveries",
         "delivery",
         "returns",
+        "7-day retention",
+        "customer cohort",
+        "customer cohorts",
         "refunds",
         "inventory",
         "warehouse",
@@ -492,7 +504,7 @@ def _find_mentioned_dataset(
     datasets: list[str],
 ) -> str | None:
     """Resolve one explicitly mentioned, available canonical dataset."""
-    available = set(datasets)
+    available = _canonicalize_available_datasets(datasets)
     matches = _mentioned_dataset_candidates(utterance, datasets)
 
     if len(matches) != 1:
@@ -502,27 +514,46 @@ def _find_mentioned_dataset(
     return candidate if candidate in available else None
 
 
+def _topic_dataset_candidates(utterance: str) -> set[str]:
+    """Find the most specific domain matches in the utterance."""
+    import re as _re
+
+    utt_lower = utterance.lower()
+    matches: dict[str, list[str]] = {}
+
+    for domain, terms in _DATASET_TOPIC_TERMS.items():
+        matched = [
+            term
+            for term in terms
+            if _re.search(r"\b" + _re.escape(term) + r"\b", utt_lower)
+        ]
+        if matched:
+            matches[domain] = matched
+
+    if not matches:
+        return set()
+
+    def specificity(terms: list[str]) -> int:
+        return max(len(term.split()) for term in terms)
+
+    best = max(specificity(terms) for terms in matches.values())
+
+    return {domain for domain, terms in matches.items() if specificity(terms) == best}
+
+
 def _infer_topic_dataset(
     utterance: str,
     datasets: list[str],
 ) -> str | None:
-    """Infer a dataset only when the topic maps unambiguously to one domain."""
-    import re as _re
+    """Infer a unique, specific topic domain within the available context."""
+    available = _canonicalize_available_datasets(datasets)
+    matches = _topic_dataset_candidates(utterance)
+    contextual_matches = matches & available
 
-    available = set(datasets)
-    utt_lower = utterance.lower()
-    matches: set[str] = set()
+    if len(contextual_matches) != 1:
+        return None
 
-    for domain, terms in _DATASET_TOPIC_TERMS.items():
-        if domain not in available:
-            continue
-
-        if any(
-            _re.search(r"\b" + _re.escape(term) + r"\b", utt_lower) for term in terms
-        ):
-            matches.add(domain)
-
-    return next(iter(matches)) if len(matches) == 1 else None
+    return next(iter(contextual_matches))
 
 
 def _resolve_dataset(
@@ -541,7 +572,11 @@ def _resolve_dataset(
             return None
 
         candidate = next(iter(mentioned))
-        return candidate if candidate in set(datasets) else None
+        return (
+            candidate
+            if candidate in _canonicalize_available_datasets(datasets)
+            else None
+        )
 
     return _infer_topic_dataset(utterance, datasets)
 
@@ -575,7 +610,15 @@ def _keyword_decompose(
 
     # ── Boolean intent signals ────────────────────────────────────────────
     wants_datasets = any(phrase in utt_lower for phrase in _DATASET_PHRASES)
-    wants_tools = any(w in utt_lower for w in ["tool", "capabilit"])
+    wants_tools = any(w in utt_lower for w in ["tool", "capabilit"]) or any(
+        phrase in utt_lower
+        for phrase in (
+            "what can you do",
+            "what you can do",
+            "what can i do",
+            "what do you do",
+        )
+    )
     wants_validate = any(p in utt_lower for p in _VALIDATE_PHRASES)
     wants_sensitivity = any(p in utt_lower for p in _SENSITIVITY_PHRASES)
     wants_correlate = any(_re.search(p, utt_lower) for p in _CORRELATE_PHRASES)
@@ -601,6 +644,17 @@ def _keyword_decompose(
             and not wants_retrieve
         )
     )
+
+    if requires_dataset and target_ds is None:
+        available = _canonicalize_available_datasets(datasets)
+        explicit_mentions = _mentioned_dataset_candidates(utterance, datasets)
+
+        # A single available domain is an explicit context constraint, not
+        # an arbitrary positional fallback. Do not override an explicit
+        # reference to a domain that is unavailable in this context.
+        topic_candidates = _topic_dataset_candidates(utterance)
+        if len(available) == 1 and not explicit_mentions and not topic_candidates:
+            target_ds = next(iter(available))
 
     if requires_dataset and target_ds is None:
         return SupervisorPlan(

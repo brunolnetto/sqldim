@@ -1,0 +1,145 @@
+{
+  "domain": "growth",
+  "cases": [
+    {
+      "id": "growth.drift.reorg",
+      "event_fn": "apply_reorg",
+      "event_description": "HR department renamed to Operations",
+      "probes": [
+        {
+          "id": "growth.drift.probe.headcount_by_dept",
+          "dataset": "growth",
+          "utterance": "how many employees are in each department?",
+          "expect_result": true,
+          "expect_columns": [
+            "department"
+          ],
+          "tags": [
+            "drift",
+            "metric",
+            "hr"
+          ]
+        },
+        {
+          "id": "growth.drift.probe.balance_by_type",
+          "dataset": "growth",
+          "utterance": "what is the total account balance by account type?",
+          "expect_result": true,
+          "expect_columns": [
+            "account_type"
+          ],
+          "tags": [
+            "drift",
+            "metric",
+            "finance"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "growth.drift.balance_adjustment",
+      "event_fn": "apply_balance_adjustment",
+      "event_description": "5% interest credit applied to all account balances",
+      "probes": [
+        {
+          "id": "growth.drift.probe.balance_by_type",
+          "dataset": "growth",
+          "utterance": "what is the total account balance by account type?",
+          "expect_result": true,
+          "expect_columns": [
+            "account_type"
+          ],
+          "tags": [
+            "drift",
+            "metric",
+            "finance"
+          ]
+        },
+        {
+          "id": "growth.drift.probe.headcount_by_title",
+          "dataset": "growth",
+          "utterance": "how many employees hold each job title?",
+          "expect_result": true,
+          "expect_columns": [
+            "title"
+          ],
+          "tags": [
+            "drift",
+            "metric",
+            "hr"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "growth.drift.free_tier_churn",
+      "event_fn": "apply_free_tier_churn",
+      "event_description": "All free-tier users marked as churned",
+      "probes": [
+        {
+          "id": "growth.drift.probe.users_by_tier",
+          "dataset": "growth",
+          "utterance": "how many users are on each plan tier?",
+          "expect_result": true,
+          "expect_columns": [
+            "plan_tier"
+          ],
+          "tags": [
+            "drift",
+            "metric",
+            "users"
+          ]
+        },
+        {
+          "id": "growth.drift.probe.users_by_acquisition",
+          "dataset": "growth",
+          "utterance": "how many users came from each acquisition source?",
+          "expect_result": true,
+          "expect_columns": [
+            "acq_source"
+          ],
+          "tags": [
+            "drift",
+            "metric",
+            "acquisition"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "growth.drift.plan_upgrade",
+      "event_fn": "apply_plan_upgrade",
+      "event_description": "All pro-tier users upgraded to enterprise",
+      "probes": [
+        {
+          "id": "growth.drift.probe.users_by_tier",
+          "dataset": "growth",
+          "utterance": "how many users are on each plan tier?",
+          "expect_result": true,
+          "expect_columns": [
+            "plan_tier"
+          ],
+          "tags": [
+            "drift",
+            "metric",
+            "users"
+          ]
+        },
+        {
+          "id": "growth.drift.probe.users_by_acquisition",
+          "dataset": "growth",
+          "utterance": "how many users came from each acquisition source?",
+          "expect_result": true,
+          "expect_columns": [
+            "acq_source"
+          ],
+          "tags": [
+            "drift",
+            "metric",
+            "acquisition"
+          ]
+        }
+      ]
+    }
+  ]
+}

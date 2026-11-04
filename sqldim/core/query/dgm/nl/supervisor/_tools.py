@@ -86,7 +86,7 @@ class DgmQueryTool(BaseTool):
             name="dgm_query",
             description="Execute a DGM NL query against a named dataset",
             input_schema={"dataset": "str", "question": "str"},
-            output_schema={"result": "Any", "explanation": "str"},
+            output_schema={"query_result": "Any", "explanation": "str"},
             composable_with=["dgm_correlate", "dgm_explore_from"],
         )
 
@@ -105,7 +105,13 @@ class DgmQueryTool(BaseTool):
             return ToolCallResult(
                 tool_name="dgm_query",
                 success=True,
-                data={"dataset": dataset, "question": question, "stub": True},
+                data={
+                    "dataset": dataset,
+                    "question": question,
+                    "explanation": None,
+                    "query_result": None,
+                    "stub": True,
+                },
                 cost_actual=0,
             )
 

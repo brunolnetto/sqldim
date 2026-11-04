@@ -1,0 +1,72 @@
+{
+  "tool": "dgm_query",
+  "domain": "telemetry",
+  "cases": [
+    {
+      "id": "telemetry.query.events_by_device",
+      "tool": "dgm_query",
+      "description": "how many page events come from each device type?",
+      "arguments": {
+        "dataset": "telemetry",
+        "question": "how many page events come from each device type?"
+      },
+      "expected": {
+        "success": true,
+        "tool_name": "dgm_query",
+        "data_keys": [
+          "dataset",
+          "question"
+        ],
+        "data_checks": {}
+      },
+      "tags": [
+        "query",
+        "analytical"
+      ]
+    },
+    {
+      "id": "telemetry.query.browser_share",
+      "tool": "dgm_query",
+      "description": "what is the browser share across all devices?",
+      "arguments": {
+        "dataset": "telemetry",
+        "question": "what is the browser share across all devices?"
+      },
+      "expected": {
+        "success": true,
+        "tool_name": "dgm_query",
+        "data_keys": [
+          "dataset",
+          "question"
+        ],
+        "data_checks": {}
+      },
+      "tags": [
+        "query",
+        "analytical"
+      ]
+    },
+    {
+      "id": "telemetry.query.top_urls",
+      "tool": "dgm_query",
+      "description": "which URLs were visited the most?",
+      "arguments": {
+        "dataset": "telemetry",
+        "question": "which URLs were visited the most?"
+      },
+      "expected": {
+        "success": true,
+        "tool_name": "dgm_query",
+        "data_keys": [
+          "dataset",
+          "question"
+        ],
+        "data_checks": {}
+      },
+      "tags": [
+        "query",
+        "analytical"
+      ]
+    }
+  ]
+}

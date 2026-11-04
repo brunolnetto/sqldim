@@ -33,7 +33,7 @@ from sqldim.core.query.dgm.nl.supervisor._types import (
     SupervisorState,
 )
 
-_CTX = SupervisorContext(available_datasets=["ecommerce", "retail", "social_network"])
+_CTX = SupervisorContext(available_datasets=["commerce", "devops", "entertainment"])
 
 _ILL_DEFINED: list[str] = [
     "",

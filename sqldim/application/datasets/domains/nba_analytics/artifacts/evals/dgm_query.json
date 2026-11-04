@@ -1,0 +1,72 @@
+{
+  "tool": "dgm_query",
+  "domain": "nba_analytics",
+  "cases": [
+    {
+      "id": "nba_analytics.query.total_teams",
+      "tool": "dgm_query",
+      "description": "how many NBA teams are in the database?",
+      "arguments": {
+        "dataset": "nba_analytics",
+        "question": "how many NBA teams are in the database?"
+      },
+      "expected": {
+        "success": true,
+        "tool_name": "dgm_query",
+        "data_keys": [
+          "dataset",
+          "question"
+        ],
+        "data_checks": {}
+      },
+      "tags": [
+        "query",
+        "analytical"
+      ]
+    },
+    {
+      "id": "nba_analytics.query.avg_pts_by_position",
+      "tool": "dgm_query",
+      "description": "what is the average points scored per game by starting position?",
+      "arguments": {
+        "dataset": "nba_analytics",
+        "question": "what is the average points scored per game by starting position?"
+      },
+      "expected": {
+        "success": true,
+        "tool_name": "dgm_query",
+        "data_keys": [
+          "dataset",
+          "question"
+        ],
+        "data_checks": {}
+      },
+      "tags": [
+        "query",
+        "analytical"
+      ]
+    },
+    {
+      "id": "nba_analytics.query.home_win_pct",
+      "tool": "dgm_query",
+      "description": "what percentage of games are won by the home team?",
+      "arguments": {
+        "dataset": "nba_analytics",
+        "question": "what percentage of games are won by the home team?"
+      },
+      "expected": {
+        "success": true,
+        "tool_name": "dgm_query",
+        "data_keys": [
+          "dataset",
+          "question"
+        ],
+        "data_checks": {}
+      },
+      "tags": [
+        "query",
+        "analytical"
+      ]
+    }
+  ]
+}

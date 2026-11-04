@@ -1,0 +1,69 @@
+{
+  "domain": "nba_analytics",
+  "cases": [
+    {
+      "id": "nba_analytics.drift.three_point_era",
+      "event_fn": "apply_three_point_era",
+      "event_description": "League-wide three-point attempt and make rate boost",
+      "probes": [
+        {
+          "id": "nba_analytics.drift.probe.avg_pts_by_position",
+          "dataset": "nba_analytics",
+          "utterance": "what is the average points per game by starting position?",
+          "expect_result": true,
+          "expect_columns": [
+            "start_position"
+          ],
+          "tags": [
+            "drift",
+            "metric",
+            "scoring"
+          ]
+        },
+        {
+          "id": "nba_analytics.drift.probe.home_win_pct",
+          "dataset": "nba_analytics",
+          "utterance": "what percentage of games are won by the home team?",
+          "expect_result": true,
+          "expect_columns": [],
+          "tags": [
+            "drift",
+            "metric",
+            "home_advantage"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "nba_analytics.drift.home_court_bump",
+      "event_fn": "apply_home_court_bump",
+      "event_description": "5-point bonus added to every home team score",
+      "probes": [
+        {
+          "id": "nba_analytics.drift.probe.avg_total_score",
+          "dataset": "nba_analytics",
+          "utterance": "what is the average total score per game across all seasons?",
+          "expect_result": true,
+          "expect_columns": [],
+          "tags": [
+            "drift",
+            "metric",
+            "scoring"
+          ]
+        },
+        {
+          "id": "nba_analytics.drift.probe.home_win_pct",
+          "dataset": "nba_analytics",
+          "utterance": "what percentage of games are won by the home team?",
+          "expect_result": true,
+          "expect_columns": [],
+          "tags": [
+            "drift",
+            "metric",
+            "home_advantage"
+          ]
+        }
+      ]
+    }
+  ]
+}

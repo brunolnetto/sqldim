@@ -1,0 +1,26 @@
+{
+  "tool": "dgm_explore_from",
+  "domain": "devops",
+  "cases": [
+    {
+      "id": "devops.explore_from",
+      "tool": "dgm_explore_from",
+      "description": "Explore forward from a devops result",
+      "arguments": {
+        "result": {},
+        "direction": "forward"
+      },
+      "expected": {
+        "success": true,
+        "tool_name": "dgm_explore_from",
+        "data_keys": [
+          "suggestions"
+        ],
+        "data_checks": {}
+      },
+      "tags": [
+        "exploration"
+      ]
+    }
+  ]
+}

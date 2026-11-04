@@ -1,0 +1,250 @@
+{
+  "domain": "telemetry",
+  "tool_cases": [
+    {
+      "id": "telemetry.what_can_i_answer.specific",
+      "tool": "dgm_what_can_i_answer",
+      "description": "List answerable questions specifically for telemetry",
+      "arguments": {
+        "dataset": "telemetry"
+      },
+      "expected": {
+        "success": true,
+        "tool_name": "dgm_what_can_i_answer",
+        "data_keys": [
+          "datasets",
+          "questions"
+        ],
+        "data_checks": {
+          "datasets_includes": [
+            "telemetry"
+          ]
+        }
+      },
+      "tags": [
+        "discovery",
+        "specific"
+      ]
+    },
+    {
+      "id": "telemetry.what_can_i_answer.all",
+      "tool": "dgm_what_can_i_answer",
+      "description": "Discover all datasets (should include telemetry)",
+      "arguments": {
+        "dataset": "__all__"
+      },
+      "expected": {
+        "success": true,
+        "tool_name": "dgm_what_can_i_answer",
+        "data_keys": [
+          "datasets",
+          "questions"
+        ],
+        "data_checks": {
+          "datasets_includes": [
+            "telemetry"
+          ]
+        }
+      },
+      "tags": [
+        "discovery",
+        "all"
+      ]
+    },
+    {
+      "id": "telemetry.validate_invariant",
+      "tool": "dgm_validate_invariant",
+      "description": "Validate positive span duration invariant for telemetry",
+      "arguments": {
+        "invariant": "span_duration_positive",
+        "dataset": "telemetry"
+      },
+      "expected": {
+        "success": true,
+        "tool_name": "dgm_validate_invariant",
+        "data_keys": [
+          "valid",
+          "violations"
+        ],
+        "data_checks": {}
+      },
+      "tags": [
+        "invariant"
+      ]
+    },
+    {
+      "id": "telemetry.sensitivity_sweep",
+      "tool": "dgm_sensitivity_sweep",
+      "description": "Sweep retention_window for DAU/MAU trend in telemetry",
+      "arguments": {
+        "dataset": "telemetry",
+        "question": "DAU to MAU ratio trend",
+        "param": "retention_window"
+      },
+      "expected": {
+        "success": true,
+        "tool_name": "dgm_sensitivity_sweep",
+        "data_keys": [
+          "sweep_results"
+        ],
+        "data_checks": {}
+      },
+      "tags": [
+        "sensitivity"
+      ]
+    },
+    {
+      "id": "telemetry.explore_from",
+      "tool": "dgm_explore_from",
+      "description": "Explore forward from a telemetry result",
+      "arguments": {
+        "result": {},
+        "direction": "forward"
+      },
+      "expected": {
+        "success": true,
+        "tool_name": "dgm_explore_from",
+        "data_keys": [
+          "suggestions"
+        ],
+        "data_checks": {}
+      },
+      "tags": [
+        "exploration"
+      ]
+    },
+    {
+      "id": "telemetry.correlate",
+      "tool": "dgm_correlate",
+      "description": "Correlate telemetry results with another analysis",
+      "arguments": {
+        "left": {},
+        "right": {}
+      },
+      "expected": {
+        "success": true,
+        "tool_name": "dgm_correlate",
+        "data_keys": [
+          "correlation"
+        ],
+        "data_checks": {}
+      },
+      "tags": [
+        "correlation"
+      ]
+    },
+    {
+      "id": "telemetry.store_finding",
+      "tool": "dgm_store_finding",
+      "description": "Store a pipeline performance finding from telemetry",
+      "arguments": {
+        "finding": "Average pipeline build duration exceeds 1s for commerce domain",
+        "tags": [
+          "telemetry",
+          "analysis"
+        ]
+      },
+      "expected": {
+        "success": true,
+        "tool_name": "dgm_store_finding",
+        "data_keys": [
+          "stored",
+          "finding_id"
+        ],
+        "data_checks": {
+          "stored_equals": true
+        }
+      },
+      "tags": [
+        "knowledge-base"
+      ]
+    },
+    {
+      "id": "telemetry.retrieve_related",
+      "tool": "dgm_retrieve_related",
+      "description": "Retrieve findings related to pipeline performance",
+      "arguments": {
+        "query": "pipeline performance",
+        "max_results": 5
+      },
+      "expected": {
+        "success": true,
+        "tool_name": "dgm_retrieve_related",
+        "data_keys": [
+          "findings"
+        ],
+        "data_checks": {}
+      },
+      "tags": [
+        "knowledge-base"
+      ]
+    },
+    {
+      "id": "telemetry.map_analytical_space",
+      "tool": "dgm_map_analytical_space",
+      "description": "Map analytical space for telemetry",
+      "arguments": {
+        "dataset": "telemetry"
+      },
+      "expected": {
+        "success": true,
+        "tool_name": "dgm_map_analytical_space",
+        "data_keys": [
+          "tools"
+        ],
+        "data_checks": {
+          "tools_non_empty": true
+        }
+      },
+      "tags": [
+        "capability"
+      ]
+    },
+    {
+      "id": "telemetry.query.browser_share",
+      "tool": "dgm_query",
+      "description": "Query browser share from telemetry",
+      "arguments": {
+        "question": "What is the browser share across all devices?",
+        "dataset": "telemetry"
+      },
+      "expected": {
+        "success": true,
+        "tool_name": "dgm_query",
+        "data_keys": [
+          "dataset",
+          "question",
+          "explanation",
+          "query_result"
+        ],
+        "data_checks": {}
+      },
+      "tags": [
+        "query"
+      ]
+    },
+    {
+      "id": "telemetry.query.spans_by_domain",
+      "tool": "dgm_query",
+      "description": "Query pipeline span duration by domain",
+      "arguments": {
+        "question": "What is the average pipeline span duration per domain?",
+        "dataset": "telemetry"
+      },
+      "expected": {
+        "success": true,
+        "tool_name": "dgm_query",
+        "data_keys": [
+          "dataset",
+          "question",
+          "explanation",
+          "query_result"
+        ],
+        "data_checks": {}
+      },
+      "tags": [
+        "query"
+      ]
+    }
+  ]
+}

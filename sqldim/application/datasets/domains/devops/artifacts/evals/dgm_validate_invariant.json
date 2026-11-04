@@ -1,0 +1,27 @@
+{
+  "tool": "dgm_validate_invariant",
+  "domain": "devops",
+  "cases": [
+    {
+      "id": "devops.validate_invariant",
+      "tool": "dgm_validate_invariant",
+      "description": "Validate commit count positivity for devops",
+      "arguments": {
+        "invariant": "commit_count_positive",
+        "dataset": "devops"
+      },
+      "expected": {
+        "success": true,
+        "tool_name": "dgm_validate_invariant",
+        "data_keys": [
+          "valid",
+          "violations"
+        ],
+        "data_checks": {}
+      },
+      "tags": [
+        "invariant"
+      ]
+    }
+  ]
+}

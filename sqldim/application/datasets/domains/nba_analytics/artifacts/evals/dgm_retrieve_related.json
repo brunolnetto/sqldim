@@ -1,0 +1,26 @@
+{
+  "tool": "dgm_retrieve_related",
+  "domain": "nba_analytics",
+  "cases": [
+    {
+      "id": "nba_analytics.retrieve_related",
+      "tool": "dgm_retrieve_related",
+      "description": "Retrieve findings related to player performance trends",
+      "arguments": {
+        "query": "player performance trends",
+        "max_results": 5
+      },
+      "expected": {
+        "success": true,
+        "tool_name": "dgm_retrieve_related",
+        "data_keys": [
+          "findings"
+        ],
+        "data_checks": {}
+      },
+      "tags": [
+        "knowledge-base"
+      ]
+    }
+  ]
+}

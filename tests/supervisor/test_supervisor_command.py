@@ -19,8 +19,8 @@ class TestSupervisorCommandDiscovery:
     def test_supervisor_lists_datasets(self) -> None:
         from sqldim.application.ask import KNOWN_DATASETS
 
-        # At least social_network and commerce should be available
-        assert "social_network" in KNOWN_DATASETS
+        # Canonical domain names exposed by the consolidated registry
+        assert "entertainment" in KNOWN_DATASETS
         assert "commerce" in KNOWN_DATASETS
 
 

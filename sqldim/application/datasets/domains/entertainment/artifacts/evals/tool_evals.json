@@ -1,0 +1,248 @@
+{
+  "domain": "entertainment",
+  "tool_cases": [
+    {
+      "id": "entertainment.what_can_i_answer.specific",
+      "tool": "dgm_what_can_i_answer",
+      "description": "List answerable questions specifically for entertainment",
+      "arguments": {
+        "dataset": "entertainment"
+      },
+      "expected": {
+        "success": true,
+        "tool_name": "dgm_what_can_i_answer",
+        "data_keys": [
+          "datasets",
+          "questions"
+        ],
+        "data_checks": {
+          "datasets_includes": [
+            "entertainment"
+          ]
+        }
+      },
+      "tags": [
+        "discovery",
+        "specific"
+      ]
+    },
+    {
+      "id": "entertainment.what_can_i_answer.all",
+      "tool": "dgm_what_can_i_answer",
+      "description": "Discover all datasets (should include entertainment)",
+      "arguments": {
+        "dataset": "__all__"
+      },
+      "expected": {
+        "success": true,
+        "tool_name": "dgm_what_can_i_answer",
+        "data_keys": [
+          "datasets",
+          "questions"
+        ],
+        "data_checks": {
+          "datasets_includes": [
+            "entertainment"
+          ]
+        }
+      },
+      "tags": [
+        "discovery",
+        "all"
+      ]
+    },
+    {
+      "id": "entertainment.validate_invariant",
+      "tool": "dgm_validate_invariant",
+      "description": "Validate non-negative view count for entertainment",
+      "arguments": {
+        "invariant": "view_count_non_negative",
+        "dataset": "entertainment"
+      },
+      "expected": {
+        "success": true,
+        "tool_name": "dgm_validate_invariant",
+        "data_keys": [
+          "valid",
+          "violations"
+        ],
+        "data_checks": {}
+      },
+      "tags": [
+        "invariant"
+      ]
+    },
+    {
+      "id": "entertainment.sensitivity_sweep",
+      "tool": "dgm_sensitivity_sweep",
+      "description": "Sweep time_window for engagement trend in entertainment",
+      "arguments": {
+        "dataset": "entertainment",
+        "question": "engagement trend over time",
+        "param": "time_window"
+      },
+      "expected": {
+        "success": true,
+        "tool_name": "dgm_sensitivity_sweep",
+        "data_keys": [
+          "sweep_results"
+        ],
+        "data_checks": {}
+      },
+      "tags": [
+        "sensitivity"
+      ]
+    },
+    {
+      "id": "entertainment.explore_from",
+      "tool": "dgm_explore_from",
+      "description": "Explore forward from an entertainment result",
+      "arguments": {
+        "result": {},
+        "direction": "forward"
+      },
+      "expected": {
+        "success": true,
+        "tool_name": "dgm_explore_from",
+        "data_keys": [
+          "suggestions"
+        ],
+        "data_checks": {}
+      },
+      "tags": [
+        "exploration"
+      ]
+    },
+    {
+      "id": "entertainment.correlate",
+      "tool": "dgm_correlate",
+      "description": "Correlate entertainment results with another analysis",
+      "arguments": {
+        "left": {},
+        "right": {}
+      },
+      "expected": {
+        "success": true,
+        "tool_name": "dgm_correlate",
+        "data_keys": [
+          "correlation"
+        ],
+        "data_checks": {}
+      },
+      "tags": [
+        "correlation"
+      ]
+    },
+    {
+      "id": "entertainment.store_finding",
+      "tool": "dgm_store_finding",
+      "description": "Store a media engagement finding from entertainment",
+      "arguments": {
+        "finding": "Viewer engagement exceeds baseline",
+        "tags": [
+          "entertainment",
+          "analysis"
+        ]
+      },
+      "expected": {
+        "success": true,
+        "tool_name": "dgm_store_finding",
+        "data_keys": [
+          "stored",
+          "finding_id"
+        ],
+        "data_checks": {
+          "stored_equals": true
+        }
+      },
+      "tags": [
+        "knowledge-base"
+      ]
+    },
+    {
+      "id": "entertainment.retrieve_related",
+      "tool": "dgm_retrieve_related",
+      "description": "Retrieve findings related to audience preferences",
+      "arguments": {
+        "query": "audience preferences",
+        "max_results": 5
+      },
+      "expected": {
+        "success": true,
+        "tool_name": "dgm_retrieve_related",
+        "data_keys": [
+          "findings"
+        ],
+        "data_checks": {}
+      },
+      "tags": [
+        "knowledge-base"
+      ]
+    },
+    {
+      "id": "entertainment.map_analytical_space",
+      "tool": "dgm_map_analytical_space",
+      "description": "Map analytical space for entertainment",
+      "arguments": {
+        "dataset": "entertainment"
+      },
+      "expected": {
+        "success": true,
+        "tool_name": "dgm_map_analytical_space",
+        "data_keys": [
+          "tools"
+        ],
+        "data_checks": {
+          "tools_non_empty": true
+        }
+      },
+      "tags": [
+        "capability"
+      ]
+    },
+    {
+      "id": "entertainment.query.total_actors",
+      "tool": "dgm_query",
+      "description": "Run a NL query against the entertainment dataset",
+      "arguments": {
+        "dataset": "entertainment",
+        "question": "how many actors are in the database?"
+      },
+      "expected": {
+        "success": true,
+        "tool_name": "dgm_query",
+        "data_keys": [
+          "dataset",
+          "question"
+        ],
+        "data_checks": {}
+      },
+      "tags": [
+        "query",
+        "analytical"
+      ]
+    },
+    {
+      "id": "entertainment.query.most_read_books",
+      "tool": "dgm_query",
+      "description": "Run a book-club NL query against the entertainment dataset",
+      "arguments": {
+        "dataset": "entertainment",
+        "question": "which books have the most readers?"
+      },
+      "expected": {
+        "success": true,
+        "tool_name": "dgm_query",
+        "data_keys": [
+          "dataset",
+          "question"
+        ],
+        "data_checks": {}
+      },
+      "tags": [
+        "query",
+        "analytical"
+      ]
+    }
+  ]
+}
