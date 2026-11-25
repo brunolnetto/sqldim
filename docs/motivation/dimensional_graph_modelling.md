@@ -1845,7 +1845,7 @@ Short-circuit behaviour, with p a nullable atom and n a non-nullable one:
 | `IsNull(x) AND x > 5` | — | — | U | IsNull(x) ∧ p⁺ | contradiction, by Δ_null | empty-result short-circuit |
 | `p AND q` | as table above | | | p⁺ ∧ q⁺ | satisfiable | no short-circuit; nothing is inferred about the row count |
 
-Core: BDDNode (var, low, high), FALSE_NODE=0, TRUE_NODE=1. Unique table (var,low,high)→id; computed cache (op,u,v)→result.
+Core: BDDNode (var, low, high), FALSE_NODE=0, TRUE_NODE=1. Unique table (var,low,high)→id; computed cache (op,u,v)→result. Node ids are handles local to one BDD manager; identity across processes and sessions is `predicate_hash` (§8.14).
 
 Operations: make (elimination+sharing), apply (Shannon expansion; memoised), negate (single-pass), FORALL elimination by CTL duality at construction (§4.1).
 
@@ -2460,7 +2460,7 @@ GraphExpr approximations:
 Async lifecycle:
   Missing (not yet run)
   → In-flight (executing)
-  → Complete (result in sink, cached by q_dag_id)
+  → Complete (result in sink, cached by result_key, §8.14)
   → Stale (after ttl expires)
 
 WritePlan inferred from ADAPTIVE mode (PipelineArtifact Rule 10):
@@ -2618,7 +2618,7 @@ neighbourhood(q_current) = {
 }
 ```
 
-Correlation candidates identified by DAG node sharing are essentially free — the shared subgraph is already materialised. Cross-session result caching uses the query DAG node id as the cache key: same id, same result set (given same `G` snapshot). Cache invalidation is structural: a cached result for DAG node `q_id` is stale when any node or edge referenced by `q_id`'s leaf queries has changed in `G`.
+Correlation candidates identified by DAG node sharing are essentially free — the shared subgraph is already materialised. Cross-session result caching uses `result_key` (§8.14), the hash of the canonical DAG with schema, parameters, snapshot and reference instant: same key, same result set (given same `G` snapshot). Cache invalidation is structural: a cached result for DAG node `q_id` is stale when any node or edge referenced by `q_id`'s leaf queries has changed in `G`.
 
 ### 7.3  Suggestion types per band
 
@@ -3014,19 +3014,49 @@ Band 1-3 with recursion:   Σ₁-hard (Datalog containment)
 
 The planner applies containment-based elimination only for Band 1 leaf nodes (tractable case). For Band 2/3 nodes it applies only the syntactic laws (idempotence, identity, annihilation) which do not require containment checking.
 
-**Cross-session caching.** The query DAG is built with `Now` as a symbol, never from a clock reading, so the same `(q, π)` yields the same DAG node id at any time. The id alone is therefore not a sufficient cache key for a τ-dependent query (§5.1): the resolved reference instant and time zone are part of the key.
+**Cross-session caching.** BDD node ids and query DAG node ids are **local handles**: integers issued by one manager instance, in creation order. Within that manager they give O(1) equality. Across managers — another process, another session, the same session after a restart — the same integer can denote a different structure, so a local id is never persisted, never sent to another process and never used as a cache key.
+
+Persistent identity is a hash of a canonical serialisation:
 
 ```
-cache[(q_dag_id, τ, time_zone)] = (result_set, G_snapshot_version)      -- τ-dependent query
-cache[(q_dag_id)]               = (result_set, G_snapshot_version)      -- otherwise
+dag_hash(n)     Merkle hash of a query DAG node: H(operator, payload, hashes of its children),
+                children sorted by hash for commutative operators and in order otherwise.
+                A leaf's payload is its canonical band query: anchor types, path patterns, strategies,
+                and predicate_hash of each filter.
 
-Validity: cache hit valid iff G_snapshot_version = current
-Invalidation: stale when any n ∈ N_AB or e ∈ E_AB referenced by
-              q_dag_id's leaf queries has changed in G
-              -- derivable from the DAG's dependency structure
+predicate_hash  Merkle hash of the filter's BDD built under the canonical variable order:
+                bands in the order B₁, B₂, B₃; within a band, atoms ordered by the byte order of
+                their canonical serialisation (§6.1). H(atom, hash(low), hash(high)).
+                The selectivity-based order of §6.1 may be used to execute; it is never used to hash.
+
+question_key  = H( canon_version,            -- version of these serialisation and normalisation rules
+                   schema_version,           -- hash of G_S, Σ and the mapping M (§2.6)
+                   dag_hash(root),
+                   params )                  -- resolved π: Param bindings, strategies, Repeat bounds,
+                                             -- TemporalContext fields other than the instant,
+                                             -- sorted by name
+
+result_key    = H( question_key,
+                   G_snapshot_version,
+                   τ, time_zone )            -- the last two only for a τ-dependent query (§5.1)
 ```
 
-This enables semantic-level caching: two users asking the same question in syntactically different forms get the same cached result because they reduce to the same DAG node id. SQL text caching cannot achieve this.
+`H` is SHA-256 over a length-prefixed, type-tagged encoding, so that no two distinct inputs share a byte string; keys are not truncated below 128 bits. `Now` is serialised as a symbol in `dag_hash`; its value enters only through τ in `result_key`.
+
+```
+cache[result_key]   = result_set
+saved[question_key] = a saved question, independent of data and of time
+```
+
+Consequences:
+
+- Two sessions that build the same question over the same schema obtain the same `question_key`, whatever their local ids; over the same snapshot and reference instant they obtain the same `result_key`.
+- A change to the schema, annotations or mapping changes `schema_version`; a change to any resolved parameter changes `params`; a different `as_of` changes τ; a new snapshot changes `G_snapshot_version`. Each changes the key, so an entry computed under other conditions is never returned.
+- A change to the serialisation or normalisation rules changes `canon_version` and retires every earlier key.
+
+An entry is hit only under the snapshot version it was computed on. Carrying an entry over to a later snapshot whose relevant data did not change is an invalidation policy, defined separately.
+
+This enables semantic-level caching: two users asking the same question in syntactically different forms get the same cached result because they reduce to the same canonical DAG and hence the same `question_key`. SQL text caching cannot achieve this.
 
 **Query explanation via DAG decomposition.** The canonical query DAG is the minimum mechanical explanation of what a composed query does:
 
@@ -3642,7 +3672,7 @@ Q_delta(t₁, t₂) triggers:
                        → re-resolve saved NL terms against updated P(n)
 ```
 
-Saved questions are stored by query DAG node id. When `G` changes, the interface checks whether the node id is still valid by attempting to re-derive the DAG from the new `G`. If derivation fails, the question is invalidated. If derivation succeeds but produces a different DAG, the user is notified of the semantic change.
+Saved questions are stored by `question_key` (§8.14) together with their canonical serialisation. When the schema changes, `schema_version` changes and the stored key no longer matches; the interface re-derives the DAG from the stored serialisation against the new schema. If derivation fails, the question is invalidated. If derivation succeeds but produces a different DAG, the user is notified of the semantic change.
 
 ### 11.8  Hallucination prevention
 
