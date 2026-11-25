@@ -732,6 +732,8 @@ Compose(VerbHop⁻¹(f₁,verb₁,dim,node_alias=shared_dim),
 -- valid when Conformed(dim,{type(f₁),type(f₂)}) ∈ Σ
 ```
 
+A constellation path relates two facts only through the dimension they share. It does not pair the individual fact instances: one customer's two sales and three returns are not six sale–return pairs. A query over a constellation path is therefore evaluated by **drill-across** (§5.2.2), never by joining the two facts row to row.
+
 Alias uniqueness enforced at construction: C ∩ L ≠ ∅ rejected.
 
 **Repetition.** `Repeat(path, min, max)` matches `path` traversed k times in sequence for some k with min ≤ k ≤ max. It is the only recursion construct of BoundPath: variable-depth traversal, transitive closure and ragged hierarchies are all written with it.
@@ -1243,8 +1245,8 @@ Translations of the predicate, expression, window and delta forms that occur in 
 ScalarPred(PropRef(sale.occurred_on.year), (= 2024))
   ≡ ScalarPred(Compare(Func(YEAR, [PropRef(sale.occurred_on)]), =, Lit(2024, Int)))
 
-ScalarPred(PropRef(return_ev.occurred_on), (> PropRef(sale.occurred_on)))
-  ≡ ScalarPred(Compare(PropRef(return_ev.occurred_on), >, PropRef(sale.occurred_on)))      -- two references
+ScalarPred(PropRef(s.shipped_on), (> PropRef(s.occurred_on)))
+  ≡ ScalarPred(Compare(PropRef(s.shipped_on), >, PropRef(s.occurred_on)))                  -- two references
 
 ScalarPred(PropRef(a.state), IN {Missing, Failed})
   ≡ ScalarPred(In(PropRef(a.state),
@@ -1517,6 +1519,51 @@ B₂ = (GroupBy, Agg, Having)
 ```
 
 GroupBy: list of SExpr over PropRefs from C' — a bare PropRef, a Func of one, or TypeOf(alias). A degenerate attribute (`Degenerate(f, key)`, §2.4) is a valid GroupBy key like any other fact property. Agg: { aᵢ := Exprᵢ }. Grain-aware. Free→Free SubgraphExpr valid in Agg — scalar broadcast to all groups. Having: T [AggRef].
+
+**Drill-across.** The fact aliases of a Join context fall into **fact branches**: two fact aliases belong to the same branch iff some path of the Join connects them without passing through a conformed dimension by a constellation hop (`VerbHop⁻¹` into the dimension followed by `VerbHop` out of it). A context with one branch is aggregated as usual. A context with two or more branches is a constellation and is evaluated as follows — this is the definition of its result, not an optimisation:
+
+```
+1. For each fact branch Fᵢ: restrict C to the conformed dimensions and the aliases of Fᵢ;
+   apply the Where predicates that concern Fᵢ; group by the GroupBy keys; compute the
+   aggregates that belong to Fᵢ.
+2. Align the per-branch results by FULL OUTER JOIN on the GroupBy keys.
+3. Evaluate cross-branch expressions — ArithExpr over aggregates of different branches —
+   and Having on the aligned rows.
+```
+
+Well-formedness of a constellation query, checked at construction:
+
+```
+DA1  Every aggregate argument references the aliases of exactly one fact branch (and conformed
+     dimensions). An aggregate over PropRefs of two branches is rejected.
+DA2  Every GroupBy key is an attribute of a dimension d with Conformed(d, Fs) ∈ Σ, where Fs
+     contains the fact type of every branch. The GroupBy keys are the conformance keys on which
+     the branches are aligned. With no GroupBy each branch yields one row and step 2 pairs them.
+DA3  A Where predicate references conformed dimensions only (it applies to every branch), or
+     conformed dimensions and one fact branch (it applies to that branch, before aggregation).
+     A predicate that compares PropRefs of two branches is rejected: it would pair fact
+     instances, which the constellation does not relate.
+DA4  COUNT of an absent branch is 0; every other aggregate of an absent branch is NULL.
+```
+
+By construction each measure is aggregated over the tuples of its own branch only, so every aggregate equals the one computed by querying that fact alone with the same filters and grouping. A key present in one branch and absent from another still yields a row (step 2), with the absent branch filled by DA4; a query that wants only keys present in both adds a Having such as `COUNT(sale) > 0`.
+
+```
+Customer C1: sales S1 (100), S2 (200); returns R1 (10), R2 (20), R3 (30).
+Customer C2: sales S3 (50), S4 (70); no returns.          Customer C3: return R4 (5); no sales.
+
+GroupBy [customer.id];  Agg: n_sales := COUNT(sale), revenue := SUM(sale.revenue),
+                             n_returns := COUNT(return_ev), rate := n_returns / n_sales
+
+Row-to-row join (not the semantics):  C1 → 6 rows; n_sales = 6, revenue = 900, n_returns = 6
+Drill-across:
+  customer  n_sales  revenue  n_returns  rate
+  C1        2        300      3          1.5
+  C2        2        120      0          0
+  C3        0        NULL     1          NULL      -- division by zero is NULL (§4.1)
+```
+
+Relating individual instances of two facts — "returns made after their sale" — requires an edge type between the facts, such as a bridge `(Sale, Return, 'returned_as')`. That is a single path and a single branch, not a constellation.
 
 #### 5.2.3  Band 3 — Ranking layer
 
@@ -1965,6 +2012,16 @@ for each pair of CTEs (q_i, q_j) in a composed query:
 ```
 
 Cross-query BDD ids are comparable because the BDD is constructed once per query session over the same atom set (§6.1). Two sub-predicates with the same BDD node id in different CTEs are semantically equivalent and share a single materialised CTE. This extends the existing within-query CSE (optimisation pipeline step 2) to cross-query scope.
+
+**Rule 12 — Drill-across for constellations:**
+
+```
+if the Join context has k ≥ 2 fact branches (§5.2.2):
+    emit one CTE per branch: its Where predicates, GROUP BY the conformance keys, its aggregates
+    emit FULL OUTER JOIN of the k CTEs on the conformance keys (COALESCE the keys)
+    evaluate cross-branch ArithExpr and Having on the joined rows
+    -- never emit a direct join between two fact branches
+```
 
 **Rule 11 extended — query DAG minimisation (new in v0.20).** Beyond shared subexpression hoisting, Rule 11 now applies the full semiring elimination laws before emitting CTEs:
 
@@ -3191,7 +3248,7 @@ Estimated: `f_structure ≈ 5! = 120` (short-path dominated), `f_predicate ≈ 2
 
 **Phase 7 — Planner and exporter (~2 weeks)**
 - GraphStatistics with transposed_adj, scc_sizes, temporal_density.
-- Planning rules 1–10 (Rules 1a cone extension, Rule 3 TrailExpr, Rule 9 cone containment, Rule 10 PipelineArtifact, Rule 11 query DAG CSE + minimisation).
+- Planning rules 1–10 (Rules 1a cone extension, Rule 3 TrailExpr, Rule 9 cone containment, Rule 10 PipelineArtifact, Rule 11 query DAG CSE + minimisation, Rule 12 drill-across).
 - SQL emitter with G^T BFS for Free→Bound; cone containment optimisation.
 - Sink integration; Cypher, SPARQL, DGM_JSON/YAML exporters.
 - ExecutionBudget type and pre-execution gate (§6.3): BudgetDecision types, decision procedure, four graceful handling strategies.
@@ -3822,14 +3879,21 @@ This is the machine-executable form of §11.8 (hallucination prevention): not a 
 **Example 1 — Constellation path**
 
 ```
--- Σ: Conformed(customer, {Sale, Return})
-Join: Anchor(fact, sale)
-      PathJoin(sale, Compose(VerbHop⁻¹(sale,'placed',c,node_alias=customer),
-                             VerbHop(c,'initiated',ret,node_alias=return_ev)), ret)
-Where: AND(ScalarPred(PropRef(sale.occurred_on.year),(= 2024)),
-           ScalarPred(PropRef(return_ev.occurred_on),(> PropRef(sale.occurred_on))))
-GroupBy: [ customer.region ]
+-- Σ: Conformed(Customer, {Sale, Return})
+Join: Anchor(Sale, sale)
+      PathJoin(sale, Compose(VerbHop⁻¹(Sale,'placed',Customer,node_alias=customer),
+                             VerbHop(Customer,'initiated',Return,node_alias=return_ev)), return_ev)
+Where: AND(ScalarPred(PropRef(sale.occurred_on.year),(= 2024)),            -- Sale branch
+           ScalarPred(PropRef(return_ev.occurred_on.year),(= 2024)))       -- Return branch
+GroupBy: [ customer.region ]                                               -- conformance key
 Agg: return_rate := COUNT(return_ev) / COUNT(sale)
+
+-- Two fact branches, {sale} and {return_ev}, meet at the conformed dimension Customer.
+-- Evaluated by drill-across (§5.2.2, Rule 12): sales and returns of 2024 are each counted per
+-- region, the two results are aligned on region, and the ratio is taken afterwards.
+-- A region with sales and no returns has return_rate = 0; with returns and no sales, NULL.
+-- A predicate such as return_ev.occurred_on > sale.occurred_on would pair instances of the two
+-- facts and is rejected (DA3).
 ```
 
 **Example 2 — Forward cone: outgoing signature inventory (Stage 1)**
