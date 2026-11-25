@@ -14,6 +14,25 @@ jobs:
   tests:
     name: Tests (Python ${{ matrix.python-version }})
     runs-on: ubuntu-latest
+    services:
+      # PostgreSQLSink tests use this server instead of forking pg_ctl from
+      # an xdist worker (ENOMEM / killed server on the runner).
+      postgres:
+        image: postgres:18
+        env:
+          POSTGRES_PASSWORD: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      SQLDIM_PG_HOST: localhost
+      SQLDIM_PG_PORT: "5432"
+      SQLDIM_PG_USER: postgres
+      SQLDIM_PG_PASSWORD: postgres
     strategy:
       max-parallel: 4
       fail-fast: false
@@ -34,15 +53,6 @@ jobs:
         with:
           enable-cache: true
           cache-dependency-glob: "uv.lock"
-
-      - name: Install PostgreSQL server (for PostgreSQLSink tests)
-        run: |
-          sudo apt-get update -q
-          sudo apt-get install -y -q postgresql
-          ls /usr/lib/postgresql/*/bin/pg_ctl
-          # pytest-postgresql forks pg_ctl from a large xdist worker; the default
-          # heuristic overcommit refuses that fork with ENOMEM on the runner.
-          sudo sysctl -w vm.overcommit_memory=1
 
       - name: Install dependencies
         run: uv sync --group dev --extra nl --extra interactive
