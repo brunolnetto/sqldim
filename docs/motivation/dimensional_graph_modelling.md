@@ -40,7 +40,7 @@
    - [7.6 Graph algorithm signals](#76--graph-algorithm-signals)
    - [7.7 Parametric suggestions](#77--parametric-suggestions)
 8. [Theoretical Foundations](#8--theoretical-foundations)
-   - [8.1 DGM as Kripke structure](#81--dgm-as-kripke-structure)
+   - [8.1 DGM as a labelled transition system](#81--dgm-as-a-labelled-transition-system)
    - [8.2 Propositional completeness of the filter tree](#82--propositional-completeness-of-the-filter-tree)
    - [8.3 Minterms, maxterms, canonical form](#83--minterms-maxterms-canonical-form)
    - [8.4 PathPred as compact quantification over paths](#84--pathpred-as-compact-quantification-over-paths)
@@ -108,7 +108,7 @@ The framework rests on twenty-one core ideas (21 items below):
 - **Path-local bindings** allow hops in a BoundPath to introduce named aliases evaluated over C ∪ L.
 - **A unified predicate language** governs all filter clauses via three constructors (ScalarPred, PathPred, SignaturePred). Functionally complete; realises full CTL via TemporalMode.
 - **A unified expression language** governs all computed values. TrailExpr algorithms operate over RelationshipSubgraph scopes with relaxed or fixed endpoints — enabling forward-cone, backward-cone, and full traversal-space analysis.
-- **DGM is a Kripke structure** — nodes are states, edges are transitions, property bags are labels. The transposed graph G^T reverses adjacency: it enables backward-cone computation, and past-temporal model checking on the edge types that carry a temporal meaning.
+- **DGM is a labelled transition system** — nodes are states, edges are labelled transitions, property bags label states; a Kripke structure is derived for each temporal predicate (§8.1). The transposed graph G^T reverses adjacency: it enables backward-cone computation, and past-temporal model checking on the edge types that carry a temporal meaning.
 - **Temporal queries** come in two forms: snapshot queries (Q) and delta queries (Q_delta).
 - **A query planner** makes DGM-specific physical execution decisions informed by schema annotations, including cone containment optimisation (Rule 9) for relaxed-endpoint traversals.
 - **A query exporter** translates physical plans to multiple query and sink targets.
@@ -206,7 +206,7 @@ The two readings of `G_AB` are defined in §3.4.2 (instance) and §3.4.5 (schema
 
 **Transposed graph.** G_I^T = (N_I, E_I^R, P) where E_I^R = { (b,a,l) | (a,b,l) ∈ E_I }, typed by h over the transposed schema graph G_S^T. Reverses all edge directions. It is a logical object: a reverse hop reads the same edge relation by its target key (§2.6). Reversed adjacency may additionally be materialised (O(|E_I|)) and shared across queries when the graph fits in memory. Used by the planner for Free→Bound backward-cone computation and by SINCE/ONCE/PREVIOUSLY TemporalMode SQL generation. Written G^T elsewhere. G^T is a reversal of adjacency and nothing more: following an edge backwards reaches a predecessor in path order, which is an earlier moment only where the edge type is time-ordered (§2.3).
 
-**Kripke equivalence.** G_I is formally a Kripke structure K = (S, R, L) under S=N_I, R=E_I, L=P. G_I^T is the transpose of K. Restricted to time-ordered edge types it is the time-reversal of K, and past-temporal model checking runs on that restriction. See §8.1.
+**Transition system.** G_I is a labelled transition system with states N_I and actions L × {fwd, rev}; CTL is evaluated on Kripke structures derived from it per path predicate (§8.1, D36). G_I^T exchanges the directions. Restricted to time-ordered edge types it is a time reversal, and past-temporal model checking runs on that restriction.
 
 ### 2.2  Node types
 
@@ -2227,9 +2227,12 @@ Grounded in the lattice identity G_A* ∩ G_*B = G_AB (§8.7). Always correct; n
 ```
 if PipelineArtifact(f, _, ttl, horizon, write_mode) ∈ Σ:
 
+    -- Declarative (D35; ADR 0005): the planner produces plans; it writes nothing.
+    -- The runtime executes WritePlans and appends the transitions when their condition holds.
+
     -- TTL expiry: transition Complete → Stale
     if P(f).state = Complete AND occurred_at of its last transition < now - ttl:
-        append transition (Complete, expired, Stale)
+        TransitionPlan(artifact, Complete, expired, Stale, condition=ON_DISPATCH)
         WritePlan(mode=MERGE, sink=current_sink)
 
     -- ADAPTIVE write mode inference from P(f).state:
@@ -2252,7 +2255,8 @@ if PipelineArtifact(f, _, ttl, horizon, write_mode) ∈ Σ:
             to_state = Stale       -- refresh failure: prior result kept by the atomic MERGE
         else:
             to_state = Failed      -- backfill failure: no prior artifact
-    -- every state change appends one transition fact and one 'followed_by' edge (PA1–PA2)
+    -- every planned state change becomes, when executed by the runtime, one transition fact
+    -- and one 'followed_by' edge (PA1–PA2); scheduled ON_DISPATCH, succeeded ON_SUCCESS, failed ON_FAILURE
 ```
 
 **Rule 11 — Cross-CTE Common Subexpression Elimination (CSE):**
@@ -2600,7 +2604,7 @@ GraphExpr approximations:
   SIGNATURE_ENTROPY       →  reservoir sample of path instances (k=1000)
 ```
 
-**Strategy 4 — Async execution with materialisation.** In the DEFERRED zone (cost above `async_threshold`, at most `max_estimated_cost`), once no viable rewrite exists, the query is scheduled as a `PipelineArtifact` (§2.4) — the result is written to a `SinkTarget` and the query DAG node id is the cache key. The user receives an immediate acknowledgement; subsequent identical questions are answered from the cached result.
+**Strategy 4 — Async execution with materialisation.** In the DEFERRED zone (cost above `async_threshold`, at most `max_estimated_cost`), once no viable rewrite exists, the gate returns ASYNC; the gate itself schedules nothing. The runtime's executor then submits the plan (§11.10 `enqueue_async`), and the query is materialised as a `PipelineArtifact` (§2.4) — the result is written to a `SinkTarget` and the query DAG node id is the cache key. The user receives an immediate acknowledgement; subsequent identical questions are answered from the cached result.
 
 ```
 Async lifecycle:
@@ -2888,17 +2892,31 @@ Parametric suggestions are validated by `BDD_parametric` feasibility (§8.15) an
 
 ## 8  Theoretical Foundations
 
-### 8.1  DGM as Kripke structure
+### 8.1  DGM as a labelled transition system
 
-**Theorem.** The instance graph G_I = (N_I, E_I, P) is a Kripke structure K=(S,R,L) under S=N_I, R=E_I, L=P. In §8.1–§8.10, G, N and E denote G_I, N_I and E_I.
+**Primary model (D36; ADR 0006).** The instance graph is a labelled transition system
 
-R is not assumed total; CTL formulas are interpreted over maximal paths (§4.1, D31).
+```
+T = (S, Act, →, ℓ)      S = N_I     Act = L × {fwd, rev}     ℓ(s) = P(s)
+→ = {(a, (l, fwd), b) | (a, b, l) ∈ E_I}  ∪  {(b, (l, rev), a) | (a, b, l) ∈ E_I}
+```
 
-Consequences: CTL/LTL model checking applies directly. BDD layer is standard symbolic CTL machinery (Bryant 1986; Clarke et al. 1986). PathPred(FORALL/EXISTS,ALL) are CTL path quantifiers A/E. TemporalMode realises full CTL operator hierarchy.
+Edge labels are actions; reverse traversal is the action `(l, rev)`; property bags label states. In §8.1–§8.10, G, N and E denote G_I, N_I and E_I.
 
-G^T is the transpose of K: it reverses adjacency. Backward-cone RelationshipSubgraph(Free,Bound(B)) is the set of paths leading to B in path order. It is the computation tree for past-temporal formulas about B only when restricted to time-ordered edge types (§2.3); over other edge types it is a structural predecessor set and says nothing about earlier moments. SINCE/ONCE/PREVIOUSLY TemporalMode execute as model checking on G^T under that restriction.
+**Derived Kripke structure.** A PathPred with pattern `π` and sub-filter `φ` is evaluated on the product of `T` with the pattern's automaton `A_π`, which has one position per hop and a loop for each Repeat:
 
-**RDF named graphs as multiple accessibility relations.** An RDF Dataset consists of a default graph and zero or more named graphs — each named graph is a distinct set of triples. In Kripke terms, an RDF Dataset with named graphs G₁, G₂, ..., Gₙ is a Kripke structure with multiple accessibility relations R₁, R₂, ..., Rₙ — one per named graph. DGM's computed `RelationshipSubgraph(A, B, strategy)` is a *restriction* of the single accessibility relation R = E to the subset of edges lying on simple paths between A and B. This is a structural distinction: RDF named graphs are asserted by the author; DGM's `G_AB` is derived from the graph topology by traversal. The analytical consequence is significant — DGM's scoped subgraph has formal completeness guarantees (§8.11) that RDF named graphs do not.
+```
+K_π = (S × positions(A_π),  {((n,i),(m,j)) | n —α→ m in T, i —α→ j in A_π},  L_π)
+L_π((n, i)) = {p⁺ | atom p of φ is TRUE at n} ∪ {p⁻ | p is FALSE at n}     -- §6.1 encoding, aliases of position i
+```
+
+Paths of `K_π` from `(start, 0)` correspond one to one to path instances of `π`. CTL formulas (§4.1) are interpreted on `K_π` over maximal paths (D31); R is not assumed total. `SignaturePred` constrains the action word of a run of `T`, not the states of `K_π`.
+
+Consequences: CTL/LTL model checking applies to `K_π`. The BDD layer is standard symbolic machinery (Bryant 1986; Clarke et al. 1986). PathPred(FORALL/EXISTS, ALL) are the CTL path quantifiers A/E over the paths of `K_π`, and TemporalMode provides the CTL operators of §4.1.
+
+The transposed graph G^T is `T` with `fwd` and `rev` exchanged: it reverses adjacency. Backward-cone RelationshipSubgraph(Free,Bound(B)) is the set of paths leading to B in path order. It is the computation tree for past-temporal formulas about B only when restricted to time-ordered edge types (§2.3); over other edge types it is a structural predecessor set and says nothing about earlier moments. SINCE/ONCE/PREVIOUSLY TemporalMode execute as model checking on G^T under that restriction.
+
+**RDF named graphs as multiple accessibility relations.** An RDF Dataset consists of a default graph and zero or more named graphs — each named graph is a distinct set of triples. In modal terms, an RDF Dataset with named graphs G₁, G₂, ..., Gₙ is a frame with one accessibility relation per named graph — an LTS whose actions are the graph names. DGM's computed `RelationshipSubgraph(A, B, strategy)` is a *restriction* of the transition relation of `T` to the subset of edges lying on simple paths between A and B. This is a structural distinction: RDF named graphs are asserted by the author; DGM's `G_AB` is derived from the graph topology by traversal. The analytical consequence is significant — DGM's scoped subgraph has formal completeness guarantees (§8.11) that RDF named graphs do not.
 
 ### 8.2  Propositional completeness of the filter tree
 
@@ -3382,24 +3400,30 @@ question_key  = H( canon_version,            -- version of these serialisation a
                                              -- sorted by name
 
 result_key    = H( question_key,
-                   G_snapshot_version,
+                   W,                        -- watermarks of the plan's dependency sources (D34)
                    τ, time_zone )            -- the last two only for a τ-dependent query (§5.1)
 ```
 
 `H` is SHA-256 over a length-prefixed, type-tagged encoding, so that no two distinct inputs share a byte string; keys are not truncated below 128 bits. `Now` is serialised as a symbol in `dag_hash`; its value enters only through τ in `result_key`.
 
 ```
-cache[result_key]   = result_set
+cache[result_key]   = (result_set, possibly_stale)
 saved[question_key] = a saved question, independent of data and of time
 ```
 
 Consequences:
 
-- Two sessions that build the same question over the same schema obtain the same `question_key`, whatever their local ids; over the same snapshot and reference instant they obtain the same `result_key`.
-- A change to the schema, annotations or mapping changes `schema_version`; a change to any resolved parameter changes `params`; a different `as_of` changes τ; a new snapshot changes `G_snapshot_version`. Each changes the key, so an entry computed under other conditions is never returned.
+- Two sessions that build the same question over the same schema obtain the same `question_key`, whatever their local ids; over the same source versions and reference instant they obtain the same `result_key`.
+- A change to the schema, annotations or mapping changes `schema_version`; a change to any resolved parameter changes `params`; a different `as_of` changes τ. Each changes the key, so an entry computed under other conditions is never returned.
 - A change to the serialisation or normalisation rules changes `canon_version` and retires every earlier key.
 
-An entry is hit only under the snapshot version it was computed on. Carrying an entry over to a later snapshot whose relevant data did not change is an invalidation policy, defined separately.
+**Invalidation by source watermark (D34; ADR 0004).** `deps(plan)` is the set of source relations, or partitions after pruning, that the plan can read: the NodeTables and RelationTables of every type in its patterns (including inside EXISTS and Repeat), the tables used for version resolution, and the base relations of Derived views (§2.6). Each source has a watermark `w(src)` that changes whenever a committed change to it becomes visible, such as a table version or snapshot id. `W` is the sorted list of `(src, w(src))` over `deps(plan)`.
+
+- A committed change to any dependency advances its watermark, changes `W`, and therefore changes the key: the stale entry is never found again. A change to a source outside `deps(plan)` does not affect the entry.
+- A source with no watermark is *unversioned*. An entry that depends on one expires after `CACHE_TTL_UNVERSIONED` and is served with `possibly_stale = true`.
+- A plan with sampling includes its seed among the parameters.
+
+Example: revenue by region for 2024 reads `fact_sale` partitions 2024-01 … 2024-12 and `dim_customer`. A load into partition 2025-01 leaves the entry valid; an SCD2 update of `dim_customer` invalidates it.
 
 This enables semantic-level caching: whenever two syntactically different forms of a question reduce to the same canonical DAG, they share a `question_key` and a cached result. SQL text caching cannot achieve this. Forms the normalisation does not identify are cached separately; that costs a recomputation and never returns a wrong result.
 
@@ -4182,7 +4206,7 @@ Pipeline lifecycle unification: each layer transition is modelled by a `Pipeline
 **D17** — Free→Free scope restricted to Agg/Window. This is a semantic and operational decision, not a complexity result. A Where filter decides each tuple of C on its own; a Free→Free scope is a property of the whole subgraph, the same for every tuple, so as a row filter it either keeps every row or none and says nothing about the row. Evaluating it also requires traversing the whole scope for every query that filters on it. In Agg and Window it is computed once and broadcast, which is its intended use. No complexity class is claimed to follow from the restriction.
 **D18** — G^T is logical: backward traversal (SINCE, ONCE, PREVIOUSLY, REACHABLE_TO, INCOMING_SIGNATURES) reads each edge relation by its target key and needs only the reverse access path of §2.6. Materialising reversed adjacency costs O(|E|) once and is amortised across queries; it is an optimisation for graphs that fit in memory, not a requirement.
 **D19** — Cone containment (Rule 9) as structural theorem, not heuristic. Grounded in G_A* ∩ G_*B = G_AB. Always correct; fires whenever both constraints present on same Join branch.
-**D20** — PipelineArtifact is syntactic sugar, not a new fact type. The backfill-incremental state machine is modelled entirely within existing constructs: Grain(ACCUMULATING), BridgeSemantics, WritePlan, Q_delta(CHANGED_PROPERTY), and CTL temporal properties. PipelineArtifact assembles these into one declaration and infers semantics from P(f).state at planning time (planner Rule 10). Follows the same pattern as TemporalProperty classes (D9).
+**D20** — PipelineArtifact is syntactic sugar, not a new fact type, and it is declarative: planning produces write and transition plans, and only an authorised runtime executes them (D35). The backfill-incremental state machine is modelled entirely within existing constructs: Grain(ACCUMULATING), BridgeSemantics, WritePlan, Q_delta(CHANGED_PROPERTY), and CTL temporal properties. PipelineArtifact assembles these into one declaration and infers semantics from P(f).state at planning time (planner Rule 10). Follows the same pattern as TemporalProperty classes (D9).
 **D21** — Backfill and refresh require different WritePlan modes by construction. Backfill (APPEND) has no prior artifact — failure leaves the window durably in Failed. Refresh (MERGE) preserves the prior Complete via atomic swap — failure regresses to Stale, not Failed. ADAPTIVE mode makes this automatic from P(f).state at planning time.
 **D22** — DGM shares the graph primitive with RDF but diverges above it. The triple / typed directed labeled edge is the correct foundational structure — DGM and RDF arrived at it independently. The divergence is complete above that primitive: DGM adds the dim/fact typed split, the three-band analytical query structure, the annotation-driven planner, CTL/LTL temporal logic, trail space analysis, and the question completeness theorem — none of which exist in ontological tooling.
 **D23** — CTE composition extends `Q_valid` to `Q_algebra`. The BDD covers single-query predicate optimisation; cross-CTE CSE (Rule 11) extends it to multi-query scope. The fragment `F_D` translates into stratified Datalog with comparisons and has polynomial data complexity; the rest of `Q_algebra` carries no such guarantee (§8.13).
@@ -4197,6 +4221,9 @@ Pipeline lifecycle unification: each layer transition is modelled by a `Pipeline
 **D31** — CTL is interpreted over maximal paths, not over a totalised transition relation. A path ends where the graph ends: a finite trace that reaches a terminal is complete, and EG/AG are decided on it without an implicit self-loop. Self-loops were rejected because they are edges no event produced — visible to hop counts, SHORTEST, signatures and PathAgg — and because they make NEXT at a terminal mean "now". Quantification over an empty domain is governed by `PathPred.on_empty`: FORALL is false by default (`REQUIRE_WITNESS`) and true only when `VACUOUS` is requested, so a universal condition never holds silently for a node with no path instance. Recorded in `docs/adr/0001-ctl-finite-trace-semantics.md`.
 **D32** — PipelineArtifact transitions are facts. The artifact carries its current state as a property; every state change is an EVENT-grain transition fact linked to its artifact (`transition_of`) and to the next transition (`followed_by`, CAUSAL). State names are enumeration values, never nodes, and the state machine is a relation δ over those values. The current state is by definition the projection of the latest transition, so snapshot and history agree. Chosen over a mutable property (nothing to traverse) and over artifact versions (pipeline events entangled with attribute history). Recorded in `docs/adr/0002-pipeline-artifact-transition-facts.md`.
 **D33** — Every query evaluation has one reference instant τ: `TemporalContext.default_as_of` when supplied, otherwise the planning service's clock captured once before planning and truncated to `REFERENCE_GRANULARITY`. `Now`, calendar and rolling windows, default version and validity resolution, TTL rules and monitor deadlines all resolve against τ; calendar boundaries use `TemporalContext.time_zone`. The query DAG is built with `Now` symbolic, so determinism of the DAG is preserved, and τ enters evaluation and cache identity instead. Dynamic `now` was rejected as incorrect (two expressions of one query could disagree; caches would serve the wrong instant) and a mandatory `as_of` as needing a default in practice. Recorded in `docs/adr/0003-reference-instant.md`.
+**D34** — Result caches are invalidated by source watermarks. A cached result is keyed by the watermarks of the source relations its plan can read, so a committed change to any of them changes the key; sources without a watermark fall back to a flagged TTL. Fine-grained provenance was not adopted because nothing records it; a TTL alone was rejected as unsound. Recorded in `docs/adr/0004-cache-invalidation-by-source-watermark.md`.
+**D35** — PipelineArtifact is declarative. Evaluating annotations and planning queries has no side effect: the planner produces `WritePlan`s and `TransitionPlan`s, and an authorised runtime executes them and appends transition facts when their conditions hold. An active annotation was rejected because evaluating the model could then write; removing lifecycle from DGM was rejected because the planner needs its semantics. Recorded in `docs/adr/0005-pipeline-artifact-is-declarative.md`.
+**D36** — The instance graph is a labelled transition system with actions `L × {fwd, rev}`; CTL is evaluated on a Kripke structure derived for each path predicate as the product of the system with the pattern automaton, with the atoms of the predicate as propositions. A pure Kripke encoding was rejected because it pushes edge labels into states; an action-based logic is not needed for the current operators. Recorded in `docs/adr/0006-lts-as-primary-model.md`.
 
 ### 10.5  References
 
