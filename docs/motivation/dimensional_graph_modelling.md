@@ -189,7 +189,7 @@ By H1 the same invariants hold on the instance graph with every subscript S repl
 | `GraphStatistics`, cost estimates, planner thresholds on `|N|`, `|E|` (§6.2) | Instance | `|N_I|`, `|E_I|` |
 | Finite traversal space (§8.6) | Instance | `|N_I|` |
 | Predicate typing, `Ref` validity, structural BDD (§4.1, §6.1) | Schema | `K_S`, `Σ` |
-| `Q_space`, `Q_valid(A, B)`, question lattice `L(G_AB)`, `Σ|_AB` (§8.11–§8.16) | Schema — `A, B ∈ N_S` | `G_AB = G_AB^S` |
+| `Q_space`, `Q_valid(A, B)`, `Q_valid(𝒜)`, question lattice `L(G_AB)`, `Σ|_AB` (§8.11–§8.16) | Schema — anchors in `N_S` | `G_AB = G_{A,B}`, the anchor-set subgraph of §3.4.6 |
 | Recommender candidate generation and feasibility filtering (§7.1 Layers 1–2) | Schema | `G_AB^S`, `Σ` |
 | Recommender scoring (§7.1 Layer 3, §8.12) | Instance | statistics of `G_I` |
 | Closed `PropRef` vocabulary of the NL interface (§11) | Schema | `K_S` |
@@ -983,6 +983,63 @@ h_N(N_ab^I) ⊆ N_AB^S        h_E(E_ab^I) ⊆ E_AB^S
 Proof: let n lie on a simple path a →* n →* b in G_I. By H1 every edge of the path maps to an edge type with the same label, so the image is a walk A →* h_N(n) →* B in G_S; hence h_N(n) ∈ N_AB^S. The same walk places the image of each path edge in E_AB^S. ∎
 
 Consequently every path instance evaluated between a and b is an instance of a pattern over `G_AB^S`. A question formulated over `G_AB^S` is well-typed for every pair of instances of (A, B), and no instance pair gives rise to a question outside it. The inclusion may be strict: a type in `N_AB^S` need not have an instance on any path between a particular a and b.
+
+#### 3.4.6  Anchor sets
+
+A question may involve more than two entities — revenue by customer, product and date involves three, joined through a fact that none of them reaches by a directed path from another. The question space is therefore defined over an **anchor set**, for any number of anchors, by one definition.
+
+```
+AnchorSet 𝒜 = { (A₁, role₁, alias₁), …, (A_k, role_k, alias_k) }      k ≥ 2
+
+Aᵢ ∈ N_S       a node type, dimension or fact
+roleᵢ          a role name, needed only to tell apart two anchors of the same type
+               (order date and ship date, both of type Date; cf. RolePlaying, §2.4)
+aliasᵢ         the alias bound to the anchor in the Join
+```
+
+Connection is taken in `U(G_S)`, the schema graph with every edge type traversable in both directions — forwards as a hop and backwards as a reverse hop (§3.2) — and within the hop bound `h` of the question space (`max_hops`, §8.11):
+
+```
+G_𝒜 = (N_𝒜, E_𝒜, τ_N, τ_E, K_S, Σ|_𝒜)
+
+N_𝒜 = { T ∈ N_S | T lies on a walk of at most h hops in U(G_S) between two distinct anchors }
+E_𝒜 = { e ∈ E_S | e lies on such a walk }
+Σ|_𝒜 = { σ ∈ Σ | every type named by σ lies in N_𝒜 or E_𝒜 }
+```
+
+An anchor set is **valid** iff:
+
+```
+AS1  Connected: every two anchors are joined by a walk of at most h hops in U(G_S).
+AS2  Distinct roles: two anchors of the same node type carry different roles, each a role
+     declared by RolePlaying or a distinct edge label reaching that type.
+AS3  Bounded: k ≤ MAX_ANCHORS.
+```
+
+An anchor set that is not valid has no question space; in particular an anchor that nothing connects to the others is not silently dropped.
+
+For two anchors, `G_{A,B}` contains the directed subgraph `G_AB^S` of §3.4.5 and adds what is reachable only through reverse hops — the constellation `Sale ← Customer → Return`, for instance, lies in `G_{Sale,Return}` but not in the directed `G_AB^S`. The directed form remains the one that RelationshipSubgraph and TrailExpr evaluate (§3.4.2); `G_𝒜` is the scope of the question space. The projection lemma of §3.4.5 holds for `G_𝒜` with the same proof, reading "path" as a path whose hops may be reversed.
+
+Example — customer, product and date. Schema: `(Customer, Sale, 'placed')`, `(Product, Sale, 'included in')`, `(Date, Sale, 'occurred on')` are verb edge types; `h = 2`.
+
+```
+𝒜 = { (Customer, –, c), (Product, –, p), (Date, –, d) }
+
+Walks of ≤ 2 hops between anchors:  Customer – Sale – Product,  Customer – Sale – Date,  Product – Sale – Date
+N_𝒜 = { Customer, Product, Date, Sale }
+E_𝒜 = { (Customer,Sale,'placed'), (Product,Sale,'included in'), (Date,Sale,'occurred on') }
+AS1 holds (every pair meets at Sale); AS2 is vacuous; k = 3.
+
+A question of Q_valid(𝒜):
+  Join:    Anchor(Customer, c)
+           PathJoin(c, VerbHop(Customer,'placed',Sale), s)
+           PathJoin(s, VerbHop⁻¹(Sale,'included in',Product), p)
+           PathJoin(s, VerbHop⁻¹(Sale,'occurred on',Date), d)
+  GroupBy: [ c.region, p.category, d.month ]
+  Agg:     revenue := SUM(s.revenue)
+```
+
+If a second fact type `Return` is also connected to the three dimensions, it enters `N_𝒜`; questions over both facts are then constellations and are evaluated by drill-across (§5.2.2).
 
 ### 3.5  Evaluation contexts and L-promotion
 
@@ -2833,7 +2890,7 @@ Relationship to recommender routing: high H → Stage 1 characterisation (Free e
 
 ### 8.11  Question completeness theorem
 
-**Level.** This section is stated on the schema graph. `A` and `B` are node types in `N_S`; `G_AB`, `N_AB` and `E_AB` abbreviate `G_AB^S`, `N_AB^S` and `E_AB^S` (§3.4.5). A question is a *structural* question: constants such as thresholds and windows are parameters in `Π(q)` (§8.15), not part of `q`. Path patterns are taken up to a hop bound `k` (`max_hops`, §8.16.2); where `G_AB` is acyclic, `k` may be taken as the length of its longest path.
+**Level.** This section is stated on the schema graph. `A` and `B` are node types in `N_S`; `G_AB`, `N_AB` and `E_AB` abbreviate the anchor-set subgraph `G_{A,B}` and its node and edge types (§3.4.6), which contains the directed `G_AB^S` of §3.4.5. A question is a *structural* question: constants such as thresholds and windows are parameters in `Π(q)` (§8.15), not part of `q`. Path patterns are taken up to a hop bound `k` (`max_hops`, §8.16.2); where `G_AB` is acyclic, `k` may be taken as the length of its longest path.
 
 **Theorem (Question completeness).** For any two node types `A, B ∈ N_S` with schema-level subgraph `G_AB = (N_AB, E_AB, τ_N, τ_E, K_S, Σ|_AB)`, the set of valid analytical questions `Q_valid(A, B)` is finite and constructively enumerable from `G_AB` and `Σ|_AB` alone.
 
@@ -2848,6 +2905,17 @@ Relationship to recommender routing: high H → Stage 1 characterisation (Free e
 The Band 2 aggregation space is finite given the finite measure properties declared by the fact types in `F_S ∩ N_AB` and finite `TemporalWindow` variants. The Band 3 ranking space is finite given the finite Band 2 output schema. The cross-product of all three bands over `G_AB` is therefore finite. ∎
 
 **Corollary (Schema determinacy).** `Q_valid(A, B)` and its cardinality are functions of `(G_AB, K_S, Σ|_AB, k)` only. Two instance graphs typed over the same schema graph have the same `Q_valid(A, B)`; inserting or deleting instances changes query results, `GraphStatistics` and recommender scores (§8.12), never the question space. By the projection lemma (§3.4.5), every question in `Q_valid(A, B)` is well-typed for every pair of instances `(a, b)` with `h_N(a) = A`, `h_N(b) = B`.
+
+**Anchor sets.** Everything in this section is stated for two anchors for readability and holds for any valid anchor set `𝒜` (§3.4.6), with `G_𝒜` in place of `G_AB`: `Q_space(𝒜)` is the set of valid queries whose Join binds every anchor alias and whose scope lies in `G_𝒜`; `Q_valid(𝒜)` removes those that violate `Σ|_𝒜`; `Q_valid(A, B)` is `Q_valid({A, B})`. The proof sketch uses only the finiteness of `N_𝒜`, `E_𝒜` and the property signatures, so the theorem and the schema-determinacy corollary carry over unchanged. Two bounds depend on the number of anchors `k`:
+
+```
+Computing G_𝒜        k breadth-first searches of depth h over U(G_S):  O(k · (|N_S| + |E_S|))
+Path patterns        at most Σ_{j=0}^{h} (2·|E_𝒜|)^j  — independent of k, since E_𝒜 ⊆ E_S
+Join skeletons       a Join connecting k anchors uses at most k − 1 connecting paths of ≤ h hops:
+                     at most ((2·|E_𝒜|)^h)^(k−1) skeletons — exponential in k
+```
+
+The last bound is why `k` is capped by `MAX_ANCHORS` (AS3) and why skeletons are never enumerated: the recommender moves locally, one "add an anchor", "drop an anchor" or "change a connecting path" step at a time, each with at most `|N_S|` or `|E_𝒜|` alternatives.
 
 **Definition (Question space).** The full question space is:
 
@@ -3715,6 +3783,22 @@ A refinement replaces the utterance. Everything derived from the previous text �
 Ambiguity is not "the LLM is uncertain." It is "the utterance maps to multiple positions in `Q_valid(A, B)`." The positions are known; the task is to identify which one the user intended.
 
 ```
+Anchor selection (deterministic, from the entity-resolution result):
+  1. Every node alias resolved from the utterance is an anchor; a resolved property contributes
+     the node type that owns it. Anchors are distinct (type, role) pairs.
+  2. Order: for identity, anchors are sorted by (type name, role); for display, by first mention.
+     The order never changes G_𝒜 — an anchor set is a set (§3.4.6).
+  3. The set is checked against AS1–AS3. It is not assumed valid.
+
+Anchor ambiguity:  the resolved anchors do not determine one question space
+  Disconnected anchor (AS1 fails)        → ask which relationship was meant; the anchor is never dropped
+  Role not stated ("by date", two Date roles; AS2)
+                                         → one candidate per role
+  Several fact types connect the anchors (Sale and Return both link Customer, Product, Date)
+                                         → one candidate per connecting fact, plus the drill-across
+                                           candidate when the facts are conformed on all anchors
+  More than MAX_ANCHORS anchors (AS3)    → ask to narrow; no candidate is generated
+
 Ambiguity types and resolution strategies:
 
 Measure ambiguity:  "how are customers doing?"
