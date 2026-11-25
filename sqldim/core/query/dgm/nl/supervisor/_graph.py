@@ -124,6 +124,91 @@ def _stub_execute_tool(state: SupervisorState) -> dict[str, Any]:
     }
 
 
+def _result_data(r: ToolCallResult) -> dict[str, Any]:
+    return r.data if isinstance(r.data, dict) else {}
+
+
+def _stub_fmt_what_can_i_answer(data: dict[str, Any], has_model: bool) -> str:
+    datasets = data.get("datasets", [])
+    questions = data.get("questions", [])
+    if len(datasets) == 1:
+        ds = datasets[0]
+        if questions:
+            q_list = "\n".join(f"  • {q}" for q in questions)
+            return f"Questions for '{ds}' ({len(questions)}):\n{q_list}"
+        if has_model:
+            return f"Dataset '{ds}' is available."
+        return (
+            f"Dataset '{ds}' is available "
+            "(pass --model-provider + --model "
+            "to generate suggested questions)."
+        )
+    if datasets:
+        ds_list = "\n".join(f"  • {d}" for d in sorted(datasets))
+        return f"Datasets I can see ({len(datasets)}):\n{ds_list}"
+    return "No datasets are currently available."
+
+
+def _stub_fmt_map_space(data: dict[str, Any]) -> str:
+    tools = data.get("tools", [])
+    if not tools:
+        return "No tools registered."
+    tl_list = "\n".join(
+        f"  \u2022 {t['name']} \u2014 {t['description']}" for t in tools
+    )
+    return f"Tools available ({len(tools)}):\n{tl_list}"
+
+
+def _stub_fmt_query_rows(dataset: str, query_result: dict[str, Any]) -> str:
+    count = query_result.get("count", 0)
+    cols = query_result.get("columns", [])
+    rows = query_result.get("rows", [])
+    if not rows:
+        return f"Query on '{dataset}' returned no rows."
+    rows_text = "\n".join(f"  {row}" for row in rows[:5])
+    suffix = f"\n  ... ({count - 5} more rows)" if count > 5 else ""
+    return (
+        f"Query on '{dataset}': {count} rows,"
+        f" columns: {', '.join(cols)}\n{rows_text}{suffix}"
+    )
+
+
+def _stub_fmt_query(data: dict[str, Any], has_model: bool) -> list[str]:
+    dataset = data.get("dataset") or "?"
+    question = data.get("question")
+    question_hint = f" for '{question}'" if question else ""
+    explanation = data.get("explanation")
+    query_result = data.get("query_result")
+    parts: list[str] = []
+    if explanation:
+        parts.append(explanation)
+    if query_result and isinstance(query_result, dict):
+        parts.append(_stub_fmt_query_rows(dataset, query_result))
+    elif not explanation:
+        if has_model:
+            parts.append(f"DGM query on '{dataset}'{question_hint} completed.")
+        else:
+            parts.append(
+                f"DGM query on '{dataset}'{question_hint} completed"
+                " (stub — pass --model-provider + --model for real results)."
+            )
+    return parts
+
+
+def _stub_fmt_result(r: ToolCallResult, has_model: bool) -> list[str]:
+    if not r.success:
+        return [f"\u26a0 {r.tool_name}: {r.error}"]
+    data = _result_data(r)
+    if r.tool_name == "dgm_what_can_i_answer":
+        return [_stub_fmt_what_can_i_answer(data, has_model)]
+    if r.tool_name == "dgm_map_analytical_space":
+        return [_stub_fmt_map_space(data)]
+    if r.tool_name == "dgm_query":
+        return _stub_fmt_query(data, has_model)
+    summary = ", ".join(f"{k}: {v}" for k, v in data.items() if k != "stub")
+    return [f"[{r.tool_name}]{': ' + summary if summary else ' completed.'}"]
+
+
 def _stub_synthesize(
     state: SupervisorState, *, has_model: bool = False
 ) -> dict[str, Any]:
@@ -133,84 +218,13 @@ def _stub_synthesize(
     stub messages omit the "no LLM connected" hint.
     """
     parts: list[str] = []
-    is_reflected = "reflect" in state.visited_nodes
-
     for r in state.results:
-        if not r.success:
-            parts.append(f"\u26a0 {r.tool_name}: {r.error}")
-        elif r.tool_name == "dgm_what_can_i_answer":
-            data = r.data if isinstance(r.data, dict) else {}
-            datasets = data.get("datasets", [])
-            questions = data.get("questions", [])
-            if len(datasets) == 1:
-                ds = datasets[0]
-                if questions:
-                    q_list = "\n".join(f"  • {q}" for q in questions)
-                    parts.append(f"Questions for '{ds}' ({len(questions)}):\n{q_list}")
-                elif has_model:
-                    parts.append(f"Dataset '{ds}' is available.")
-                else:
-                    parts.append(
-                        f"Dataset '{ds}' is available "
-                        "(pass --model-provider + --model "
-                        "to generate suggested questions)."
-                    )
-            elif datasets:
-                ds_list = "\n".join(f"  • {d}" for d in sorted(datasets))
-                parts.append(f"Datasets I can see ({len(datasets)}):\n{ds_list}")
-            else:
-                parts.append("No datasets are currently available.")
-        elif r.tool_name == "dgm_map_analytical_space":
-            data = r.data if isinstance(r.data, dict) else {}
-            tools = data.get("tools", [])
-            if tools:
-                tl_list = "\n".join(
-                    f"  \u2022 {t['name']} \u2014 {t['description']}" for t in tools
-                )
-                parts.append(f"Tools available ({len(tools)}):\n{tl_list}")
-            else:
-                parts.append("No tools registered.")
-        elif r.tool_name == "dgm_query":
-            data = r.data if isinstance(r.data, dict) else {}
-            dataset = data.get("dataset") or "?"
-            question = data.get("question")
-            question_hint = f" for '{question}'" if question else ""
-            explanation = data.get("explanation")
-            query_result = data.get("query_result")
-            if explanation:
-                parts.append(explanation)
-            if query_result and isinstance(query_result, dict):
-                count = query_result.get("count", 0)
-                cols = query_result.get("columns", [])
-                rows = query_result.get("rows", [])
-                if rows:
-                    rows_text = "\n".join(f"  {row}" for row in rows[:5])
-                    suffix = f"\n  ... ({count - 5} more rows)" if count > 5 else ""
-                    parts.append(
-                        f"Query on '{dataset}': {count} rows,"
-                        f" columns: {', '.join(cols)}\n{rows_text}{suffix}"
-                    )
-                else:
-                    parts.append(f"Query on '{dataset}' returned no rows.")
-            elif not explanation:
-                if has_model:
-                    parts.append(f"DGM query on '{dataset}'{question_hint} completed.")
-                else:
-                    parts.append(
-                        f"DGM query on '{dataset}'{question_hint} completed"
-                        " (stub — pass --model-provider + --model for real results)."
-                    )
-        else:
-            data = r.data if isinstance(r.data, dict) else {}
-            summary = ", ".join(f"{k}: {v}" for k, v in data.items() if k != "stub")
-            parts.append(
-                f"[{r.tool_name}]{': ' + summary if summary else ' completed.'}"
-            )
+        parts.extend(_stub_fmt_result(r, has_model))
 
     body = "\n\n".join(parts) if parts else "No results produced."
 
     # For vague / reflected inputs, wrap the orientation data in a helpful intro
-    if is_reflected:
+    if "reflect" in state.visited_nodes:
         intro = (
             "I'm the DGM Supervisor — I can run analytical queries across "
             "your datasets using the tools listed below. "
@@ -227,6 +241,79 @@ def _stub_respond(state: SupervisorState) -> dict[str, Any]:
     return {}
 
 
+def _llm_fmt_query(data: dict[str, Any]) -> list[str]:
+    ds = data.get("dataset", "?")
+    explanation = data.get("explanation") or ""
+    qr = data.get("query_result")
+    parts: list[str] = []
+    if explanation:
+        parts.append(f"[dgm_query / {ds}]\n{explanation}")
+    if qr and isinstance(qr, dict):
+        rows = qr.get("rows", [])
+        count = qr.get("count", len(rows))
+        cols = qr.get("columns", [])
+        if rows:
+            preview = "\n".join(str(row) for row in rows[:5])
+            parts.append(
+                f"Query result on '{ds}' ({count} rows,"
+                f" columns: {', '.join(cols)}):\n{preview}"
+            )
+        else:
+            parts.append(f"Query on '{ds}' returned no rows.")
+    elif not explanation:
+        parts.append(f"[dgm_query / {ds}] query completed (no data).")
+    return parts
+
+
+def _llm_fmt_what_can_i_answer(data: dict[str, Any]) -> list[str]:
+    datasets = data.get("datasets", [])
+    questions = data.get("questions", [])
+    parts: list[str] = []
+    if datasets:
+        parts.append(f"Available datasets ({len(datasets)}): {', '.join(datasets)}")
+    if questions:
+        parts.append(
+            "Sample questions:\n" + "\n".join(f"  \u2022 {q}" for q in questions[:5])
+        )
+    return parts
+
+
+def _llm_fmt_map_space(data: dict[str, Any]) -> list[str]:
+    tools = data.get("tools", [])
+    if not tools:
+        return []
+    tool_list = "\n".join(f"  \u2022 {t['name']}: {t['description']}" for t in tools)
+    return [f"Available tools ({len(tools)}):\n{tool_list}"]
+
+
+def _llm_fmt_result(r: ToolCallResult) -> list[str]:
+    if not r.success:
+        return [f"[{r.tool_name}] ERROR: {r.error}"]
+    data = _result_data(r)
+    if r.tool_name == "dgm_query":
+        return _llm_fmt_query(data)
+    if r.tool_name == "dgm_what_can_i_answer":
+        return _llm_fmt_what_can_i_answer(data)
+    if r.tool_name == "dgm_map_analytical_space":
+        return _llm_fmt_map_space(data)
+    summary = {k: v for k, v in data.items() if k != "stub" and v is not None}
+    return [f"[{r.tool_name}] {summary}"] if summary else []
+
+
+def _llm_prompt(state: SupervisorState, tool_context: str) -> str:
+    history_lines = [
+        f"{m.get('role', '').capitalize()}: {m.get('content', '')}"
+        for m in (state.conversation_history or [])
+        if m.get("role") and m.get("content")
+    ]
+    prompt_parts = [f"Question: {state.utterance}"]
+    if history_lines:
+        prompt_parts.append("Prior conversation:\n" + "\n".join(history_lines))
+    prompt_parts.append(f"Tool results:\n{tool_context}")
+    prompt_parts.append("Provide a concise, data-driven answer.")
+    return "\n\n".join(prompt_parts)
+
+
 def _llm_synthesize(state: SupervisorState, model: Any) -> dict[str, Any]:
     """Use the LLM to synthesize tool results into a coherent answer."""
     try:
@@ -234,70 +321,10 @@ def _llm_synthesize(state: SupervisorState, model: Any) -> dict[str, Any]:
 
         parts: list[str] = []
         for r in state.results:
-            if not r.success:
-                parts.append(f"[{r.tool_name}] ERROR: {r.error}")
-                continue
-            data = r.data if isinstance(r.data, dict) else {}
-            if r.tool_name == "dgm_query":
-                ds = data.get("dataset", "?")
-                explanation = data.get("explanation") or ""
-                qr = data.get("query_result")
-                if explanation:
-                    parts.append(f"[dgm_query / {ds}]\n{explanation}")
-                if qr and isinstance(qr, dict):
-                    rows = qr.get("rows", [])
-                    count = qr.get("count", len(rows))
-                    cols = qr.get("columns", [])
-                    if rows:
-                        preview = "\n".join(str(row) for row in rows[:5])
-                        parts.append(
-                            f"Query result on '{ds}' ({count} rows,"
-                            f" columns: {', '.join(cols)}):\n{preview}"
-                        )
-                    else:
-                        parts.append(f"Query on '{ds}' returned no rows.")
-                elif not explanation:
-                    parts.append(f"[dgm_query / {ds}] query completed (no data).")
-            elif r.tool_name == "dgm_what_can_i_answer":
-                datasets = data.get("datasets", [])
-                questions = data.get("questions", [])
-                if datasets:
-                    parts.append(
-                        f"Available datasets ({len(datasets)}): {', '.join(datasets)}"
-                    )
-                if questions:
-                    parts.append(
-                        "Sample questions:\n"
-                        + "\n".join(f"  \u2022 {q}" for q in questions[:5])
-                    )
-            elif r.tool_name == "dgm_map_analytical_space":
-                tools = data.get("tools", [])
-                if tools:
-                    tool_list = "\n".join(
-                        f"  \u2022 {t['name']}: {t['description']}" for t in tools
-                    )
-                    parts.append(f"Available tools ({len(tools)}):\n{tool_list}")
-            else:
-                summary = {
-                    k: v for k, v in data.items() if k != "stub" and v is not None
-                }
-                if summary:
-                    parts.append(f"[{r.tool_name}] {summary}")
+            parts.extend(_llm_fmt_result(r))
 
         if not parts:
             return _stub_synthesize(state, has_model=True)
-
-        tool_context = "\n\n".join(parts)
-        history_lines = [
-            f"{m.get('role', '').capitalize()}: {m.get('content', '')}"
-            for m in (state.conversation_history or [])
-            if m.get("role") and m.get("content")
-        ]
-        prompt_parts = [f"Question: {state.utterance}"]
-        if history_lines:
-            prompt_parts.append("Prior conversation:\n" + "\n".join(history_lines))
-        prompt_parts.append(f"Tool results:\n{tool_context}")
-        prompt_parts.append("Provide a concise, data-driven answer.")
 
         agent = Agent(
             model=model,
@@ -309,7 +336,7 @@ def _llm_synthesize(state: SupervisorState, model: Any) -> dict[str, Any]:
             ),
         )
         llm_result = agent.run_sync(
-            "\n\n".join(prompt_parts),
+            _llm_prompt(state, "\n\n".join(parts)),
             model_settings={"timeout": 30.0},
         )
         return {"synthesis": llm_result.output}
@@ -357,7 +384,7 @@ def build_supervisor_graph(
     if checkpointer is None:
         checkpointer = MemorySaver()
 
-    graph: StateGraph = StateGraph(SupervisorState)
+    graph: Any = StateGraph(SupervisorState)
 
     # Build context-bound node functions via closures so tools receive the
     # runtime context (available datasets, budget, model) at call time.

@@ -106,7 +106,7 @@ def _print_example_group(kind_key: str, items: list, labels: dict, first: bool) 
     return False
 
 
-def cmd_example_list(args: argparse.Namespace) -> None:
+def cmd_example_list(args: argparse.Namespace) -> int:
     """List all available examples, grouped by kind.
 
     Prints each example name, title, and a one-line description so users
@@ -115,7 +115,7 @@ def cmd_example_list(args: argparse.Namespace) -> None:
     examples = _discover_examples()
     if not examples:
         print("[sqldim] No examples found (is application/ on the Python path?)")
-        return
+        return 0
 
     groups: dict[str, list] = {"real_world": [], "features": []}
     for name, (title, desc, _mod, _fn, kind) in examples.items():
@@ -125,6 +125,7 @@ def cmd_example_list(args: argparse.Namespace) -> None:
     first = True
     for kind_key, items in groups.items():
         first = _print_example_group(kind_key, items, labels, first)
+    return 0
 
 
 def cmd_example_run(args: argparse.Namespace) -> int:

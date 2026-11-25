@@ -206,34 +206,8 @@ class EvalReport:
         )
         lines = [header, ""]
 
-        # ── per-dataset table ───────────────────────────────────────────────
-        lines.append(
-            f"  {'Dataset':<22} {'Pass':>6} {'Total':>6} {'Score':>7} {'Hops':>5} {'Latency':>10}"
-        )
-        lines.append("  " + "-" * 60)
-        for ds, rs in sorted(self.by_dataset().items()):
-            n = len(rs)
-            p = sum(1 for r in rs if r.passed)
-            sc = round(sum(r.score for r in rs) / n, 3)
-            hops = round(sum(r.hop_count for r in rs) / n, 1)
-            lat = round(sum(r.latency_ms for r in rs) / n)
-            flag = "✓" if p == n else "✗"
-            lines.append(
-                f"  {flag} {ds:<20} {p:>6}/{n:<4} {sc:>7.3f} {hops:>5.1f} {lat:>8}ms"
-            )
-
-        # ── failed cases ────────────────────────────────────────────────────
-        failures = [r for r in self.results if not r.passed]
-        if failures:
-            lines.append("")
-            lines.append("  Failed cases:")
-            for r in failures:
-                lines.append(f"    ✗ [{r.case_id}] {r.utterance!r}")
-                for check, detail in r.check_details.items():
-                    ok = r.check_passed.get(check, True)
-                    icon = "✓" if ok else "✗"
-                    lines.append(f"        {icon} {check}: {detail}")
-
+        lines.extend(_dataset_table_lines(self.by_dataset()))
+        lines.extend(_failed_case_lines(self.results))
         return "\n".join(lines)
 
     def to_dict(self) -> dict[str, Any]:
@@ -274,6 +248,136 @@ class EvalReport:
 # ---------------------------------------------------------------------------
 # Runner
 # ---------------------------------------------------------------------------
+
+
+def _column_widths(cols: list[str], rows: list) -> list[int]:
+    return [
+        max(
+            len(c),
+            max((len(str(r[i])) for r in rows if i < len(r)), default=0),
+        )
+        for i, c in enumerate(cols)
+    ]
+
+
+def _print_mini_table(cols: list[str], rows: list) -> None:
+    """Print header, separator and rows indented under a label line."""
+    col_w = _column_widths(cols, rows)
+    header = "  ".join(c.ljust(col_w[i]) for i, c in enumerate(cols))
+    sep = "  ".join("-" * col_w[i] for i in range(len(cols)))
+    print(f"        {header}")
+    print(f"        {sep}")
+    for row in rows:
+        cells = "  ".join(
+            str(row[i] if i < len(row) else "").ljust(col_w[i])
+            for i in range(len(cols))
+        )
+        print(f"        {cells}")
+
+
+def _print_node_trace(result: EvalResult) -> None:
+    if not result.visited_nodes:
+        return
+    if result.node_timings:
+        parts = [
+            f"{n}({result.node_timings.get(n, 0):.0f}ms)" for n in result.visited_nodes
+        ]
+    else:
+        parts = result.visited_nodes
+    print("      nodes : " + " → ".join(parts))
+
+
+def _print_expected(result: EvalResult) -> None:
+    exp_ok = result.check_passed.get("result_matches_expected", True)
+    if exp_ok or not result.expected_result:
+        return
+    exp_res = result.expected_result
+    exp_cols: list[str] = exp_res.get("columns", [])
+    exp_rows_data: list[list[str]] = exp_res.get("rows", [])[:5]
+    if not (exp_cols and exp_rows_data):
+        return
+    print("      expected:")
+    _print_mini_table(exp_cols, exp_rows_data)
+    exp_total = exp_res.get("count", 0)
+    if exp_total > len(exp_rows_data):
+        print(f"        ... ({exp_total} total rows)")
+
+
+def _print_check_tail(result: EvalResult) -> None:
+    """Print per-check breakdown, explanation and error lines."""
+    # ── per-check breakdown ────────────────────────────────────────────
+    for check, detail in result.check_details.items():
+        ck_pass = result.check_passed.get(check, True)
+        ck_icon = "✓" if ck_pass else "✗"
+        print(f"      {ck_icon} {check:<25} {detail}")
+    # ── explanation ────────────────────────────────────────────────────
+    if result.explanation:
+        print(f"      explain: {result.explanation}")
+    # ── error ──────────────────────────────────────────────────────────
+    if result.error:
+        print(f"      ERROR  : {result.error}")
+
+
+def _dataset_table_lines(by_dataset: dict[str, list[EvalResult]]) -> list[str]:
+    lines = [
+        f"  {'Dataset':<22} {'Pass':>6} {'Total':>6} {'Score':>7} {'Hops':>5} {'Latency':>10}",
+        "  " + "-" * 60,
+    ]
+    for ds, rs in sorted(by_dataset.items()):
+        n = len(rs)
+        p = sum(1 for r in rs if r.passed)
+        sc = round(sum(r.score for r in rs) / n, 3)
+        hops = round(sum(r.hop_count for r in rs) / n, 1)
+        lat = round(sum(r.latency_ms for r in rs) / n)
+        flag = "✓" if p == n else "✗"
+        lines.append(
+            f"  {flag} {ds:<20} {p:>6}/{n:<4} {sc:>7.3f} {hops:>5.1f} {lat:>8}ms"
+        )
+    return lines
+
+
+def _failed_case_lines(results: list[EvalResult]) -> list[str]:
+    failures = [r for r in results if not r.passed]
+    if not failures:
+        return []
+    lines = ["", "  Failed cases:"]
+    for r in failures:
+        lines.append(f"    ✗ [{r.case_id}] {r.utterance!r}")
+        for check, detail in r.check_details.items():
+            ok = r.check_passed.get(check, True)
+            icon = "✓" if ok else "✗"
+            lines.append(f"        {icon} {check}: {detail}")
+    return lines
+
+
+def _logfire_not_configured_warning() -> type | None:
+    try:
+        from logfire._internal.config import LogfireNotConfiguredWarning
+
+        return LogfireNotConfiguredWarning
+    except ImportError:  # pragma: no cover
+        return None
+
+
+def _dataset_load_error(case: EvalCase, exc: KeyError) -> EvalResult:
+    return EvalResult(
+        case_id=case.id,
+        dataset=case.dataset,
+        utterance=case.utterance,
+        passed=False,
+        score=0.0,
+        visited_nodes=[],
+        hop_count=0,
+        latency_ms=0.0,
+        row_count=0,
+        columns=[],
+        sql_generated=None,
+        explanation=None,
+        check_details={"dataset_load": f"KeyError: {exc}"},
+        error=str(exc),
+        tags=list(case.tags),
+        check_passed={"dataset_load": False},
+    )
 
 
 class EvalRunner:
@@ -343,87 +447,60 @@ class EvalRunner:
             f"rows={result.row_count} "
             f"latency={result.latency_ms:.0f}ms"
         )
-        # ── node trace with per-node timing ────────────────────────────────
-        if result.visited_nodes:
-            if result.node_timings:
-                parts = [
-                    f"{n}({result.node_timings.get(n, 0):.0f}ms)"
-                    for n in result.visited_nodes
-                ]
-            else:
-                parts = result.visited_nodes
-            print("      nodes : " + " → ".join(parts))
+        _print_node_trace(result)
         # ── SQL ────────────────────────────────────────────────────────────
         if result.sql_generated:
             print(f"      sql   : {result.sql_generated}")
         # ── result rows mini-table ─────────────────────────────────────────
         if result.result_rows and result.columns:
-            col_w = [
-                max(
-                    len(c),
-                    max(
-                        (len(str(r[i])) for r in result.result_rows if i < len(r)),
-                        default=0,
-                    ),
-                )
-                for i, c in enumerate(result.columns)
-            ]
-            header = "  ".join(c.ljust(col_w[i]) for i, c in enumerate(result.columns))
-            sep = "  ".join("-" * col_w[i] for i in range(len(result.columns)))
             print("      answer:")
-            print(f"        {header}")
-            print(f"        {sep}")
-            for row in result.result_rows:
-                cells = "  ".join(
-                    str(row[i] if i < len(row) else "").ljust(col_w[i])
-                    for i in range(len(result.columns))
-                )
-                print(f"        {cells}")
+            _print_mini_table(result.columns, result.result_rows)
             if result.row_count > len(result.result_rows):
                 print(f"        ... ({result.row_count} total rows)")
         # ── expected answer (shown when result_matches_expected fails) ──────
-        exp_ok = result.check_passed.get("result_matches_expected", True)
-        if not exp_ok and result.expected_result:
-            exp_res = result.expected_result
-            exp_cols: list[str] = exp_res.get("columns", [])
-            exp_rows_data: list[list[str]] = exp_res.get("rows", [])[:5]
-            if exp_cols and exp_rows_data:
-                ecol_w = [
-                    max(
-                        len(c),
-                        max(
-                            (len(str(r[i])) for r in exp_rows_data if i < len(r)),
-                            default=0,
-                        ),
-                    )
-                    for i, c in enumerate(exp_cols)
-                ]
-                eheader = "  ".join(c.ljust(ecol_w[i]) for i, c in enumerate(exp_cols))
-                esep = "  ".join("-" * ecol_w[i] for i in range(len(exp_cols)))
-                print("      expected:")
-                print(f"        {eheader}")
-                print(f"        {esep}")
-                for erow in exp_rows_data:
-                    ecells = "  ".join(
-                        str(erow[i] if i < len(erow) else "").ljust(ecol_w[i])
-                        for i in range(len(exp_cols))
-                    )
-                    print(f"        {ecells}")
-                exp_total = exp_res.get("count", 0)
-                if exp_total > len(exp_rows_data):
-                    print(f"        ... ({exp_total} total rows)")
-        # ── per-check breakdown ────────────────────────────────────────────
-        for check, detail in result.check_details.items():
-            ck_pass = result.check_passed.get(check, True)
-            ck_icon = "✓" if ck_pass else "✗"
-            print(f"      {ck_icon} {check:<25} {detail}")
-        # ── explanation ────────────────────────────────────────────────────
-        if result.explanation:
-            print(f"      explain: {result.explanation}")
-        # ── error ──────────────────────────────────────────────────────────
-        if result.error:
-            print(f"      ERROR  : {result.error}")
+        _print_expected(result)
+        _print_check_tail(result)
         print()
+
+    def _run_suite_case(
+        self,
+        case: EvalCase,
+        model: Any,
+        report: EvalReport,
+        source_cache: dict[str, Any],
+    ) -> None:
+        """Run one suite case, reusing a cached per-dataset source."""
+        if self.verbose:
+            print(f"  [{case.id}] {case.utterance!r}")
+
+        if case.pipeline_source_factory is not None:
+            # Custom factory — maintain original per-case lifecycle.
+            result = self._run_one(case, model)
+        else:
+            if case.dataset not in source_cache:
+                try:
+                    dataset = load_dataset(case.dataset)
+                except KeyError as exc:
+                    err_result = _dataset_load_error(case, exc)
+                    report.results.append(err_result)
+                    if self.verbose:
+                        self._log_case_result(err_result)
+                    return
+                source = DatasetPipelineSource(dataset)
+                source.setup()
+                source_cache[case.dataset] = source
+
+            cached_source = source_cache[case.dataset]
+            result = self._run_on_connection(
+                case,
+                cached_source.get_connection(),
+                cached_source.get_table_names(),
+                model,
+            )
+
+        report.results.append(result)
+        if self.verbose:
+            self._log_case_result(result)
 
     def run(
         self,
@@ -447,13 +524,7 @@ class EvalRunner:
 
         # Suppress logfire "not configured" warnings — they are expected in
         # environments where logfire has not been set up (e.g. CI / evals).
-        _logfire_warning: type | None = None
-        try:
-            from logfire._internal.config import LogfireNotConfiguredWarning
-
-            _logfire_warning = LogfireNotConfiguredWarning
-        except ImportError:  # pragma: no cover
-            pass
+        _logfire_warning = _logfire_not_configured_warning()
 
         with warnings.catch_warnings():
             warnings.filterwarnings("ignore", message=".*logfire.*")
@@ -474,54 +545,7 @@ class EvalRunner:
             _source_cache: dict[str, Any] = {}
             try:
                 for case in suite:
-                    if self.verbose:
-                        print(f"  [{case.id}] {case.utterance!r}")
-
-                    if case.pipeline_source_factory is not None:
-                        # Custom factory — maintain original per-case lifecycle.
-                        result = self._run_one(case, model)
-                    else:
-                        if case.dataset not in _source_cache:
-                            try:
-                                dataset = load_dataset(case.dataset)
-                            except KeyError as exc:
-                                err_result = EvalResult(
-                                    case_id=case.id,
-                                    dataset=case.dataset,
-                                    utterance=case.utterance,
-                                    passed=False,
-                                    score=0.0,
-                                    visited_nodes=[],
-                                    hop_count=0,
-                                    latency_ms=0.0,
-                                    row_count=0,
-                                    columns=[],
-                                    sql_generated=None,
-                                    explanation=None,
-                                    check_details={"dataset_load": f"KeyError: {exc}"},
-                                    error=str(exc),
-                                    tags=list(case.tags),
-                                    check_passed={"dataset_load": False},
-                                )
-                                report.results.append(err_result)
-                                if self.verbose:
-                                    self._log_case_result(err_result)
-                                continue
-                            source = DatasetPipelineSource(dataset)
-                            source.setup()
-                            _source_cache[case.dataset] = source
-
-                        cached_source = _source_cache[case.dataset]
-                        result = self._run_on_connection(
-                            case,
-                            cached_source.get_connection(),
-                            cached_source.get_table_names(),
-                            model,
-                        )
-
-                    report.results.append(result)
-                    if self.verbose:
-                        self._log_case_result(result)
+                    self._run_suite_case(case, model, report, _source_cache)
             finally:
                 for _src in _source_cache.values():
                     try:

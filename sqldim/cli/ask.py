@@ -113,49 +113,79 @@ def cmd_ask(args: argparse.Namespace) -> int:
     )
 
 
-def _run_supervisor(args: argparse.Namespace) -> int:
-    """Run the supervisor agent across multiple datasets."""
-    from sqldim.application.ask import KNOWN_DATASETS
+_REQUIRED = object()
+
+
+def _hop_field(hop: Any, key: str, default: Any) -> Any:
+    """Read *key* from a tool-result hop that is either a dict or an object."""
+    if isinstance(hop, dict):
+        return hop.get(key)
+    if default is _REQUIRED:
+        return getattr(hop, key)
+    return getattr(hop, key, default)
+
+
+def _format_hop(hop: Any) -> str:
+    """Render one tool-result hop as ``[name] status details``."""
+    name = _hop_field(hop, "tool_name", "?")
+    ok = _hop_field(hop, "success", False)
+    data = _hop_field(hop, "data", _REQUIRED) or {}
+    err = _hop_field(hop, "error", None)
+    status = "\u2713" if ok else "\u2717"
+    if err:
+        return f"[{name}] {status} ERROR: {err}"
+    display = {
+        k: v
+        for k, v in (data if isinstance(data, dict) else {}).items()
+        if k != "stub" and v is not None
+    }
+    return f"[{name}] {status} {display}"
+
+
+def _resolve_datasets(
+    selected: list[str] | None, all_datasets: list[str], prefix: str
+) -> list[str] | None:
+    """Validate an explicit dataset selection; ``None`` means unknown names."""
+    if not selected:
+        return all_datasets
+    unknown = [d for d in selected if d not in all_datasets]
+    if unknown:
+        print(f"[{prefix}] Unknown dataset(s): {', '.join(unknown)}")
+        print(f"[{prefix}] Available: {', '.join(all_datasets)}")
+        return None
+    return sorted(selected)
+
+
+def _build_llm_model(
+    model_provider: str | None, model_name: str | None, prefix: str
+) -> Any:
+    """Build the supervisor LLM model, warning (not failing) on errors."""
     from sqldim.core.query.dgm.nl._agents import make_model
+
+    if not model_provider:
+        return None
+    try:
+        return make_model(provider=model_provider, model_name=model_name)
+    except Exception as exc:
+        print(f"[{prefix}] Warning: could not build LLM model: {exc}")
+        return None
+
+
+def _invoke_supervisor(available: list[str], llm_model: Any, question: str) -> Any:
+    """Build the supervisor graph and run it once on *question*."""
     from sqldim.core.query.dgm.nl.supervisor._graph import build_supervisor_graph
     from sqldim.core.query.dgm.nl.supervisor._types import (
         SupervisorContext,
         SupervisorState,
     )
 
-    all_datasets = sorted(KNOWN_DATASETS.keys())
-    selected: list[str] | None = getattr(args, "datasets", None)
-    if selected:
-        unknown = [d for d in selected if d not in all_datasets]
-        if unknown:
-            print(f"[sqldim ask] Unknown dataset(s): {', '.join(unknown)}")
-            print(f"[sqldim ask] Available: {', '.join(all_datasets)}")
-            return 1
-        available = sorted(selected)
-    else:
-        available = all_datasets
-
-    model_provider: str | None = getattr(args, "model_provider", None)
-    model_name: str | None = getattr(args, "model_name", None) or getattr(
-        args, "model", None
-    )
-
-    llm_model = None
-    if model_provider:
-        try:
-            llm_model = make_model(provider=model_provider, model_name=model_name)
-        except Exception as exc:
-            print(f"[sqldim ask] Warning: could not build LLM model: {exc}")
-
     context = SupervisorContext(
         available_datasets=available,
         model=llm_model,
     )
-
     graph = build_supervisor_graph(context=context)
-    initial = SupervisorState(utterance=args.question)
-
-    result = graph.invoke(
+    initial = SupervisorState(utterance=question)
+    return graph.invoke(
         initial.model_dump(),
         config={
             "configurable": {"thread_id": "cli-supervisor"},
@@ -163,49 +193,43 @@ def _run_supervisor(args: argparse.Namespace) -> int:
         },
     )
 
+
+def _print_verbose(result: Any, prefix: str) -> None:
+    """Print visited nodes, timings and per-tool hops of a supervisor run."""
+    visited = result.get("visited_nodes", [])
+    timings = result.get("node_timings", {})
+    print(f"\n[{prefix}] Nodes visited: {visited}")
+    for node, ms in timings.items():
+        print(f"  {node}: {ms}ms")
+    for hop in result.get("results", []):
+        print(f"  {_format_hop(hop)}")
+
+
+def _run_supervisor(args: argparse.Namespace) -> int:
+    """Run the supervisor agent across multiple datasets."""
+    from sqldim.application.ask import KNOWN_DATASETS
+
+    prefix = "sqldim ask"
+    all_datasets = sorted(KNOWN_DATASETS.keys())
+    available = _resolve_datasets(getattr(args, "datasets", None), all_datasets, prefix)
+    if available is None:
+        return 1
+
+    model_provider: str | None = getattr(args, "model_provider", None)
+    model_name: str | None = getattr(args, "model_name", None) or getattr(
+        args, "model", None
+    )
+    llm_model = _build_llm_model(model_provider, model_name, prefix)
+
+    result = _invoke_supervisor(available, llm_model, args.question)
+
     synthesis = result.get("synthesis")
     if synthesis:
         print(synthesis)
     else:
         print("[sqldim ask] No synthesis produced.")
 
-    verbose: bool = getattr(args, "verbose", False)
-    if verbose:
-        visited = result.get("visited_nodes", [])
-        timings = result.get("node_timings", {})
-        print(f"\n[sqldim ask] Nodes visited: {visited}")
-        for node, ms in timings.items():
-            print(f"  {node}: {ms}ms")
-        for hop in result.get("results", []):
-            _name = (
-                hop.get("tool_name")
-                if isinstance(hop, dict)
-                else getattr(hop, "tool_name", "?")
-            )
-            ok = (
-                hop.get("success")
-                if isinstance(hop, dict)
-                else getattr(hop, "success", False)
-            )
-            data = (
-                (hop.get("data") or {})
-                if isinstance(hop, dict)
-                else (getattr(hop, "data") or {})
-            )
-            err = (
-                hop.get("error")
-                if isinstance(hop, dict)
-                else getattr(hop, "error", None)
-            )
-            status = "\u2713" if ok else "\u2717"
-            if err:
-                print(f"  [{_name}] {status} ERROR: {err}")
-            else:
-                display = {
-                    k: v
-                    for k, v in (data if isinstance(data, dict) else {}).items()
-                    if k != "stub" and v is not None
-                }
-                print(f"  [{_name}] {status} {display}")
+    if getattr(args, "verbose", False):
+        _print_verbose(result, prefix)
 
     return 0

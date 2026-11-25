@@ -87,7 +87,7 @@ def make_domain_event_fn(
     """
 
     def event_fn(con: Any) -> None:
-        import pandas as pd
+        import pandas as pd  # type: ignore[import-untyped]
 
         # 1. Snapshot DuckDB → Python dicts
         state_data: dict[str, list[dict]] = {}
@@ -262,85 +262,7 @@ class DriftEvalReport:
             by_drift.setdefault(p.drift_id, []).append(p)
 
         for drift_id, pairs in by_drift.items():
-            event_desc = pairs[0].event_description
-            n = len(pairs)
-            before_pass = sum(1 for p in pairs if p.before.passed)
-            after_pass = sum(1 for p in pairs if p.after.passed)
-            lines.append(f"  ── Event [{drift_id}]")
-            lines.append(f"     {event_desc}")
-            lines.append(
-                f"     pass: {before_pass}/{n} before → {after_pass}/{n} after"
-            )
-            for p in pairs:
-                utterance = p.before.utterance
-                changed_icon = "~" if p.answer_changed else "="
-                notes: list[str] = []
-                if p.answer_changed:
-                    notes.append("answer changed")
-                if p.sql_changed:
-                    notes.append("SQL drifted")
-                note_str = "  [" + ", ".join(notes) + "]" if notes else ""
-                b_score = f"{p.before.score:.2f}"
-                a_score = f"{p.after.score:.2f}"
-                lines.append(
-                    f"     {changed_icon} [{b_score}→{a_score}]  '{utterance}'{note_str}"
-                )
-                if p.answer_changed:
-                    cols = p.before.columns or p.after.columns
-                    b_rows = p.before.result_rows[:4]
-                    a_rows = p.after.result_rows[:4]
-                    if cols and (b_rows or a_rows):
-                        col_w = [
-                            max(
-                                len(c),
-                                max(
-                                    (
-                                        len(str(r[i]))
-                                        for rows in (b_rows, a_rows)
-                                        for r in rows
-                                        if i < len(r)
-                                    ),
-                                    default=0,
-                                ),
-                            )
-                            for i, c in enumerate(cols)
-                        ]
-                        _sep = "  "
-                        header = _sep.join(
-                            c.ljust(col_w[i]) for i, c in enumerate(cols)
-                        )
-                        sep_line = _sep.join("-" * col_w[i] for i in range(len(cols)))
-                        lines.append(f"       {header}")
-                        lines.append(f"       {sep_line}")
-                        for br, ar in zip(b_rows, a_rows):
-                            b_cells = _sep.join(
-                                str(br[i] if i < len(br) else "").ljust(col_w[i])
-                                for i in range(len(cols))
-                            )
-                            a_cells = _sep.join(
-                                str(ar[i] if i < len(ar) else "").ljust(col_w[i])
-                                for i in range(len(cols))
-                            )
-                            lines.append(f"       before  {b_cells}")
-                            lines.append(f"       after   {a_cells}")
-                        # any extra rows from the longer side
-                        for remaining in b_rows[len(a_rows) :]:
-                            b_cells = _sep.join(
-                                str(remaining[i] if i < len(remaining) else "").ljust(
-                                    col_w[i]
-                                )
-                                for i in range(len(cols))
-                            )
-                            lines.append(f"       before  {b_cells}")
-                        for remaining in a_rows[len(b_rows) :]:
-                            a_cells = _sep.join(
-                                str(remaining[i] if i < len(remaining) else "").ljust(
-                                    col_w[i]
-                                )
-                                for i in range(len(cols))
-                            )
-                            lines.append(f"       after   {a_cells}")
-            lines.append("")
+            _append_drift_group(lines, drift_id, pairs)
 
         return "\n".join(lines)
 
@@ -386,3 +308,86 @@ __all__ = [
     "DriftEvalReport",
     "make_domain_event_fn",
 ]
+
+
+# ---------------------------------------------------------------------------
+# DriftEvalReport.summary helpers
+# ---------------------------------------------------------------------------
+
+_CELL_SEP = "  "
+
+
+def _row_cells(row: Any, col_w: list[int]) -> str:
+    return _CELL_SEP.join(
+        str(row[i] if i < len(row) else "").ljust(col_w[i]) for i in range(len(col_w))
+    )
+
+
+def _column_widths(cols: list[str], b_rows: list, a_rows: list) -> list[int]:
+    return [
+        max(
+            len(c),
+            max(
+                (
+                    len(str(r[i]))
+                    for rows in (b_rows, a_rows)
+                    for r in rows
+                    if i < len(r)
+                ),
+                default=0,
+            ),
+        )
+        for i, c in enumerate(cols)
+    ]
+
+
+def _append_row_diff(lines: list[str], p: DriftPairResult) -> None:
+    cols = p.before.columns or p.after.columns
+    b_rows = p.before.result_rows[:4]
+    a_rows = p.after.result_rows[:4]
+    if not (cols and (b_rows or a_rows)):
+        return
+    col_w = _column_widths(cols, b_rows, a_rows)
+    header = _CELL_SEP.join(c.ljust(col_w[i]) for i, c in enumerate(cols))
+    sep_line = _CELL_SEP.join("-" * col_w[i] for i in range(len(cols)))
+    lines.append(f"       {header}")
+    lines.append(f"       {sep_line}")
+    for br, ar in zip(b_rows, a_rows):
+        lines.append(f"       before  {_row_cells(br, col_w)}")
+        lines.append(f"       after   {_row_cells(ar, col_w)}")
+    # any extra rows from the longer side
+    for remaining in b_rows[len(a_rows) :]:
+        lines.append(f"       before  {_row_cells(remaining, col_w)}")
+    for remaining in a_rows[len(b_rows) :]:
+        lines.append(f"       after   {_row_cells(remaining, col_w)}")
+
+
+def _append_pair(lines: list[str], p: DriftPairResult) -> None:
+    utterance = p.before.utterance
+    changed_icon = "~" if p.answer_changed else "="
+    notes: list[str] = []
+    if p.answer_changed:
+        notes.append("answer changed")
+    if p.sql_changed:
+        notes.append("SQL drifted")
+    note_str = "  [" + ", ".join(notes) + "]" if notes else ""
+    b_score = f"{p.before.score:.2f}"
+    a_score = f"{p.after.score:.2f}"
+    lines.append(f"     {changed_icon} [{b_score}→{a_score}]  '{utterance}'{note_str}")
+    if p.answer_changed:
+        _append_row_diff(lines, p)
+
+
+def _append_drift_group(
+    lines: list[str], drift_id: str, pairs: list[DriftPairResult]
+) -> None:
+    event_desc = pairs[0].event_description
+    n = len(pairs)
+    before_pass = sum(1 for p in pairs if p.before.passed)
+    after_pass = sum(1 for p in pairs if p.after.passed)
+    lines.append(f"  ── Event [{drift_id}]")
+    lines.append(f"     {event_desc}")
+    lines.append(f"     pass: {before_pass}/{n} before → {after_pass}/{n} after")
+    for p in pairs:
+        _append_pair(lines, p)
+    lines.append("")

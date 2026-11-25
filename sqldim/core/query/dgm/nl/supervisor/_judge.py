@@ -181,6 +181,42 @@ def load_judge_cases(path: Path | None = None) -> list[JudgeCase]:
 # ---------------------------------------------------------------------------
 
 
+def _first_concrete_dataset(steps: list[dict[str, Any]]) -> str | None:
+    for s in steps:
+        ds = s.get("arguments", {}).get("dataset")
+        if ds and ds != "__all__":
+            return ds
+    return None
+
+
+def _plan_summary(plan: Any) -> tuple[list[str], str | None, float, float]:
+    """Extract plan details — LangGraph may return either a Pydantic model
+    or a serialised dict depending on the graph configuration."""
+    if plan is None:  # pragma: no cover  — graph always produces a plan
+        return [], None, 0.0, 0.0
+    # Normalise to dict if it's a Pydantic model
+    plan_d: dict[str, Any] = plan if isinstance(plan, dict) else plan.model_dump()
+    steps = plan_d.get("steps", [])
+    return (
+        [s["tool_name"] for s in steps],
+        _first_concrete_dataset(steps),
+        plan_d.get("confidence", 0.0),
+        sum(s.get("budget_fraction", 0) for s in steps),
+    )
+
+
+def _normalise_results(raw_results: list[Any]) -> tuple[list[dict[str, Any]], bool]:
+    """Normalise Pydantic result models to dicts and compute overall success."""
+    results = []
+    all_ok = True
+    for r in raw_results:
+        rd = r if isinstance(r, dict) else r.model_dump()
+        results.append(rd)
+        if not rd.get("success", False):  # pragma: no cover  — all stubs succeed
+            all_ok = False
+    return results, all_ok
+
+
 def run_pipeline(
     utterance: str,
     context: SupervisorContext | None = None,
@@ -203,37 +239,8 @@ def run_pipeline(
         },
     )
 
-    # Extract plan details — LangGraph may return either a Pydantic model
-    # or a serialised dict depending on the graph configuration.
-    plan = raw.get("plan")
-    if plan is not None:
-        # Normalise to dict if it's a Pydantic model
-        plan_d: dict[str, Any] = plan if isinstance(plan, dict) else plan.model_dump()
-        steps = plan_d.get("steps", [])
-        plan_tools = [s["tool_name"] for s in steps]
-        first_ds = None
-        for s in steps:
-            ds = s.get("arguments", {}).get("dataset")
-            if ds and ds != "__all__":
-                first_ds = ds
-                break
-        plan_confidence = plan_d.get("confidence", 0.0)
-        plan_budget = sum(s.get("budget_fraction", 0) for s in steps)
-    else:  # pragma: no cover  — graph always produces a plan
-        plan_tools = []
-        first_ds = None
-        plan_confidence = 0.0
-        plan_budget = 0.0
-
-    # Extract results — normalise Pydantic models to dicts
-    raw_results = raw.get("results", [])
-    results = []
-    all_ok = True
-    for r in raw_results:
-        rd = r if isinstance(r, dict) else r.model_dump()
-        results.append(rd)
-        if not rd.get("success", False):  # pragma: no cover  — all stubs succeed
-            all_ok = False
+    plan_tools, first_ds, plan_confidence, plan_budget = _plan_summary(raw.get("plan"))
+    results, all_ok = _normalise_results(raw.get("results", []))
 
     return PipelineOutput(
         utterance=utterance,

@@ -9,6 +9,8 @@ from __future__ import annotations
 
 import argparse
 import uuid
+from collections.abc import Callable
+from typing import Any
 
 
 def _check_interactive_deps() -> tuple[bool, str]:
@@ -33,14 +35,16 @@ def _check_interactive_deps() -> tuple[bool, str]:
 def _select_datasets_interactive(
     all_datasets: list[str],
     *,
-    _prompt_fn: object | None = None,
+    _prompt_fn: Callable[[str], str] | None = None,
 ) -> list[str]:
     """Present an interactive dataset picker using prompt_toolkit."""
     from rich.console import Console
     from rich.table import Table
 
     if _prompt_fn is None:
-        from prompt_toolkit import prompt as _prompt_fn
+        from prompt_toolkit import prompt as _pt_prompt
+
+        _prompt_fn = _pt_prompt
 
     console = Console()
 
@@ -58,41 +62,57 @@ def _select_datasets_interactive(
         choice = _prompt_fn("datasets> ").strip()
         if not choice or choice.lower() == "all":
             return all_datasets
-        try:
-            indices = [int(x.strip()) for x in choice.split(",")]
-            selected = []
-            for idx in indices:
-                if 1 <= idx <= len(all_datasets):
-                    selected.append(all_datasets[idx - 1])
-                else:
-                    console.print(f"[red]Invalid number: {idx}[/red]")
-                    selected = []
-                    break
-            if selected:
-                return sorted(set(selected))
-        except ValueError:
-            # Try matching by name
-            names = [x.strip() for x in choice.split(",")]
-            valid = [n for n in names if n in all_datasets]
-            invalid = [n for n in names if n not in all_datasets]
-            if invalid:
-                console.print(f"[red]Unknown: {', '.join(invalid)}[/red]")
-                continue
-            if valid:
-                return sorted(set(valid))
+        picked, retry_silently = _parse_dataset_choice(choice, all_datasets, console)
+        if picked:
+            return picked
+        if retry_silently:
+            continue
         console.print("[yellow]Try again — enter numbers, names, or 'all'.[/yellow]")
 
 
+def _pick_by_index(choice: str, all_datasets: list[str], console: Any) -> list[str]:
+    """Select datasets by 1-based numbers; raises ValueError on non-integers."""
+    indices = [int(x.strip()) for x in choice.split(",")]
+    selected = []
+    for idx in indices:
+        if not 1 <= idx <= len(all_datasets):
+            console.print(f"[red]Invalid number: {idx}[/red]")
+            return []
+        selected.append(all_datasets[idx - 1])
+    return sorted(set(selected))
+
+
+def _parse_dataset_choice(
+    choice: str, all_datasets: list[str], console: Any
+) -> tuple[list[str], bool]:
+    """Parse a picker answer into datasets.
+
+    Returns ``(selection, retry_silently)``: an empty selection means the
+    answer was not usable; ``retry_silently`` is set when an error message
+    was already printed for unknown names.
+    """
+    try:
+        return _pick_by_index(choice, all_datasets, console), False
+    except ValueError:
+        # Try matching by name
+        names = [x.strip() for x in choice.split(",")]
+        valid = [n for n in names if n in all_datasets]
+        invalid = [n for n in names if n not in all_datasets]
+        if invalid:
+            console.print(f"[red]Unknown: {', '.join(invalid)}[/red]")
+            return [], True
+        return sorted(set(valid)), False
+
+
 def _run_repl(
-    graph: object,
+    graph: Any,
     datasets: list[str],
     *,
     verbose: bool = False,
-    _session_factory: object | None = None,
+    _session_factory: Callable[[], Any] | None = None,
 ) -> int:
     """Run the interactive REPL loop."""
     from rich.console import Console
-    from rich.markdown import Markdown
     from rich.panel import Panel
 
     from sqldim.core.query.dgm.nl.supervisor._types import SupervisorState
@@ -134,47 +154,10 @@ def _run_repl(
 
         # Slash commands
         if utterance.startswith("/"):
-            cmd = utterance.lower().split()[0]
-            if cmd in ("/quit", "/exit", "/q"):
-                console.print("[dim]Goodbye![/dim]")
+            if _handle_slash_command(
+                utterance, console, datasets, conversation_history
+            ):
                 return 0
-            if cmd == "/help":
-                console.print(
-                    Panel(
-                        "[bold]/help[/bold]     — Show this help\n"
-                        "[bold]/datasets[/bold] — List active datasets\n"
-                        "[bold]/history[/bold]  — Show conversation history\n"
-                        "[bold]/clear[/bold]    — Clear conversation history\n"
-                        "[bold]/quit[/bold]     — Exit the REPL",
-                        title="Commands",
-                        border_style="blue",
-                    )
-                )
-                continue
-            if cmd == "/datasets":
-                console.print(f"[cyan]Active datasets:[/cyan] {', '.join(datasets)}")
-                continue
-            if cmd == "/history":
-                if not conversation_history:
-                    console.print("[dim]No conversation history yet.[/dim]")
-                else:
-                    for entry in conversation_history:
-                        role = entry["role"]
-                        content = entry["content"]
-                        if role == "user":
-                            console.print(f"[bold green]You:[/bold green] {content}")
-                        else:
-                            console.print(
-                                f"[bold cyan]sqldim:[/bold cyan] {content[:120]}..."
-                                if len(content) > 120
-                                else f"[bold cyan]sqldim:[/bold cyan] {content}"
-                            )
-                continue
-            if cmd == "/clear":
-                conversation_history.clear()
-                console.print("[dim]Conversation history cleared.[/dim]")
-                continue
-            console.print(f"[yellow]Unknown command: {cmd}. Type /help.[/yellow]")
             continue
 
         # Invoke the supervisor graph
@@ -193,25 +176,94 @@ def _run_repl(
                 },
             )
 
-        synthesis = result.get("synthesis", "")
-        if synthesis:
-            console.print()
-            console.print(Panel(Markdown(synthesis), border_style="green"))
-
-            # Update conversation history
-            conversation_history.append({"role": "user", "content": utterance})
-            conversation_history.append({"role": "assistant", "content": synthesis})
-        else:
-            console.print("[yellow]No synthesis produced.[/yellow]")
-
-        if verbose:
-            visited = result.get("visited_nodes", [])
-            timings = result.get("node_timings", {})
-            console.print(f"\n[dim]Nodes: {' → '.join(visited)}[/dim]")
-            timing_parts = [f"{n}: {ms}ms" for n, ms in timings.items()]
-            console.print(f"[dim]Timings: {', '.join(timing_parts)}[/dim]")
+        _render_turn(result, utterance, console, conversation_history, verbose)
 
     return 0  # pragma: no cover  — loop exits via return above
+
+
+def _print_history(console: Any, conversation_history: list[dict[str, str]]) -> None:
+    """Print the conversation history, truncating long assistant replies."""
+    if not conversation_history:
+        console.print("[dim]No conversation history yet.[/dim]")
+        return
+    for entry in conversation_history:
+        role = entry["role"]
+        content = entry["content"]
+        if role == "user":
+            console.print(f"[bold green]You:[/bold green] {content}")
+        else:
+            console.print(
+                f"[bold cyan]sqldim:[/bold cyan] {content[:120]}..."
+                if len(content) > 120
+                else f"[bold cyan]sqldim:[/bold cyan] {content}"
+            )
+
+
+def _handle_slash_command(
+    utterance: str,
+    console: Any,
+    datasets: list[str],
+    conversation_history: list[dict[str, str]],
+) -> bool:
+    """Handle a ``/command``; return True when the REPL must exit."""
+    from rich.panel import Panel
+
+    cmd = utterance.lower().split()[0]
+    if cmd in ("/quit", "/exit", "/q"):
+        console.print("[dim]Goodbye![/dim]")
+        return True
+    if cmd == "/help":
+        console.print(
+            Panel(
+                "[bold]/help[/bold]     — Show this help\n"
+                "[bold]/datasets[/bold] — List active datasets\n"
+                "[bold]/history[/bold]  — Show conversation history\n"
+                "[bold]/clear[/bold]    — Clear conversation history\n"
+                "[bold]/quit[/bold]     — Exit the REPL",
+                title="Commands",
+                border_style="blue",
+            )
+        )
+    elif cmd == "/datasets":
+        console.print(f"[cyan]Active datasets:[/cyan] {', '.join(datasets)}")
+    elif cmd == "/history":
+        _print_history(console, conversation_history)
+    elif cmd == "/clear":
+        conversation_history.clear()
+        console.print("[dim]Conversation history cleared.[/dim]")
+    else:
+        console.print(f"[yellow]Unknown command: {cmd}. Type /help.[/yellow]")
+    return False
+
+
+def _render_turn(
+    result: Any,
+    utterance: str,
+    console: Any,
+    conversation_history: list[dict[str, str]],
+    verbose: bool,
+) -> None:
+    """Print one supervisor answer and record it in the history."""
+    from rich.markdown import Markdown
+    from rich.panel import Panel
+
+    synthesis = result.get("synthesis", "")
+    if synthesis:
+        console.print()
+        console.print(Panel(Markdown(synthesis), border_style="green"))
+
+        # Update conversation history
+        conversation_history.append({"role": "user", "content": utterance})
+        conversation_history.append({"role": "assistant", "content": synthesis})
+    else:
+        console.print("[yellow]No synthesis produced.[/yellow]")
+
+    if verbose:
+        visited = result.get("visited_nodes", [])
+        timings = result.get("node_timings", {})
+        console.print(f"\n[dim]Nodes: {' → '.join(visited)}[/dim]")
+        timing_parts = [f"{n}: {ms}ms" for n, ms in timings.items()]
+        console.print(f"[dim]Timings: {', '.join(timing_parts)}[/dim]")
 
 
 def cmd_chat(args: argparse.Namespace) -> int:

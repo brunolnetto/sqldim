@@ -22,6 +22,7 @@ and sqldim.application.examples.features.* via EXAMPLE_METADATA dicts.
 
 import argparse
 import sys
+from typing import Any
 
 # Lazy wrappers — heavy deps (langgraph, pydantic-ai, rich, benchmarks) are
 # imported only when the command is actually invoked, not at parse time.
@@ -185,15 +186,7 @@ def _run_tool_evals(args: argparse.Namespace, tools: list[str]) -> int:
     datasets: list[str] | None = getattr(args, "dataset", None) or None
 
     # Collect cases for the requested tools
-    all_cases = []
-    for tool_name in tools:
-        cases = load_cases_for_tool(tool_name)
-        if not cases:
-            print(f"[sqldim evals] Warning: no eval cases found for tool {tool_name!r}")
-            continue
-        if datasets:
-            cases = [c for c in cases if c.domain in datasets]
-        all_cases.extend(cases)
+    all_cases = _collect_tool_cases(tools, datasets, load_cases_for_tool)
 
     if not all_cases:
         print("[sqldim evals] No matching tool eval cases found.")
@@ -204,7 +197,33 @@ def _run_tool_evals(args: argparse.Namespace, tools: list[str]) -> int:
             print(f"[sqldim evals] Available tools: {', '.join(available_tools)}")
         return 1
 
-    # Group by tool for reporting
+    _print_tool_cases(all_cases)
+
+    output = getattr(args, "output", None)
+    if output:
+        _write_tool_eval_report(output, tools, all_cases)
+
+    return 0
+
+
+def _collect_tool_cases(
+    tools: list[str], datasets: list[str] | None, load_cases_for_tool: Any
+) -> list:
+    """Load eval cases per tool, warning on tools without cases."""
+    all_cases: list = []
+    for tool_name in tools:
+        cases = load_cases_for_tool(tool_name)
+        if not cases:
+            print(f"[sqldim evals] Warning: no eval cases found for tool {tool_name!r}")
+            continue
+        if datasets:
+            cases = [c for c in cases if c.domain in datasets]
+        all_cases.extend(cases)
+    return all_cases
+
+
+def _print_tool_cases(all_cases: list) -> None:
+    """Print tool eval cases grouped by tool."""
     by_tool: dict[str, list] = {}
     for c in all_cases:
         by_tool.setdefault(c.tool, []).append(c)
@@ -223,29 +242,28 @@ def _run_tool_evals(args: argparse.Namespace, tools: list[str]) -> int:
             print(f"    {c.id:<50} {c.domain:<18} {c.description[:45]}{tags}")
         print()
 
-    output = getattr(args, "output", None)
-    if output:
-        import json
 
-        report_data = {
-            "tools": tools,
-            "total_cases": total,
-            "cases": [
-                {
-                    "id": c.id,
-                    "tool": c.tool,
-                    "domain": c.domain,
-                    "description": c.description,
-                    "tags": c.tags,
-                }
-                for c in all_cases
-            ],
-        }
-        with open(output, "w", encoding="utf-8") as fh:
-            json.dump(report_data, fh, indent=2, ensure_ascii=False)
-        print(f"[sqldim evals] Report written to {output}")
+def _write_tool_eval_report(output: str, tools: list[str], all_cases: list) -> None:
+    """Write the tool eval case listing as JSON to *output*."""
+    import json
 
-    return 0
+    report_data = {
+        "tools": tools,
+        "total_cases": len(all_cases),
+        "cases": [
+            {
+                "id": c.id,
+                "tool": c.tool,
+                "domain": c.domain,
+                "description": c.description,
+                "tags": c.tags,
+            }
+            for c in all_cases
+        ],
+    }
+    with open(output, "w", encoding="utf-8") as fh:
+        json.dump(report_data, fh, indent=2, ensure_ascii=False)
+    print(f"[sqldim evals] Report written to {output}")
 
 
 def cmd_evals_drift(args: argparse.Namespace) -> int:

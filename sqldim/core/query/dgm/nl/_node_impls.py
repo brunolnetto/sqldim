@@ -752,20 +752,20 @@ def make_operational_nodes(context: Any, model: Any = None) -> dict[str, _NodeFn
                     or "*"
                 )
 
-                op = comp.operation
-                if op is CompositionOp.UNION:
+                comp_op = comp.operation
+                if comp_op is CompositionOp.UNION:
                     sql = (
                         f"WITH q1 AS (SELECT {cols1} FROM {t1} LIMIT 100), "
                         f"q2 AS (SELECT {cols2} FROM {t2} LIMIT 100) "
                         f"SELECT * FROM q1 UNION ALL SELECT * FROM q2"
                     )
-                elif op is CompositionOp.INTERSECT:
+                elif comp_op is CompositionOp.INTERSECT:
                     sql = (
                         f"WITH q1 AS (SELECT {cols1} FROM {t1} LIMIT 100), "
                         f"q2 AS (SELECT {cols2} FROM {t2} LIMIT 100) "
                         f"SELECT * FROM q1 INTERSECT SELECT * FROM q2"
                     )
-                elif op is CompositionOp.JOIN:
+                elif comp_op is CompositionOp.JOIN:
                     jk = str(comp.join_key) if comp.join_key else "id"
                     jcol = jk.split(".")[-1]
                     sql = (

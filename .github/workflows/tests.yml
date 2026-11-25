@@ -35,6 +35,15 @@ jobs:
           enable-cache: true
           cache-dependency-glob: "uv.lock"
 
+      - name: Install PostgreSQL server (for PostgreSQLSink tests)
+        run: |
+          sudo apt-get update -q
+          sudo apt-get install -y -q postgresql
+          ls /usr/lib/postgresql/*/bin/pg_ctl
+          # pytest-postgresql forks pg_ctl from a large xdist worker; the default
+          # heuristic overcommit refuses that fork with ENOMEM on the runner.
+          sudo sysctl -w vm.overcommit_memory=1
+
       - name: Install dependencies
         run: uv sync --group dev --extra nl --extra interactive
 
