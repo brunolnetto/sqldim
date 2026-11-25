@@ -3,7 +3,7 @@
 - **Status:** Accepted
 - **Date:** 2026-11-25
 - **Issue:** #30 (blocks #32, #33, #66)
-- **Spec sections:** §2.2, §4.1, §6.1, §8.1, §10.4 (D30)
+- **Spec sections:** §2.2, §4.1, §6.1, §8.1, §10.4 (D31)
 
 ## Context
 

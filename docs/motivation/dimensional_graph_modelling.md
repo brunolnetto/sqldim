@@ -264,7 +264,8 @@ SchemaAnnotation ::=
                      pipeline_id: K,
                      ttl: Duration,
                      backfill_horizon: Duration,
-                     write_mode: BACKFILL | REFRESH | ADAPTIVE)
+                     write_mode: BACKFILL | REFRESH | ADAPTIVE,
+                     transitions: F_S)             -- the transition fact type
   -- Medallion layer annotation
   | MedallionLayer(n: N_S,
                    layer: BRONZE | SILVER | GOLD | DIAMOND,
@@ -319,15 +320,48 @@ Traversal     The acyclic optimisation (DAG BFS without a visited set, on G and 
 
 No rule removes cycle protection without the VALIDATED precondition. `COMMUNITY_LABEL(TARJAN_SCC)` over CAUSAL edges (§7.6) computes the same components as the validation and is the diagnostic for a VIOLATED or UNKNOWN snapshot; it runs with a visited set and terminates on cyclic input.
 
-**PipelineArtifact(f, pipeline_id, ttl, backfill_horizon, write_mode)** — composite annotation. Implies `Grain(f, ACCUMULATING)`. Models five-state machine over `P(x).state ∈ {Missing, In-flight, Complete, Stale, Failed}` for each instance x of the fact type f. Transition bridge edges carry implied BridgeSemantics:
+**PipelineArtifact(f, pipeline_id, ttl, backfill_horizon, write_mode, transitions)** — composite annotation over two fact types (§10.4, D32; ADR 0002). It implies `Grain(f, ACCUMULATING)`, `Grain(transitions, EVENT)`, the bridge edge types below and `BridgeSemantics(followed_by, CAUSAL)`.
+
 ```
-Missing    →[scheduled]→   In-flight   TEMPORAL
-In-flight  →[succeeded]→   Complete    CAUSAL
-In-flight  →[failed]→      Failed      CAUSAL  (SUPERSESSION if REFRESH run with prior Complete)
-Complete   →[expired]→     Stale       TEMPORAL  (ttl-triggered)
-Stale      →[rescheduled]→ In-flight   TEMPORAL
-Failed     →[retried]→     In-flight   SUPERSESSION
+ArtifactState  ::= Missing | In-flight | Complete | Stale | Failed
+TransitionKind ::= scheduled | succeeded | failed | expired | rescheduled | retried
+
+f            the artifact: one instance per (pipeline, window).
+             K_S(f) ⊇ { state: Enum(ArtifactState), window_start, window_end: Timestamp }
+             state is the CURRENT state.
+
+transitions  the transition event: one instance per state change.
+             K_S(transitions) ⊇ { from_state, to_state: Enum(ArtifactState),
+                                  kind: Enum(TransitionKind), occurred_at: Timestamp }
+
+(transitions, f, 'transition_of')              ∈ B_S    STRUCTURAL   -- each transition belongs to one artifact
+(transitions, transitions, 'followed_by')      ∈ B_S    CAUSAL       -- next transition of the same artifact
 ```
+
+States are enumeration values, not nodes; no edge runs between states. The state machine is the relation δ of admissible `(from_state, kind, to_state)` triples:
+
+```
+Missing    —scheduled→    In-flight
+In-flight  —succeeded→    Complete
+In-flight  —failed→       Failed       -- no earlier transition reached Complete (backfill)
+In-flight  —failed→       Stale        -- an earlier transition reached Complete (refresh; prior result kept)
+Complete   —expired→      Stale        -- ttl elapsed since the transition into Complete
+Stale      —rescheduled→  In-flight
+Failed     —retried→      In-flight
+```
+
+Invariants:
+
+```
+PA1  Every transition instance has (from_state, kind, to_state) ∈ δ.
+PA2  The transitions of one artifact form a single chain under 'followed_by', ordered by occurred_at;
+     the first has from_state = Missing, and next.from_state = previous.to_state.
+PA3  state_at(a, t) = to_state of the last transition of a with occurred_at ≤ t, or Missing if none.
+PA4  P(a).state = state_at(a, now); a versioned artifact carries state_at(a, t) in the version in force at t.
+```
+
+The current state is thus a projection of the transition history: a snapshot at `t` and the history read up to `t` agree by PA3–PA4. A trace of the machine is the `followed_by` chain of one artifact; it is time-ordered (§2.3), so TemporalMode, Repeat and Monitor apply to it.
+
 `write_mode`: BACKFILL → always APPEND; REFRESH → always MERGE (atomic swap); ADAPTIVE → inferred from state (planner Rule 10).
 
 Each artifact covers a window `[window_start, window_end)`; both are non-NULL Timestamp properties of the fact type. `backfill_horizon` bounds how far back a gap is still repaired. With `now` the evaluation instant and `H = backfill_horizon`, a window is **eligible for backfill** iff
@@ -933,7 +967,7 @@ With a `temporal_mode` the quantifier cannot be swapped alone: CTL duality duali
 
 EVENTUALLY and GLOBALLY exchange; NEXT and PREVIOUSLY are self-dual; UNTIL needs both a dualised UNTIL and a GLOBALLY term. Swapping only the quantifier under EVENTUALLY would yield ¬EF ¬φ, which is AG φ, not AF φ. These are dualities over the maximal traces defined below, and they give the `on_empty = VACUOUS` reading of FORALL. Under the default `REQUIRE_WITNESS`, each construction is conjoined with a non-emptiness guard: `PathPred(EXISTS, EVENTUALLY, TRUE)` for GLOBALLY, EVENTUALLY and UNTIL, and `PathPred(EXISTS, NEXT, TRUE)` for NEXT.
 
-**Path semantics.** The transition relation is not total: fact nodes cannot be the source of verb edges and are often sinks. CTL is therefore interpreted over maximal paths, without adding transitions (§10.4, D30; ADR 0001). For a PathPred evaluated at a start node s:
+**Path semantics.** The transition relation is not total: fact nodes cannot be the source of verb edges and are often sinks. CTL is therefore interpreted over maximal paths, without adding transitions (§10.4, D31; ADR 0001). For a PathPred evaluated at a start node s:
 
 ```
 evaluation position   a node of a path instance at which every path-local alias used by sub_filter is bound
@@ -990,7 +1024,7 @@ On G₁, `PathPred(FORALL, EVENTUALLY, φ)` is true, while the quantifier-only r
 | FORALL | UNTIL(ψ) | A(φ U ψ) |
 | EXISTS | UNTIL(ψ) | E(φ U ψ) |
 
-Semantics: maximal paths over a non-total transition relation; FORALL on an empty domain follows `on_empty` (§4.1, D30).
+Semantics: maximal paths over a non-total transition relation; FORALL on an empty domain follows `on_empty` (§4.1, D31).
 
 **Temporal property classes** (syntactic sugar over PathPred compositions):
 
@@ -1046,14 +1080,14 @@ Over the traces of a start node, the monitor returns VIOLATED if any trace is VI
 For a closed trace `Monitor = SATISFIED` exactly when the corresponding PathPred is TRUE; the monitor adds nothing there. Its purpose is the open case: absence of evidence before the end of an open record is UNDETERMINED, never VIOLATED.
 
 ```
--- LIVENESS(state = Complete) over the 'succeeded' transition of artifact w, evaluated at now = 2024-06-30T00:00Z
--- w is In-flight; no 'succeeded' edge has been recorded.
+-- LIVENESS(done), done = (to_state = Complete), over the transition trace of artifact w (§2.4),
+-- evaluated at now = 2024-06-30T00:00Z. w is In-flight; no transition into Complete has been recorded.
 
 Monitor(LIVENESS(done), path)                                          → UNDETERMINED   -- log open, no deadline
 Monitor(LIVENESS(done), path, deadline=(w.window_end, 2 days))         → UNDETERMINED   -- w.window_end = 2024-06-29: not expired
 Monitor(LIVENESS(done), path, deadline=(w.window_end, 2 days))         → VIOLATED       -- w.window_end = 2024-06-20: expired
 Monitor(LIVENESS(done), path, log=CLOSED)                              → VIOLATED       -- the record is complete
-Monitor(LIVENESS(done), path)   after 'succeeded' is recorded          → SATISFIED      -- under any log status
+Monitor(LIVENESS(done), path)   after a 'succeeded' transition         → SATISFIED      -- under any log status
 ```
 
 **Minterm/maxterm duality:**
@@ -1810,8 +1844,8 @@ Grounded in the lattice identity G_A* ∩ G_*B = G_AB (§8.7). Always correct; n
 if PipelineArtifact(f, _, ttl, horizon, write_mode) ∈ Σ:
 
     -- TTL expiry: transition Complete → Stale
-    if P(f).state = Complete AND P(f).completed_at < now - ttl:
-        emit state transition: Complete → Stale
+    if P(f).state = Complete AND occurred_at of its last transition < now - ttl:
+        append transition (Complete, expired, Stale)
         WritePlan(mode=MERGE, sink=current_sink)
 
     -- ADAPTIVE write mode inference from P(f).state:
@@ -1828,12 +1862,13 @@ if PipelineArtifact(f, _, ttl, horizon, write_mode) ∈ Σ:
           ScalarPred(PropRef(f.window_end), (<= now))
         )
 
-    -- Transition bridge semantics inference:
-    if transition = In-flight → Failed:
-        if write_mode IN {REFRESH, ADAPTIVE with prior Complete}:
-            BridgeSemantics(SUPERSESSION)   -- prior Complete preserved; regress to Stale
+    -- Outcome of a failed run: which row of δ applies (§2.4)
+    if transition kind = failed:
+        if an earlier transition of the artifact reached Complete:
+            to_state = Stale       -- refresh failure: prior result kept by the atomic MERGE
         else:
-            BridgeSemantics(CAUSAL)         -- backfill; no prior artifact; window stays Failed
+            to_state = Failed      -- backfill failure: no prior artifact
+    -- every state change appends one transition fact and one 'followed_by' edge (PA1–PA2)
 ```
 
 **Rule 11 — Cross-CTE Common Subexpression Elimination (CSE):**
@@ -2429,7 +2464,7 @@ Parametric suggestions are validated by `BDD_parametric` feasibility (§8.15) an
 
 **Theorem.** The instance graph G_I = (N_I, E_I, P) is a Kripke structure K=(S,R,L) under S=N_I, R=E_I, L=P. In §8.1–§8.10, G, N and E denote G_I, N_I and E_I.
 
-R is not assumed total; CTL formulas are interpreted over maximal paths (§4.1, D30).
+R is not assumed total; CTL formulas are interpreted over maximal paths (§4.1, D31).
 
 Consequences: CTL/LTL model checking applies directly. BDD layer is standard symbolic CTL machinery (Bryant 1986; Clarke et al. 1986). PathPred(FORALL/EXISTS,ALL) are CTL path quantifiers A/E. TemporalMode realises full CTL operator hierarchy.
 
@@ -3780,9 +3815,10 @@ A `daily_revenue` pipeline produces one accumulating artifact per day-window. Ar
 -- Schema:
 --   PipelineArtifact(daily_rev, 'daily_revenue',
 --                   ttl=7 days, backfill_horizon=90 days,
---                   write_mode=ADAPTIVE) ∈ Σ
--- Implies: Grain(daily_rev, ACCUMULATING)
--- P(daily_rev).state ∈ {Missing, In-flight, Complete, Stale, Failed}
+--                   write_mode=ADAPTIVE, transitions=daily_rev_tr) ∈ Σ
+-- Implies: Grain(daily_rev, ACCUMULATING), Grain(daily_rev_tr, EVENT),
+--          (daily_rev_tr, daily_rev, 'transition_of'), (daily_rev_tr, daily_rev_tr, 'followed_by') CAUSAL
+-- a.state is the current state; each state change is one daily_rev_tr instance
 
 -- Step 1: Backfill — find Missing/Failed within horizon
 Q_backfill:
@@ -3826,46 +3862,61 @@ Q_delta(
 -- ACCUMULATING grain: CHANGED_PROPERTY captures stage progression
 -- WritePlan(mode=APPEND, sink=DELTA): appends each transition record
 
--- Step 4: CTL correctness assertions
+-- Step 4: correctness assertions
 
--- SAFETY: no window older than horizon stays Missing
-PathPred(a, NodeRef(a), FORALL, ALL, GLOBALLY,
-  NOT(AND(
-    ScalarPred(PropRef(a.state), (= Missing)),
-    ScalarPred(PropRef(a.window_end), (< ArithExpr(now, -, 90 days)))
-  ))
-)
--- AG(¬(Missing ∧ window_end < now-90d))
+-- 4a. State invariant — a property of the CURRENT state, evaluated at one instant.
+--     No window older than the horizon is Missing now:
+Anchor(daily_rev, a)
+Where: NOT(AND(
+         ScalarPred(PropRef(a.state), (= Missing)),
+         ScalarPred(PropRef(a.window_end), (< ArithExpr(now, -, 90 days)))
+       ))
+-- This inspects a.state only. It says nothing about the states the artifact went through.
 
--- LIVENESS: every Missing/Failed window eventually reaches Complete
-PathPred(a,
-  BridgeHop(a, 'succeeded', done, node_alias=completed_art),
-  FORALL, ALL, EVENTUALLY,
-  ScalarPred(PropRef(completed_art.state), (= Complete))
-)
--- AF(Complete) on the recorded graph. FALSE here means "not recorded as Complete", which for a
--- window still In-flight is not a violation; use Monitor(LIVENESS(…), …) with a deadline (§4.1)
--- to tell a pending window from a failed obligation.
+-- 4b. SAFETY over the trace — a property of the whole transition history.
+--     trace(t₀): the 'followed_by' chain starting at the first transition of an artifact.
+Anchor(daily_rev_tr, t0)
+Where: ScalarPred(PropRef(t0.from_state), (= Missing))                -- first transition of its artifact
+-- Below, `trace` abbreviates this BoundPath (positions: t0, then each successor):
+--   Repeat(BridgeHop(daily_rev_tr, 'followed_by', daily_rev_tr, node_alias=t), min=0, max=UNBOUNDED)
 
--- RESPONSE: every Stale window eventually refreshes
+PathPred(t0, trace, FORALL, ALL, GLOBALLY,
+  NOT(ScalarPred(PropRef(t.to_state), (= Failed))))
+-- AG(to_state ≠ Failed): the run never enters Failed.
+
+-- The two differ on this recorded sequence for window w:
+--   t₁ = (Missing,   scheduled, In-flight)      t₂ = (In-flight, failed,  Failed)
+--   t₃ = (Failed,    retried,   In-flight)      t₁ —followed_by→ t₂ —followed_by→ t₃
+--   Current state: a.state = In-flight. A check of the current state (4a-style, "state ≠ Failed")
+--   passes — the initial state looked safe and so does the present one.
+--   4b is FALSE at t₁: position t₂ has to_state = Failed. The trace entered Failed.
+
+-- 4c. LIVENESS over the trace: every run eventually reaches Complete
+PathPred(t0, trace, FORALL, ALL, EVENTUALLY,
+  ScalarPred(PropRef(t.to_state), (= Complete)))
+-- AF(Complete) on the recorded graph. FALSE means "not recorded as Complete", which for a window
+-- still In-flight is not a violation; Monitor(LIVENESS(…), trace, deadline=…) (§4.1) tells a
+-- pending window from a failed obligation.
+
+-- 4d. RESPONSE: every Stale is eventually followed by Complete
 RESPONSE(
-  trigger  = ScalarPred(PropRef(a.state), (= Stale)),
-  response = ScalarPred(PropRef(a.state), (= Complete))
+  trigger  = ScalarPred(PropRef(t.to_state), (= Stale)),
+  response = ScalarPred(PropRef(t.to_state), (= Complete))
 )
--- AG(Stale → AF(Complete))
+-- AG(Stale → AF(Complete)) over trace
 
 -- Step 5: Asymmetric failure — refresh vs backfill failure
-PathPred(
-  a,
-  BridgeHop(a, 'failed', failed_art, node_alias=fa),
-  EXISTS, ALL,
-  AND(ScalarPred(PropRef(fa.prior_state), (= Complete)),
-      ScalarPred(PropRef(fa.state), (= Failed)))
-)
--- EXISTS a 'failed' transition whose artifact had a prior Complete → refresh failure
--- No such path for backfill failures (no prior Complete)
--- The path has a single hop, hence a single evaluation position: a conjunction states the
--- condition exactly. UNTIL (TemporalMode, §4.1) applies to paths with several positions.
+PathPred(t0, trace, EXISTS, ALL, EVENTUALLY,
+  AND(ScalarPred(PropRef(t.kind), (= failed)),
+      ScalarPred(PropRef(t.to_state), (= Stale))))
+-- EXISTS a failed transition that regressed to Stale → refresh failure (a prior Complete was kept).
+-- A backfill failure has to_state = Failed instead (δ, §2.4), so no such position exists.
+
+-- UNTIL over the same trace: the artifact stayed out of Failed until it first completed
+PathPred(t0, trace, EXISTS, ALL,
+  UNTIL(ScalarPred(PropRef(t.to_state), (= Complete))),
+  NOT(ScalarPred(PropRef(t.to_state), (= Failed))))
+-- E(to_state ≠ Failed  U  to_state = Complete)
 ```
 
 **Example 7 — Full pipeline**
@@ -3954,7 +4005,7 @@ Qualify:
 | NEXT | EX φ | AX φ |
 | UNTIL(ψ) | E(φ U ψ) | A(φ U ψ) |
 
-Semantics: maximal paths over a non-total transition relation; FORALL on an empty domain follows `on_empty` (§4.1, D30).
+Semantics: maximal paths over a non-total transition relation; FORALL on an empty domain follows `on_empty` (§4.1, D31).
 
 **Query forms:** Q = TemporalContext? ∘ B₁ ∘ B₂? ∘ B₃? | Q_delta = (t₁,t₂,DeltaSpec,filter?)
 
@@ -4067,8 +4118,9 @@ Novel contributions added in v0.26: §8.16 Vocabulary decomposition and analytic
 **D28** — The DGM/RDF relationship is one of convergence on the graph primitive and divergence on everything above it. RDF 1.2's triple terms narrow the N-ary event representation gap (axis vi), making the solutions more structurally similar than in RDF 1.1. DGM's position is not that RDF is wrong, but that it is underconstrained for analytical purposes: DGM adds the type invariant that RDF leaves as convention, the operational annotation layer that RDF leaves as assertions, the three-band query language that SPARQL leaves incomplete, and the formal question space that SPARQL relaxation research approximates from below. As RDF 1.2 matures, the DGM SPARQL exporter target (§6.4) becomes a more faithful representation — triple terms enable cleaner encoding of fact nodes in SPARQL output. This pairing is structurally forced, not arbitrary. LangGraph handles the two properties that linear pipelines cannot: stateful cyclic workflows (the refinement and clarification cycles) and human-in-the-loop checkpoints with multi-turn state persistence. Pydantic-AI handles the two properties that unstructured LLM calls cannot: closed-vocabulary output enforcement (DGM formal types as Pydantic schemas) and bounded retry on validation failure. The majority of the LangGraph graph nodes (6 of 11) are deterministic non-LLM DGM computation — only 5 nodes invoke LLMs, each with a formally bounded output type. This ratio is intentional: the more computation that is formal and deterministic, the fewer guarantees depend on LLM reliability. The triple / typed directed labeled edge is the correct foundational structure — DGM and RDF arrived at it independently. The divergence is complete above that primitive: DGM adds the dim/fact typed split, the three-band analytical query structure, the annotation-driven planner, CTL/LTL temporal logic, trail space analysis, and the question completeness theorem — none of which exist in ontological tooling. DGM is an analytical graph model; ontologies are knowledge representation languages. The relationship is complementary, not competitive: DGM can export to SPARQL as one execution target.
 
 **D29** — DGM sits at the Silver–Gold boundary of the Medallion architecture and extends upward to the Diamond layer. Medallion's Bronze layer is the data substrate formally captured by DGM's `Provenance` annotation and `WritePlan(APPEND)`. The Silver layer is where DGM's typed graph `G = (N, E, τ_N, τ_E, P, Σ)` is constructed (entity matching, SCD2 history, `Σ` encoding of business rules). Gold is `Q` execution producing materialised outputs via `ExportPlan`. Diamond is DGM's formal semantic layer — `Q_valid(A, B)` with completeness guarantees, `Q_algebra(A, B)` with Datalog equivalence, recommender navigating `L(G_AB)`, and the NL interface with bounded vocabulary. The `MedallionLayer` annotation tags node and edge origin for governance, lineage, and planner quality signalling — following the same pattern as `PipelineArtifact` (D20): syntactic sugar over existing `Σ` constructs, not a new graph primitive.
-**D30** — CTL is interpreted over maximal paths, not over a totalised transition relation. A path ends where the graph ends: a finite trace that reaches a terminal is complete, and EG/AG are decided on it without an implicit self-loop. Self-loops were rejected because they are edges no event produced — visible to hop counts, SHORTEST, signatures and PathAgg — and because they make NEXT at a terminal mean "now". Quantification over an empty domain is governed by `PathPred.on_empty`: FORALL is false by default (`REQUIRE_WITNESS`) and true only when `VACUOUS` is requested, so a universal condition never holds silently for a node with no path instance. Recorded in `docs/adr/0001-ctl-finite-trace-semantics.md`.
 **D30** — The parameter space `Π(q)` is structurally separated from the question space `Q_valid(A, B)`. Question space determines *what can be asked*; parameter space determines *how each question can be configured*. The separation preserves the BDD's role: structural validity is checked once per question skeleton; parametric validity is encoded as additional BDD variables over the discrete parameter dimensions (`BDD_full = BDD_structural × BDD_parametric`). The recommender navigates both dimensions independently — structural moves change the BDD; parametric moves change parametric BDD variables — with the same trail-metric scoring and annotation-constraint filtering. The `ExecutionBudget` gate evaluates `cost(q, π)` jointly, enabling parametric rewriting as a cost-reduction mechanism distinct from structural rewriting. The full analytical space is the dependent product `A(A, B) = Σ_{q ∈ Q_valid} Π_valid(q)` — a sigma type whose fibre over each question is the valid parameter space for that question.
+**D31** — CTL is interpreted over maximal paths, not over a totalised transition relation. A path ends where the graph ends: a finite trace that reaches a terminal is complete, and EG/AG are decided on it without an implicit self-loop. Self-loops were rejected because they are edges no event produced — visible to hop counts, SHORTEST, signatures and PathAgg — and because they make NEXT at a terminal mean "now". Quantification over an empty domain is governed by `PathPred.on_empty`: FORALL is false by default (`REQUIRE_WITNESS`) and true only when `VACUOUS` is requested, so a universal condition never holds silently for a node with no path instance. Recorded in `docs/adr/0001-ctl-finite-trace-semantics.md`.
+**D32** — PipelineArtifact transitions are facts. The artifact carries its current state as a property; every state change is an EVENT-grain transition fact linked to its artifact (`transition_of`) and to the next transition (`followed_by`, CAUSAL). State names are enumeration values, never nodes, and the state machine is a relation δ over those values. The current state is by definition the projection of the latest transition, so snapshot and history agree. Chosen over a mutable property (nothing to traverse) and over artifact versions (pipeline events entangled with attribute history). Recorded in `docs/adr/0002-pipeline-artifact-transition-facts.md`.
 
 ### 10.5  References
 
