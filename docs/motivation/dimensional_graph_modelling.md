@@ -96,7 +96,7 @@ The framework rests on fifteen core ideas:
 - **Joins are path traversals** expanding the query context. Temporal resolution, edge validity, and structural trimming are first-class Join modifiers.
 - **Path strategy is explicit** — every path-based operation declares how paths are selected and what quantifier scopes the truth condition.
 - **Reverse verb hops** are permitted in BoundPath, enabling traversal from fact to dimension against the natural verb direction.
-- **Temporal path ordering** supports point-based ordering, Allen's full 13-relation interval algebra, and LTL UNTIL/SINCE operators.
+- **Temporal path ordering** supports point-based ordering and Allen's full 13-relation interval algebra over typed time points and intervals; UNTIL/SINCE are path modes of the predicate language.
 - **Path-local bindings** allow hops in a BoundPath to introduce named aliases evaluated over C ∪ L.
 - **A unified predicate language** governs all filter clauses via three constructors (ScalarPred, PathPred, SignaturePred). Functionally complete; realises full CTL via TemporalMode.
 - **A unified expression language** governs all computed values. TrailExpr algorithms operate over RelationshipSubgraph scopes with relaxed or fixed endpoints — enabling forward-cone, backward-cone, and full traversal-space analysis.
@@ -567,22 +567,56 @@ BoundPath ::= NodeRef(n: N_S)
 RepeatMode ::= SIMPLE | TRAIL | WALK        -- default SIMPLE
 
 TemporalOrdering ::=
-  -- Point-based (left_ts, right_ts: TimePoint; tolerance: SExpr of type Duration):
-    BEFORE(left_ts,right_ts) | AFTER(left_ts,right_ts)
-  | CONCURRENT(left_ts,right_ts,tolerance?)
-  -- Allen's 13 interval relations (l, r: Interval):
-  | MEETS(l,r) | MET_BY(l,r) | OVERLAPS(l,r) | OVERLAPPED_BY(l,r)
-  | STARTS(l,r) | STARTED_BY(l,r) | DURING(l,r) | CONTAINS(l,r)
-  | FINISHES(l,r) | FINISHED_BY(l,r) | EQUALS(l,r)
-  -- LTL operators:
-  | UNTIL(hold_pred: Pred, trigger_pred: Pred)
-  | SINCE(hold_pred: Pred, trigger_pred: Pred)
+  -- Point relations: two TimePoints
+    BEFORE(left: TimePoint, right: TimePoint)
+  | AFTER(left: TimePoint, right: TimePoint)
+  | CONCURRENT(left: TimePoint, right: TimePoint, tolerance?: SExpr)     -- tolerance: Duration, default zero
+  -- Allen's 13 interval relations: two Intervals (BEFORE and AFTER above are the point forms;
+  -- the interval forms PRECEDES and PRECEDED_BY complete the thirteen)
+  | PRECEDES(l: Interval, r: Interval)   | PRECEDED_BY(l: Interval, r: Interval)
+  | MEETS(l: Interval, r: Interval)      | MET_BY(l: Interval, r: Interval)
+  | OVERLAPS(l: Interval, r: Interval)   | OVERLAPPED_BY(l: Interval, r: Interval)
+  | STARTS(l: Interval, r: Interval)     | STARTED_BY(l: Interval, r: Interval)
+  | DURING(l: Interval, r: Interval)     | CONTAINS(l: Interval, r: Interval)
+  | FINISHES(l: Interval, r: Interval)   | FINISHED_BY(l: Interval, r: Interval)
+  | EQUALS(l: Interval, r: Interval)
 
-TimePoint ::= SExpr                         -- of type Timestamp or Date (§4.1)
-Interval  ::= (start: TimePoint, end: TimePoint)   -- same type at both ends
+TimePoint ::= SExpr                                  -- of type Timestamp or Date (§4.1)
+Interval  ::= (start: TimePoint, end: TimePoint)     -- same type at both ends; half-open [start, end)
 ```
 
-Allen's relations apply to PERIOD/ACCUMULATING grain facts. UNTIL(φ,ψ): φ holds at every intermediate hop until first ψ. SINCE is its mirror image over predecessors, and is admitted only on time-ordered paths (§4.1).
+A TemporalOrdering compares clock values and nothing else. UNTIL and SINCE are not TemporalOrderings: they quantify over the positions of a path and are defined once, as `TemporalMode` of `PathPred` (§4.1).
+
+**Typing of TemporalOrdering.** Checked at construction:
+
+```
+TO1  A point relation takes two TimePoints of the same type. An Interval where a TimePoint is
+     required is rejected.
+TO2  An Allen relation takes two Intervals whose four endpoints have the same type. A TimePoint
+     where an Interval is required is rejected; a point is not implicitly widened to an interval.
+TO3  tolerance has type Duration and is non-negative.
+TO4  Date and Timestamp are never mixed within one TemporalOrdering.
+```
+
+Semantics, with `l = [l.start, l.end)` and `r = [r.start, r.end)`:
+
+| Relation | Holds iff |
+|---|---|
+| BEFORE(a, b) / AFTER(a, b) | a < b / a > b |
+| CONCURRENT(a, b, tol) | \|a − b\| ≤ tol |
+| PRECEDES(l, r) / PRECEDED_BY | l.end < r.start / r.end < l.start |
+| MEETS(l, r) / MET_BY | l.end = r.start / r.end = l.start |
+| OVERLAPS(l, r) / OVERLAPPED_BY | l.start < r.start < l.end < r.end / mirror |
+| STARTS(l, r) / STARTED_BY | l.start = r.start and l.end < r.end / mirror |
+| DURING(l, r) / CONTAINS | r.start < l.start and l.end < r.end / mirror |
+| FINISHES(l, r) / FINISHED_BY | l.end = r.end and r.start < l.start / mirror |
+| EQUALS(l, r) | l.start = r.start and l.end = r.end |
+
+An interval bound that is NULL is unbounded on that side, as in §2.6: a NULL `start` is earlier than every instant and a NULL `end` later than every instant; two NULL ends are equal. An interval with `start ≥ end` is degenerate and satisfies no Allen relation. A point relation with a NULL TimePoint is UNKNOWN and does not hold.
+
+Allen's relations apply to PERIOD/ACCUMULATING grain facts, whose instances carry an interval; EVENT grain facts carry a single TimePoint and use the point relations.
+
+Rejected at construction: `MEETS(s.occurred_on, r.occurred_on)` — two TimePoints where Intervals are required; `BEFORE((a.window_start, a.window_end), s.occurred_on)` — an Interval where a TimePoint is required; `BEFORE(s.occurred_on, d.calendar_date)` with a Timestamp and a Date.
 
 **Path order and clock time.** A path instance has two independent orderings, and the specification never derives one from the other.
 
@@ -966,6 +1000,60 @@ TemporalProperty ::= SAFETY(bad)          -- AG(¬bad)
                    | RESPONSE(trig,resp)   -- AG(trig → AF(resp))
                    | PERSISTENCE(good)     -- AF(AG(good))
                    | RECURRENCE(good,win)  -- good in every window period
+```
+
+**Recorded traces and monitoring verdicts.** `G_I` records what has been observed. A PathPred is evaluated on the recorded traces with the finite-trace semantics above, and its truth value is a statement about the record: `PathPred(FORALL, EVENTUALLY, good) = FALSE` means that some recorded trace has not reached `good` — not that the system never will. To judge a property of an execution that may still be running, a temporal property is evaluated by a monitor, which returns one of three verdicts.
+
+```
+Monitor(property: TemporalProperty, path: BoundPath,
+        log?: OPEN | CLOSED,                              -- default OPEN
+        final?: Pred,                                     -- holds at a position after which nothing can follow
+        deadline?: (clock: TimePoint, within: SExpr))     -- within: Duration, measured from clock to now
+  → Verdict
+
+Verdict ::= SATISFIED | VIOLATED | UNDETERMINED
+```
+
+Monitor is a row-level expression of type `Enum(Verdict)`, one value per start node. Its path must be time-ordered (§2.3): a verdict about what has or has not happened yet is meaningless over structural hops.
+
+A recorded trace is **closed** when no continuation is possible or admitted:
+
+```
+closed(π)  iff  log = CLOSED                          -- the record is declared complete
+           or   final holds at the terminal of π      -- the execution has ended
+           or   now > clock + within                  -- the deadline has expired
+```
+
+Otherwise the trace is **open**: it is a prefix of an execution that may continue. The verdict of one trace is the verdict shared by all of its admissible continuations:
+
+```
+SATISFIED      every continuation of π satisfies the property
+VIOLATED       no continuation of π satisfies the property
+UNDETERMINED   some continuations do and some do not
+```
+
+A closed trace has no continuation but itself, so its verdict is its finite-trace truth value. For an open trace:
+
+| Property | SATISFIED | VIOLATED | UNDETERMINED |
+|---|---|---|---|
+| LIVENESS(good) | `good` holds at some recorded position | never while open | `good` not yet recorded |
+| SAFETY(bad) | never while open | `bad` holds at some recorded position | `bad` not yet recorded |
+| RESPONSE(trig, resp) | never while open | never while open | always — a later trigger may go unanswered, and an unanswered one may still be answered |
+| PERSISTENCE(good), RECURRENCE(good, win) | never while open | never while open | always |
+
+Over the traces of a start node, the monitor returns VIOLATED if any trace is VIOLATED, SATISFIED if all are SATISFIED, and UNDETERMINED otherwise. With no trace at all the verdict is UNDETERMINED while the log is open and follows `on_empty` once it is closed.
+
+For a closed trace `Monitor = SATISFIED` exactly when the corresponding PathPred is TRUE; the monitor adds nothing there. Its purpose is the open case: absence of evidence before the end of an open record is UNDETERMINED, never VIOLATED.
+
+```
+-- LIVENESS(state = Complete) over the 'succeeded' transition of artifact w, evaluated at now = 2024-06-30T00:00Z
+-- w is In-flight; no 'succeeded' edge has been recorded.
+
+Monitor(LIVENESS(done), path)                                          → UNDETERMINED   -- log open, no deadline
+Monitor(LIVENESS(done), path, deadline=(w.window_end, 2 days))         → UNDETERMINED   -- w.window_end = 2024-06-29: not expired
+Monitor(LIVENESS(done), path, deadline=(w.window_end, 2 days))         → VIOLATED       -- w.window_end = 2024-06-20: expired
+Monitor(LIVENESS(done), path, log=CLOSED)                              → VIOLATED       -- the record is complete
+Monitor(LIVENESS(done), path)   after 'succeeded' is recorded          → SATISFIED      -- under any log status
 ```
 
 **Minterm/maxterm duality:**
@@ -2657,7 +2745,7 @@ Family           Parameters                              Domain
 Π_temporal       as_of                                   Timestamp (continuous)
                  node_resolution                         {STRICT, LAX}
                  edge_resolution                         {STRICT, LAX}
-                 per-hop TemporalOrdering                point | Allen | UNTIL/SINCE
+                 per-hop TemporalOrdering                point | Allen
 
 Π_strategy       per BoundPath strategy                  {ALL, SHORTEST, K_SHORTEST(k), MIN_WEIGHT}
                  per Repeat min, max, mode               ℕ; ℕ ∪ {UNBOUNDED}; {SIMPLE, TRAIL, WALK}
@@ -2950,7 +3038,7 @@ Estimated: `f_structure ≈ 5! = 120` (short-path dominated), `f_predicate ≈ 2
 **Phase 2 — Query DSL (1 week)**
 - PathJoin / VerbHop / VerbHop⁻¹ / BridgeHop.
 - TemporalJoin, TemporalContext, TrimJoin (incl. REACHABLE_FROM, REACHABLE_TO).
-- Full TemporalOrdering (point + Allen + UNTIL/SINCE).
+- Full TemporalOrdering (point + Allen); UNTIL/SINCE as TemporalMode.
 - PathPred with Quantifier, Strategy, TemporalMode, promote.
 - SignaturePred; SignatureRef; PathAgg; TemporalAgg; Qualify public.
 
@@ -3741,7 +3829,9 @@ PathPred(a,
   FORALL, ALL, EVENTUALLY,
   ScalarPred(PropRef(completed_art.state), (= Complete))
 )
--- AF(Complete)
+-- AF(Complete) on the recorded graph. FALSE here means "not recorded as Complete", which for a
+-- window still In-flight is not a violation; use Monitor(LIVENESS(…), …) with a deadline (§4.1)
+-- to tell a pending window from a failed obligation.
 
 -- RESPONSE: every Stale window eventually refreshes
 RESPONSE(
@@ -3750,21 +3840,18 @@ RESPONSE(
 )
 -- AG(Stale → AF(Complete))
 
--- Step 5: Asymmetric failure — UNTIL distinguishes refresh vs backfill failure
+-- Step 5: Asymmetric failure — refresh vs backfill failure
 PathPred(
   a,
-  Compose(
-    BridgeHop(a, 'failed', failed_art, node_alias=fa),
-    temporal=UNTIL(
-      hold_pred    = ScalarPred(PropRef(fa.prior_state), (= Complete)),
-      trigger_pred = ScalarPred(PropRef(fa.state), (= Failed))
-    )
-  ),
+  BridgeHop(a, 'failed', failed_art, node_alias=fa),
   EXISTS, ALL,
-  ScalarPred(PropRef(fa.prior_state), (= Complete))
+  AND(ScalarPred(PropRef(fa.prior_state), (= Complete)),
+      ScalarPred(PropRef(fa.state), (= Failed)))
 )
--- EXISTS path where Complete held until failure → refresh failure
+-- EXISTS a 'failed' transition whose artifact had a prior Complete → refresh failure
 -- No such path for backfill failures (no prior Complete)
+-- The path has a single hop, hence a single evaluation position: a conjunction states the
+-- condition exactly. UNTIL (TemporalMode, §4.1) applies to paths with several positions.
 ```
 
 **Example 7 — Full pipeline**
