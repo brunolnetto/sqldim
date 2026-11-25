@@ -285,7 +285,7 @@ Key annotation semantics:
 
 **Grain(f, grain)** — EVENT: additive; PERIOD: state (SUM invalid); ACCUMULATING: lifecycle row.
 
-**SCDType** — SCD1: strip temporal resolution. SCD2: effective_from/to. SCD3: current/previous props. SCD6: per-attribute policy.
+**SCDType** — SCD1: strip temporal resolution. SCD2: effective_from/to. SCD3: current/previous props. SCD6: per-attribute policy. Which version a traversal reads is fixed by the SCD resolution mode, AS_WAS or AS_IS (§2.5).
 
 **Degenerate(f, key)** — the property `key` of fact type `f` is a degenerate dimension: a dimensional attribute carried by the fact itself, such as an order or invoice number, with no dimension node type behind it. It is declared in `K_S(f)` and stored as a column of the fact's NodeTable (§2.6). It is referenced as `PropRef(f.key)` and is groupable and filterable like any other fact property. It differs from a regular dimension in what it lacks: no node type, no verb edge, no attributes of its own, no SCD history, and it cannot be an `Anchor`, a path endpoint or the target of `Conformed`.
 
@@ -408,6 +408,49 @@ P(e).valid_from/to     : Timestamp (NULL = open)
 
 Temporal properties belong to instances. Snapshot G(t) = G_I(t): the node and edge instances valid at t, typed by the restriction of h; G_S is the same for every t. Delta ΔG(t₁, t₂): N_added, N_removed, E_added, E_removed, P_changed — sets of instances. §2.6 defines both as relational expressions.
 
+**SCD resolution: as-was and as-is.** When a traversal reaches a versioned dimension from a fact, two different versions can legitimately be meant, and the query must say which.
+
+```
+SCDResolution ::= AS_WAS | AS_IS
+
+AS_WAS   the version in force when the fact happened
+AS_IS    the version in force at the reference instant τ of the query (§5.1)
+```
+
+For a hop between a fact instance `f` and an entity `d` of a versioned dimension type `T`, with `event_time(f)` the fact's event timestamp declared in its mapping (§2.6):
+
+| Reference kind of the edge mapping | AS_WAS reads | AS_IS reads |
+|---|---|---|
+| `VERSION_KEY` — the fact stores a version surrogate | the stored version | `version(T, entity of the stored version, τ)` |
+| `ENTITY_KEY` — the fact stores the durable key | `version(T, key, event_time(f))` | `version(T, key, τ)` |
+
+Precedence under AS_WAS: a stored version key is used as it is and no interval lookup is made — it is the version the fact was loaded against. An interval lookup is made only when the fact stores a durable key. Under AS_IS the stored version key serves only to identify the entity.
+
+- **Default.** `TemporalContext.scd_resolution` defaults to AS_WAS: a historical fact keeps the attributes it had when it happened unless the query asks otherwise.
+- **Interaction with `as_of`.** τ decides which edges are valid and which entities exist (§2.6), in both modes. Under AS_IS it also selects the version read. Under AS_WAS the version read depends on the fact alone and does not move when τ moves.
+- **No fact on the hop.** A hop that does not start from a fact — an Anchor on a dimension, a dimension-to-dimension bridge — has no event time. Both modes read `version(T, key, τ)`.
+- **Explicit instant.** `TemporalJoin(join, as_of = t)` reads `version(T, key, t)` for its sub-join, whatever the mode.
+- **Other SCD types.** SCD1 has one version, so the modes coincide. SCD3 keeps no dated history: both modes read the current row, and the previous value is available only through its own property. Under SCD6, `versioned_attrs` follow the mode and `overwrite_attrs` are always current.
+- **Missing version.** If the selected version does not exist, `node_resolution` applies: STRICT rejects, LAX drops the tuple.
+
+Example — a customer changes region. `SCDType(Customer, SCD2)`; `fact_sale.customer_key` is an `ENTITY_KEY` reference and `event_time(Sale) = occurred_on`.
+
+```
+dim_customer                                                  fact_sale
+version_key  entity_key  region  effective_from  effective_to     sale_id  customer_key  occurred_on  revenue
+101          C42         South   2023-01-01      2024-03-01       S1       C42           2023-06-10   600
+102          C42         North   2024-03-01      NULL             S2       C42           2024-05-02   400
+
+Query: revenue by c.region, τ = 2024-06-30
+```
+
+| Mode | S1 reads | S2 reads | Result | Answers |
+|---|---|---|---|---|
+| AS_WAS (default) | version 101 — South | version 102 — North | South 600, North 400 | "Where was the revenue earned?" |
+| AS_IS | version 102 — North | version 102 — North | North 1 000 | "How much have today's North customers bought, ever?" |
+
+Both results are correct; they answer different questions. With `VERSION_KEY` references (S1 storing 101, S2 storing 102) the two rows of the table are unchanged: AS_WAS reads the stored versions directly, and AS_IS maps both to entity C42 and reads version 102.
+
 ### 2.6  Relational mapping
 
 `G_S` and `G_I` are a logical view over relations. Nothing in this specification requires the instance graph to be loaded: every node, edge, snapshot and traversal is defined here as a relational expression over the tables that hold the data.
@@ -419,7 +462,8 @@ NodeMapping ::= NodeTable(relation: R,
                           entity_key: list[Col],          -- identity of the node across versions
                           version_key?: Col,              -- identity of one version (surrogate key)
                           props: K → Col,                 -- one column per key of K_S
-                          effective_from?: Col, effective_to?: Col)
+                          effective_from?: Col, effective_to?: Col,
+                          event_time?: Col)               -- fact types: when the fact happened (§2.5)
 
 EdgeMapping ::= ForeignKey(holder: SOURCE | TARGET,       -- which endpoint's NodeTable stores the column
                            columns: list[Col],
@@ -463,7 +507,9 @@ M4  An edge type that declares properties, a weight or a validity window, or tha
 M5  A reference that matches no row of the referenced NodeTable yields no edge instance.
 M6  references = VERSION_KEY stores a version surrogate; the endpoint is the entity that version
     belongs to. Whether a traversal then reads the stored version or the version valid at as_of
-    is the SCD resolution policy (§2.5), not part of the mapping.
+    is the SCD resolution mode (§2.5), not part of the mapping.
+M7  A fact type with an ENTITY_KEY reference to a versioned type declares event_time, a non-NULL
+    Timestamp or Date column. Without it AS_WAS cannot be resolved and the mapping is rejected.
 ```
 
 **The instance graph as a view.**
@@ -516,7 +562,7 @@ The reverse hop is the same statement with `source_key` and `target_key` exchang
 
 No step reads rows outside the frontier's neighbourhood, so memory is bounded by the frontier and the visited set — not by `|N_I| + |E_I|` — and an edge invalid at `as_of` is never followed.
 
-**SCD2 at two instants.** `SCDType(Customer, SCD2)`; the verb edge type `(Customer, Sale, 'placed')` is `ForeignKey(holder = TARGET, columns = [customer_key], references = ENTITY_KEY)`.
+**SCD2 at two instants.** The table below shows `version(Customer, C42, t)` as the instant moves — the version an AS_IS query reads at τ = t (§2.5). `SCDType(Customer, SCD2)`; the verb edge type `(Customer, Sale, 'placed')` is `ForeignKey(holder = TARGET, columns = [customer_key], references = ENTITY_KEY)`.
 
 ```
 dim_customer                                              fact_sale
@@ -1383,6 +1429,7 @@ scope on SubgraphExpr: accepts any endpoint case. All four cases satisfy the sco
 ```
 TemporalContext(default_as_of?: Timestamp,          -- explicit reference instant
                 time_zone?: Zone,                   -- IANA zone name; default UTC
+                scd_resolution?: AS_WAS | AS_IS,    -- default AS_WAS (§2.5)
                 node_resolution: STRICT|LAX, edge_resolution: STRICT|LAX)
 ```
 
@@ -1400,7 +1447,7 @@ Every time-relative construct of the query resolves against the same τ:
 | Construct | Resolves to |
 |---|---|
 | `Now` (§4.1) | τ |
-| Version and validity resolution (§2.6), absent a TemporalJoin override | `version(T, key, τ)`, `valid(e, τ)` |
+| Validity resolution, and version resolution under AS_IS or on a hop with no fact (§2.5, §2.6), absent a TemporalJoin override | `valid(e, τ)`, `version(T, key, τ)` |
 | `YTD`, `QTD`, `MTD` (§4.2) | from the start of the year, quarter or month containing τ in `time_zone`, to τ inclusive |
 | `ROLLING(d)` | (τ − d, τ] |
 | `TRAILING(n, unit)` | the n complete calendar units immediately before the unit containing τ |
