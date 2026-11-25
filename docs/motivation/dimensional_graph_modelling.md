@@ -792,6 +792,8 @@ TemporalMode ::= EVENTUALLY | GLOBALLY | NEXT
 PathPred(FORALL, ..., φ)  ≡  NOT PathPred(EXISTS, ..., NOT φ)
 ```
 
+In this construction and in those below, the inner `NOT φ` under EXISTS stands for `NotTrue(φ)` — the complement of φ's truth set (§6.1) — so that a position where φ is UNKNOWN counts against a universal condition.
+
 With a `temporal_mode` the quantifier cannot be swapped alone: CTL duality dualises the temporal operator together with the path quantifier. Writing φ for `sub_filter`:
 
 | FORALL form | CTL duality | Construction |
@@ -1289,7 +1291,97 @@ Phase 1: Materialise G(t₁), G(t₂) per SCDType. Phase 2: Compute ΔG. Phase 3
 
 ### 6.1  BDD canonical predicate representation
 
-BDD provides O(1) equivalence, satisfiability/tautology, implication, minterm enumeration, and foundations for recommender and planner.
+BDD provides O(1) equivalence, logical satisfiability/tautology, implication, minterm enumeration, and foundations for recommender and planner.
+
+**What the BDD decides.** The BDD represents propositional formulas over atoms and decides properties of those formulas. It never inspects data. Three notions are kept apart:
+
+| Notion | Meaning | Decided by | Depends on data |
+|---|---|---|---|
+| `logical_sat(φ)` | Some assignment of the BDD variables consistent with the axioms Δ makes φ TRUE | The BDD | No |
+| `non_empty(q, G_I(t))` | Query q returns at least one row on snapshot `G_I(t)` | Executing q | Yes |
+| `estimated_rows(q)` | The planner's estimate of the row count, from `GraphStatistics` | Cost model (§6.2) | Yes — on statistics, which may be stale |
+
+The only inferences permitted between them:
+
+```
+¬logical_sat(φ)      ⟹  ¬non_empty(q, G_I(t)) for every snapshot       -- contradiction: short-circuit to the empty result
+tautology(φ)         ⟹  the filter φ may be removed                    -- says nothing about the row count
+logical_sat(φ)       ⟹  nothing about non_empty or estimated_rows
+estimated_rows(q)=0  ⟹  nothing about non_empty                        -- an estimate never short-circuits
+```
+
+A satisfiable filter over an empty table is still logically satisfiable and still returns no rows. Atoms are opaque to the BDD, so `logical_sat` is also weaker than satisfiability in the theory of the atoms: `x > 5 AND x < 3` is two distinct variables and is logically satisfiable until an atom theory relates them.
+
+**Variables.** A BDD variable is an atom in canonical form:
+
+```
+ScalarPred     the ScalarCond AST after normalisation: operands of commutative operators ordered;
+               a > b rewritten b < a;  a ≠ b rewritten NOT(a = b);  a ≥ b rewritten NOT(a < b);
+               a ≤ b rewritten NOT(b < a). The Ref kind (PropRef, AggRef, WinRef) is part of the atom.
+PathPred       (path, strategy, temporal_mode, on_empty, BDD id of sub_filter), EXISTS-quantified
+SignaturePred  (path_alias, sequence, match)
+```
+
+Two occurrences are the same variable iff their canonical forms are identical. Atoms over different Ref kinds are never the same variable. No relation between distinct variables is assumed beyond the axioms Δ declared in this section and the bridge axioms of Rule 4 (§6.2).
+
+**Three-valued logic.** A ScalarPred can evaluate to TRUE, FALSE or UNKNOWN (§4.1 NULL rules), and AND, OR and NOT follow Kleene logic:
+
+| p | q | p AND q | p OR q | NOT p |
+|---|---|---|---|---|
+| T | T | T | T | F |
+| T | F | F | T | F |
+| T | U | U | T | F |
+| F | T | F | T | T |
+| F | F | F | F | T |
+| F | U | F | U | T |
+| U | T | U | T | U |
+| U | F | F | U | U |
+| U | U | U | U | U |
+
+A filter keeps a tuple only when its predicate is TRUE. The BDD is two-valued; it is made exact for Kleene logic by encoding *which* truth value an atom takes:
+
+```
+Nullability    IsNull, IsNotNull, PathPred and SignaturePred are two-valued: one variable p, with p⁺ = p, p⁻ = ¬p.
+               A Compare, In or Holds atom all of whose Refs are declared non-nullable is two-valued likewise.
+               Every other ScalarPred atom is nullable and has two variables:
+                 p⁺  "p is TRUE"        p⁻  "p is FALSE"        (neither: p is UNKNOWN)
+
+Translation    T⁺(φ) is the BDD of "φ is TRUE", T⁻(φ) of "φ is FALSE":
+                 T⁺(p) = p⁺                          T⁻(p) = p⁻
+                 T⁺(NOT φ) = T⁻(φ)                   T⁻(NOT φ) = T⁺(φ)
+                 T⁺(φ AND ψ) = T⁺(φ) ∧ T⁺(ψ)         T⁻(φ AND ψ) = T⁻(φ) ∨ T⁻(ψ)
+                 T⁺(φ OR ψ)  = T⁺(φ) ∨ T⁺(ψ)         T⁻(φ OR ψ)  = T⁻(φ) ∧ T⁻(ψ)
+                 T⁺(NotTrue φ) = ¬T⁺(φ)              T⁻(NotTrue φ) = T⁺(φ)
+
+Axioms Δ       Δ_excl   ¬(p⁺ ∧ p⁻)                       for every nullable atom p
+               Δ_null   IsNull(e) → ¬p⁺ ∧ ¬p⁻            for every nullable atom p in which e occurs
+                                                         outside a COALESCE
+```
+
+The BDD of a filter φ is T⁺(φ), and every property is decided relative to Δ:
+
+```
+tautology(φ)      iff  Δ → T⁺(φ)            is the TRUE node
+logical_sat(φ)    iff  Δ ∧ T⁺(φ)            is not the FALSE node
+implies(φ, ψ)     iff  Δ ∧ T⁺(φ) → T⁺(ψ)    is the TRUE node
+equivalent(φ, ψ)  iff  Δ → (T⁺(φ) ↔ T⁺(ψ))  is the TRUE node       -- the two filters keep the same tuples
+```
+
+`NotTrue(φ)` is the complement of φ's truth set — SQL `(φ) IS NOT TRUE` — and is two-valued. It is not written by users; FORALL elimination (§4.1) produces it, so that a position where `sub_filter` is UNKNOWN counts as a violation of a universal condition.
+
+The encoding is sound for Kleene logic: whatever it reports as a tautology, contradiction, implication or equivalence holds for every assignment of TRUE, FALSE and UNKNOWN to the atoms. It is not complete with respect to the theory of the atoms — a filter that is TRUE on every tuple for arithmetic reasons is not recognised.
+
+Short-circuit behaviour, with p a nullable atom and n a non-nullable one:
+
+| Filter φ | φ at p=T | φ at p=F | φ at p=U | T⁺(φ) | Verdict | Action |
+|---|---|---|---|---|---|---|
+| `p OR NOT p` | T | T | U | p⁺ ∨ p⁻ | not a tautology — the assignment p⁺ = p⁻ = 0 falsifies it | filter kept; UNKNOWN tuples are dropped at run time |
+| `n OR NOT n` | T | T | — | n ∨ ¬n | tautology | filter removed |
+| `p AND NOT p` | F | F | U | p⁺ ∧ p⁻ | contradiction, by Δ_excl | empty-result short-circuit |
+| `NOT (p OR NOT p)` | F | F | U | p⁻ ∧ p⁺ | contradiction, by Δ_excl | empty-result short-circuit |
+| `p OR NotTrue(p)` | T | T | T | p⁺ ∨ ¬p⁺ | tautology | filter removed |
+| `IsNull(x) AND x > 5` | — | — | U | IsNull(x) ∧ p⁺ | contradiction, by Δ_null | empty-result short-circuit |
+| `p AND q` | as table above | | | p⁺ ∧ q⁺ | satisfiable | no short-circuit; nothing is inferred about the row count |
 
 Core: BDDNode (var, low, high), FALSE_NODE=0, TRUE_NODE=1. Unique table (var,low,high)→id; computed cache (op,u,v)→result.
 
@@ -1331,10 +1423,10 @@ SQL translation: if |minterms| ≤ THRESHOLD → UNION ALL; else → BDD-structu
 Logical optimisation pipeline:
 
 ```
-1. Tautology / empty-result short-circuit
+1. Tautology removal / contradiction short-circuit (relative to Δ; never from estimated_rows)
 2. Redundant clause elimination (AND)
 3. Predicate subsumption (OR)
-4. Cross-band implication (Where → Having)
+4. Cross-band implication (Where → Having) through bridge axioms only (Rule 4, §6.2)
 5. PathPred boolean context propagation
 6. TemporalMode SQL template selection
 7. Minterm count → SQL translation strategy
@@ -1445,9 +1537,36 @@ SubgraphExpr(scope=RelationshipSubgraph(Bound,Free) or (Free,Bound)):
 **Rule 4 — Band reordering:**
 
 ```
+-- Where atoms range over PropRef variables and Having atoms over AggRef variables. The two sets
+-- are disjoint (§6.1), so bdd.implies(where_bdd, having_bdd) on its own can only succeed trivially.
+-- A Having predicate is removed only through a declared bridge axiom.
+
+derived = { a' | a is a Where-vocabulary atom with bdd.implies(where_bdd, a),
+                 and a bridge axiom maps a to the Having-vocabulary atom a' }
 for each having_pred:
-    if bdd.implies(where_bdd, having_bdd): remove having_pred
+    if bdd.implies(AND(derived), having_pred): remove having_pred
 ```
+
+Bridge axioms. Preconditions for all of them: GroupBy is non-empty, so every group holds at least one tuple; the aggregate is a plain `AggFn` over the tuples that Where admits (not PathAgg, not TemporalAgg); `e` is the same SExpr on both sides; `c` is a literal or parameter.
+
+| # | Where entails, for every tuple | Having atom derived |
+|---|---|---|
+| BX1 | `e op c`, op ∈ {<, ≤, >, ≥} | `MIN(e) op c`, `MAX(e) op c`, `AVG(e) op c` |
+| BX2 | `e = c` | `MIN(e) = c`, `MAX(e) = c`, `AVG(e) = c` |
+| BX3 | `e ≥ c` or `e > c`, with `c ≥ 0` | `SUM(e) ≥ c`, respectively `SUM(e) > c` |
+| BX4 | `e ≤ c` or `e < c`, with `c ≤ 0` | `SUM(e) ≤ c`, respectively `SUM(e) < c` |
+| BX5 | — | `COUNT(*) ≥ 1` |
+
+Each is a theorem about aggregates of a non-empty multiset. A tuple with `e` NULL fails the Where atom and is not aggregated, so the derived atom is two-valued. No other relation between a PropRef and an AggRef is assumed.
+
+```
+Where: s.revenue > 500     GroupBy: [c.id]     Agg: min_rev := MIN(s.revenue), units := SUM(s.quantity)
+
+Having: min_rev > 500      -- removed: BX1 derives MIN(s.revenue) > 500
+Having: units > 100        -- kept: no axiom relates s.revenue to SUM(s.quantity)
+```
+
+With no GroupBy the rule does not fire: a global aggregate over zero tuples yields one row with NULL aggregates, which the Having predicate would drop and its removal would not.
 
 **Rule 5 — Hierarchy execution:**
 
@@ -1987,7 +2106,7 @@ Suggestion types:
 ```
 1. BDD atom intersection: find Q_j where atoms(Q_current) ∩ atoms(Q_j) ≠ ∅
    -- shared PropRef atoms = natural join keys between result sets
-2. BDD feasibility: ensure Q_current ∩ Q_j is satisfiable (non-empty intersection)
+2. BDD feasibility: ensure Q_current ∩ Q_j is logically satisfiable (not provably empty; §6.1)
    -- checked via bdd.apply(AND, current_bdd, q_j_bdd) != FALSE_NODE
 3. Value scoring: estimate analytical value of Q_current JOIN Q_j ON shared_atoms
    -- high value when the join reduces both result sets substantially (high selectivity)
@@ -2124,7 +2243,7 @@ Proof sketch: AND/OR/NOT/ScalarPred generates all DNF formulas over finite atom 
 
 ### 8.3  Minterms, maxterms, canonical form
 
-Satisfiable minterms bounded by |C|. Equivalence: same minterm set. Unsatisfiability: empty. Tautology: full. Implication: subset.
+Logical properties, over the BDD variables and relative to Δ (§6.1): equivalence — same minterm set; unsatisfiability — empty minterm set; tautology — full minterm set; implication — subset. These are properties of the formula. The number of minterms *realised* by the tuples of a join context C is at most |C|; that is a property of the data, and a logically satisfiable formula may be realised by no tuple at all.
 
 ### 8.4  PathPred as exponential compression
 
