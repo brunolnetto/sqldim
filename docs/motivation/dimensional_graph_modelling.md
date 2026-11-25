@@ -1275,10 +1275,10 @@ TemporalAgg(SUM, s.revenue, s.occurred_on, ROLLING(30 days))
 priority := RANK() OVER (ORDER BY age_days DESC)
   ≡ RankFn(RANK, partition=[], order=[(AggRef(age_days), DESC)])                              : Int
 
-rank_by_rev := RANK() OVER (PARTITION BY c.id ORDER BY s.revenue DESC)
-  ≡ RankFn(RANK, partition=[PropRef(c.id)], order=[(PropRef(s.revenue), DESC)])              : Int
+rank_by_rev := RANK() OVER (PARTITION BY c.region ORDER BY weighted_rev DESC)
+  ≡ RankFn(RANK, partition=[PropRef(c.region)], order=[(AggRef(weighted_rev), DESC)])        : Int
 
-scc_label := GraphExpr(NodeExpr(COMMUNITY_LABEL(TARJAN_SCC), s))                              : Int
+scc_label := GraphExpr(NodeExpr(COMMUNITY_LABEL(TARJAN_SCC), c))                              : Int
 
 GroupBy: [ τ_N(n) ]
   ≡ GroupBy: [ TypeOf(n) ]                                                                    : Enum(NodeType)
@@ -1581,7 +1581,18 @@ RankFn ::= ROW_NUMBER|RANK|DENSE_RANK|NTILE(n)|LEAD(ref,offset)|LAG(ref,offset)
 StatFn ::= PERCENT_RANK|CUME_DIST|PERCENTILE_CONT(p)|PERCENTILE_DISC(p)
 ```
 
-SExprs in a WinExpr range over PropRefs and AggRefs, typed by §4.1. Typing:
+**Scope of Band 3.** What a WinExpr and Qualify may reference depends on whether Band 2 is present:
+
+```
+With B₂     GroupBy keys, AggRefs, and a node alias whose entity key is among the GroupBy keys
+            (as the argument of a GraphExpr). Every other alias of C has been consumed by the
+            aggregation: a PropRef through it is rejected at construction.
+Without B₂  the PropRefs of C.
+```
+
+After `GroupBy: [ c.id, c.region ]`, `ORDER BY weighted_rev` and `PARTITION BY c.region` are valid; `ORDER BY s.revenue` is rejected, because `s` no longer exists at the grain of the result — a row-level value needed for ranking is aggregated in Band 2 first.
+
+SExprs in a WinExpr are typed by §4.1. Typing:
 
 ```
 RankFn     order is non-empty; every order key has an ordered type.
@@ -3899,7 +3910,7 @@ Agg: return_rate := COUNT(return_ev) / COUNT(sale)
 **Example 2 — Forward cone: outgoing signature inventory (Stage 1)**
 
 ```
-Join: Anchor(dim, c)
+Join: Anchor(Customer, c)
 Where: ScalarPred(PropRef(c.lifetime_value), (> 10000))
 GroupBy: [ c.id ]
 Agg:
@@ -3912,7 +3923,7 @@ Agg:
 **Example 3 — Backward cone: provenance of a high-value sale**
 
 ```
-Join: TrimJoin(Anchor(fact, s), REACHABLE_TO(s))
+Join: TrimJoin(Anchor(Sale, s), REACHABLE_TO(s))
 Where: ScalarPred(PropRef(s.revenue), (> 50000))
 GroupBy: [ τ_N(n) ]
 Agg:
@@ -3925,7 +3936,7 @@ Agg:
 ```
 Join:
   TrimJoin(
-    TrimJoin(Anchor(dim,c) PathJoin(c,VerbHop(c,'placed',s),s),
+    TrimJoin(Anchor(Customer, c) PathJoin(c,VerbHop(c,'placed',s),s),
              REACHABLE_FROM(c)),   -- forward cone of c
     REACHABLE_TO(s)                -- backward cone of s
   )
@@ -3936,7 +3947,7 @@ Join:
 **Example 5 — Global signature entropy**
 
 ```
-Join: Anchor(dim,c) PathJoin(c,VerbHop(c,'placed',s),s)
+Join: Anchor(Customer, c) PathJoin(c,VerbHop(c,'placed',s),s)
 GroupBy: [ c.region ]
 Agg:
   entropy := GraphExpr(SubgraphExpr(SIGNATURE_ENTROPY(max_depth=3),
@@ -3960,7 +3971,7 @@ A `daily_revenue` pipeline produces one accumulating artifact per day-window. Ar
 
 -- Step 1: Backfill — find Missing/Failed within horizon
 Q_backfill:
-  Anchor(fact, a)
+  Anchor(daily_rev, a)
   Where:
     AND(
       ScalarPred(PropRef(a.state), IN {Missing, Failed}),
@@ -3983,7 +3994,7 @@ Q_backfill:
 
 -- Step 2: Refresh — find Stale windows
 Q_refresh:
-  Anchor(fact, a)
+  Anchor(daily_rev, a)
   Where:   ScalarPred(PropRef(a.state), (= Stale))
   GroupBy: [ a.pipeline_id, a.window_start ]
   Agg:     staleness := TemporalAgg(MAX, a.window_end, a.completed_at, ROLLING(7 days))
@@ -4060,38 +4071,46 @@ PathPred(t0, trace, EXISTS, ALL,
 **Example 7 — Full pipeline**
 
 ```
--- Σ: Conformed(customer,{Sale,Return}), Grain(sale,EVENT),
---    SCDType(customer,SCD2), BridgeSemantics(promo,CAUSAL), WeightConstraint(promo,ALLOCATIVE)
+-- Schema: (Customer, Sale, 'placed') and (Product, Sale, 'included in') are verb edge types
+--         (dim → fact); (Product, Store, 'promoted in') is a bridge edge type.
+-- Σ: Conformed(Customer,{Sale,Return}), Grain(Sale,EVENT), SCDType(Customer,SCD2),
+--    BridgeSemantics((Product,Store,'promoted in'),CAUSAL),
+--    WeightConstraint((Product,Store,'promoted in'),ALLOCATIVE)
 
 TemporalContext(default_as_of='2024-06-30', node_resolution=STRICT, edge_resolution=LAX)
 
 Join:
   TrimJoin(
-    Anchor(dim,c) PathJoin(c,VerbHop(c,'placed',s),s)
-    PathJoin(s,VerbHop(d,'included in',s),d)
-    PathJoin(d,BridgeHop(d,'promoted in',st,edge_alias=promo),st),
+    Anchor(Customer, c)
+    PathJoin(c, VerbHop(Customer,'placed',Sale), s)                              -- dim → fact
+    PathJoin(s, VerbHop⁻¹(Sale,'included in',Product), d)                        -- fact → dim: reverse hop
+    PathJoin(d, BridgeHop(Product,'promoted in',Store,edge_alias=promo), st),
     SINK_FREE
   )
-Where:
+Where:                                                    -- Band 1: PropRefs of C = {c, s, d, st, promo}
   AND(ScalarPred(PropRef(c.segment),(= "retail")),
       ScalarPred(PropRef(s.occurred_on.year),(= 2024)),
-      PathPred(c,VerbHop(c,'placed',s2,node_alias=fs),
+      PathPred(c,VerbHop(Customer,'placed',Sale,node_alias=fs),
                FORALL,ALL,EVENTUALLY, ScalarPred(PropRef(fs.revenue),(> 500))))
 GroupBy: [ c.id, c.region ]
-Agg:
-  weighted_rev  := PathAgg(d,BridgeHop(d,'promoted in',st,edge_alias=p2),
+Agg:                                                      -- Band 2: aggregates over the tuples of each group
+  weighted_rev  := PathAgg(d,BridgeHop(Product,'promoted in',Store,edge_alias=p2),
                            ALL,SUM,ArithExpr(PropRef(s.revenue),*,PropRef(p2.weight)))
   rev_30d       := TemporalAgg(SUM,s.revenue,s.occurred_on,ROLLING(30 days))
   out_diversity := GraphExpr(NodeExpr(SIGNATURE_DIVERSITY, c))
 Having:
   AND(ScalarPred(AggRef(weighted_rev),(> 5000)),
       ScalarPred(AggRef(rev_30d),(> 1000)))
-Window:
-  scc_label   := GraphExpr(NodeExpr(COMMUNITY_LABEL(TARJAN_SCC),s))
-  rank_by_rev := RANK() OVER (PARTITION BY c.id ORDER BY s.revenue DESC)
-Qualify:
+Window:                                                   -- Band 3: one row per (c.id, c.region);
+                                                          -- in scope: c, c.id, c.region and the AggRefs
+  scc_label   := GraphExpr(NodeExpr(COMMUNITY_LABEL(TARJAN_SCC), c))
+  rank_by_rev := RANK() OVER (PARTITION BY c.region ORDER BY weighted_rev DESC)
+Qualify:                                                  -- top two customers of each region
   AND(ScalarPred(WinRef(scc_label),IS_NOT_NULL),
       ScalarPred(WinRef(rank_by_rev),(<= 2)))
+
+-- The aliases s, d, st and promo are consumed by the aggregation and are not in scope in Band 3:
+-- ranking by s.revenue there would be rejected (§5.2.3). The ranking uses the aggregate weighted_rev.
 ```
 
 ### 10.2  Summary tables
