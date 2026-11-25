@@ -151,7 +151,7 @@ B ⊆ N × N × L     -- bridge edges: any node → any node
 
 **Fact nodes** f ∈ F — measurable events or states. P(f) carries measures and a timestamp or interval depending on grain annotation (§2.4). Notation: f.measure, f.occurred_on.
 
-Fact nodes may not be the source of verb edges (§10.4, D6).
+Fact nodes may not be the source of verb edges (§10.4, D6). A fact node with no outgoing bridge edge is therefore a terminal of every forward path (§4.1).
 
 ### 2.3  Edge types
 
@@ -424,6 +424,7 @@ Pred ::= ScalarPred(ref: Ref, pred: V → Bool)
                   strategy: Strategy,
                   temporal_mode?: TemporalMode,
                   promote?: Bool,
+                  on_empty?: REQUIRE_WITNESS | VACUOUS,     -- FORALL only; default REQUIRE_WITNESS
                   sub_filter: Pred)
        | SignaturePred(path_alias: A,
                        sequence: list[L | WILDCARD],
@@ -452,11 +453,35 @@ With a `temporal_mode` the quantifier cannot be swapped alone: CTL duality duali
 | FORALL, UNTIL(ψ) | A(φ U ψ) = ¬E(¬ψ U (¬φ ∧ ¬ψ)) ∧ ¬EG ¬ψ | AND(NOT PathPred(EXISTS, UNTIL(AND(NOT φ, NOT ψ)), NOT ψ), NOT PathPred(EXISTS, GLOBALLY, NOT ψ)) |
 | FORALL, PREVIOUSLY | past-time AX; self-dual | NOT PathPred(EXISTS, PREVIOUSLY, NOT φ) |
 
-EVENTUALLY and GLOBALLY exchange; NEXT and PREVIOUSLY are self-dual; UNTIL needs both a dualised UNTIL and a GLOBALLY term. Swapping only the quantifier under EVENTUALLY would yield ¬EF ¬φ, which is AG φ, not AF φ. These are dualities: they hold for whichever set of maximal paths the semantics assigns to a state, provided A and E range over the same set.
+EVENTUALLY and GLOBALLY exchange; NEXT and PREVIOUSLY are self-dual; UNTIL needs both a dualised UNTIL and a GLOBALLY term. Swapping only the quantifier under EVENTUALLY would yield ¬EF ¬φ, which is AG φ, not AF φ. These are dualities over the maximal traces defined below, and they give the `on_empty = VACUOUS` reading of FORALL. Under the default `REQUIRE_WITNESS`, each construction is conjoined with a non-emptiness guard: `PathPred(EXISTS, EVENTUALLY, TRUE)` for GLOBALLY, EVENTUALLY and UNTIL, and `PathPred(EXISTS, NEXT, TRUE)` for NEXT.
+
+**Path semantics.** The transition relation is not total: fact nodes cannot be the source of verb edges and are often sinks. CTL is therefore interpreted over maximal paths, without adding transitions (§10.4, D30; ADR 0001). For a PathPred evaluated at a start node s:
+
+```
+evaluation position   a node of a path instance at which every path-local alias used by sub_filter is bound
+trace                 the evaluation positions of one path instance from s, in path order
+terminal              a position whose node has no outgoing edge instance matching the next hop
+maximal trace         a trace that is not a proper prefix of another; finite (ends at a terminal) or infinite (cycles only)
+T(s)                  the set of maximal traces from s
+Succ(s)               the nodes reached from s by exactly one hop of the path
+```
+
+| Form | Holds at s iff | Empty domain |
+|---|---|---|
+| EF φ | ∃π∈T(s) ∃i. φ(πᵢ) | false |
+| EG φ | ∃π∈T(s) ∀i. φ(πᵢ) | false |
+| E(φ U ψ) | ∃π∈T(s) ∃j. ψ(πⱼ) ∧ ∀i<j. φ(πᵢ) | false |
+| EX φ | ∃m∈Succ(s). φ(m) | false |
+| AF φ, AG φ, A(φ U ψ) | as above with ∀π∈T(s) | by `on_empty` |
+| AX φ | ∀m∈Succ(s). φ(m) | by `on_empty` |
+
+A finite trace is complete: EG φ and AG φ hold on a trace where φ holds at every position up to and including the terminal. UNTIL is strong. An infinite trace is decided on its lasso.
+
+**Empty domain.** T(s) = ∅ when no path instance from s has an evaluation position; Succ(s) = ∅ when s is terminal. EXISTS is false on an empty domain. FORALL follows `on_empty`: `REQUIRE_WITNESS` makes it false, `VACUOUS` makes it true. A customer with no sales does not satisfy "all sales exceed 500" unless the query sets `on_empty = VACUOUS`.
 
 FORALL with ONCE or SINCE(ψ) is rejected at construction. Their duals require a past-time GLOBALLY operator, which `TemporalMode` does not contain; EXISTS with ONCE or SINCE is unaffected.
 
-**AF and AG are distinct.** Two minimal graphs, evaluated at s₀, with terminal nodes ending their paths:
+**AF and AG are distinct.** Two minimal graphs, evaluated at s₀; s₁ and s₂ are terminals and every node is an evaluation position:
 
 ```
 G₁:  s₀ → s₁                 φ holds at s₁ only      paths from s₀: (s₀ s₁)
@@ -482,6 +507,8 @@ On G₁, `PathPred(FORALL, EVENTUALLY, φ)` is true, while the quantifier-only r
 | EXISTS | NEXT | EX φ |
 | FORALL | UNTIL(ψ) | A(φ U ψ) |
 | EXISTS | UNTIL(ψ) | E(φ U ψ) |
+
+Semantics: maximal paths over a non-total transition relation; FORALL on an empty domain follows `on_empty` (§4.1, D30).
 
 **Temporal property classes** (syntactic sugar over PathPred compositions):
 
@@ -709,6 +736,8 @@ PathPred + TemporalMode opaque atoms. After FORALL elimination every atom is EXI
 EVENTUALLY  → EXISTS (CTE reaches a node satisfying sub_filter)                  -- EF
 GLOBALLY    → EXISTS (CTE restricted to nodes satisfying sub_filter
                       reaches the end of a maximal path)                         -- EG
+              -- end of a maximal path: a node with no outgoing edge matching the next hop
+              -- (terminal), or the closing of a cycle (§4.1)
 NEXT        → EXISTS, single-hop CTE
 UNTIL(ψ)   → EXISTS recursive CTE, hold_pred at every intermediate node
 SINCE(ψ)   → EXISTS reverse-direction CTE on G^T
@@ -723,6 +752,8 @@ AG φ = NOT EF(NOT φ)  → NOT EXISTS (CTE reaches a node violating sub_filter)
 AF φ = NOT EG(NOT φ)  → NOT EXISTS (CTE restricted to nodes violating sub_filter
                                     reaches the end of a maximal path)
 ```
+
+Under `on_empty = REQUIRE_WITNESS` each A-form is additionally conjoined with `EXISTS (CTE reaches any evaluation position)`, or for NEXT with `EXISTS (single-hop CTE)`; under `VACUOUS` the guard is omitted.
 
 AF φ is not `NOT EXISTS EVENTUALLY NOT` — that expression is AG φ. Because the atoms are opaque to the BDD, an atom built with the wrong dual would be preserved unchanged through optimisation; correctness depends on the construction step.
 
@@ -1357,7 +1388,7 @@ Parametric suggestions are validated by `BDD_parametric` feasibility (§8.15) an
 
 ### 8.1  DGM as Kripke structure
 
-**Theorem.** G = (N,E,τ_N,τ_E,P,Σ) is a Kripke structure K=(S,R,L) under S=N, R=E, L=P.
+**Theorem.** G = (N,E,τ_N,τ_E,P,Σ) is a Kripke structure K=(S,R,L) under S=N, R=E, L=P. R is not assumed total; CTL formulas are interpreted over maximal paths (§4.1, D30).
 
 Consequences: CTL/LTL model checking applies directly. BDD layer is standard symbolic CTL machinery (Bryant 1986; Clarke et al. 1986). PathPred(FORALL/EXISTS,ALL) are CTL path quantifiers A/E. TemporalMode realises full CTL operator hierarchy.
 
@@ -2870,6 +2901,8 @@ Qualify:
 | NEXT | EX φ | AX φ |
 | UNTIL(ψ) | E(φ U ψ) | A(φ U ψ) |
 
+Semantics: maximal paths over a non-total transition relation; FORALL on an empty domain follows `on_empty` (§4.1, D30).
+
 **Query forms:** Q = TemporalContext? ∘ B₁ ∘ B₂? ∘ B₃? | Q_delta = (t₁,t₂,DeltaSpec,filter?)
 
 **Strategy lattice:** SHORTEST ⊆ K_SHORTEST(1) ⊆ K_SHORTEST(k) ⊆ ALL; MIN_WEIGHT ⊆ ALL
@@ -2981,6 +3014,7 @@ Novel contributions added in v0.26: §8.16 Vocabulary decomposition and analytic
 **D28** — The DGM/RDF relationship is one of convergence on the graph primitive and divergence on everything above it. RDF 1.2's triple terms narrow the N-ary event representation gap (axis vi), making the solutions more structurally similar than in RDF 1.1. DGM's position is not that RDF is wrong, but that it is underconstrained for analytical purposes: DGM adds the type invariant that RDF leaves as convention, the operational annotation layer that RDF leaves as assertions, the three-band query language that SPARQL leaves incomplete, and the formal question space that SPARQL relaxation research approximates from below. As RDF 1.2 matures, the DGM SPARQL exporter target (§6.4) becomes a more faithful representation — triple terms enable cleaner encoding of fact nodes in SPARQL output. This pairing is structurally forced, not arbitrary. LangGraph handles the two properties that linear pipelines cannot: stateful cyclic workflows (the refinement and clarification cycles) and human-in-the-loop checkpoints with multi-turn state persistence. Pydantic-AI handles the two properties that unstructured LLM calls cannot: closed-vocabulary output enforcement (DGM formal types as Pydantic schemas) and bounded retry on validation failure. The majority of the LangGraph graph nodes (6 of 11) are deterministic non-LLM DGM computation — only 5 nodes invoke LLMs, each with a formally bounded output type. This ratio is intentional: the more computation that is formal and deterministic, the fewer guarantees depend on LLM reliability. The triple / typed directed labeled edge is the correct foundational structure — DGM and RDF arrived at it independently. The divergence is complete above that primitive: DGM adds the dim/fact typed split, the three-band analytical query structure, the annotation-driven planner, CTL/LTL temporal logic, trail space analysis, and the question completeness theorem — none of which exist in ontological tooling. DGM is an analytical graph model; ontologies are knowledge representation languages. The relationship is complementary, not competitive: DGM can export to SPARQL as one execution target.
 
 **D29** — DGM sits at the Silver–Gold boundary of the Medallion architecture and extends upward to the Diamond layer. Medallion's Bronze layer is the data substrate formally captured by DGM's `Provenance` annotation and `WritePlan(APPEND)`. The Silver layer is where DGM's typed graph `G = (N, E, τ_N, τ_E, P, Σ)` is constructed (entity matching, SCD2 history, `Σ` encoding of business rules). Gold is `Q` execution producing materialised outputs via `ExportPlan`. Diamond is DGM's formal semantic layer — `Q_valid(A, B)` with completeness guarantees, `Q_algebra(A, B)` with Datalog equivalence, recommender navigating `L(G_AB)`, and the NL interface with bounded vocabulary. The `MedallionLayer` annotation tags node and edge origin for governance, lineage, and planner quality signalling — following the same pattern as `PipelineArtifact` (D20): syntactic sugar over existing `Σ` constructs, not a new graph primitive.
+**D30** — CTL is interpreted over maximal paths, not over a totalised transition relation. A path ends where the graph ends: a finite trace that reaches a terminal is complete, and EG/AG are decided on it without an implicit self-loop. Self-loops were rejected because they are edges no event produced — visible to hop counts, SHORTEST, signatures and PathAgg — and because they make NEXT at a terminal mean "now". Quantification over an empty domain is governed by `PathPred.on_empty`: FORALL is false by default (`REQUIRE_WITNESS`) and true only when `VACUOUS` is requested, so a universal condition never holds silently for a node with no path instance. Recorded in `docs/adr/0001-ctl-finite-trace-semantics.md`.
 **D30** — The parameter space `Π(q)` is structurally separated from the question space `Q_valid(A, B)`. Question space determines *what can be asked*; parameter space determines *how each question can be configured*. The separation preserves the BDD's role: structural validity is checked once per question skeleton; parametric validity is encoded as additional BDD variables over the discrete parameter dimensions (`BDD_full = BDD_structural × BDD_parametric`). The recommender navigates both dimensions independently — structural moves change the BDD; parametric moves change parametric BDD variables — with the same trail-metric scoring and annotation-constraint filtering. The `ExecutionBudget` gate evaluates `cost(q, π)` jointly, enabling parametric rewriting as a cost-reduction mechanism distinct from structural rewriting. The full analytical space is the dependent product `A(A, B) = Σ_{q ∈ Q_valid} Π_valid(q)` — a sigma type whose fibre over each question is the valid parameter space for that question.
 
 ### 10.5  References
