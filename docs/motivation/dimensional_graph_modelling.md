@@ -1409,7 +1409,7 @@ Where: T [ PropRef from C, PathPred(BoundPath,TemporalMode) and SignaturePred al
 B₂ = (GroupBy, Agg, Having)
 ```
 
-GroupBy: list of SExpr over PropRefs from C' — a bare PropRef, a Func of one, or TypeOf(alias). Degenerate dims excluded. Agg: { aᵢ := Exprᵢ }. Grain-aware. Free→Free SubgraphExpr valid in Agg — scalar broadcast to all groups. Having: T [AggRef].
+GroupBy: list of SExpr over PropRefs from C' — a bare PropRef, a Func of one, or TypeOf(alias). A degenerate attribute (`Degenerate(f, key)`, §2.4) is a valid GroupBy key like any other fact property. Agg: { aᵢ := Exprᵢ }. Grain-aware. Free→Free SubgraphExpr valid in Agg — scalar broadcast to all groups. Having: T [AggRef].
 
 #### 5.2.3  Band 3 — Ranking layer
 
@@ -1454,7 +1454,7 @@ Qualify: T [WinRef].
 | 0 | TemporalContext | Set snapshot policy; SCD annotation overrides. |
 | 1 | Join | Traverse (incl. VerbHop⁻¹); resolve validity per Σ; TrimJoin incl. G^T BFS for REACHABLE_TO; build C. |
 | 2 | Where | T[PropRef]; PathPred with TemporalMode over C∪L; SignaturePred; L-promotion. |
-| 3 | GroupBy | Partition C' (degenerate excluded). |
+| 3 | GroupBy | Partition C' by the GroupBy keys, degenerate attributes included. |
 | 4 | Agg | Evaluate Expr per group; grain-aware; Free→Free scalars broadcast. |
 | 5 | Having | T[AggRef]; retain groups. |
 | 6 | Window | WinExpr per tuple; SubgraphExpr per partition or scope. |
@@ -1769,7 +1769,7 @@ DerivedFact(f,srcs,e):   inline if srcs ∩ C ≠ ∅
 WeightConstraint(ALLOC): PathAgg without weight → warn
 BridgeSemantics(CAUSAL): if causal_acyclic = VALIDATED: DAG BFS on G and G^T; else cycle prevention
 BridgeSemantics(SUPERS): CASE WHEN superseded THEN -1*measure ELSE measure
-Degenerate(d):           exclude from GroupBy candidates
+Degenerate(f,key):       no join — key is read from the fact row; GroupBy and Where on it are valid
 ```
 
 **Rule 7 — TemporalAgg window scheduling:**
@@ -2339,7 +2339,7 @@ Correlation candidates identified by DAG node sharing are essentially free — t
 
 | Annotation | Suppressed | Added |
 |---|---|---|
-| Degenerate(d) | GroupBy; PathPred from d | ScalarPred on d.key |
+| Degenerate(f, key) | — (nothing is suppressed because the attribute is degenerate) | GroupBy on `f.key` for per-transaction roll-ups; ScalarPred on `f.key` |
 | Conformed(d,Fs) | — | Constellation paths; Bound→Free from d to confirm/extend Fs |
 | Grain(PERIOD) | SUM across periods | LAST; Q_delta |
 | Grain(ACCUMULATING) | Row aggregation | Stage predicates; time-between-stages |
@@ -2352,6 +2352,20 @@ Correlation candidates identified by DAG node sharing are essentially free — t
 | BridgeSemantics(SUPERS) | Plain aggregation | Negation-aware aggregation |
 | Hierarchy(root,depth) | — | Drill-down/roll-up |
 | RolePlaying(d,roles) | — | Cross-role comparisons |
+
+**Suggesting is not validating.** The recommender decides what to *offer*; `Q_valid` decides what is *valid*. They are separate judgements:
+
+```
+valid(q)       q ∈ Q_valid(A, B): well-typed and consistent with Σ. Decided on the schema graph.
+               A valid question is accepted whenever the user asks it, offered or not.
+
+offered(q)     q is valid and ranks high enough to be shown. Decided by scoring (§7.1 Layer 3).
+               Not offering q never makes q invalid.
+```
+
+A GroupBy key is withheld from suggestions when grouping by it would not summarise: when `distinct_count(key) / row_count` in `GraphStatistics.property_dist` exceeds `HIGH_CARDINALITY_RATIO`, each group holds about one tuple. The test is on cardinality and applies to every property alike. A degenerate attribute such as `order_number` on an order-line fact passes it — several lines share one order — and is offered; a per-row identifier fails it and is withheld, whether or not it is annotated Degenerate. In either case `GroupBy: [ s.order_number ]`, written explicitly, is valid and is planned.
+
+Where a row above suppresses something that is semantically wrong — SUM across periods under `Grain(PERIOD)`, SUM/AVG/MIN/MAX under `FactlessFact` — the same exclusion is stated as a validity constraint in §8.11 or §8.15, and it is that constraint, not the suggestion rule, that makes the question invalid.
 
 ### 7.5  TrailExpr-driven suggestion rules
 
@@ -2508,7 +2522,7 @@ Q_valid(A, B) = Q_space(A, B) \ { q | q violates any annotation in Σ|_AB }
 ```
 
 Each annotation in `Σ|_AB` removes a structurally invalid subset:
-`FactlessFact(f)` removes SUM/AVG/MIN/MAX; `Grain(f, PERIOD)` removes cross-period SUM; `Degenerate(d)` removes `d` from GroupBy candidates; `SCDType(d, SCD1)` removes temporal join questions on `d`.
+`FactlessFact(f)` removes SUM/AVG/MIN/MAX; `Grain(f, PERIOD)` removes cross-period SUM; `Degenerate(f, key)` removes nothing — `f.key` stays a valid GroupBy and filter key, and no path question can start from it because it is not a node type; `SCDType(d, SCD1)` removes temporal join questions on `d`.
 
 **Definition (Question lattice).** `Q_valid(A, B)` forms a lattice `L(G_AB)` ordered by semantic specificity:
 
@@ -2793,7 +2807,7 @@ Annotation projection rules:
 | Grain(f, PERIOD) | SUM excluded from Π_agg for cross-period aggregation |
 | FactlessFact(f) | {SUM, AVG, MIN, MAX} excluded from Π_agg; only COUNT |
 | SCDType(d, SCD1) | Temporal resolution parameters in Π_temporal irrelevant |
-| Degenerate(d) | d excluded from GroupBy selection in Π_agg |
+| Degenerate(f, key) | none — `f.key` remains selectable as a GroupBy key in Π_agg |
 | BridgeSemantics(CAUSAL) | DAG traversal constraints on Π_strategy |
 | MedallionLayer(n, BRONZE) | BRONZE nodes excluded from GroupBy in Π_agg; planner warning activated |
 | WeightConstraint(ALLOCATIVE) | Unweighted PathAgg excluded from Π_agg |
@@ -3909,7 +3923,7 @@ Qualify:
 | Conformed | dim | Constellation paths; Bound→Free discovery |
 | Grain | fact | Aggregation validity; TemporalAgg semantics |
 | SCDType | dim | Temporal resolution strategy |
-| Degenerate | dim | Excluded from GroupBy |
+| Degenerate | fact property | Groupable and filterable; no dimension node, no join |
 | RolePlaying | dim | Shared scan; cross-role suggestions |
 | ProjectsFrom | dim | Join elimination |
 | FactlessFact | fact | COUNT only |
