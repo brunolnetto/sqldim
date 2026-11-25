@@ -1,10 +1,17 @@
 """
 Tests for sqldim/sinks/postgresql.py — PostgreSQLSink.
 
-Uses pytest-postgresql to spin up a real PostgreSQL process via pg_ctl.
-The newest server under ``/usr/lib/postgresql/<major>/bin`` is used, or the
-one named by ``SQLDIM_PG_CTL``. Without a server the module is skipped
-locally; under CI (``CI=true``) a missing server is an error, not a skip.
+Runs against a real PostgreSQL server, chosen in this order:
+
+* ``SQLDIM_PG_HOST`` set: an already running server (CI uses a service
+  container); ``SQLDIM_PG_PORT``, ``SQLDIM_PG_USER`` and
+  ``SQLDIM_PG_PASSWORD`` complete the connection. Each xdist worker gets its
+  own database.
+* otherwise pytest-postgresql starts one via pg_ctl: the newest server under
+  ``/usr/lib/postgresql/<major>/bin``, or the one named by ``SQLDIM_PG_CTL``.
+
+Without either the module is skipped locally; under CI (``CI=true``) that is
+an error, not a skip.
 DuckDB's postgres extension (no psycopg2 in the hot path) writes through to PG.
 """
 
@@ -32,26 +39,39 @@ def _find_pg_ctl() -> str | None:
     return max(found, key=lambda p: int(p.split("/")[4])) if found else None
 
 
-PG_EXE = _find_pg_ctl()
-if PG_EXE is None:
+PG_HOST = os.environ.get("SQLDIM_PG_HOST")
+PG_EXE = None if PG_HOST else _find_pg_ctl()
+if PG_HOST is None and PG_EXE is None:
     if os.environ.get("CI") == "true":
-        raise RuntimeError("PostgreSQL server (pg_ctl) not found on the CI runner")
+        raise RuntimeError("No PostgreSQL server: set SQLDIM_PG_HOST or install pg_ctl")
     pytest.skip("PostgreSQL server (pg_ctl) not installed", allow_module_level=True)
 PG_PORT = 15437  # unique port — avoid collisions with other fixtures
 
-postgresql_proc = factories.postgresql_proc(
-    executable=PG_EXE,
-    port=PG_PORT,
-)
+if PG_HOST:
+    postgresql_proc = factories.postgresql_noproc(
+        host=PG_HOST,
+        port=int(os.environ.get("SQLDIM_PG_PORT", "5432")),
+        user=os.environ.get("SQLDIM_PG_USER", "postgres"),
+        password=os.environ.get("SQLDIM_PG_PASSWORD"),
+        dbname=f"sqldim_{os.environ.get('PYTEST_XDIST_WORKER', 'main')}",
+    )
+else:
+    postgresql_proc = factories.postgresql_proc(
+        executable=PG_EXE,
+        port=PG_PORT,
+    )
 postgresql = factories.postgresql("postgresql_proc")
 
 
 def _dsn(pg_proc, pg_conn) -> str:
     """Build a libpq-style DSN from the pytest-postgresql fixtures."""
-    return (
+    dsn = (
         f"host={pg_proc.host} port={pg_proc.port} "
         f"user={pg_proc.user} dbname={pg_conn.info.dbname}"
     )
+    if pg_proc.password:
+        dsn += f" password={pg_proc.password}"
+    return dsn
 
 
 def _duckdb_con(dsn: str) -> duckdb.DuckDBPyConnection:
