@@ -508,7 +508,7 @@ Ref ::= PropRef(alias.prop)      -- B₁; C∪L inside PathPred
 | B₃ | Qualify | WinRef | No | No |
 
 ```
-Pred ::= ScalarPred(ref: Ref, pred: V → Bool)
+Pred ::= ScalarPred(cond: ScalarCond)             -- ScalarCond defined below
        | PathPred(alias: A, path: BoundPath,
                   quantifier: Quantifier,
                   strategy: Strategy,
@@ -619,18 +619,203 @@ PathPred(FORALL, ALL, φ) ≅ conjunction over path instances ≅ maxterms
 
 Boolean filter tree: T ::= AND(...) | OR(...) | NOT(T) | Pred. NOT is tuple-level.
 
+**Scalar conditions.** A ScalarPred wraps one condition over typed scalar expressions. The comparison operator is a separate argument, not part of an opaque function, so both sides of a comparison may be arbitrary expressions — including two references.
+
+```
+ScalarCond ::= Compare(left: SExpr, op: ComparisonOp, right: SExpr)
+             | In(expr: SExpr, set: Collection)
+             | IsNull(expr: SExpr)
+             | IsNotNull(expr: SExpr)
+             | Holds(expr: SExpr)                    -- expr of type Bool
+
+ComparisonOp ::= = | ≠ | < | ≤ | > | ≥
+
+Collection   ::= SetLit(elems: list[Lit | Param], type: Type)    -- non-empty; every element of the stated type
+
+SExpr ::= Lit(value: V, type: Type)                  -- typed literal; NULL is not a literal
+        | Ref                                         -- PropRef | AggRef | WinRef, subject to the band table above
+        | Param(name: K, type: Type)                  -- named constant, bound before planning
+        | Now                                         -- Timestamp of the evaluation context (§5.1)
+        | ArithExpr(left: SExpr, op: ArithOp, right: SExpr)
+        | Func(fn: ScalarFn, args: list[SExpr])
+        | TypeOf(alias: A)                            -- node type of the instance bound to alias
+        | Old | New                                   -- only inside a ChangeCond (§5.1)
+
+ArithOp  ::= + | - | * | /
+
+ScalarFn ::= YEAR | QUARTER | MONTH | DAY | HOUR      -- Date | Timestamp → Int
+           | ABS                                      -- numeric → same type
+           | LOWER | UPPER                            -- String → String
+           | LENGTH                                   -- String → Int
+           | COALESCE                                 -- T, …, T → T
+
+Type ::= Bool | Int | Real | String | Date | Timestamp | Duration | Enum(name: K) | LabelSeq
+```
+
+`SignatureRef` is not an SExpr; it is consumed only by SignaturePred.
+
+**Typing rules.** Every SExpr has exactly one type, computed bottom-up; a ScalarPred whose condition does not type-check is rejected at construction.
+
+```
+Refs      PropRef has the declared type of the property. AggRef and WinRef have the result type
+          of the Expr that defines them (§4.2). All Refs in one ScalarPred belong to the band of
+          the filter that contains it (Where: PropRef; Having: AggRef; Qualify: WinRef).
+
+Widening  Int widens implicitly to Real. There is no other implicit conversion.
+
+ArithExpr Int  (+|-|*) Int            → Int          Int / Int                  → Real
+          numeric op numeric          → Real         (any other numeric mix)
+          Timestamp - Timestamp       → Duration     Date - Date                → Duration
+          Timestamp (+|-) Duration    → Timestamp    Date (+|-) Duration        → Date
+          Duration  (+|-) Duration    → Duration     Duration (*|/) numeric     → Duration
+          every other combination     → type error
+
+Compare   Both sides have the same type after widening. <, ≤, >, ≥ require an ordered type:
+          Int, Real, String, Date, Timestamp, Duration. Bool, Enum and LabelSeq admit only = and ≠.
+
+In        expr has the Collection's type after widening. An Enum collection may contain only
+          members of that Enum.
+
+Holds     expr has type Bool.
+
+TypeOf    has type Enum(NodeType), whose members are the node types of the schema.
+
+Old, New  have the declared type of the property named by the enclosing CHANGED_PROPERTY.
+
+LabelSeq  the type of a path signature (a sequence of labels). Admits only = and ≠; no arithmetic.
+```
+
+**NULL rules.** NULL is a value a Ref may evaluate to, never a literal. ArithExpr and Func return NULL when any operand is NULL, except COALESCE, which returns its first non-NULL argument; division by zero returns NULL. Compare, In and Holds evaluate to UNKNOWN when an operand is NULL. IsNull and IsNotNull always evaluate to TRUE or FALSE. A filter keeps a tuple only when its predicate is TRUE. Testing for NULL is therefore written `IsNull(e)`; `Compare(e, =, NULL)` is not expressible.
+
+**Concrete notation.** Examples in this specification use the following shorthands. Each abbreviates exactly one AST; nothing else is admitted.
+
+| Shorthand | AST |
+|---|---|
+| `ScalarPred(e, (op e'))` | `ScalarPred(Compare(e, op, e'))` |
+| `ScalarPred(e, IN {x₁, …, xₙ})` | `ScalarPred(In(e, SetLit([x₁, …, xₙ], type(e))))` |
+| `ScalarPred(e, IS_NULL)`, `ScalarPred(e, IS_NOT_NULL)` | `ScalarPred(IsNull(e))`, `ScalarPred(IsNotNull(e))` |
+| `2024`, `10000`, `0.5` | `Lit(2024, Int)`, `Lit(10000, Int)`, `Lit(0.5, Real)` |
+| `"retail"`, `'retail'` | `Lit("retail", String)` |
+| `90 days` | `Lit(90 days, Duration)` |
+| `Missing`, `Complete` — a bare capitalised name compared with an Enum-typed expression | `Lit(Missing, Enum(E))`, where `Enum(E)` is the type of the other operand |
+| `now` | `Now` |
+| `horizon`, `MAX_CONCURRENT_RUNS` — any other bare name | `Param(name, T)`, with `T` declared where the parameter is bound |
+| `PropRef(x.ts.year)` — a temporal field after a Date or Timestamp property | `Func(YEAR, [PropRef(x.ts)])`; likewise `.quarter`, `.month`, `.day`, `.hour` |
+| `Const(c)` | `Lit(c, Real)` |
+| `x.prop` — a bare dotted name in an argument position or in a GroupBy, PARTITION BY or ORDER BY list | `PropRef(x.prop)` |
+| `name` — in a Window or Qualify position, a bare name defined in Agg or Window | `AggRef(name)` or `WinRef(name)` respectively |
+| `'2024-06-30'` — a quoted ISO date in a Date or Timestamp position | `Lit(2024-06-30, Date)` or `Lit(2024-06-30T00:00:00, Timestamp)` by the type of the position |
+| `τ_N(n)` | `TypeOf(n)` |
+| `FN() OVER (PARTITION BY p₁, …  ORDER BY o₁ dir₁, …)` | `RankFn(FN, partition=[p₁, …], order=[(o₁, dir₁), …])`; an absent clause is the empty list |
+| `(old ∈ S, new ∈ S')` | `AND(ScalarPred(In(Old, SetLit(S, T))), ScalarPred(In(New, SetLit(S', T))))`, `T` the type of the property |
+| `SUM(e)`, `COUNT(e)`, … | `AggFn(SUM, e)`, `AggFn(COUNT, e)`, … |
+| `e₁ / e₂` and the other infix operators | `ArithExpr(e₁, /, e₂)` |
+
+Translations of the predicate, expression, window and delta forms that occur in §6.2 and §10.1:
+
+```
+ScalarPred(PropRef(sale.occurred_on.year), (= 2024))
+  ≡ ScalarPred(Compare(Func(YEAR, [PropRef(sale.occurred_on)]), =, Lit(2024, Int)))
+
+ScalarPred(PropRef(return_ev.occurred_on), (> PropRef(sale.occurred_on)))
+  ≡ ScalarPred(Compare(PropRef(return_ev.occurred_on), >, PropRef(sale.occurred_on)))      -- two references
+
+ScalarPred(PropRef(a.state), IN {Missing, Failed})
+  ≡ ScalarPred(In(PropRef(a.state),
+                  SetLit([Lit(Missing, Enum(ArtifactState)), Lit(Failed, Enum(ArtifactState))],
+                         Enum(ArtifactState))))
+
+ScalarPred(PropRef(a.window_end), (< ArithExpr(now, -, 90 days)))
+  ≡ ScalarPred(Compare(PropRef(a.window_end), <,
+                       ArithExpr(Now, -, Lit(90 days, Duration))))                          -- Timestamp - Duration → Timestamp
+
+ScalarPred(WinRef(priority), (<= MAX_CONCURRENT_RUNS))
+  ≡ ScalarPred(Compare(WinRef(priority), ≤, Param(MAX_CONCURRENT_RUNS, Int)))
+
+ScalarPred(WinRef(scc_label), IS_NOT_NULL)
+  ≡ ScalarPred(IsNotNull(WinRef(scc_label)))
+
+ArithExpr(PropRef(s.revenue), *, PropRef(p2.weight))                                        -- argument of PathAgg(SUM)
+  : Real, given revenue: Real and weight: Real
+
+return_rate := COUNT(return_ev) / COUNT(sale)
+  ≡ ArithExpr(AggFn(COUNT, NodeArg(return_ev)), /, AggFn(COUNT, NodeArg(sale)))              -- Int / Int → Real
+
+TemporalAgg(SUM, s.revenue, s.occurred_on, ROLLING(30 days))
+  ≡ TemporalAgg(SUM, PropRef(s.revenue), PropRef(s.occurred_on), ROLLING(Lit(30 days, Duration)))
+
+priority := RANK() OVER (ORDER BY age_days DESC)
+  ≡ RankFn(RANK, partition=[], order=[(AggRef(age_days), DESC)])                              : Int
+
+rank_by_rev := RANK() OVER (PARTITION BY c.id ORDER BY s.revenue DESC)
+  ≡ RankFn(RANK, partition=[PropRef(c.id)], order=[(PropRef(s.revenue), DESC)])              : Int
+
+scc_label := GraphExpr(NodeExpr(COMMUNITY_LABEL(TARJAN_SCC), s))                              : Int
+
+GroupBy: [ τ_N(n) ]
+  ≡ GroupBy: [ TypeOf(n) ]                                                                    : Enum(NodeType)
+
+CHANGED_PROPERTY(a, state, comparator = (old ∈ {In-flight}, new ∈ {Complete, Failed}))
+  ≡ CHANGED_PROPERTY(a, state,
+      AND(ScalarPred(In(Old, SetLit([Lit(In-flight, Enum(ArtifactState))], Enum(ArtifactState)))),
+          ScalarPred(In(New, SetLit([Lit(Complete, Enum(ArtifactState)),
+                                     Lit(Failed, Enum(ArtifactState))], Enum(ArtifactState))))))
+
+Q_delta(t₁ = last_scheduler_run, t₂ = now, …)
+  ≡ Q_delta(Param(last_scheduler_run, Timestamp), Now, …)
+```
+
+**Rejected by validation:**
+
+| Input | Reason |
+|---|---|
+| `Compare(PropRef(c.segment), >, Lit(10000, Int))` with `segment: String` | String and Int are not the same type; no implicit conversion. |
+| `Compare(PropRef(a.state), <, Lit(Stale, Enum(ArtifactState)))` | Enum admits only = and ≠. |
+| `In(PropRef(a.state), SetLit([Lit(Missing, …), Lit(Paused, …)], Enum(ArtifactState)))` | `Paused` is not a member of `ArtifactState`. |
+| `ArithExpr(Now, +, Now)` | Timestamp + Timestamp is not defined. |
+| `Compare(PropRef(s.occurred_on), <, Lit(90 days, Duration))` with `occurred_on: Timestamp` | Timestamp and Duration are not the same type. |
+| `Holds(PropRef(s.revenue))` with `revenue: Real` | Holds requires Bool. |
+| `Where: ScalarPred(Compare(AggRef(total_rev), >, Lit(5000, Int)))` | AggRef is not valid in Band 1; belongs in Having. |
+| `Compare(PropRef(s.revenue), =, NULL)` | NULL is not a literal; use `IsNull`. |
+| `Where: ScalarPred(Compare(Old, =, Lit(Stale, Enum(ArtifactState))))` | `Old` is valid only inside a ChangeCond. |
+| `RankFn(RANK, partition=[], order=[])` | A rank function requires a non-empty order. |
+| `RunningAgg(SUM, PropRef(c.segment), …)` with `segment: String` | SUM requires a numeric argument. |
+| `Compare(WinRef(dom_sig), <, …)` with `dom_sig := DOMINANT_OUTGOING_SIGNATURE` | LabelSeq admits only = and ≠. |
+| `StatFn(PERCENTILE_CONT(1.5), …)` | The percentile must lie in [0, 1]. |
+
 ### 4.2  Expression language
 
 ```
-Expr ::= AggFn(fn: AggFn, ref: PropRef)
-       | PathAgg(alias, path: BoundPath, strategy, promote?, fn: AggFn, ref: Ref_L)
-       | TemporalAgg(fn: AggFn, ref: PropRef, timestamp: PropRef, window: TemporalWindow)
+Expr ::= AggFn(fn: AggFn, arg: SExpr | NodeArg(alias: A))
+                                                     -- arg over PropRefs of C; NodeArg with COUNT only
+       | PathAgg(alias, path: BoundPath, strategy, promote?, fn: AggFn, arg: SExpr)
+                                                     -- arg over PropRefs of C ∪ L
+       | TemporalAgg(fn: AggFn, arg: SExpr, timestamp: PropRef, window: TemporalWindow)
        | GraphExpr(algorithm: GraphAlgorithm)
-       | ArithExpr(Expr, op, Expr) | Const(c: ℝ)
+       | ArithExpr(Expr, op: ArithOp, Expr) | Lit(value: V, type: Type)
 
 AggFn          ::= SUM|COUNT|AVG|MIN|MAX|PROD
-TemporalWindow ::= ROLLING(Duration)|TRAILING(n,unit)|PERIOD(start,end)|YTD|QTD|MTD
+TemporalWindow ::= ROLLING(d: SExpr)                  -- d: Duration
+                 | TRAILING(n: ℕ, unit: TimeUnit)    -- n ≥ 1
+                 | PERIOD(start: SExpr, end: SExpr)  -- both Date or both Timestamp
+                 | YTD | QTD | MTD
+TimeUnit       ::= DAY | WEEK | MONTH | QUARTER | YEAR
 ```
+
+Expr is the aggregate level; SExpr (§4.1) is the row level beneath it. An aggregate argument is an SExpr — a bare reference or an arithmetic combination of references — typed by the rules of §4.1. ArithExpr at the Expr level combines aggregate results under the same ArithOp typing rules. `AggFn(COUNT, NodeArg(x))` counts the tuples in which the node alias `x` is bound; NodeArg is rejected with every other AggFn. Result types: COUNT → Int for any argument; AVG → Real; SUM and PROD require a numeric argument and return its type; MIN and MAX require an ordered type and return it. These result types are the types of the AggRef and WinRef that name the expression. In TemporalAgg, `timestamp` has type Date or Timestamp and the window bounds are literals or parameters.
+
+GraphExpr result types:
+
+| Algorithm | Type |
+|---|---|
+| PAGE_RANK, BETWEENNESS_CENTRALITY, CLOSENESS_CENTRALITY, SIGNATURE_DIVERSITY, SIGNATURE_SIMILARITY, MIN_WEIGHT_PATH_LENGTH, MAX_FLOW, DENSITY, SIGNATURE_ENTROPY | Real |
+| DEGREE, COMMUNITY_LABEL, SHORTEST_PATH_LENGTH, DIAMETER, OUTGOING_SIGNATURES, INCOMING_SIGNATURES, DISTINCT_SIGNATURES, GLOBAL_SIGNATURE_COUNT | Int |
+| REACHABLE | Bool |
+| DOMINANT_OUTGOING_SIGNATURE, DOMINANT_INCOMING_SIGNATURE, DOMINANT_SIGNATURE, GLOBAL_DOMINANT_SIGNATURE | LabelSeq |
+
+Algorithm arguments are literals or parameters, not row-level expressions: `damping`: Real in (0, 1); `iterations`, `max_depth`: Int ≥ 1; `direction` ∈ {IN, OUT, BOTH}; `reference`: a LabelSeq literal; `source`, `target`: aliases; `capacity`: a PropRef of numeric type on the traversed edges.
+
+A GraphExpr evaluates to NULL where the algorithm has no value for the node or pair — no path between the pair, no path in the cone, a node outside every community.
 
 GraphExpr algorithms distributed across tiers by endpoint case:
 
@@ -733,6 +918,15 @@ DeltaSpec ::= ADDED_NODES(N_S) | REMOVED_NODES(N_S)      -- instances of the giv
             | ROLE_DRIFT(alias,from_type,to_type)
 ```
 
+`t₁` and `t₂` are SExprs of type Timestamp built from literals, parameters and `Now`. In `CHANGED_PROPERTY(alias, prop, comparator)` the comparator is optional and is a ChangeCond; `from_type` and `to_type` in ROLE_DRIFT are node types.
+
+```
+ChangeCond ::= T [Old, New]      -- a Boolean filter tree (§4.1) whose ScalarPreds reference only
+                                 -- Old, New, literals and parameters
+```
+
+`Old` and `New` denote the value of `prop` at t₁ and at t₂. A change is reported when the two values differ and the ChangeCond, if present, is TRUE; with no ChangeCond every change of `prop` is reported.
+
 Q_delta operates outside the three-band structure.
 
 ### 5.2  Bands
@@ -769,20 +963,38 @@ Where: T [ PropRef from C, PathPred(BoundPath,TemporalMode) and SignaturePred al
 B₂ = (GroupBy, Agg, Having)
 ```
 
-GroupBy: PropRef list from C'. Degenerate dims excluded. Agg: { aᵢ := Exprᵢ }. Grain-aware. Free→Free SubgraphExpr valid in Agg — scalar broadcast to all groups. Having: T [AggRef].
+GroupBy: list of SExpr over PropRefs from C' — a bare PropRef, a Func of one, or TypeOf(alias). Degenerate dims excluded. Agg: { aᵢ := Exprᵢ }. Grain-aware. Free→Free SubgraphExpr valid in Agg — scalar broadcast to all groups. Having: T [AggRef].
 
 #### 5.2.3  Band 3 — Ranking layer
 
 ```
 B₃ = (Window, Qualify)
 
-WinExpr ::= RankFn(fn,partition,order)
-          | RunningAgg(fn,ref,partition,order)
-          | StatFn(fn,ref,partition,order?)
+WinExpr ::= RankFn(fn: RankFn, partition: list[SExpr], order: list[OrderKey])
+          | RunningAgg(fn: AggFn, arg: SExpr, partition: list[SExpr], order: list[OrderKey])
+          | StatFn(fn: StatFn, arg: SExpr, partition: list[SExpr], order?: list[OrderKey])
           | GraphExpr(NodeExpr|PairExpr|SubgraphExpr[partition or scope])
+
+OrderKey ::= (key: SExpr, dir: ASC | DESC)
 
 RankFn ::= ROW_NUMBER|RANK|DENSE_RANK|NTILE(n)|LEAD(ref,offset)|LAG(ref,offset)
 StatFn ::= PERCENT_RANK|CUME_DIST|PERCENTILE_CONT(p)|PERCENTILE_DISC(p)
+```
+
+SExprs in a WinExpr range over PropRefs and AggRefs, typed by §4.1. Typing:
+
+```
+RankFn     order is non-empty; every order key has an ordered type.
+           ROW_NUMBER, RANK, DENSE_RANK, NTILE(n)   → Int        (n ≥ 1)
+           LEAD(ref, offset), LAG(ref, offset)      → type of ref (offset ≥ 1); NULL outside the partition
+
+RunningAgg order is non-empty; arg and result follow the AggFn rules of §4.2.
+
+StatFn     PERCENT_RANK, CUME_DIST                  → Real; order is required, arg is unused
+           PERCENTILE_CONT(p)                       → Real; numeric arg; 0 ≤ p ≤ 1
+           PERCENTILE_DISC(p)                       → type of arg; ordered arg; 0 ≤ p ≤ 1
+
+GraphExpr  result type as in §4.2.
 ```
 
 Qualify: T [WinRef].
@@ -2476,7 +2688,7 @@ Example:
   User: "How are my retail customers doing this year?"
 
   Entity resolution:
-    "retail customers" → ScalarPred(c.segment = 'retail')
+    "retail customers" → ScalarPred(PropRef(c.segment), (= 'retail'))
     "this year"        → TemporalAgg window YTD
     "doing"            → ambiguous measure; band = B₂
 
