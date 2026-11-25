@@ -18,7 +18,7 @@ jobs:
       # PostgreSQLSink tests use this server instead of forking pg_ctl from
       # an xdist worker (ENOMEM / killed server on the runner).
       postgres:
-        image: postgres:18
+        image: postgres:19
         env:
           POSTGRES_PASSWORD: postgres
         ports:
