@@ -16,7 +16,7 @@
 3. [Traversal Paths](#3-traversal-paths)
    - 3.1 Unbound paths
    - 3.2 Bound paths and TemporalOrdering
-   - 3.3 Path strategy and lattice
+   - 3.3 Path strategy and refinement order
    - 3.4 RelationshipSubgraph
    - 3.5 Evaluation contexts and L-promotion
 4. [Query Language](#4-query-language)
@@ -682,17 +682,43 @@ PathPred(e,
 
 Reachability operators — `TrimJoin(REACHABLE_FROM | REACHABLE_TO | REACHABLE_BETWEEN)` and TrailExpr with `max_depth` — are not path patterns. They range over every edge type of the subgraph and are defined by reachability (§3.4), not by a BoundPath; they do not provide a second way to write a recursive pattern.
 
-### 3.3  Path strategy and lattice
+### 3.3  Path strategy and refinement order
 
 ```
-Strategy ::= ALL | SHORTEST | K_SHORTEST(k: ℕ) | MIN_WEIGHT
-
-SHORTEST ⊆ K_SHORTEST(1) ⊆ K_SHORTEST(k) ⊆ ALL
-MIN_WEIGHT ⊆ ALL
+Strategy ::= ALL | SHORTEST | K_SHORTEST(k: ℕ) | MIN_WEIGHT        -- k ≥ 1
 ```
 
-Single-instance (SHORTEST, MIN_WEIGHT): promote: true compatible.
+A strategy selects a subset of `I`, the set of instances of a BoundPath for one binding of its endpoints (one tuple of C). Selection is deterministic: it depends only on the snapshot, never on physical row order, parallelism or backend.
+
+```
+len(π)     number of hops of instance π
+weight(π)  sum of P(b).weight over its bridge hops; a verb hop and an unweighted bridge count 1
+key(π)     the sequence of its edge instances, each written (label, source entity_key, target entity_key)
+           with the entity keys of §2.6; keys are compared lexicographically
+
+π ≺ π'     iff  (len(π), key(π)) < (len(π'), key(π'))  lexicographically        -- a total order on I
+```
+
+| Strategy | Selects | Cardinality |
+|---|---|---|
+| ALL | every instance | \|I\| |
+| SHORTEST | the ≺-least instance — fewest hops; ties broken by `key` | 1 if I ≠ ∅, else 0 |
+| K_SHORTEST(k) | the k ≺-least instances | min(k, \|I\|) |
+| MIN_WEIGHT | the instance least in (weight, len, key) | 1 if I ≠ ∅, else 0 |
+
+SHORTEST returns one path, not every path of minimum length. When several instances tie on length, the one with the least `key` is returned, and it is the same one on every execution over the same snapshot. A caller that needs all minimum-length paths uses ALL with a filter on length, or K_SHORTEST.
+
+Single-instance (SHORTEST, MIN_WEIGHT): promote: true compatible — the cardinality bound of 1 holds by the tie-break, not by an assumption about the data.
 Multi-instance (ALL, K_SHORTEST): explicit fan-out.
+
+**Refinement order.** Write `s ⊑ s'` when `s(I) ⊆ s'(I)` for every instance set I. Because all strategies but MIN_WEIGHT select prefixes of the same order ≺:
+
+```
+SHORTEST = K_SHORTEST(1) ⊑ K_SHORTEST(k) ⊑ K_SHORTEST(k') ⊑ ALL        for 1 ≤ k ≤ k'
+MIN_WEIGHT ⊑ ALL
+```
+
+`⊑` is a partial order with greatest element ALL. MIN_WEIGHT is incomparable with every K_SHORTEST(k): the lightest path need not be among the k shortest. Any two strategies have a least upper bound (the larger k, or ALL), but MIN_WEIGHT and K_SHORTEST(k) have no common lower bound, so the order is not a lattice and is not called one. A rewrite that replaces a strategy by one below it (§6.3) returns a subset of the original instances.
 
 ### 3.4  RelationshipSubgraph
 
@@ -1531,14 +1557,15 @@ alternatives: structured plan explanation — mechanical, auditable, no natural 
 Bound→Bound (REACHABLE_BETWEEN):
     if path_card ≤ SMALL: recursive CTE with cycle prevention
         -- CAUSAL with causal_acyclic = VALIDATED (§2.4): DAG BFS, no visited set
-    elif strategy ∈ {SHORTEST,MIN_WEIGHT}: recursive CTE ORDER BY + LIMIT 1
+    elif strategy ∈ {SHORTEST,MIN_WEIGHT}: recursive CTE ORDER BY (len | weight, len), key + LIMIT 1
+        -- key is the canonical edge sequence of §3.3; it makes the LIMIT deterministic
         -- TEMPORAL: push ordering into CTE WHERE
     else: pre-materialise path table
 
 Bound→Free (REACHABLE_FROM(A)):
     forward BFS/DFS from A on G
     -- CAUSAL: DAG BFS (no visited-set)
-    -- SHORTEST: BFS terminates at first visit per node
+    -- SHORTEST: BFS terminates at first visit per node; among equal-length arrivals the least key (§3.3) is kept
     -- ALL: full DFS collecting all simple paths
 
 Free→Bound (REACHABLE_TO(B)):
@@ -1990,7 +2017,7 @@ Budgets rejected at construction: `streaming_threshold = 200, async_threshold = 
 
 **Four graceful handling strategies:**
 
-**Strategy 1 — Cost-aware rewriting.** Moves the query down the strategy lattice while preserving analytical intent. Rewrites are transparent — the user sees a note explaining what was approximated.
+**Strategy 1 — Cost-aware rewriting.** Moves the query down the strategy refinement order (§3.3) while preserving analytical intent. Rewrites are transparent — the user sees a note explaining what was approximated.
 
 ```
 Rewrite rules:
@@ -2210,7 +2237,7 @@ Correlation candidates identified by DAG node sharing are essentially free — t
 
 ### 7.3  Suggestion types per band
 
-**B₁:** ScalarPred; PathPred including constellation paths; TrimJoin (incl. REACHABLE_FROM/TO); TemporalCompose; strategy lattice; temporal property classes; trail space pivots.
+**B₁:** ScalarPred; PathPred including constellation paths; TrimJoin (incl. REACHABLE_FROM/TO); TemporalCompose; strategy refinement order; temporal property classes; trail space pivots.
 
 **B₂:** GroupBy alternatives (hierarchy roll-ups, cross-role); TemporalAgg variants; PathAgg over unused bridges; Having calibration.
 
@@ -3830,7 +3857,7 @@ Semantics: maximal paths over a non-total transition relation; FORALL on an empt
 
 **Query forms:** Q = TemporalContext? ∘ B₁ ∘ B₂? ∘ B₃? | Q_delta = (t₁,t₂,DeltaSpec,filter?)
 
-**Strategy lattice:** SHORTEST ⊆ K_SHORTEST(1) ⊆ K_SHORTEST(k) ⊆ ALL; MIN_WEIGHT ⊆ ALL
+**Strategy refinement order:** SHORTEST = K_SHORTEST(1) ⊑ K_SHORTEST(k) ⊑ ALL; MIN_WEIGHT ⊑ ALL
 
 **Export targets:** SQL_DUCKDB|SQL_POSTGRESQL|SQL_MOTHERDUCK|CYPHER|SPARQL|DGM_JSON|DGM_YAML; DUCKDB|POSTGRESQL|MOTHERDUCK|PARQUET|DELTA|ICEBERG
 
