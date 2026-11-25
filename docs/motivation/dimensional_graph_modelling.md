@@ -1115,7 +1115,7 @@ Collection   ::= SetLit(elems: list[Lit | Param], type: Type)    -- non-empty; e
 SExpr ::= Lit(value: V, type: Type)                  -- typed literal; NULL is not a literal
         | Ref                                         -- PropRef | AggRef | WinRef, subject to the band table above
         | Param(name: K, type: Type)                  -- named constant, bound before planning
-        | Now                                         -- Timestamp of the evaluation context (§5.1)
+        | Now                                         -- the reference instant τ of the evaluation (§5.1)
         | ArithExpr(left: SExpr, op: ArithOp, right: SExpr)
         | Func(fn: ScalarFn, args: list[SExpr])
         | TypeOf(alias: A)                            -- node type of the instance bound to alias
@@ -1381,11 +1381,37 @@ scope on SubgraphExpr: accepts any endpoint case. All four cases satisfy the sco
 **Snapshot query:** Q = TemporalContext? ∘ B₁ ∘ B₂? ∘ B₃?
 
 ```
-TemporalContext(default_as_of: Timestamp,
+TemporalContext(default_as_of?: Timestamp,          -- explicit reference instant
+                time_zone?: Zone,                   -- IANA zone name; default UTC
                 node_resolution: STRICT|LAX, edge_resolution: STRICT|LAX)
 ```
 
-STRICT: reject missing versions. LAX: silently drop. Explicit TemporalJoin overrides TemporalContext for its sub-join. Valid forms: B₁, B₁∘B₂, B₁∘B₃, B₁∘B₂∘B₃.
+**Reference instant.** Every query evaluation has exactly one reference instant τ (§10.4, D33; ADR 0003):
+
+```
+τ = default_as_of                                   if supplied
+τ = floor(clock(), REFERENCE_GRANULARITY)           otherwise — captured once, before planning
+```
+
+`clock()` is the clock of the service that plans the query. τ is passed to the backend as a value; emitted SQL never calls a backend clock function. τ is an instant; `time_zone` fixes where calendar days, months, quarters and years begin.
+
+Every time-relative construct of the query resolves against the same τ:
+
+| Construct | Resolves to |
+|---|---|
+| `Now` (§4.1) | τ |
+| Version and validity resolution (§2.6), absent a TemporalJoin override | `version(T, key, τ)`, `valid(e, τ)` |
+| `YTD`, `QTD`, `MTD` (§4.2) | from the start of the year, quarter or month containing τ in `time_zone`, to τ inclusive |
+| `ROLLING(d)` | (τ − d, τ] |
+| `TRAILING(n, unit)` | the n complete calendar units immediately before the unit containing τ |
+| PipelineArtifact TTL and backfill eligibility (§2.4), Monitor deadlines (§4.1) | comparisons against τ |
+| `YEAR`, `QUARTER`, `MONTH`, `DAY`, `HOUR` of a Timestamp | calendar fields in `time_zone` |
+
+Two occurrences of `Now` are the same value; a composed query has one τ for all its CTEs; an asynchronous or streamed execution keeps the τ captured at submission. Supplying `default_as_of` replaces the captured instant and changes nothing else in the query, so re-running with the τ of an earlier evaluation reproduces it over the same data.
+
+A query is **τ-dependent** iff it uses any construct of this table, including default version or validity resolution over a versioned type or an edge type with a validity window.
+
+STRICT: reject missing versions. LAX: silently drop. Explicit TemporalJoin overrides version and validity resolution for its sub-join; it does not change τ. Valid forms: B₁, B₁∘B₂, B₁∘B₃, B₁∘B₂∘B₃.
 
 **Delta query:**
 
@@ -2055,7 +2081,7 @@ deliver(plan: ExportPlan, budget: ExecutionBudget) → Delivery:
   -- Never rewrites, samples, clarifies or rejects.
 
   match zone(plan.cost_estimate, budget):
-    DEFERRED:  return ASYNC(sink=default_sink, callback=user_endpoint, ttl=24h)
+    DEFERRED:  return ASYNC(sink=default_sink, callback=user_endpoint, ttl=24h)      -- keeps the τ captured at submission (§5.1)
     STREAMING: return STREAM
     SYNC:
       -- Result size guard
@@ -2752,10 +2778,11 @@ Band 1-3 with recursion:   Σ₁-hard (Datalog containment)
 
 The planner applies containment-based elimination only for Band 1 leaf nodes (tractable case). For Band 2/3 nodes it applies only the syntactic laws (idempotence, identity, annihilation) which do not require containment checking.
 
-**Cross-session caching.** The query DAG node id is the cache key for composed query results:
+**Cross-session caching.** The query DAG is built with `Now` as a symbol, never from a clock reading, so the same `(q, π)` yields the same DAG node id at any time. The id alone is therefore not a sufficient cache key for a τ-dependent query (§5.1): the resolved reference instant and time zone are part of the key.
 
 ```
-cache[q_dag_id] = (result_set, G_snapshot_version)
+cache[(q_dag_id, τ, time_zone)] = (result_set, G_snapshot_version)      -- τ-dependent query
+cache[(q_dag_id)]               = (result_set, G_snapshot_version)      -- otherwise
 
 Validity: cache hit valid iff G_snapshot_version = current
 Invalidation: stale when any n ∈ N_AB or e ∈ E_AB referenced by
@@ -4121,6 +4148,7 @@ Novel contributions added in v0.26: §8.16 Vocabulary decomposition and analytic
 **D30** — The parameter space `Π(q)` is structurally separated from the question space `Q_valid(A, B)`. Question space determines *what can be asked*; parameter space determines *how each question can be configured*. The separation preserves the BDD's role: structural validity is checked once per question skeleton; parametric validity is encoded as additional BDD variables over the discrete parameter dimensions (`BDD_full = BDD_structural × BDD_parametric`). The recommender navigates both dimensions independently — structural moves change the BDD; parametric moves change parametric BDD variables — with the same trail-metric scoring and annotation-constraint filtering. The `ExecutionBudget` gate evaluates `cost(q, π)` jointly, enabling parametric rewriting as a cost-reduction mechanism distinct from structural rewriting. The full analytical space is the dependent product `A(A, B) = Σ_{q ∈ Q_valid} Π_valid(q)` — a sigma type whose fibre over each question is the valid parameter space for that question.
 **D31** — CTL is interpreted over maximal paths, not over a totalised transition relation. A path ends where the graph ends: a finite trace that reaches a terminal is complete, and EG/AG are decided on it without an implicit self-loop. Self-loops were rejected because they are edges no event produced — visible to hop counts, SHORTEST, signatures and PathAgg — and because they make NEXT at a terminal mean "now". Quantification over an empty domain is governed by `PathPred.on_empty`: FORALL is false by default (`REQUIRE_WITNESS`) and true only when `VACUOUS` is requested, so a universal condition never holds silently for a node with no path instance. Recorded in `docs/adr/0001-ctl-finite-trace-semantics.md`.
 **D32** — PipelineArtifact transitions are facts. The artifact carries its current state as a property; every state change is an EVENT-grain transition fact linked to its artifact (`transition_of`) and to the next transition (`followed_by`, CAUSAL). State names are enumeration values, never nodes, and the state machine is a relation δ over those values. The current state is by definition the projection of the latest transition, so snapshot and history agree. Chosen over a mutable property (nothing to traverse) and over artifact versions (pipeline events entangled with attribute history). Recorded in `docs/adr/0002-pipeline-artifact-transition-facts.md`.
+**D33** — Every query evaluation has one reference instant τ: `TemporalContext.default_as_of` when supplied, otherwise the planning service's clock captured once before planning and truncated to `REFERENCE_GRANULARITY`. `Now`, calendar and rolling windows, default version and validity resolution, TTL rules and monitor deadlines all resolve against τ; calendar boundaries use `TemporalContext.time_zone`. The query DAG is built with `Now` symbolic, so determinism of the DAG is preserved, and τ enters evaluation and cache identity instead. Dynamic `now` was rejected as incorrect (two expressions of one query could disagree; caches would serve the wrong instant) and a mandatory `as_of` as needing a default in practice. Recorded in `docs/adr/0003-reference-instant.md`.
 
 ### 10.5  References
 
