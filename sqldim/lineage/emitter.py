@@ -13,6 +13,8 @@ from typing import Protocol, runtime_checkable
 
 from sqldim.lineage.events import LineageEvent
 
+_PRODUCER = "https://github.com/brunolnetto/sqldim"
+
 
 # ---------------------------------------------------------------------------
 # Protocol
@@ -141,12 +143,13 @@ class OpenLineageEmitter:
         ol_event = RunEvent(
             eventType=self._ol_state(event.state.value, OLRunState),
             eventTime=event.event_time.isoformat(),
-            run=Run(runId=event.run_id, facets=event.facets or None),
+            run=Run(runId=event.run_id, facets=event.facets or {}),
             job=Job(
                 namespace=event.namespace or self._namespace,
                 name=event.job_name,
             ),
             inputs=self._to_ol_datasets(event.inputs, Dataset),
             outputs=self._to_ol_datasets(event.outputs, Dataset),
+            producer=_PRODUCER,
         )
         self._client.emit(ol_event)

@@ -17,6 +17,7 @@ Pure functions:
 
 from __future__ import annotations
 
+from collections.abc import Sequence
 from typing import Any
 
 from sqldim.core.query.dgm.nl._types import (
@@ -373,7 +374,7 @@ def detect_date_trunc_grain(phrase: str) -> str | None:
 
 
 def infer_join_tables(
-    resolved_proprefs: list[object],
+    resolved_proprefs: Sequence[object],
     registry: EntityRegistry,
 ) -> list[tuple[str, str, str]]:
     """Infer JOIN pairs from entity-resolved PropRefs spanning multiple tables.
@@ -391,35 +392,46 @@ def infer_join_tables(
         Candidate equi-join triples where *join_column* is a ``*_id`` column
         present in both tables.  Empty when fewer than two tables are resolved.
     """
+    tables = _resolved_tables(resolved_proprefs, registry)
+    if len(tables) < 2:
+        return []
+    table_cols = _table_columns(tables, registry)
+    return _shared_id_joins(sorted(tables), table_cols)
+
+
+def _resolved_tables(
+    resolved_proprefs: Sequence[object], registry: EntityRegistry
+) -> set[str]:
+    """Collect the table names referenced by the PropRefs' aliases."""
     tables: set[str] = set()
     for pr in resolved_proprefs:
         alias = getattr(pr, "alias", None)
         if alias and alias in registry.node_terms.values():
             tables.add(alias)
         elif alias and alias in registry.node_terms:
-            resolved = registry.node_terms[alias]
-            tables.add(resolved)
+            tables.add(registry.node_terms[alias])
+    return tables
 
-    if len(tables) < 2:
-        return []
 
-    # Build per-table column sets from the registry's prop vocabulary
+def _table_columns(tables: set[str], registry: EntityRegistry) -> dict[str, set[str]]:
+    """Build per-table column sets from the registry's prop vocabulary."""
     table_cols: dict[str, set[str]] = {}
     for propref in registry.prop_terms.values():
         parts = propref.split(".", 1)
-        if len(parts) == 2:
-            tbl, col = parts
-            if tbl in tables:
-                table_cols.setdefault(tbl, set()).add(col)
+        if len(parts) == 2 and parts[0] in tables:
+            table_cols.setdefault(parts[0], set()).add(parts[1])
+    return table_cols
 
-    # Find _id columns shared between table pairs
+
+def _shared_id_joins(
+    sorted_tables: list[str], table_cols: dict[str, set[str]]
+) -> list[tuple[str, str, str]]:
+    """Find ``*_id``/``id`` columns shared between each table pair."""
     joins: list[tuple[str, str, str]] = []
-    sorted_tables = sorted(tables)
     for i, t1 in enumerate(sorted_tables):
         for t2 in sorted_tables[i + 1 :]:
-            cols1 = table_cols.get(t1, set())
-            cols2 = table_cols.get(t2, set())
-            shared_id = {c for c in cols1 & cols2 if c.endswith("_id") or c == "id"}
+            shared = table_cols.get(t1, set()) & table_cols.get(t2, set())
+            shared_id = {c for c in shared if c.endswith("_id") or c == "id"}
             for col in sorted(shared_id):
                 joins.append((t1, t2, col))
     return joins

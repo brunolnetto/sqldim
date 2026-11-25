@@ -88,9 +88,8 @@ class DatasetPipelineSource(PipelineSource):
             try:
                 # Skip sources that already populated their table in setup()
                 # (e.g. static-fixture sources that self-insert on creation).
-                already_loaded = (
-                    self._con.execute(f"SELECT COUNT(*) FROM {table}").fetchone()[0] > 0
-                )
+                row = self._con.execute(f"SELECT COUNT(*) FROM {table}").fetchone()
+                already_loaded = row is not None and row[0] > 0
                 if already_loaded:
                     continue
                 snap_sql = src.snapshot().as_sql(self._con)

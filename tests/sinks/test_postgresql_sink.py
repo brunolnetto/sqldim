@@ -1,12 +1,20 @@
 """
 Tests for sqldim/sinks/postgresql.py — PostgreSQLSink.
 
-Uses pytest-postgresql to spin up a real PostgreSQL 16 process via pg_ctl.
+Uses pytest-postgresql to spin up a real PostgreSQL process via pg_ctl.
+The newest server under ``/usr/lib/postgresql/<major>/bin`` is used, or the
+one named by ``SQLDIM_PG_CTL``. Without a server the module is skipped
+locally; under CI (``CI=true``) a missing server is an error, not a skip.
 DuckDB's postgres extension (no psycopg2 in the hot path) writes through to PG.
 """
 
 from __future__ import annotations
+
+import glob
+import os
+
 import duckdb
+import pytest
 from pytest_postgresql import factories
 
 from sqldim.sinks.sql.postgresql import PostgreSQLSink
@@ -15,7 +23,20 @@ from sqldim.sinks.sql.postgresql import PostgreSQLSink
 # Infrastructure
 # ---------------------------------------------------------------------------
 
-PG_EXE = "/usr/lib/postgresql/16/bin/pg_ctl"
+
+def _find_pg_ctl() -> str | None:
+    explicit = os.environ.get("SQLDIM_PG_CTL")
+    if explicit:
+        return explicit
+    found = glob.glob("/usr/lib/postgresql/*/bin/pg_ctl")
+    return max(found, key=lambda p: int(p.split("/")[4])) if found else None
+
+
+PG_EXE = _find_pg_ctl()
+if PG_EXE is None:
+    if os.environ.get("CI") == "true":
+        raise RuntimeError("PostgreSQL server (pg_ctl) not found on the CI runner")
+    pytest.skip("PostgreSQL server (pg_ctl) not installed", allow_module_level=True)
 PG_PORT = 15437  # unique port — avoid collisions with other fixtures
 
 postgresql_proc = factories.postgresql_proc(

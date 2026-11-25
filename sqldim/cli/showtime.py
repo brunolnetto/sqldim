@@ -8,6 +8,7 @@ presenting results with rich formatting and pauses between steps.
 from __future__ import annotations
 
 import argparse
+from typing import Any
 
 
 # Curated demo scenarios per dataset, plus cross-dataset questions
@@ -61,11 +62,120 @@ def _build_scenario_list(datasets: list[str]) -> list[dict[str, str]]:
     return scenarios
 
 
+def _resolve_showtime_datasets(
+    selected: list[str] | None, all_datasets: list[str], console: Any
+) -> list[str] | None:
+    """Validate the dataset selection; ``None`` means unknown names."""
+    if not selected:
+        return all_datasets
+    unknown = [d for d in selected if d not in all_datasets]
+    if unknown:
+        console.print(
+            f"[red]Unknown dataset(s): {', '.join(unknown)}[/red]\n"
+            f"Available: {', '.join(all_datasets)}"
+        )
+        return None
+    return sorted(selected)
+
+
+def _build_showtime_model(args: argparse.Namespace, console: Any) -> Any:
+    """Build the LLM model from CLI args, warning (not failing) on errors."""
+    from sqldim.core.query.dgm.nl._agents import make_model
+
+    model_provider: str | None = getattr(args, "model_provider", None)
+    model_name: str | None = getattr(args, "model", None)
+    if not model_provider:
+        return None
+    try:
+        return make_model(provider=model_provider, model_name=model_name)
+    except Exception as exc:
+        console.print(f"[yellow]Warning: could not build LLM model: {exc}[/yellow]")
+        return None
+
+
+def _print_showtime_verbose(result: Any, console: Any) -> None:
+    """Print nodes, timings and per-tool hops of one showtime step."""
+    from sqldim.cli.ask import _format_hop
+
+    visited = result.get("visited_nodes", [])
+    timings = result.get("node_timings", {})
+    console.print(f"[dim]Nodes: {' → '.join(visited)}[/dim]")
+    timing_parts = [f"{n}: {ms}ms" for n, ms in timings.items()]
+    console.print(f"[dim]Timings: {', '.join(timing_parts)}[/dim]")
+    for hop in result.get("results", []):
+        console.print(f"[dim]  {_format_hop(hop)}[/dim]")
+
+
+def _run_showtime_step(
+    i: int,
+    scenario: dict[str, str],
+    total: int,
+    context: Any,
+    console: Any,
+    conversation_history: list[dict[str, str]],
+) -> Any:
+    """Run one scenario through a fresh supervisor graph and render it."""
+    from rich.markdown import Markdown
+    from rich.panel import Panel
+    from langgraph.checkpoint.memory import MemorySaver
+
+    from sqldim.core.query.dgm.nl.supervisor._graph import build_supervisor_graph
+    from sqldim.core.query.dgm.nl.supervisor._types import SupervisorState
+
+    title = scenario["title"]
+    question = scenario["question"]
+
+    console.print(
+        Panel(
+            f'[bold]Step {i}/{total}:[/bold] {title}\n[italic]"{question}"[/italic]',
+            border_style="cyan",
+        )
+    )
+
+    initial = SupervisorState(
+        utterance=question,
+        conversation_history=list(conversation_history),
+    )
+
+    # Fresh checkpointer per step avoids deserialization warnings
+    graph = build_supervisor_graph(
+        checkpointer=MemorySaver(),
+        context=context,
+    )
+
+    with console.status("[bold cyan]Running...[/bold cyan]", spinner="dots"):
+        result = graph.invoke(
+            initial.model_dump(),
+            config={
+                "configurable": {"thread_id": f"showtime-{i}"},
+                "recursion_limit": 25,
+            },
+        )
+
+    synthesis = result.get("synthesis", "")
+    if synthesis:
+        console.print(Panel(Markdown(synthesis), border_style="green"))
+        conversation_history.append({"role": "user", "content": question})
+        conversation_history.append({"role": "assistant", "content": synthesis})
+    return result
+
+
+def _pause_between_steps(console: Any) -> bool:
+    """Wait for Enter; return False when the user stops the demo."""
+    console.print()
+    try:
+        console.input("[dim]Press Enter for next step (Ctrl-C to stop)...[/dim]")
+    except (EOFError, KeyboardInterrupt):
+        console.print("\n[dim]Showtime ended early.[/dim]")
+        return False
+    console.print()
+    return True
+
+
 def cmd_showtime(args: argparse.Namespace) -> int:
     """Run the guided showtime demo."""
     try:
         from rich.console import Console
-        from rich.markdown import Markdown
         from rich.panel import Panel
     except ImportError:
         print(
@@ -75,40 +185,20 @@ def cmd_showtime(args: argparse.Namespace) -> int:
         return 1
 
     from sqldim.application.ask import KNOWN_DATASETS
-    from sqldim.core.query.dgm.nl._agents import make_model
-    from sqldim.core.query.dgm.nl.supervisor._graph import build_supervisor_graph
-    from sqldim.core.query.dgm.nl.supervisor._types import (
-        SupervisorContext,
-        SupervisorState,
-    )
-    from langgraph.checkpoint.memory import MemorySaver
+    from sqldim.core.query.dgm.nl.supervisor._types import SupervisorContext
 
     console = Console()
     all_datasets = sorted(KNOWN_DATASETS.keys())
 
     # Dataset selection
-    selected: list[str] | None = getattr(args, "datasets", None)
-    if selected:
-        unknown = [d for d in selected if d not in all_datasets]
-        if unknown:
-            console.print(
-                f"[red]Unknown dataset(s): {', '.join(unknown)}[/red]\n"
-                f"Available: {', '.join(all_datasets)}"
-            )
-            return 1
-        datasets = sorted(selected)
-    else:
-        datasets = all_datasets
+    datasets = _resolve_showtime_datasets(
+        getattr(args, "datasets", None), all_datasets, console
+    )
+    if datasets is None:
+        return 1
 
     # Build model
-    model_provider: str | None = getattr(args, "model_provider", None)
-    model_name: str | None = getattr(args, "model", None)
-    llm_model = None
-    if model_provider:
-        try:
-            llm_model = make_model(provider=model_provider, model_name=model_name)
-        except Exception as exc:
-            console.print(f"[yellow]Warning: could not build LLM model: {exc}[/yellow]")
+    llm_model = _build_showtime_model(args, console)
 
     context = SupervisorContext(
         available_datasets=datasets,
@@ -134,92 +224,16 @@ def cmd_showtime(args: argparse.Namespace) -> int:
     conversation_history: list[dict[str, str]] = []
 
     for i, scenario in enumerate(scenarios, 1):
-        title = scenario["title"]
-        question = scenario["question"]
-
-        console.print(
-            Panel(
-                f"[bold]Step {i}/{len(scenarios)}:[/bold] {title}\n"
-                f'[italic]"{question}"[/italic]',
-                border_style="cyan",
-            )
+        result = _run_showtime_step(
+            i, scenario, len(scenarios), context, console, conversation_history
         )
-
-        initial = SupervisorState(
-            utterance=question,
-            conversation_history=list(conversation_history),
-        )
-
-        # Fresh checkpointer per step avoids deserialization warnings
-        graph = build_supervisor_graph(
-            checkpointer=MemorySaver(),
-            context=context,
-        )
-
-        with console.status("[bold cyan]Running...[/bold cyan]", spinner="dots"):
-            result = graph.invoke(
-                initial.model_dump(),
-                config={
-                    "configurable": {"thread_id": f"showtime-{i}"},
-                    "recursion_limit": 25,
-                },
-            )
-
-        synthesis = result.get("synthesis", "")
-        if synthesis:
-            console.print(Panel(Markdown(synthesis), border_style="green"))
-            conversation_history.append({"role": "user", "content": question})
-            conversation_history.append({"role": "assistant", "content": synthesis})
 
         if getattr(args, "verbose", False):
-            visited = result.get("visited_nodes", [])
-            timings = result.get("node_timings", {})
-            console.print(f"[dim]Nodes: {' → '.join(visited)}[/dim]")
-            timing_parts = [f"{n}: {ms}ms" for n, ms in timings.items()]
-            console.print(f"[dim]Timings: {', '.join(timing_parts)}[/dim]")
-            for hop in result.get("results", []):
-                _name = (
-                    hop.get("tool_name")
-                    if isinstance(hop, dict)
-                    else getattr(hop, "tool_name", "?")
-                )
-                ok = (
-                    hop.get("success")
-                    if isinstance(hop, dict)
-                    else getattr(hop, "success", False)
-                )
-                data = (
-                    (hop.get("data") or {})
-                    if isinstance(hop, dict)
-                    else (getattr(hop, "data") or {})
-                )
-                err = (
-                    hop.get("error")
-                    if isinstance(hop, dict)
-                    else getattr(hop, "error", None)
-                )
-                status = "\u2713" if ok else "\u2717"
-                if err:
-                    console.print(f"[dim]  [{_name}] {status} ERROR: {err}[/dim]")
-                else:
-                    display = {
-                        k: v
-                        for k, v in (data if isinstance(data, dict) else {}).items()
-                        if k != "stub" and v is not None
-                    }
-                    console.print(f"[dim]  [{_name}] {status} {display}[/dim]")
+            _print_showtime_verbose(result, console)
 
         # Pause between scenarios (skip after last)
-        if i < len(scenarios):
-            console.print()
-            try:
-                console.input(
-                    "[dim]Press Enter for next step (Ctrl-C to stop)...[/dim]"
-                )
-            except (EOFError, KeyboardInterrupt):
-                console.print("\n[dim]Showtime ended early.[/dim]")
-                return 0
-            console.print()
+        if i < len(scenarios) and not _pause_between_steps(console):
+            return 0
 
     console.print(
         Panel.fit(

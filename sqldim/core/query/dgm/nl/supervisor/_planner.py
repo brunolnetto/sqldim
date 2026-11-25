@@ -31,6 +31,7 @@ can produce a meaningful response even for vague inputs.
 
 from __future__ import annotations
 
+from dataclasses import dataclass
 from typing import Any
 
 from pydantic import BaseModel
@@ -597,66 +598,241 @@ def _budget_allows(tool_name: str, context: "SupervisorContext | None") -> bool:
     return cost <= budget_limit
 
 
+_Route = tuple[list[ToolCallRequest], float, str]
+
+_TOOL_PHRASES = (
+    "what can you do",
+    "what you can do",
+    "what can i do",
+    "what do you do",
+)
+
+
+@dataclass(frozen=True)
+class _Intents:
+    """Boolean intent signals extracted from an utterance."""
+
+    datasets: bool
+    tools: bool
+    validate: bool
+    sensitivity: bool
+    correlate: bool
+    explore: bool
+    store: bool
+    retrieve: bool
+    composition: bool
+    analytical: bool
+
+    @property
+    def kb_or_link(self) -> bool:
+        return self.correlate or self.explore or self.store or self.retrieve
+
+    @property
+    def requires_dataset(self) -> bool:
+        if self.datasets or self.tools:
+            return False
+        if self.composition and self.analytical:
+            return True
+        if self.validate or self.sensitivity:
+            return True
+        return self.analytical and not self.kb_or_link
+
+
+def _detect_intents(utt_lower: str) -> _Intents:
+    import re as _re
+
+    def has(phrases: Any) -> bool:
+        return any(p in utt_lower for p in phrases)
+
+    def matches(patterns: Any) -> bool:
+        return any(_re.search(p, utt_lower) for p in patterns)
+
+    return _Intents(
+        datasets=has(_DATASET_PHRASES),
+        tools=has(["tool", "capabilit"]) or has(_TOOL_PHRASES),
+        validate=has(_VALIDATE_PHRASES),
+        sensitivity=has(_SENSITIVITY_PHRASES),
+        correlate=matches(_CORRELATE_PHRASES),
+        explore=has(_EXPLORE_PHRASES),
+        store=has(_STORE_PHRASES),
+        retrieve=has(_RETRIEVE_PHRASES),
+        composition=matches(_COMPOSITION_PHRASES),
+        analytical=bool(set(utt_lower.split()) & _QUESTION_MARKERS),
+    )
+
+
+def _single_available_dataset(utterance: str, datasets: list[str]) -> str | None:
+    """A single available domain is an explicit context constraint.
+
+    It is not an arbitrary positional fallback: an explicit reference to an
+    unavailable domain, or a topic match, is never overridden.
+    """
+    available = _canonicalize_available_datasets(datasets)
+    explicit_mentions = _mentioned_dataset_candidates(utterance, datasets)
+    topic_candidates = _topic_dataset_candidates(utterance)
+    if len(available) == 1 and not explicit_mentions and not topic_candidates:
+        return next(iter(available))
+    return None
+
+
+def _call(
+    tool_name: str, arguments: dict[str, Any], fraction: float
+) -> ToolCallRequest:
+    return ToolCallRequest(
+        tool_name=tool_name, arguments=arguments, budget_fraction=fraction
+    )
+
+
+def _route_discovery(intents: _Intents, target_ds: str | None) -> _Route | None:
+    if intents.datasets and intents.tools:
+        return (
+            [
+                _call("dgm_what_can_i_answer", {"dataset": "__all__"}, 0.5),
+                _call("dgm_map_analytical_space", {"dataset": "__all__"}, 0.5),
+            ],
+            0.9,
+            "Both dataset and tool discovery requested.",
+        )
+    if intents.datasets:
+        target = target_ds or "__all__"
+        return (
+            [_call("dgm_what_can_i_answer", {"dataset": target}, 1.0)],
+            0.7,
+            f"Dataset discovery requested for '{target}'.",
+        )
+    if intents.tools:
+        return (
+            [_call("dgm_map_analytical_space", {"dataset": "__all__"}, 1.0)],
+            0.7,
+            "Tool capability enumeration requested.",
+        )
+    return None
+
+
+def _route_dataset_bound(
+    intents: _Intents, target_ds: str | None, utt: str
+) -> _Route | None:
+    if intents.composition and intents.analytical:
+        # Two-phase composition: query → explore
+        assert target_ds is not None
+        return (
+            [
+                _call("dgm_query", {"dataset": target_ds, "question": utt}, 0.7),
+                _call("dgm_explore_from", {"result": {}, "direction": "forward"}, 0.3),
+            ],
+            0.65,
+            f"Chained query + exploration plan on '{target_ds}'.",
+        )
+    if intents.validate:
+        assert target_ds is not None
+        return (
+            [
+                _call(
+                    "dgm_validate_invariant",
+                    {"invariant": utt, "dataset": target_ds},
+                    1.0,
+                )
+            ],
+            0.75,
+            f"Invariant/constraint validation requested on '{target_ds}'.",
+        )
+    if intents.sensitivity:
+        assert target_ds is not None
+        args = {"dataset": target_ds, "question": utt, "param": "days_window"}
+        return (
+            [_call("dgm_sensitivity_sweep", args, 1.0)],
+            0.75,
+            f"Parameter sensitivity sweep requested on '{target_ds}'.",
+        )
+    return None
+
+
+def _route_link_or_kb(intents: _Intents, utt: str) -> _Route | None:
+    if intents.correlate:
+        return (
+            [_call("dgm_correlate", {"left": {}, "right": {}}, 1.0)],
+            0.7,
+            "Cross-domain correlation or relationship analysis requested.",
+        )
+    if intents.explore:
+        return (
+            [_call("dgm_explore_from", {"result": {}, "direction": "forward"}, 1.0)],
+            0.7,
+            "Related-question exploration from a prior result requested.",
+        )
+    if intents.store:
+        return (
+            [
+                _call(
+                    "dgm_store_finding", {"finding": utt, "tags": ["planner-auto"]}, 1.0
+                )
+            ],
+            0.75,
+            "Persist an analytical finding to the knowledge base.",
+        )
+    if intents.retrieve:
+        return (
+            [_call("dgm_retrieve_related", {"query": utt, "max_results": 5}, 1.0)],
+            0.75,
+            "Retrieve previously stored findings from the knowledge base.",
+        )
+    return None
+
+
+def _route_analytical(
+    intents: _Intents,
+    target_ds: str | None,
+    utterance: str,
+    context: "SupervisorContext | None",
+) -> _Route:
+    if not intents.analytical:
+        # Unknown / vague intent — return empty plan; reflect handles orientation
+        return [], 0.35, "No analytical intent detected; routing to reflect."
+    assert target_ds is not None
+    # Budget-aware fallback: if dgm_query is too expensive, downgrade
+    if not _budget_allows("dgm_query", context):
+        return (
+            [_call("dgm_what_can_i_answer", {"dataset": target_ds}, 1.0)],
+            0.5,
+            f"Budget exhausted; degraded to discovery for '{target_ds}'.",
+        )
+    return (
+        [_call("dgm_query", {"dataset": target_ds, "question": utterance}, 1.0)],
+        0.55,
+        f"Analytical query against '{target_ds}'.",
+    )
+
+
+def _apply_confidence_penalties(
+    utt: str, confidence: float, reasoning: str
+) -> tuple[float, str]:
+    if not utt:
+        return 0.1, "Empty utterance."
+    if len(utt) < _REFLECT_MIN_LENGTH:
+        return (
+            min(confidence, 0.3),
+            f"Very short utterance ({len(utt)} chars); low confidence.",
+        )
+    return confidence, reasoning
+
+
 def _keyword_decompose(
     utterance: str,
     context: "SupervisorContext | None",
 ) -> SupervisorPlan:
     """Phrase/keyword routing — used when no LLM is configured."""
-    import re as _re
-
     datasets = list(context.available_datasets) if context else []
     utt = utterance.strip()
-    utt_lower = utt.lower()
-
-    # ── Boolean intent signals ────────────────────────────────────────────
-    wants_datasets = any(phrase in utt_lower for phrase in _DATASET_PHRASES)
-    wants_tools = any(w in utt_lower for w in ["tool", "capabilit"]) or any(
-        phrase in utt_lower
-        for phrase in (
-            "what can you do",
-            "what you can do",
-            "what can i do",
-            "what do you do",
-        )
-    )
-    wants_validate = any(p in utt_lower for p in _VALIDATE_PHRASES)
-    wants_sensitivity = any(p in utt_lower for p in _SENSITIVITY_PHRASES)
-    wants_correlate = any(_re.search(p, utt_lower) for p in _CORRELATE_PHRASES)
-    wants_explore = any(p in utt_lower for p in _EXPLORE_PHRASES)
-    wants_store = any(p in utt_lower for p in _STORE_PHRASES)
-    wants_retrieve = any(p in utt_lower for p in _RETRIEVE_PHRASES)
-    wants_composition = any(_re.search(p, utt_lower) for p in _COMPOSITION_PHRASES)
-    has_analytical_markers = bool(set(utt_lower.split()) & _QUESTION_MARKERS)
+    intents = _detect_intents(utt.lower())
 
     target_ds = _resolve_dataset(utterance, datasets)
 
     # Dataset-dependent routes must never invent a positional fallback.
     # Ambiguous or unsupported topics are handled by the graph's reflect node.
-    requires_dataset = not (wants_datasets or wants_tools) and (
-        (wants_composition and has_analytical_markers)
-        or wants_validate
-        or wants_sensitivity
-        or (
-            has_analytical_markers
-            and not wants_correlate
-            and not wants_explore
-            and not wants_store
-            and not wants_retrieve
-        )
-    )
+    if intents.requires_dataset and target_ds is None:
+        target_ds = _single_available_dataset(utterance, datasets)
 
-    if requires_dataset and target_ds is None:
-        available = _canonicalize_available_datasets(datasets)
-        explicit_mentions = _mentioned_dataset_candidates(utterance, datasets)
-
-        # A single available domain is an explicit context constraint, not
-        # an arbitrary positional fallback. Do not override an explicit
-        # reference to a domain that is unavailable in this context.
-        topic_candidates = _topic_dataset_candidates(utterance)
-        if len(available) == 1 and not explicit_mentions and not topic_candidates:
-            target_ds = next(iter(available))
-
-    if requires_dataset and target_ds is None:
+    if intents.requires_dataset and target_ds is None:
         return SupervisorPlan(
             goal=utterance,
             steps=[],
@@ -668,175 +844,14 @@ def _keyword_decompose(
         )
 
     # ── Decision tree (priority order) ───────────────────────────────────
-    steps: list[ToolCallRequest] = []
-    reasoning: str = ""
+    steps, confidence, reasoning = (
+        _route_discovery(intents, target_ds)
+        or _route_dataset_bound(intents, target_ds, utt)
+        or _route_link_or_kb(intents, utt)
+        or _route_analytical(intents, target_ds, utterance, context)
+    )
 
-    if wants_datasets and wants_tools:
-        steps = [
-            ToolCallRequest(
-                tool_name="dgm_what_can_i_answer",
-                arguments={"dataset": "__all__"},
-                budget_fraction=0.5,
-            ),
-            ToolCallRequest(
-                tool_name="dgm_map_analytical_space",
-                arguments={"dataset": "__all__"},
-                budget_fraction=0.5,
-            ),
-        ]
-        confidence = 0.9
-        reasoning = "Both dataset and tool discovery requested."
-
-    elif wants_datasets:
-        target = target_ds or "__all__"
-        steps = [
-            ToolCallRequest(
-                tool_name="dgm_what_can_i_answer",
-                arguments={"dataset": target},
-                budget_fraction=1.0,
-            ),
-        ]
-        confidence = 0.7
-        reasoning = f"Dataset discovery requested for '{target}'."
-
-    elif wants_tools:
-        steps = [
-            ToolCallRequest(
-                tool_name="dgm_map_analytical_space",
-                arguments={"dataset": "__all__"},
-                budget_fraction=1.0,
-            ),
-        ]
-        confidence = 0.7
-        reasoning = "Tool capability enumeration requested."
-
-    elif wants_composition and has_analytical_markers:
-        # Two-phase composition: query → explore
-        assert target_ds is not None
-        ds = target_ds
-        steps = [
-            ToolCallRequest(
-                tool_name="dgm_query",
-                arguments={"dataset": ds, "question": utt},
-                budget_fraction=0.7,
-            ),
-            ToolCallRequest(
-                tool_name="dgm_explore_from",
-                arguments={"result": {}, "direction": "forward"},
-                budget_fraction=0.3,
-            ),
-        ]
-        confidence = 0.65
-        reasoning = f"Chained query + exploration plan on '{ds}'."
-
-    elif wants_validate:
-        assert target_ds is not None
-        ds = target_ds
-        steps = [
-            ToolCallRequest(
-                tool_name="dgm_validate_invariant",
-                arguments={"invariant": utt, "dataset": ds},
-                budget_fraction=1.0,
-            ),
-        ]
-        confidence = 0.75
-        reasoning = f"Invariant/constraint validation requested on '{ds}'."
-
-    elif wants_sensitivity:
-        assert target_ds is not None
-        ds = target_ds
-        steps = [
-            ToolCallRequest(
-                tool_name="dgm_sensitivity_sweep",
-                arguments={"dataset": ds, "question": utt, "param": "days_window"},
-                budget_fraction=1.0,
-            ),
-        ]
-        confidence = 0.75
-        reasoning = f"Parameter sensitivity sweep requested on '{ds}'."
-
-    elif wants_correlate:
-        steps = [
-            ToolCallRequest(
-                tool_name="dgm_correlate",
-                arguments={"left": {}, "right": {}},
-                budget_fraction=1.0,
-            ),
-        ]
-        confidence = 0.7
-        reasoning = "Cross-domain correlation or relationship analysis requested."
-
-    elif wants_explore:
-        steps = [
-            ToolCallRequest(
-                tool_name="dgm_explore_from",
-                arguments={"result": {}, "direction": "forward"},
-                budget_fraction=1.0,
-            ),
-        ]
-        confidence = 0.7
-        reasoning = "Related-question exploration from a prior result requested."
-
-    elif wants_store:
-        steps = [
-            ToolCallRequest(
-                tool_name="dgm_store_finding",
-                arguments={"finding": utt, "tags": ["planner-auto"]},
-                budget_fraction=1.0,
-            ),
-        ]
-        confidence = 0.75
-        reasoning = "Persist an analytical finding to the knowledge base."
-
-    elif wants_retrieve:
-        steps = [
-            ToolCallRequest(
-                tool_name="dgm_retrieve_related",
-                arguments={"query": utt, "max_results": 5},
-                budget_fraction=1.0,
-            ),
-        ]
-        confidence = 0.75
-        reasoning = "Retrieve previously stored findings from the knowledge base."
-
-    elif has_analytical_markers:
-        assert target_ds is not None
-        target = target_ds
-        # Budget-aware fallback: if dgm_query is too expensive, downgrade
-        if not _budget_allows("dgm_query", context):
-            steps = [
-                ToolCallRequest(
-                    tool_name="dgm_what_can_i_answer",
-                    arguments={"dataset": target},
-                    budget_fraction=1.0,
-                ),
-            ]
-            confidence = 0.5
-            reasoning = f"Budget exhausted; degraded to discovery for '{target}'."
-        else:
-            steps = [
-                ToolCallRequest(
-                    tool_name="dgm_query",
-                    arguments={"dataset": target, "question": utterance},
-                    budget_fraction=1.0,
-                ),
-            ]
-            confidence = 0.55
-            reasoning = f"Analytical query against '{target}'."
-
-    else:
-        # Unknown / vague intent — return empty plan; reflect handles orientation
-        steps = []
-        confidence = 0.35
-        reasoning = "No analytical intent detected; routing to reflect."
-
-    # ── Confidence penalties ──────────────────────────────────────────────
-    if not utt:
-        confidence = 0.1
-        reasoning = "Empty utterance."
-    elif len(utt) < _REFLECT_MIN_LENGTH:
-        confidence = min(confidence, 0.3)
-        reasoning = f"Very short utterance ({len(utt)} chars); low confidence."
+    confidence, reasoning = _apply_confidence_penalties(utt, confidence, reasoning)
 
     return SupervisorPlan(
         goal=utterance,

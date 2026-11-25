@@ -19,7 +19,7 @@ This is a **self-contained, runnable script** that wires together:
    call an external REST API.
 
 3. **sqldim pipeline** — ``LazySCDProcessor`` that consumes the dlt
-   resource output via :class:`~sqldim.application.datasets.dlt_bridge.DLTBridge`
+   resource output via :class:`~sqldim.sources.dlt_bridge.DLTBridge`
    and builds an SCD Type-2 ``dim_customer`` dimension.
    Two pipeline runs demonstrate incremental loading:
 
@@ -66,7 +66,7 @@ from sqldim.core.kimball.dimensions.scd.processors.scd_engine import LazySCDProc
 from sqldim.sinks import DuckDBSink
 
 from sqldim.application.datasets.domains.commerce import LoyaltyCustomersSource
-from sqldim.application.datasets.dlt_bridge import DLTBridge
+from sqldim.sources.dlt_bridge import DLTBridge
 from sqldim.application.examples.features.integrations.ecommerce_api import (
     build_flask_app,
     get_store,

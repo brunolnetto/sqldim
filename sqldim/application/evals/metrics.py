@@ -93,6 +93,16 @@ def check_result_matches_expected(
     if actual is None:  # pragma: no cover
         return False, "actual result is None; expected has data"
 
+    return _compare_rows(actual, expected, act_count, exp_count)
+
+
+def _compare_rows(
+    actual: dict[str, Any],
+    expected: dict[str, Any],
+    act_count: int,
+    exp_count: int,
+) -> tuple[bool, str]:
+    """Compare sorted row values; column aliases only produce a note."""
     # Informational alias note — not a failure condition
     exp_cols = sorted(c.lower() for c in expected.get("columns", []))
     act_cols = sorted(c.lower() for c in actual.get("columns", []))
