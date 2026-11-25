@@ -1017,78 +1017,220 @@ After elimination, the canonical query DAG is topologically sorted. Each node be
 
 ### 6.3  Execution budget and pre-execution gate
 
-The pre-execution gate sits between the planner and execution. It intercepts every `ExportPlan` before it reaches the SQL emitter, compares the cost estimate against a declared `ExecutionBudget`, classifies the failure mode if any, and applies one of four graceful handling strategies.
+The pre-execution gate sits between the planner and execution. It intercepts every `ExportPlan` before it reaches the SQL emitter, compares the cost estimate against a declared `ExecutionBudget`, classifies the failure mode if any, and applies one of four graceful handling strategies. Rewriting is always tried before a delivery mode is chosen: streaming and async execution are decided for the best plan that remains, not for the plan as submitted.
 
 **ExecutionBudget type:**
 
 ```
 ExecutionBudget = (
-  max_estimated_cost:   CostEstimate,  -- planner cost unit ceiling
+  max_estimated_cost:   CostEstimate,  -- executable ceiling: no plan above it runs as submitted
   max_result_rows:      ℕ,             -- row count ceiling
   max_wall_time:        Duration,       -- synchronous execution timeout
   max_precompute_time:  Duration,       -- per PreComputation timeout
-  streaming_threshold:  CostEstimate,  -- above → stream results progressively
-  async_threshold:      CostEstimate   -- above → async with callback + materialisation
+  streaming_threshold:  CostEstimate,  -- strictly above → stream results progressively
+  async_threshold:      CostEstimate   -- strictly above → async with callback + materialisation
 )
 
-BudgetDecision ::= PROCEED                      -- within budget; execute synchronously
-                 | STREAM                        -- above streaming_threshold; progressive delivery
+Policy constants:
+  HARD_CEILING_FACTOR  : ℝ, finite, ≥ 1      -- hard_ceiling(b) = b.max_estimated_cost × HARD_CEILING_FACTOR
+  SAMPLE_DELTA         : ℝ ∈ (0,1)           -- failure probability of a SAMPLE guarantee (default 0.05)
+  SAMPLE_MAX_ERROR     : ℝ ∈ (0,1]           -- largest error half-width a SAMPLE may report (default 0.05)
+  MAX_CLARIFY_OPTIONS  : ℕ, ≥ 1              -- options returned by one CLARIFY (default 3)
+```
+
+`CostEstimate` values are compared by their scalar total in planner cost units; `≤` and `>` below denote that total order.
+
+**Budget invariants.** Checked by the `ExecutionBudget` constructor. A budget that violates any of them is rejected with a configuration error at construction, before any plan is gated — `gate()` is never called with an invalid budget and therefore never has to classify one.
+
+```
+I1   0 ≤ streaming_threshold ≤ async_threshold ≤ max_estimated_cost
+I2   all three are finite (no NaN, no ∞)
+I3   max_estimated_cost ≤ hard_ceiling(b)        -- follows from HARD_CEILING_FACTOR ≥ 1
+```
+
+The ordering is forced by what the thresholds mean: each one opens a more deferred delivery mode, and `max_estimated_cost` closes the last of them. An inverted pair would give one cost two contradictory classifications; a negative threshold has no meaning in cost units.
+
+**Cost zones.** I1–I3 partition the cost axis into five zones. Every threshold is *inclusive on the cheaper side*: a plan whose cost equals a threshold stays in the lower zone, and only a strictly greater cost escalates.
+
+```
+Zone ::= SYNC | STREAMING | DEFERRED | OVER | FORBIDDEN       -- ordered SYNC < … < FORBIDDEN
+
+zone(c: CostEstimate, b: ExecutionBudget) → Zone:
+  if c ≤ b.streaming_threshold:  return SYNC         -- execute synchronously
+  if c ≤ b.async_threshold:      return STREAMING    -- execute now, deliver progressively
+  if c ≤ b.max_estimated_cost:   return DEFERRED     -- execute asynchronously
+  if c ≤ hard_ceiling(b):        return OVER         -- not executable as submitted; must be reduced
+  return FORBIDDEN                                   -- refused outright
+```
+
+`zone` is total and single-valued for every valid budget. Equal thresholds are legal and empty the zone between them:
+
+| Configuration | Effect |
+|---|---|
+| `streaming_threshold = async_threshold` | STREAMING is empty; costs above the shared value go straight to DEFERRED. Disables streaming. |
+| `async_threshold = max_estimated_cost` | DEFERRED is empty; costs above the shared value are OVER. Disables async execution. |
+| `HARD_CEILING_FACTOR = 1` | OVER is empty; every cost above `max_estimated_cost` is FORBIDDEN. Disables SAMPLE and CLARIFY. |
+| `streaming_threshold = 0` | Only zero-cost plans are SYNC. |
+
+`max_estimated_cost` and the hard ceiling are different limits. Above `max_estimated_cost` the submitted plan is never executed, but the gate still tries to reduce it (rewrite, sample, clarify). Above `hard_ceiling(b)` the gate does no further work and refuses.
+
+```
+BudgetDecision ::= PROCEED                      -- SYNC zone; execute synchronously
+                 | STREAM                        -- STREAMING zone; progressive delivery
                  | ASYNC(sink: SinkTarget,
                          callback: Endpoint,
-                         ttl: Duration)          -- above async_threshold; execute async
+                         ttl: Duration)          -- DEFERRED zone; execute async
                  | REWRITE(plan: ExportPlan,
-                           warning: string)      -- cost-reduced rewrite + transparency note
+                           warning: string,
+                           then: Delivery)       -- cost-reduced rewrite + transparency note
                  | SAMPLE(fraction: ℝ,
                           method: RANDOM | STRATIFIED | RESERVOIR,
-                          error_bound: ℝ)        -- approximate result with confidence interval
+                          error_bound: ℝ,
+                          confidence: ℝ,
+                          then: Delivery)        -- approximate result with a stated guarantee
                  | PAGINATE(page_size: ℕ)        -- rewrite to paginate result set
                  | CLARIFY(options: list[ExportPlan],
                            cost_per_option: list[CostEstimate])
                                                  -- ask user to narrow; surface lattice refinements
-                 | REJECT(reason: string)         -- hard ceiling exceeded; refuse
+                 | REJECT(reason: string)         -- refuse; nothing is executed
+
+Delivery ::= PROCEED | STREAM | ASYNC(…) | PAGINATE(…)        -- the decisions that execute a plan as given
 ```
+
+`REWRITE.then` and `SAMPLE.then` carry the delivery decision the gate has already taken for the rewritten or sampled plan. The caller executes that plan under `then`; it does **not** submit it to `gate()` again, so a rewrite can never trigger another rewrite.
 
 **Pre-execution decision procedure:**
 
 ```
 gate(plan: ExportPlan, budget: ExecutionBudget) → BudgetDecision:
+  -- Precondition: budget satisfies I1–I3.
 
   est = plan.cost_estimate
+  z   = zone(est, budget)
 
-  -- Hard ceiling
-  if est > budget.max_estimated_cost * HARD_CEILING_FACTOR:
+  -- Step 1 — hard ceiling. Takes precedence over every other step:
+  -- no rewrite, sample or clarification is computed for a FORBIDDEN plan.
+  if z = FORBIDDEN:
     return REJECT("Query exceeds hard cost ceiling. " + narrowing_hint(plan))
 
-  -- Async threshold
-  if est > budget.async_threshold:
-    return ASYNC(sink=default_sink, callback=user_endpoint, ttl=24h)
+  -- Step 2 — cost-aware rewrite, before any delivery decision.
+  -- Candidates preserve analytical intent; each applies one rewrite rule.
+  if z > SYNC:
+    rewrites = [
+      rewrite_strategy(plan, SHORTEST)    if has_ALL_PathPred(plan),
+      rewrite_depth_limit(plan, depth=3)  if has_unbounded_TrailExpr(plan),
+      rewrite_cone(plan, BOUND_FREE)      if has_FREE_FREE_scope(plan),
+    ]
+    viable = [r for r in rewrites if zone(r.cost_estimate, budget) < z]
+    if viable:
+      r = best(viable)
+      return REWRITE(plan=r, warning=rewrite_explanation(r), then=deliver(r, budget))
 
-  -- Streaming threshold
-  if est > budget.streaming_threshold:
-    return STREAM
+  -- Step 3 — over the executable ceiling and no viable rewrite:
+  -- approximate with a guarantee, else ask the user to narrow, else refuse.
+  if z = OVER:
+    s = sampling_plan(plan, budget)                    -- NONE unless S1–S4 hold
+    if s ≠ NONE:
+      return SAMPLE(fraction=s.fraction, method=RANDOM,
+                    error_bound=SAMPLE_MAX_ERROR, confidence=1 − SAMPLE_DELTA,
+                    then=deliver(s.plan, budget))
+    options = clarification_options(plan, budget)      -- [] unless C1–C2 hold
+    if options ≠ []:
+      return CLARIFY(options, cost_per_option=[o.cost_estimate for o in options])
+    return REJECT("Query exceeds max_estimated_cost and admits no rewrite, "
+                  + "guaranteed sample or refinement. " + narrowing_hint(plan))
 
-  -- Cost-aware rewrite candidates (preserves analytical intent):
-  rewrites = [
-    rewrite_strategy(plan, SHORTEST)    if has_ALL_PathPred(plan),
-    rewrite_depth_limit(plan, depth=3)  if has_unbounded_TrailExpr(plan),
-    rewrite_cone(plan, BOUND_FREE)      if has_FREE_FREE_scope(plan),
-  ]
-  viable = [r for r in rewrites if r.cost_estimate ≤ budget.streaming_threshold]
-  if viable:
-    return REWRITE(best(viable), warning=rewrite_explanation(viable[0]))
+  -- Step 4 — the submitted plan is executable; choose its delivery.
+  return deliver(plan, budget)
 
-  -- Result size guard
-  if estimated_rows(plan) > budget.max_result_rows:
-    return PAGINATE(page_size=default_page_size)
 
-  -- PreComputation timeout guard
-  for pc in plan.pre_compute:
-    if estimated_time(pc) > budget.max_precompute_time:
-      -- substitute approximation algorithm
-      plan = substitute_approximation(plan, pc)
+deliver(plan: ExportPlan, budget: ExecutionBudget) → Delivery:
+  -- Precondition: zone(plan.cost_estimate, budget) ≤ DEFERRED.
+  -- Never rewrites, samples, clarifies or rejects.
 
-  return PROCEED
+  match zone(plan.cost_estimate, budget):
+    DEFERRED:  return ASYNC(sink=default_sink, callback=user_endpoint, ttl=24h)
+    STREAMING: return STREAM
+    SYNC:
+      -- Result size guard
+      if estimated_rows(plan) > budget.max_result_rows:
+        return PAGINATE(page_size=default_page_size)
+
+      -- PreComputation timeout guard
+      for pc in plan.pre_compute:
+        if estimated_time(pc) > budget.max_precompute_time:
+          -- substitute approximation algorithm
+          plan = substitute_approximation(plan, pc)
+
+      return PROCEED
 ```
+
+**Rewrite precedence.** A rewrite is *viable* only when it moves the plan to a strictly cheaper zone. This fixes every case:
+
+- A rewrite that lowers cost without leaving the plan's zone is discarded. It would give up exactness and buy no better delivery, so the submitted plan is delivered as-is (Step 4) or, in the OVER zone, falls through to Step 3.
+- A rewrite that still lands above a threshold is returned as `REWRITE` with the matching delivery: `then=STREAM` in the STREAMING zone, `then=ASYNC` in the DEFERRED zone. `STREAM` and `ASYNC` are returned for the submitted plan only after every rewrite candidate has been estimated and found non-viable.
+- A viable rewrite always lands in DEFERRED or below (viable means `zone < z` and `z ≤ OVER`), so the precondition of `deliver` holds.
+- `best(viable)` selects the lowest zone; ties are broken by rule order in the `rewrites` list (strategy, depth limit, cone), then by lowest `cost_estimate`. The warning describes the rewrite actually returned.
+- A SYNC plan is never rewritten: no cheaper zone exists.
+
+**SAMPLE branch.** `sampling_plan(plan, budget)` returns a sampled plan only when all of S1–S4 hold; otherwise it returns `NONE` and the gate moves on to CLARIFY.
+
+```
+S1  plan is a snapshot query with Band 2, empty GroupBy, no Having and no Band 3; not a Q_delta.
+S2  The aggregated context holds exactly one tuple per anchor node (no fan-out Join),
+    so the sampling unit is the aggregation unit.
+S3  Every aggregate is covered by the guarantee:
+      (a) AVG(PropRef p) with Where = TRUE, where the schema declares a finite range [lo, hi] for p; or
+      (b) COUNT(*) under an arbitrary Where φ, reported as the proportion of anchor nodes satisfying φ.
+    Observed minima and maxima in GraphStatistics are not a declared range.
+S4  |A|, the anchor cardinality, is known from GraphStatistics, and with
+      n* = ⌈ ln(2k / SAMPLE_DELTA) / (2 · SAMPLE_MAX_ERROR²) ⌉      -- k = number of aggregates
+      f* = n* / |A|
+    both n* < |A| and zone(cost(sample(plan, f*)), budget) ≤ DEFERRED hold.
+
+sampling_plan returns (fraction = f*, plan = sample(plan, f*)).
+```
+
+Data required: `GraphStatistics` anchor cardinality, the declared value range of every averaged property, and a cost estimate for the sampled plan. The gate emits `method=RANDOM` — uniform sampling of anchor nodes without replacement. `STRATIFIED` and `RESERVOIR` remain members of the type for callers that configure sampling explicitly; the gate does not derive an `error_bound` for them.
+
+`error_bound` is stated on the range-normalised scale and holds jointly for all `k` aggregates with probability at least `confidence`: ±`error_bound · (hi − lo)` for an average, ±`error_bound` for a proportion, ±`error_bound · |A|` for the count recovered from it. No bound is promised for anything outside S3 — SUM, MIN, MAX, PROD, distinct counts, PathAgg, TemporalAgg, grouped or windowed aggregates, row-level results, and TrailExpr/GraphExpr values. A plan containing any of these is not sampled by the gate; it is clarified instead.
+
+**CLARIFY branch.** `clarification_options(plan, budget)` returns refinements of the submitted question; the gate asks the user to choose rather than approximating whenever no guarantee covers the query.
+
+```
+C1  Each option is a single descent step in L(G_AB) produced by the recommender (§7)
+    and is BDD-valid.
+C2  Each option o is executable: zone(o.cost_estimate, budget) ≤ DEFERRED.
+
+Options are ordered by zone, then cost_estimate ascending, then recommender rank,
+and truncated to MAX_CLARIFY_OPTIONS. cost_per_option[i] is the cost of options[i].
+```
+
+Data required: the recommender's refinement candidates and `GraphStatistics.path_cardinality` for their cost estimates. Fallback: when no option satisfies C1–C2 the gate returns `REJECT`. An option chosen by the user is a new question and is submitted to `gate()` as such; by C2 it is executable, so the exchange ends in a delivery or a `REWRITE`.
+
+**Decision precedence.** `REJECT` (hard ceiling) › `REWRITE` › `SAMPLE` › `CLARIFY` › `REJECT` (fallback) › `ASYNC` › `STREAM` › `PAGINATE` › `PROCEED`. SAMPLE, CLARIFY and the fallback REJECT are reachable only in the OVER zone.
+
+**Boundary cases.** Normative for any implementation of `gate()`. Budget: `streaming_threshold = 100`, `async_threshold = 1 000`, `max_estimated_cost = 10 000`, `HARD_CEILING_FACTOR = 2` (hard ceiling 20 000); rows within `max_result_rows` unless stated.
+
+| # | `est` | Rewrite candidates | S1–S4 | Options (C1–C2) | Decision |
+|---|---:|---|---|---|---|
+| T1 | 100 | — | — | — | `PROCEED` — equals `streaming_threshold`, stays SYNC |
+| T2 | 100, rows over limit | — | — | — | `PAGINATE` |
+| T3 | 101 | none | — | — | `STREAM` |
+| T4 | 1 000 | none | — | — | `STREAM` — equals `async_threshold` |
+| T5 | 1 001 | none | — | — | `ASYNC` |
+| T6 | 10 000 | none | — | — | `ASYNC` — equals `max_estimated_cost` |
+| T7 | 5 000 | SHORTEST → 80 | — | — | `REWRITE(then=PROCEED)` |
+| T8 | 5 000 | SHORTEST → 600 | — | — | `REWRITE(then=STREAM)` |
+| T9 | 5 000 | SHORTEST → 1 200 | — | — | `ASYNC` — rewrite stays in DEFERRED, not viable |
+| T10 | 15 000 | cone → 900 | hold | 2 options | `REWRITE(then=STREAM)` — rewrite precedes SAMPLE |
+| T11 | 15 000 | cone → 12 000 | hold, sampled cost 40 | 2 options | `SAMPLE(then=PROCEED)` — rewrite stays in OVER |
+| T12 | 15 000 | none | fail (GroupBy present) | costs 700, 4 000 | `CLARIFY`, options in that order |
+| T13 | 15 000 | none | fail | none | `REJECT` — fallback |
+| T14 | 20 000 | none | fail | 1 option | `CLARIFY` — equals the hard ceiling, still OVER |
+| T15 | 20 001 | SHORTEST → 50 | hold | 2 options | `REJECT` — hard ceiling precedes; nothing else is evaluated |
+
+Budgets rejected at construction: `streaming_threshold = 200, async_threshold = 100` (inverted); `streaming_threshold = −1` (negative); `async_threshold = 20 000, max_estimated_cost = 10 000` (above the ceiling); any threshold NaN or ∞. A budget with `streaming_threshold = async_threshold = 100` is valid: `est = 100` gives `PROCEED` and `est = 101` gives `ASYNC`.
 
 **Four graceful handling strategies:**
 
@@ -1124,21 +1266,27 @@ Per-depth streaming for PathPred(ALL):
   depth=3 complete → deliver: "2,340 nodes reachable (converged)"
 ```
 
-**Strategy 3 — Sampling with error bounds.** Applied at the `Anchor` step in Band 1. The error bound is computed from the sampling fraction via Hoeffding's inequality. For `GraphExpr` algorithms, provably approximate variants are substituted.
+**Strategy 3 — Sampling with error bounds.** Applied at the `Anchor` step in Band 1, and only to plans that satisfy S1–S4 above. The sample size is derived from the target error via Hoeffding's inequality for the mean of range-normalised values, with `n = f · |A|` anchor nodes drawn uniformly without replacement.
 
 ```
-Sampling:
-  anchor_sample = SAMPLE(N_AB, fraction=f, method=STRATIFIED)
-  error_bound   = sqrt(log(2/δ) / (2 * f * |N_AB|))   -- Hoeffding
-  -- returned with: "Estimated (±{error_bound*100:.1f}% at 95% confidence)"
+Sampling (k aggregates, δ = SAMPLE_DELTA, ε = SAMPLE_MAX_ERROR):
+  n*            = ceil(log(2k/δ) / (2 * ε²))           -- Hoeffding, union bound over k
+  anchor_sample = SAMPLE(A, fraction = n*/|A|, method=RANDOM)
+  error_bound   = sqrt(log(2k/δ) / (2 * n*))  ≤  ε
+  -- k=1, δ=0.05, ε=0.05  →  n* = 738
+  -- returned with: "Estimated (±{error_bound*100:.1f}% of range at 95% confidence)"
+```
 
+`GraphExpr` algorithms are not sampled by the gate. Their approximate variants are substituted by the PreComputation timeout guard (`substitute_approximation`) or by a rewrite rule, and carry the accuracy statement of the substituted algorithm — not the Hoeffding bound above, and not a `SAMPLE` decision.
+
+```
 GraphExpr approximations:
   BETWEENNESS_CENTRALITY  →  Monte Carlo approximation (k=200 samples)
   PAGE_RANK               →  power iteration with ε=0.01 convergence threshold
   SIGNATURE_ENTROPY       →  reservoir sample of path instances (k=1000)
 ```
 
-**Strategy 4 — Async execution with materialisation.** Above `async_threshold`, the query is scheduled as a `PipelineArtifact` (§2.4) — the result is written to a `SinkTarget` and the query DAG node id is the cache key. The user receives an immediate acknowledgement; subsequent identical questions are answered from the cached result.
+**Strategy 4 — Async execution with materialisation.** In the DEFERRED zone (cost above `async_threshold`, at most `max_estimated_cost`), once no viable rewrite exists, the query is scheduled as a `PipelineArtifact` (§2.4) — the result is written to a `SinkTarget` and the query DAG node id is the cache key. The user receives an immediate acknowledgement; subsequent identical questions are answered from the cached result.
 
 ```
 Async lifecycle:
@@ -1152,7 +1300,7 @@ WritePlan inferred from ADAPTIVE mode (PipelineArtifact Rule 10):
   Re-run after stale: WritePlan(mode=MERGE)
 ```
 
-**Clarification messages are lattice refinements.** When `CLARIFY` is returned, the options are not generic suggestions — they are specific BDD-valid descent steps in `L(G_AB)` that bring the query within the `streaming_threshold`:
+**Clarification messages are lattice refinements.** When `CLARIFY` is returned, the options are not generic suggestions — they are specific BDD-valid descent steps in `L(G_AB)` that bring the query back within `max_estimated_cost` (conditions C1–C2), cheapest first:
 
 ```
 Example clarification for Free→Free query over dense G:
@@ -3012,7 +3160,7 @@ Novel contributions added in v0.26: §8.16 Vocabulary decomposition and analytic
 **D22** — DGM shares the graph primitive with RDF but diverges above it. The triple / typed directed labeled edge is the correct foundational structure — DGM and RDF arrived at it independently. The divergence is complete above that primitive: DGM adds the dim/fact typed split, the three-band analytical query structure, the annotation-driven planner, CTL/LTL temporal logic, trail space analysis, and the question completeness theorem — none of which exist in ontological tooling.
 **D23** — CTE composition extends `Q_valid` to `Q_algebra` (Datalog-equivalent, PTIME-bounded). The BDD covers single-query predicate optimisation; cross-CTE CSE (Rule 11) extends it to multi-query scope. The D17 restriction (no `Free→Free` in `Where PathPred`) is not arbitrary — it is the boundary that keeps `Q_algebra` within PTIME. Allowing unrestricted fixpoints in the filter position would push DGM toward the complexity class of stratified Datalog with negation, where decidability is more fragile.
 **D24** — The query DAG canonical form is the composition-level analogue of the BDD. The analogy is exact: variable ordering ↔ dependency partial order; sharing rule ↔ CSE; elimination rule ↔ semiring laws. Containment-based elimination is applied only for Band 1 leaf nodes (NP-complete but tractable in practice). For Band 2/3 nodes, only syntactic laws are applied — this is the conservative choice that preserves correctness at the cost of some missed simplifications. Cross-session caching via DAG node id is the semantic-level generalisation of SQL text caching; it correctly identifies equivalent questions expressed in different syntactic forms.
-**D25** — The pre-execution gate produces `BudgetDecision` rather than raising errors or blocking. Every failure mode has a graceful path: cost explosion → rewrite or clarify; result explosion → paginate; slow pre-computation → approximate; very expensive → async. `REJECT` is reserved for hard ceilings only — most queries reach `PROCEED`, `STREAM`, or `REWRITE`. The clarification path surfaces lattice refinements, not generic "simplify your query" messages — this is only possible because `Q_valid(A, B)` is formally defined.
+**D25** — The pre-execution gate produces `BudgetDecision` rather than raising errors or blocking. Every failure mode has a graceful path: cost explosion → rewrite or clarify; result explosion → paginate; slow pre-computation → approximate; very expensive → async. `REJECT` is reserved for the hard ceiling and for the terminal fallback of a query above `max_estimated_cost` that admits no rewrite, guaranteed sample or refinement — most queries reach `PROCEED`, `STREAM`, or `REWRITE`. Rewriting precedes the choice of delivery mode; sampling is offered only where its error guarantee applies, and clarification otherwise. The clarification path surfaces lattice refinements, not generic "simplify your query" messages — this is only possible because `Q_valid(A, B)` is formally defined.
 **D26** — The NL interface does not generate queries from the LLM. It navigates a formally bounded question space. The LLM's five responsibilities are each a constrained mapping task — entity resolution against a closed vocabulary, candidate ranking over pre-validated options, pattern classification to a closed CTL vocabulary, compositional detection, and structured explanation rendering. This architecture prevents the two failure modes of SQL-generation NL interfaces: hallucinated schema references (prevented by closed PropRef vocabulary) and semantically invalid queries (prevented by BDD-validated candidates).
 **D27** — LangGraph is chosen for the NL interface workflow and Pydantic-AI for each specialist agent.
 **D28** — The DGM/RDF relationship is one of convergence on the graph primitive and divergence on everything above it. RDF 1.2's triple terms narrow the N-ary event representation gap (axis vi), making the solutions more structurally similar than in RDF 1.1. DGM's position is not that RDF is wrong, but that it is underconstrained for analytical purposes: DGM adds the type invariant that RDF leaves as convention, the operational annotation layer that RDF leaves as assertions, the three-band query language that SPARQL leaves incomplete, and the formal question space that SPARQL relaxation research approximates from below. As RDF 1.2 matures, the DGM SPARQL exporter target (§6.4) becomes a more faithful representation — triple terms enable cleaner encoding of fact nodes in SPARQL output. This pairing is structurally forced, not arbitrary. LangGraph handles the two properties that linear pipelines cannot: stateful cyclic workflows (the refinement and clarification cycles) and human-in-the-loop checkpoints with multi-turn state persistence. Pydantic-AI handles the two properties that unstructured LLM calls cannot: closed-vocabulary output enforcement (DGM formal types as Pydantic schemas) and bounded retry on validation failure. The majority of the LangGraph graph nodes (6 of 11) are deterministic non-LLM DGM computation — only 5 nodes invoke LLMs, each with a formally bounded output type. This ratio is intentional: the more computation that is formal and deterministic, the fewer guarantees depend on LLM reliability. The triple / typed directed labeled edge is the correct foundational structure — DGM and RDF arrived at it independently. The divergence is complete above that primitive: DGM adds the dim/fact typed split, the three-band analytical query structure, the annotation-driven planner, CTL/LTL temporal logic, trail space analysis, and the question completeness theorem — none of which exist in ontological tooling. DGM is an analytical graph model; ontologies are knowledge representation languages. The relationship is complementary, not competitive: DGM can export to SPARQL as one execution target.
