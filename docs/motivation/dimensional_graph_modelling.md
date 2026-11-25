@@ -411,6 +411,21 @@ The current state is thus a projection of the transition history: a snapshot at 
 
 `write_mode`: BACKFILL → always APPEND; REFRESH → always MERGE (atomic swap); ADAPTIVE → inferred from state (planner Rule 10).
 
+**Execution protocol (D46; ADR 0005).** Planning produces `WritePlan`s and `TransitionPlan`s and writes nothing. An authorised runtime executes a plan in four steps:
+
+1. *Validate.* The plan id, artifact, sink and operation are those of the plan. The principal holds `WRITE` (§12.10). The proposed transition is a row of δ from the artifact's current state. Any failure rejects the plan, and nothing is written.
+2. *Dispatch.* Append the `scheduled` transition (ON_DISPATCH) under its `idempotency_key`.
+3. *Write.* Execute the `WritePlan`, tagged with `write_id = H(plan id, artifact_key, window_start, window_end)`.
+4. *Record.* Append `succeeded` if the write committed, `failed` otherwise.
+
+Steps 3 and 4 must be atomic with respect to failure:
+
+- If the sink and the transition table are in one transactional store, such as one DuckDB or one PostgreSQL database, steps 3 and 4 run in one transaction.
+- Otherwise, the write's commit must record `write_id` in commit metadata that the runtime can query. After a failure between steps 3 and 4, recovery looks up `write_id`. If it is present, recovery appends `succeeded`; if it is absent, recovery appends `failed`, and the window can be retried through `Failed —retried→ In-flight`.
+- A sink that offers neither guarantee is `UNSUPPORTED` for materialisation. The runtime attempts no write; it does not choose another sink, mode or backend.
+
+A retry repeats steps 3 and 4 under the same `write_id`, so a write that already committed is not repeated.
+
 Each artifact covers a window `[window_start, window_end)`; both are non-NULL Timestamp properties of the fact type. `backfill_horizon` bounds how far back a gap is still repaired. With `now` the evaluation instant and `H = backfill_horizon`, a window is **eligible for backfill** iff
 
 ```
@@ -3464,6 +3479,23 @@ Consequences:
 - A source with no watermark is *unversioned*: no key change can reveal that it changed. An entry that depends on one is **not served by default** — the lookup misses and the plan runs (D41; ADR 0011). It is served only when the caller's `CachePolicy.accept_stale` is set and `now − computed_at ≤ accept_stale`; the result then carries `possibly_stale = true` and `computed_at`. No component sets `accept_stale` on the caller's behalf.
 - A plan with sampling includes its seed among the parameters.
 
+**Reading watermarks (D45).** A cached result is correct only if it was computed from exactly the source versions in its key. The runtime therefore reads `W` before executing the plan, and then either:
+
+1. *pins* every read of a source to its version in `W`, where the backend can read at a version; or
+2. reads `W` again after execution and stores the result only if `W` is unchanged. Otherwise the result is returned to the caller but not cached.
+
+Where each backend's watermark comes from; whether a given backend version actually satisfies the requirement is recorded in the conformance matrix (#138):
+
+| Backend | Watermark | Pinned read |
+|---|---|---|
+| Delta table | table version | yes — read at that version |
+| Iceberg table (REST catalog) | current snapshot id | yes — read at that snapshot |
+| DuckDB native table | none built in; a commit counter maintained by the loader, incremented in the same transaction as the change | no — rule 2 |
+| PostgreSQL table | as DuckDB | no — rule 2 |
+| Parquet or CSV files | none; file times are not trusted | — (unversioned) |
+
+A watermark must advance on every committed change that becomes visible and must never move otherwise. A source whose watermark does not satisfy this is treated as unversioned.
+
 Example: revenue by region for 2024 reads `fact_sale` partitions 2024-01 … 2024-12 and `dim_customer`. A load into partition 2025-01 leaves the entry valid; an SCD2 update of `dim_customer` invalidates it.
 
 This enables semantic-level caching: whenever two syntactically different forms of a question reduce to the same canonical DAG, they share a `question_key` and a cached result. SQL text caching cannot achieve this. Forms the normalisation does not identify are cached separately; that costs a recomputation and never returns a wrong result.
@@ -4275,6 +4307,14 @@ Pipeline lifecycle unification: each layer transition is modelled by a `Pipeline
 
 **D42** — The supervisor and the NL interface fail closed. `SUCCEEDED` means the contract was executed; an empty result is a success only after complete execution; missing capability, configuration or grant is reported as `NOT_IMPLEMENTED`, `UNSUPPORTED` or `UNAUTHORIZED`. The degrade route and `degrade_to` are removed: a REJECTED step is recovered only by a validated replan or ends the run. The NL graph runs only with all fourteen components and never with stub nodes. Recorded in `docs/adr/0012-supervisor-and-nl-fail-closed.md`.
 
+**D43** — Each of the nine supervisor tools has a contract table entry (§12.3): what it executes, what a success holds, when an empty result is legitimate, and its typed failures. Enumeration is bounded by explicit arguments and reports `complete`; a sweep runs exactly the listed values; an invariant check reports `holds` only after complete evaluation. These entries are the conformance target of #129 and #132–#134.
+
+**D44** — Authorization (§12.10) applies to every entry point that touches data — NL interface, query API, result cache and PipelineArtifact executor — not only to the supervisor. A call without an `AuthContext` is refused. Writes and transition appends require the new `WRITE` action.
+
+**D45** — Watermarks are read before execution; a result is cached only if its reads were pinned to those versions or the watermarks are unchanged afterwards. The source of each backend's watermark is tabulated in §8.14, and a source whose watermark is not monotonic is unversioned.
+
+**D46** — A PipelineArtifact plan is executed by a four-step protocol (validate, dispatch, write, record). The write and its terminal transition are atomic, either in one transaction or through a `write_id` that recovery can find. A sink with neither guarantee is unsupported for materialisation; there is no fallback sink. Extends ADR 0005.
+
 ### 10.5  References
 
 [1] Chen, C., et al. (2008). Graph OLAP: Towards Online Analytical Processing on Graphs. *ICDM 2008*. https://doi.org/10.1109/ICDM.2008.45
@@ -4338,7 +4378,7 @@ Version history of this specification. Earlier versions than v0.16 are not recor
 
 **v0.26** — §8.16 Vocabulary decomposition and analytical space characterisation — six vocabularies (`V_N`, `V_E`, `V_P`, `V_Pred`, `V_Op`, `V_Par`); factored size estimate via multiplicative decomposition; four-level hierarchy (see the superseded note at the end of this entry); semantic sparsity and effective analytical space `A_eff`; semantic basis as minimal generating set; polynomial neighbourhood bound; per-level navigation strategies for recommender and NL interface; worked example for BookClub `social_network` domain. *Superseded:* this entry originally described a hierarchy "term → phrase → sentence → paragraph" and gave a 14-element semantic basis and ~2.3 k effective questions; the body of v0.26 uses the Structure / Predicate / Parameter / Operator hierarchy of §8.16.3 and estimates ~6.0 × 10⁵ effective questions (§8.16.8), which are the figures in force. §8.11 cross-reference to §8.16.6–8.16.7 for size characterisation. §7.7 cross-reference to §8.16.5–8.16.6 for formal basis justification. §12 Supervisor Agent Architecture — six agent-safe properties; five-point tool contract (`BaseTool` ABC: `capability_schema`, `cost_estimate`, `execute`, `compose`, `explain`); nine core tools (`dgm_query`, `what_can_i_answer`, `correlate`, `explore_from`, `sensitivity_sweep`, `validate_invariant`, `store_finding`, `retrieve_related`, `map_analytical_space`); `TOOL_REGISTRY` dict; five-node LangGraph supervisor graph (plan → select_tool → execute_tool → synthesize → respond); budget propagation via `budget_fraction` on `ToolCallRequest`; six supervisor workflows (single-domain, cross-domain, hypothesis-driven, exhaustive-survey, validation, meta-analytical); knowledge base with lattice-adjacent retrieval keyed by `(A, B, q, π)`; meta-tool operationalising §8.11 question completeness; relationship to §7 recommender as supplier of `Q_valid`/lattice to supervisor navigation.
 
-**v0.27 (in progress)** — Revision of v0.26 in response to the review tracked in issues #21–#96. Decisions are recorded as D31–D39 (§10.4) and in `docs/adr/0001`–`0009`; each change is linked to its issue in the pull request that made it. The conformance audit tracked in issue #141 adds the fail-closed rules: gate substitutions are opt-in (D40), unversioned cache entries are opt-in (D41), and the supervisor and NL interface fail closed without a degrade route (D42); `docs/adr/0010`–`0012`.
+**v0.27 (in progress)** — Revision of v0.26 in response to the review tracked in issues #21–#96. Decisions are recorded as D31–D39 (§10.4) and in `docs/adr/0001`–`0009`; each change is linked to its issue in the pull request that made it. The conformance audit tracked in issue #141 adds the fail-closed rules: gate substitutions are opt-in (D40), unversioned cache entries are opt-in (D41), and the supervisor and NL interface fail closed without a degrade route (D42); `docs/adr/0010`–`0012`. It also closes specification gaps found by the audit: per-tool contracts (D43), authorization at every entry point (D44), watermark reading (D45) and the PipelineArtifact execution protocol (D46).
 
 ---
 
@@ -5204,7 +5244,7 @@ AuthContext(
   tenant_id:    str,
   grants:       frozenset[DatasetGrant])
 
-DatasetGrant(dataset_id: DatasetId, actions: frozenset[READ | CORRELATE | WRITE_KB])
+DatasetGrant(dataset_id: DatasetId, actions: frozenset[READ | CORRELATE | WRITE_KB | WRITE])
 ```
 
 **Capability schema.** Declared by each tool, fixed at startup.
@@ -5251,7 +5291,9 @@ ToolCallResult(
   started_at:   Timestamp | None,
   finished_at:  Timestamp | None)
 
-ToolError(kind: ToolErrorKind, message: str, retryable: bool)
+ToolError(kind: ToolErrorKind, message: str, retryable: bool,
+          context: dict)                     -- structured detail: the violated rule, the offending argument,
+                                             -- the missing component, work completed before the failure
 
 ToolErrorKind ::= UNKNOWN_TOOL | INVALID_ARGUMENTS | UNAUTHORIZED
                 | NOT_IMPLEMENTED                    -- the capability is not implemented or not configured here
@@ -5364,6 +5406,22 @@ Where the interactive interface would ask the user to confirm a candidate, the n
 | `dgm_map_analytical_space` | Map vocabulary decomposition | §8.16 computation | `/dataset` | no | yes |
 
 `dgm_store_finding` is idempotent only through its key: storing the same finding twice under one `idempotency_key` stores it once.
+
+**Per-tool contracts (D43).** Arguments are validated against `input_schema` before anything runs; `data` is present only on SUCCEEDED (§12.2). For each tool: what it executes, what `data` holds, when an empty result is legitimate, and its tool-specific failures. A case not listed is a `TOOL_FAILURE`; no case is answered by running something else.
+
+| Tool | Arguments | Executes | `data` on SUCCEEDED | Empty is legitimate when | Tool-specific failures |
+|---|---|---|---|---|---|
+| `dgm_query` | `dataset`, `utterance` | one non-interactive NL turn (`run_ask_from_source`) | `NLTurnResult`; for `ASYNC`, the accepted `job` and `rows = None` | the executed plan returned no row | utterance not grounded (§12.8) → `INVALID_ARGUMENTS`, unresolved terms in `context`; gate `REJECT`/`CLARIFY` → REJECTED |
+| `dgm_what_can_i_answer` | `dataset`, `anchors` (required), `max_hops ≤ MAX_ENUM_HOPS`, `limit ≤ MAX_ENUM_QUESTIONS` | the enumeration of §8.11 (theorem, part 1) restricted to skeletons of `Q_valid(anchors)` whose connecting paths have at most `max_hops` edges; parameters are not enumerated | `questions` (`question_key` and a skeleton summary, in enumeration order), `complete` — true iff the bounded domain was exhausted before `limit` — and the bounds used | the bounded domain has no valid skeleton; then `complete = true` | `anchors` missing or not an anchor set (AS1–AS3) → `INVALID_ARGUMENTS`; no default anchor set is chosen and the domain is never widened |
+| `dgm_map_analytical_space` | `dataset`, `utterance?` | the vocabulary decomposition of §8.16 from `G_S`, `K_S` and `Σ`; with an utterance, the grounding check of §12.8 | the six vocabularies with members and sizes (`V_Par` as parameter families and their domains), the anchor sets admissible under AS1–AS3 up to `MAX_ANCHORS`, and the §12.8 answer if an utterance was given | never: a dataset with a schema has non-empty `V_N` | — |
+| `dgm_correlate` | `left`, `right` (call ids of SUCCEEDED `dgm_query` results), `keys` | a drill-across of the two results (§5.2.2, Rule 12): FULL OUTER JOIN on `keys` | the joined rows, with DA4 for a side that has no row | both inputs are empty | a key not declared `Conformed` for both results' fact types, a key that is not a GroupBy key of both, or different GroupBy key sets (grain) → `INVALID_ARGUMENTS` naming the DA rule; an input without rows (`ASYNC`) → `UNSUPPORTED`; no other key, grain or dataset is tried |
+| `dgm_explore_from` | `source` (call id), `limit ≤ MAX_EXPLORE` | the structural moves of §8.16.6 from the source skeleton, each checked for membership in `Q_valid` | `suggestions`: question key, the move, its parameters and the reason, ordered by recommender score (§7) then `question_key` | no move from the source yields a valid skeleton | source not SUCCEEDED or without a `question_key` → `INVALID_ARGUMENTS` |
+| `dgm_sensitivity_sweep` | `source` (call id), `parameter`, `values` (1…`MAX_SWEEP_POINTS`) | the source question at every listed value, in order; the gate is consulted once for the total cost before the first execution | `points`: (value, rows or job) for every value | never: each point is reported | a value outside `Π_valid(q)` → `INVALID_ARGUMENTS` naming it; total cost over the child budget → REJECTED, nothing executed; a point that fails → FAILED with the completed values in `context`. No value is skipped, sampled or chosen by the tool. Level 3 guidance (§8.16.7) may inform the planner's choice of `values`, which is then visible in the request. |
+| `dgm_validate_invariant` | `dataset`, `invariant`, `max_witnesses ≤ MAX_WITNESSES` | evaluation of one invariant over every instance in its scope | `holds`, `checked` (instances examined), `violation_count`, `violations` (up to `max_witnesses` witnesses) | — | `invariant` outside `H1`–`H3`, `PARTITION` (the structural invariants of §2.1), `M1`–`M7`, `PA1`–`PA4` → `INVALID_ARGUMENTS`; `PA*` on a dataset with no PipelineArtifact type → `INVALID_ARGUMENTS`; evaluation not completed → FAILED or REJECTED. `holds` is never set without complete evaluation. |
+| `dgm_store_finding` | `finding` with `(q, π)`, datasets and content | durable write to the tenant's knowledge base (§12.7) | `finding_id = H(tenant_id, idempotency_key)` | — | dataset not granted → `UNAUTHORIZED` (§12.10) |
+| `dgm_retrieve_related` | `dataset`, `(q', π')`, `k` | the breadth-first retrieval of §12.7 | findings in the total order of §12.7, with `d_S` and `d_P` | no granted finding lies within `k` | — |
+
+`MAX_ENUM_HOPS`, `MAX_ENUM_QUESTIONS`, `MAX_EXPLORE`, `MAX_SWEEP_POINTS` and `MAX_WITNESSES` are policy constants of the deployment. A request above one is `INVALID_ARGUMENTS`; it is not truncated silently.
 
 ### 12.4  Supervisor graph
 
@@ -5502,6 +5560,14 @@ The supervisor's `dgm_explore_from` tool wraps the recommender (§7) as a first-
 The polynomial neighbourhood bound (§8.16.6) guarantees that each `dgm_explore_from` call returns a manageable number of suggestions, preventing the supervisor from being overwhelmed by the combinatorial space.
 
 ### 12.10  Authorization and dataset isolation
+
+**Scope (D44).** The rules of this section apply to every entry point that reads, enumerates, caches, persists or writes data — the NL interface of §11 used directly, the query API, the result cache of §8.14 and the PipelineArtifact executor of §2.4 — and not only to the supervisor. Each entry point receives an `AuthContext` from the host. A call without one is refused with `UNAUTHORIZED` before any data is touched; there is no anonymous or default context, and no component builds one from request arguments.
+
+| Operation | Required on every dataset involved |
+|---|---|
+| execute a query, read a cached result | `READ` |
+| enumerate or map the question space | `READ` |
+| execute a `WritePlan` or append a transition fact (§2.4) | `WRITE` on the sink and on the dataset that holds the artifact's transitions |
 
 **Identity.** Every run carries one `AuthContext` (§12.2), built by the host from the authenticated session before the supervisor starts. It lives in the runtime context: it is not part of the checkpointed state, not part of any model input or output, and not a field the planner can set. Planner output that names a principal, tenant or grant is ignored.
 

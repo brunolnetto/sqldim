@@ -54,3 +54,4 @@ TransitionPlan(
 - Rule 10 produces `TransitionPlan`s and `WritePlan`s instead of "appending" transitions.
 - §6.3 Strategy 4 describes what the runtime does with an ASYNC decision; the gate itself schedules nothing.
 - A deployment without an authorised runtime can still plan and inspect pipelines, but nothing is materialised.
+- *Extended by D46 (issue #141):* §2.4 now fixes the runtime's four-step execution protocol — validate, dispatch, write, record. The write and its terminal transition are atomic, either in one transaction or through a `write_id` found on recovery. A sink without either guarantee is `UNSUPPORTED` for materialisation. "A separate grant from READ" is the `WRITE` action of §12.10.
