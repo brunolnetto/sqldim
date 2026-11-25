@@ -253,7 +253,7 @@ SchemaAnnotation ::=
   | DerivedFact(f: F_S, sources: list[F_S], expr: Expr)
   | WeightConstraint(b: B_S, constraint: ALLOCATIVE | UNCONSTRAINED)
   | BridgeSemantics(b: B_S, sem: CAUSAL|TEMPORAL|SUPERSESSION|STRUCTURAL)
-  | Hierarchy(root: D_S, depth: ℕ | RAGGED)
+  | Hierarchy(root: D_S, depth: ℕ | RAGGED, via?: L)
   -- Pipeline annotations
   | PipelineArtifact(f: F_S,
                      pipeline_id: K,
@@ -269,6 +269,8 @@ SchemaAnnotation ::=
 Key annotation semantics:
 
 **Conformed(d, fact_types)** — d reachable via verb edges from each fact type. Enables constellation paths. Bound→Free TrailExpr can discover candidates empirically.
+
+**Hierarchy(root, depth, via)** — `root` carries a self-referential bridge edge type `(root, root, via) ∈ B_S` relating a member to its parent. `via` may be omitted when `root` has exactly one self-referential bridge edge type. `depth = n` declares at most n levels; `RAGGED` declares no fixed depth. Traversal is written with Repeat (§3.2).
 
 **Grain(f, grain)** — EVENT: additive; PERIOD: state (SUM invalid); ACCUMULATING: lifecycle row.
 
@@ -314,6 +316,7 @@ Path ::= NodeRef(n: N_S)
        | VerbHop⁻¹(f: F_S, label: L, d: D_S)    -- reverse: fact → dim (query-time)
        | BridgeHop(n₁: N_S, label: L, n₂: N_S)
        | Compose(Path, Path)
+       | Repeat(path: Path, min: ℕ, max: ℕ | UNBOUNDED, mode?: RepeatMode)    -- §3.2
 ```
 
 A **path instance** of a pattern π is a sequence of node and edge instances of G_I whose image under h is π, hop by hop. Patterns are finite objects of the schema; the number of instances of a pattern depends on the data.
@@ -328,6 +331,10 @@ BoundPath ::= NodeRef(n: N_S)
             | VerbHop⁻¹(f,label,d, node_alias?,edge_alias?)
             | BridgeHop(n₁,label,n₂, node_alias?,edge_alias?)
             | Compose(BoundPath, BoundPath, temporal?: TemporalOrdering)
+            | Repeat(path: BoundPath, min: ℕ, max: ℕ | UNBOUNDED,
+                     mode?: RepeatMode, depth_alias?: A)
+
+RepeatMode ::= SIMPLE | TRAIL | WALK        -- default SIMPLE
 
 TemporalOrdering ::=
   -- Point-based:
@@ -355,6 +362,68 @@ Compose(VerbHop⁻¹(f₁,verb₁,dim,node_alias=shared_dim),
 ```
 
 Alias uniqueness enforced at construction: C ∩ L ≠ ∅ rejected.
+
+**Repetition.** `Repeat(path, min, max)` matches `path` traversed k times in sequence for some k with min ≤ k ≤ max. It is the only recursion construct of BoundPath: variable-depth traversal, transitive closure and ragged hierarchies are all written with it.
+
+```
+Repeat(p, 0, UNBOUNDED)     -- 0..N hops: reflexive-transitive closure
+Repeat(p, 1, UNBOUNDED)     -- 1..N hops: transitive closure
+Repeat(p, m, n)             -- bounded interval, m ≤ n
+Repeat(p, n, n)             -- exactly n
+```
+
+Well-formedness, checked at construction on the schema graph:
+
+```
+R1  The body p ends at the node type it starts from, so that it composes with itself.
+R2  0 ≤ min ≤ max and max ≥ 1. UNBOUNDED is admitted only as max.
+R3  The body contains no Repeat. Repeats may follow one another under Compose.
+R4  mode = WALK requires a finite max.
+```
+
+`mode` fixes what an instance may revisit *within the repeated segment*:
+
+| Mode | Node instance repeated | Edge instance repeated | With `UNBOUNDED` |
+|---|---|---|---|
+| SIMPLE (default) | no | no | terminates: at most `|N_I| − 1` iterations |
+| TRAIL | yes | no | terminates: at most `|E_I|` iterations |
+| WALK | yes | yes | rejected (R4) — a cycle would give infinitely many instances |
+
+A cycle in the data therefore never makes a Repeat diverge: under SIMPLE and TRAIL the cycle is traversed at most once per instance, and under WALK the iteration count is bounded by `max`. Independently of the mode, an implementation enforces a ceiling `MAX_REPEAT_DEPTH` on the iteration count. A traversal cut by the ceiling rather than by exhaustion is reported as truncated; it is never returned as if complete.
+
+With `min = 0` the zero-iteration instance is the start node alone, with no edge.
+
+**Aliases under Repeat.** An alias declared inside the body is bound once per iteration. Inside the path — in a `sub_filter`, a `PathAgg` argument or a TemporalOrdering — it denotes the node or edge of the current iteration, and each iteration's end node is one evaluation position (§4.1), in iteration order; with `min = 0` the start node is the first position. Outside the path, a body `node_alias` denotes the node at which the instance ends: the last iteration's end node, or the start node for zero iterations. A body `edge_alias` is not visible outside the path. `depth_alias` binds the iteration count k of the instance, of type Int, and has the same visibility as the body `node_alias`.
+
+**Strategy.** Strategy (§3.3) selects among the instances of the whole BoundPath after repetition is expanded: ALL keeps every instance of every admitted length; SHORTEST and K_SHORTEST order instances by total hop count; MIN_WEIGHT by total bridge weight. Strategy does not change `mode`.
+
+**Hierarchies.** `Hierarchy(root, depth, via)` (§2.4) names a self-referential bridge edge type `(root, root, via) ∈ B_S`. Its traversal is a Repeat over that hop:
+
+```
+Hierarchy(root, depth = n, via)     ↦  Repeat(BridgeHop(root, via, root), 1, n)
+Hierarchy(root, RAGGED,    via)     ↦  Repeat(BridgeHop(root, via, root), 1, UNBOUNDED, mode=SIMPLE)
+```
+
+Example — a ragged reporting line, every manager above an employee with the number of levels between them:
+
+```
+-- Σ: Hierarchy(Employee, RAGGED, via='reports_to')
+Join: Anchor(Employee, e)
+      PathJoin(e,
+               Repeat(BridgeHop(Employee, 'reports_to', Employee, node_alias=mgr),
+                      min=1, max=UNBOUNDED, mode=SIMPLE, depth_alias=lvl),
+               mgr)
+GroupBy: [ e.id ]
+Agg: levels_to_top := MAX(lvl)
+
+-- "reports, at any distance, to a vice-president":
+PathPred(e,
+         Repeat(BridgeHop(Employee, 'reports_to', Employee, node_alias=m), 1, UNBOUNDED),
+         EXISTS, ALL, EVENTUALLY,
+         ScalarPred(PropRef(m.title), (= "VP")))
+```
+
+Reachability operators — `TrimJoin(REACHABLE_FROM | REACHABLE_TO | REACHABLE_BETWEEN)` and TrailExpr with `max_depth` — are not path patterns. They range over every edge type of the subgraph and are defined by reachability (§3.4), not by a BoundPath; they do not provide a second way to write a recursive pattern.
 
 ### 3.3  Path strategy and lattice
 
@@ -1188,8 +1257,9 @@ for each having_pred:
 **Rule 5 — Hierarchy execution:**
 
 ```
-Hierarchy(depth ≤ 4): unroll CTE into fixed-depth join chain
-Hierarchy(RAGGED):    recursive CTE with depth limit
+Hierarchy(depth ≤ 4): Repeat(hop, 1, depth) unrolled into a fixed-depth join chain
+Hierarchy(RAGGED):    Repeat(hop, 1, UNBOUNDED, SIMPLE) as a recursive CTE with a visited set,
+                      capped at MAX_REPEAT_DEPTH (truncation reported, §3.2)
 |N| > CLOSURE_THRESHOLD: pre-materialised closure table
 ```
 
@@ -1871,7 +1941,7 @@ EXISTS = disjunction/minterms. FORALL = conjunction/maxterms. SHORTEST/MIN_WEIGH
 
 ### 8.6  Finite traversal space
 
-The number of simple path instances in G_I is finite: total ≤ Σₖ |N_I|! / (|N_I|-k)!. BridgeSemantics(CAUSAL): DAG — eliminates cycles. This bounds execution, and grows with the data. The number of path *patterns* is a schema quantity: at most Σ_{j=0}^{k} (2·|E_S|)^j patterns of at most k hops, each hop taking an edge type forwards or (VerbHop⁻¹) backwards.
+The number of simple path instances in G_I is finite: total ≤ Σₖ |N_I|! / (|N_I|-k)!. BridgeSemantics(CAUSAL): DAG — eliminates cycles. This bounds execution, and grows with the data. The number of path *patterns* is a schema quantity: at most Σ_{j=0}^{k} (2·|E_S|)^j patterns of at most k hops, each hop taking an edge type forwards or (VerbHop⁻¹) backwards. A Repeat contributes its body's hops once: `min` and `max` are parameters (§8.15), not part of the pattern.
 
 ### 8.7  RelationshipSubgraph containment lattice
 
@@ -2176,6 +2246,7 @@ Family           Parameters                              Domain
                  per-hop TemporalOrdering                point | Allen | UNTIL/SINCE
 
 Π_strategy       per BoundPath strategy                  {ALL, SHORTEST, K_SHORTEST(k), MIN_WEIGHT}
+                 per Repeat min, max, mode               ℕ; ℕ ∪ {UNBOUNDED}; {SIMPLE, TRAIL, WALK}
                  K_SHORTEST cardinality k                ℕ
 
 Π_filter         per ScalarPred threshold                property domain (ℝ, String, ...)
