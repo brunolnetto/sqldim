@@ -109,7 +109,7 @@ The framework rests on fifteen core ideas:
 - **Natural language interface** — a five-layer architecture mapping NL utterances to formally bounded Q_valid(A,B) positions. The LLM navigates the canonical question lattice rather than generating SQL from scratch.
 - **RDF 1.2 relationship formalised** — DGM and RDF 1.2 converge on the N-ary event representation problem (RDF 1.2 triple terms ≈ DGM fact nodes) while diverging on six formal axes: typed schema invariant, aggregation, operational annotation semantics, CTL temporal logic, trail space analysis, and enforcement strictness. The DGM SPARQL exporter encodes fact nodes more faithfully as RDF 1.2 matures.
 - **LangGraph + Pydantic-AI implementation stack** — five specialist Pydantic-AI agents with output schemas derived from DGM formal types, orchestrated by a LangGraph state graph with explicit HIL checkpoints and cyclic refinement workflows. DGM's bounded vocabulary is enforced as Pydantic validators.
-- **Medallion architecture formally mapped** — DGM sits at the Silver–Gold boundary and extends upward to the Diamond layer. Bronze is the data substrate captured by the `Provenance` annotation; Silver is where the typed graph `G` is constructed; Gold is DGM query execution materialised via `WritePlan` to Delta/Iceberg sinks; Diamond is the formal semantic layer (`Q_valid`, recommender, NL interface, `ExecutionBudget`). The `MedallionLayer` annotation tags each node's layer origin for governance, lineage, and planner quality signalling.
+- **Medallion architecture formally mapped** — DGM sits at the Silver–Gold boundary and extends upward to the Diamond layer. Bronze is the data substrate captured by the `Provenance` annotation (§2.4); Silver is where the typed graph `G` is constructed; Gold is DGM query execution materialised via `WritePlan` to Delta/Iceberg sinks; Diamond is the formal semantic layer (`Q_valid`, recommender, NL interface, `ExecutionBudget`). The `MedallionLayer` annotation tags each node's layer origin for governance, lineage, and planner quality signalling.
 - **Parameter space formalised** — each question `q ∈ Q_valid(A, B)` admits a parameter space `Π(q)` across six families (temporal, strategy, filter, aggregation, window, algorithm). The full analytical capability is the dependent product `A(A, B) = Σ_{q ∈ Q_valid} Π_valid(q)`. Annotation constraints project onto parameter space via `BDD_parametric`; the recommender navigates both structural and parametric dimensions; `ExecutionBudget` evaluates `cost(q, π)` jointly.
 
 ---
@@ -251,7 +251,7 @@ SchemaAnnotation ::=
   | Grain(f: F_S, grain: EVENT | PERIOD | ACCUMULATING)
   | SCDType(d: D_S, scd: SCD1|SCD2|SCD3|SCD6,
              versioned_attrs?: set[K], overwrite_attrs?: set[K], prev_attrs?: set[K])
-  | Degenerate(d: D_S)
+  | Degenerate(f: F_S, key: K)                    -- key ∈ dom K_S(f)
   | RolePlaying(d: D_S, roles: list[L])
   | ProjectsFrom(d_mini: D_S, d_full: D_S)
   | FactlessFact(f: F_S)
@@ -269,6 +269,11 @@ SchemaAnnotation ::=
   | MedallionLayer(n: N_S,
                    layer: BRONZE | SILVER | GOLD | DIAMOND,
                    promoted_at?: Timestamp)
+  -- Provenance annotation
+  | Provenance(target: N_S | E_S,
+               record_source: K,                  -- String property: origin of the instance
+               load_timestamp: K,                 -- Timestamp property: when it was loaded
+               source_version?: K)                -- String property: batch, snapshot or commit of the origin
 ```
 
 Key annotation semantics:
@@ -281,7 +286,38 @@ Key annotation semantics:
 
 **SCDType** — SCD1: strip temporal resolution. SCD2: effective_from/to. SCD3: current/previous props. SCD6: per-attribute policy.
 
-**BridgeSemantics(CAUSAL)** — DAG; drop cycle guard; use DAG BFS on both G and G^T.
+**Degenerate(f, key)** — the property `key` of fact type `f` is a degenerate dimension: a dimensional attribute carried by the fact itself, such as an order or invoice number, with no dimension node type behind it. It is declared in `K_S(f)` and stored as a column of the fact's NodeTable (§2.6). It is referenced as `PropRef(f.key)` and is groupable and filterable like any other fact property. It differs from a regular dimension in what it lacks: no node type, no verb edge, no attributes of its own, no SCD history, and it cannot be an `Anchor`, a path endpoint or the target of `Conformed`.
+
+```
+-- K_S(Sale) ⊇ { order_number: String, revenue: Real, occurred_on: Timestamp }
+-- Σ ∋ Degenerate(Sale, order_number)
+
+Join:    Anchor(Sale, s)
+GroupBy: [ s.order_number ]
+Agg:     lines := COUNT(s),  order_total := SUM(s.revenue)
+-- one row per order; no Order dimension is created
+```
+
+**BridgeSemantics(CAUSAL)** — declares that the instances of the edge type form a DAG. The declaration is a claim about the data and is validated, not assumed:
+
+```
+Validation    At ingestion, and before a snapshot is published, the subgraph of G_I formed by all
+              CAUSAL edge instances is checked for cycles by strongly connected components.
+              A component with more than one node, or a self-loop, is a causal cycle.
+
+Outcome       GraphStatistics.causal_acyclic : snapshot version → VALIDATED | VIOLATED(report) | UNKNOWN
+              report = list[(component_id, nodes: list[N_I], edges: list[E_I])]
+              VIOLATED: the batch is rejected and the snapshot is not published as causally valid.
+              UNKNOWN:  validation has not run for that snapshot version.
+
+Traversal     The acyclic optimisation (DAG BFS without a visited set, on G and G^T) is enabled only
+              when causal_acyclic = VALIDATED for the snapshot version being queried. Otherwise CAUSAL
+              edge types are traversed like any other, with cycle prevention.
+              In both cases MAX_REPEAT_DEPTH (§3.2) applies, and a traversal cut by it is reported
+              as truncated.
+```
+
+No rule removes cycle protection without the VALIDATED precondition. `COMMUNITY_LABEL(TARJAN_SCC)` over CAUSAL edges (§7.6) computes the same components as the validation and is the diagnostic for a VIOLATED or UNKNOWN snapshot; it runs with a visited set and terminates on cyclic input.
 
 **PipelineArtifact(f, pipeline_id, ttl, backfill_horizon, write_mode)** — composite annotation. Implies `Grain(f, ACCUMULATING)`. Models five-state machine over `P(x).state ∈ {Missing, In-flight, Complete, Stale, Failed}` for each instance x of the fact type f. Transition bridge edges carry implied BridgeSemantics:
 ```
@@ -293,6 +329,37 @@ Stale      →[rescheduled]→ In-flight   TEMPORAL
 Failed     →[retried]→     In-flight   SUPERSESSION
 ```
 `write_mode`: BACKFILL → always APPEND; REFRESH → always MERGE (atomic swap); ADAPTIVE → inferred from state (planner Rule 10).
+
+Each artifact covers a window `[window_start, window_end)`; both are non-NULL Timestamp properties of the fact type. `backfill_horizon` bounds how far back a gap is still repaired. With `now` the evaluation instant and `H = backfill_horizon`, a window is **eligible for backfill** iff
+
+```
+state ∈ {Missing, Failed}   and   now − H ≤ window_end ≤ now
+```
+
+- The lower bound is inclusive: a window ending exactly at `now − H` is still eligible.
+- The upper bound excludes windows that have not closed yet.
+- A window with `window_end < now − H` is outside the horizon. It is not backfilled; if it is still Missing it violates the SAFETY assertion of Example 6 (§10.1), which uses the complementary strict inequality.
+- `window_end` NULL makes both comparisons UNKNOWN, so the window is not selected; it is a contract violation of the annotation, not a gap.
+- Timestamps are instants and `H` is an elapsed duration (90 days = 90 × 24 h), so eligibility does not depend on the time zone in which a window is displayed. A source that stores zone-less local times is normalised to instants at ingestion.
+
+**Provenance(target, record_source, load_timestamp, source_version)** — states where the instances of a node type or edge type come from. It applies to a type; the provenance itself is per instance, held in the named properties, which must be declared in `K_S(target)` and non-NULL on every instance. For a versioned node type (SCD2, SCD6) each version row has its own values.
+
+- `record_source` identifies the origin: the system and object the instance was read from.
+- `load_timestamp` is when the instance, or version, was recorded. It is transaction time and is independent of `effective_from/to`: a snapshot `G_I(t)` (§2.6) is decided by validity, never by `load_timestamp`.
+- `source_version` identifies the batch, snapshot or commit of the origin that supplied it.
+
+Provenance is not implied by `MedallionLayer`. The layer says how refined a type is; Provenance says which source produced each of its instances. A SILVER type normally carries both.
+
+```
+-- Σ ∋ MedallionLayer(Customer, SILVER)
+-- Σ ∋ Provenance(Customer, record_source = src_system, load_timestamp = loaded_at, source_version = src_batch)
+
+version_key  entity_key  segment    effective_from  src_system      loaded_at             src_batch
+101          C42         retail     2023-01-01      crm.customers   2023-01-01T02:05:00Z  crm-2023-01-01
+102          C42         wholesale  2024-03-01      crm.customers   2024-03-01T02:10:00Z  crm-2024-03-01
+```
+
+Operational consequences: (1) the exporter carries the three properties into `DGM_JSON` output and into every `WritePlan` that copies instances of the target, so provenance survives promotion between layers; (2) the recommender does not offer provenance properties as GroupBy or measure suggestions; (3) `Q_delta` may filter on `load_timestamp` to select what a given load changed.
 
 **MedallionLayer(n, layer, promoted_at)** — Tags which Medallion layer the instances of a node type originate from. Operational consequences: (1) Planner warns when `PathPred` traversal crosses a node with `MedallionLayer(BRONZE)` — raw data in analytical paths may be unvalidated. (2) Recommender suppresses `BRONZE` nodes from `GroupBy` suggestions. (3) Exporter tags `DGM_JSON` output with the minimum layer of all nodes in the query — touching Bronze nodes gets tagged `min_layer: BRONZE`.
 
@@ -1447,7 +1514,8 @@ GraphStatistics = (node_count, edge_count, degree_dist,
                    temporal_density: PropRef×Duration→ℝ,
                    scc_sizes: N_I→ℕ,
                    transposed_adj?: N_I→list[N_I],  -- G^T adjacency; optional materialisation (§2.6)
-                   access_paths: E_S→set[I1..I5])   -- physical access paths present per mapping (§2.6)
+                   access_paths: E_S→set[I1..I5],   -- physical access paths present per mapping (§2.6)
+                   causal_acyclic: Version→VALIDATED|VIOLATED|UNKNOWN)  -- §2.4
 -- GraphStatistics describes G_I. It informs cost and scoring; it never changes Q_valid.
 
 ExportPlan = (query_target, query_text, pre_compute: list[PreComputation],
@@ -1462,7 +1530,7 @@ alternatives: structured plan explanation — mechanical, auditable, no natural 
 ```
 Bound→Bound (REACHABLE_BETWEEN):
     if path_card ≤ SMALL: recursive CTE with cycle prevention
-        -- CAUSAL: drop cycle guard; DAG BFS
+        -- CAUSAL with causal_acyclic = VALIDATED (§2.4): DAG BFS, no visited set
     elif strategy ∈ {SHORTEST,MIN_WEIGHT}: recursive CTE ORDER BY + LIMIT 1
         -- TEMPORAL: push ordering into CTE WHERE
     else: pre-materialise path table
@@ -1584,7 +1652,7 @@ RolePlaying:             single scan under multiple aliases
 ProjectsFrom(mini,full): eliminate mini join if full ∈ C
 DerivedFact(f,srcs,e):   inline if srcs ∩ C ≠ ∅
 WeightConstraint(ALLOC): PathAgg without weight → warn
-BridgeSemantics(CAUSAL): drop cycle guard; DAG BFS on G and G^T
+BridgeSemantics(CAUSAL): if causal_acyclic = VALIDATED: DAG BFS on G and G^T; else cycle prevention
 BridgeSemantics(SUPERS): CASE WHEN superseded THEN -1*measure ELSE measure
 Degenerate(d):           exclude from GroupBy candidates
 ```
@@ -1637,9 +1705,12 @@ if PipelineArtifact(f, _, ttl, horizon, write_mode) ∈ Σ:
         elif P(f).state = Stale:           WritePlan(mode=MERGE)
 
     -- Backfill gap predicate (injected into Where by planner):
+    -- Missing or Failed windows that closed within the backfill horizon (§2.4):
+    --   now − horizon ≤ window_end ≤ now
         AND(
           ScalarPred(PropRef(f.state), IN {Missing, Failed}),
-          ScalarPred(PropRef(f.window_end), (< ArithExpr(now, -, horizon)))
+          ScalarPred(PropRef(f.window_end), (>= ArithExpr(now, -, horizon))),
+          ScalarPred(PropRef(f.window_end), (<= now))
         )
 
     -- Transition bridge semantics inference:
@@ -2184,7 +2255,9 @@ Correlation candidates identified by DAG node sharing are essentially free — t
 
 PAGE_RANK → GroupBy/Where on high-importance nodes.
 COMMUNITY_LABEL → community-aligned GroupBy.
-TARJAN_SCC + CAUSAL → event cycle detection.
+TARJAN_SCC + CAUSAL → causal cycle report: the components of §2.4 validation, surfaced when
+                      causal_acyclic is VIOLATED or UNKNOWN. Never a precondition-free signal that
+                      the DAG optimisation is safe.
 BETWEENNESS on G_AB → pivotal intermediates.
 OUTGOING_SIGNATURES high → two-stage exploration.
 SIGNATURE_ENTROPY high → GLOBAL_DOMINANT_SIGNATURE first.
@@ -2255,7 +2328,7 @@ EXISTS = disjunction/minterms. FORALL = conjunction/maxterms. SHORTEST/MIN_WEIGH
 
 ### 8.6  Finite traversal space
 
-The number of simple path instances in G_I is finite: total ≤ Σₖ |N_I|! / (|N_I|-k)!. BridgeSemantics(CAUSAL): DAG — eliminates cycles. This bounds execution, and grows with the data. The number of path *patterns* is a schema quantity: at most Σ_{j=0}^{k} (2·|E_S|)^j patterns of at most k hops, each hop taking an edge type forwards or (VerbHop⁻¹) backwards. A Repeat contributes its body's hops once: `min` and `max` are parameters (§8.15), not part of the pattern.
+The number of simple path instances in G_I is finite: total ≤ Σₖ |N_I|! / (|N_I|-k)!. BridgeSemantics(CAUSAL), once validated acyclic (§2.4): DAG — no cycles. This bounds execution, and grows with the data. The number of path *patterns* is a schema quantity: at most Σ_{j=0}^{k} (2·|E_S|)^j patterns of at most k hops, each hop taking an edge type forwards or (VerbHop⁻¹) backwards. A Repeat contributes its body's hops once: `min` and `max` are parameters (§8.15), not part of the pattern.
 
 ### 8.7  RelationshipSubgraph containment lattice
 
@@ -3589,8 +3662,16 @@ Q_backfill:
     AND(
       ScalarPred(PropRef(a.state), IN {Missing, Failed}),
       ScalarPred(PropRef(a.window_end),
-                 (< ArithExpr(now, -, 90 days)))
+                 (>= ArithExpr(now, -, 90 days))),
+      ScalarPred(PropRef(a.window_end), (<= now))
     )
+  -- With now = 2024-06-30T00:00Z the horizon starts at 2024-04-01T00:00Z:
+  --   window_end 2024-06-01, Missing   → selected   (inside the horizon)
+  --   window_end 2024-04-01T00:00Z     → selected   (boundary is inclusive)
+  --   window_end 2024-01-15, Missing   → excluded   (older than the horizon; SAFETY violation below)
+  --   window_end 2024-07-01            → excluded   (window not closed yet)
+  --   window_end NULL                  → excluded   (UNKNOWN)
+  --   window_end 2024-06-01, Complete  → excluded   (state)
   GroupBy: [ a.pipeline_id, a.window_start ]
   Agg:     age_days := TemporalAgg(MAX, a.window_end, a.window_end, TRAILING(1,DAY))
   Window:  priority := RANK() OVER (ORDER BY age_days DESC)
