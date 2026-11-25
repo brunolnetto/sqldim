@@ -3464,17 +3464,17 @@ Estimated: `f_structure ≈ 5! = 120` (short-path dominated), `f_predicate ≈ 2
 
 **Phase 8 — Natural language interface (~3 weeks)**
 - Implementation stack: Pydantic-AI (five specialist agents) + LangGraph (state graph with HIL checkpoints).
-- DGMContext dataclass as Pydantic-AI dependency: carries graph G, entity_registry, BDD, query_dag, recommender, budget, q_current.
+- DGMRuntime dataclass as Pydantic-AI dependency and LangGraph runtime context: schema, entity_registry, query_dag, recommender, gate, executor, budget. Not checkpointed.
 - Pydantic output schemas derived from DGM formal types: EntityResolutionResult, TemporalClassificationResult, CompositionalDetectionResult, CandidateRankingResult, ExplanationRenderResult.
 - Agent 1 (entity_resolution): PropRef resolution against closed EntityRegistry vocabulary; get_valid_prop_refs and get_verb_labels tools.
 - Agent 2 (temporal_classification): TemporalModeEnum + TemporalPropertyEnum + TemporalWindow classification.
 - Agent 3 (compositional_detection): QAlgebraOpEnum detection (UNION/INTERSECT/JOIN/CHAIN).
 - Agent 4 (candidate_ranking): linguistic proximity ranking over BDD-pre-validated Q_valid candidates.
-- Agent 5 (explanation_rendering): DAG decomposition rendering via dag_decomposition and get_next_suggestions tools.
-- Six non-LLM nodes: candidate_generation (recommender), confirmation_loop (interrupt/HIL), dag_construction (QueryDAG.make_from_candidate), budget_gate (§6.3 gate), execution (QueryDAG.execute), clarification (recommender).
-- Explicit LangGraph cycles: candidate_generation → confirmation_loop → candidate_generation (refinement); clarification → confirmation_loop (budget clarification).
-- MemorySaver checkpointer for multi-turn state persistence across HIL pauses.
-- Pydantic validation as hallucination prevention: agents retry on validation failure; UNRESOLVED on retry exhaustion.
+- Agent 5 (explanation_rendering): rendering of the structured facts (decision, job ticket, DAG decomposition) supplied by the node.
+- Nine deterministic nodes: candidate_generation, confirmation_loop (interrupt/HIL), apply_refinement, dag_construction, budget_gate (§6.3 gate), apply_rewrite, enqueue_async, execution, clarification.
+- Explicit LangGraph cycles: confirmation_loop → apply_refinement → entity_resolution (refinement); clarification → confirmation_loop (budget clarification), bounded by MAX_GATE_ROUNDS.
+- Checkpointer (InMemorySaver in development) for multi-turn state persistence across HIL pauses; state holds serialisable data only.
+- Pydantic validation of every agent output: retry on validation failure, node failure on retry exhaustion.
 - Parallel leaf execution in STREAM mode via asyncio.gather over topologically independent DAG leaves.
 
 ---
@@ -3530,7 +3530,7 @@ Natural language utterance
 
 ### 11.2  LLM responsibilities (narrowly scoped)
 
-The LLM is responsible for five tasks only. All analytical guarantees are provided by the DGM formalism; the LLM cannot introduce invalid queries, hallucinated properties, or incorrect aggregation semantics because the question space is formally bounded before the LLM acts.
+The LLM is responsible for five tasks only, each carried out by one agent in one node of the workflow (§11.10). Everything else in the interface is deterministic; the table after the list marks each component. All analytical guarantees are provided by the DGM formalism; the LLM cannot introduce invalid queries, hallucinated properties, or incorrect aggregation semantics because the question space is formally bounded before the LLM acts.
 
 ```
 1. Entity resolution
@@ -3563,35 +3563,59 @@ The LLM is responsible for five tasks only. All analytical guarantees are provid
    This is generation from structured input, not from raw schema
 ```
 
+| Component | Section | Kind |
+|---|---|---|
+| Entity resolution | §11.3, Agent 1 | LLM-backed, output validated against the entity registry |
+| Temporal intent classification | §11.4, Agent 2 | LLM-backed, closed enumeration |
+| Compositional intent detection | §11.4, Agent 3 | LLM-backed, closed enumeration |
+| Candidate ranking, including the choice among path signatures | §11.3, §11.5, Agent 4 | LLM-backed, may only reorder |
+| Explanation rendering | §11.9, Agent 5 | LLM-backed, generation from structured facts |
+| Entity registry construction and lookup | §11.3 | Deterministic |
+| Path resolution | §11.3 | Deterministic |
+| Band identification | §11.3 | Deterministic — lexicon lookup |
+| Candidate generation, BDD validation, DAG construction | §11.5, §11.10 | Deterministic |
+| Budget gate, rewrite, enqueue, execution, clarification options | §6.3, §11.9, §11.10 | Deterministic |
+| Confirmation | §11.5 | Deterministic — human input |
+
 ### 11.3  Semantic grounding layer
 
 **Entity resolution.** Grounded in `P(n)` property names, verb edge labels, and annotation vocabulary — not raw column names. The entity registry is built once from `G` and updated via `Q_delta` when `G` changes.
 
 ```
 EntityRegistry = {
-  prop_terms:    { NL term → PropRef }   -- "revenue" → PropRef(sale.revenue)
-  node_terms:    { NL term → alias → A } -- "customer" → alias c of Customer dim
-  verb_terms:    { NL term → VerbHop }   -- "purchased" → VerbHop(c,'placed',s)
+  prop_terms:    { NL term → PropRef }       -- "revenue"   → PropRef(s.revenue)
+  node_terms:    { NL term → alias }         -- "customer"  → "c"            (key: the word; value: the alias)
+  alias_types:   { alias → node type }       -- "c"         → Customer       (key: the alias; value: T ∈ N_S)
+  verb_terms:    { NL term → VerbHop }       -- "purchased" → VerbHop(Customer,'placed',Sale)
+  verb_labels:   { (node type, node type) → list[label] }   -- (Customer, Sale) → ['placed']
   temporal_terms:{ NL term → TemporalWindow } -- "Q3 2024" → PERIOD(...)
   agg_terms:     { NL term → AggFn }     -- "total" → SUM; "average" → AVG
 }
 ```
 
+A PropRef is produced from an alias, never from the NL term: term → alias by `node_terms`, alias → node type by `alias_types`, node type → property keys by `K_S`.
+
+```
+"customer"  →  node_terms  →  "c"  →  alias_types  →  Customer  →  K_S(Customer) = {id, region, segment}
+            →  PropRefs  c.id, c.region, c.segment
+
+get_valid_prop_refs("Customer") = ["c.id", "c.region", "c.segment"]
+An alias absent from alias_types yields no PropRef; a term absent from node_terms is UNRESOLVED.
+```
+
 **Relationship resolution.** Trail metrics constrain path selection. When `DISTINCT_SIGNATURES(A, B) = 1`, the path is unambiguous and the LLM does not need to choose. When `SIGNATURE_ENTROPY` is high, the interface asks for clarification before resolving.
 
 ```
-path_resolution(A: NodeRef, B: NodeRef, utterance: str) → BoundPath | AMBIGUOUS:
+path_resolution(A: NodeRef, B: NodeRef) → BoundPath | AMBIGUOUS:        -- deterministic
   sigs = DISTINCT_SIGNATURES(A, B)
   if sigs == 1:
     return canonical_path(A, B)          -- unambiguous; determined by G_AB
-  dominant = DOMINANT_SIGNATURE(A, B)
-  llm_match = score_path_by_utterance(dominant, utterance)
-  if llm_match > CONFIDENCE_THRESHOLD:
-    return dominant_path(A, B)
   return AMBIGUOUS(candidates=top_k_signatures(A, B, k=3))
+  -- An ambiguous path yields one query candidate per signature. Choosing among them by closeness
+  -- to the utterance is part of candidate ranking (Agent 4), not a separate model call.
 ```
 
-**Band identification.** A lightweight classifier maps intent signals to band structure. The classifier is trained on patterns grounded in DGM vocabulary — not SQL keywords.
+**Band identification.** A deterministic lexicon lookup maps intent signals to band structure. The lexicon is part of the entity registry and is grounded in DGM vocabulary — not SQL keywords. No model is called.
 
 ```
 Intent signals → Band mapping:
@@ -3666,7 +3690,25 @@ Example:
     Which fits best, or show more options?"
 ```
 
-User selection triggers a descent step in `L(G_AB)` — the selected candidate becomes `q_current`, and the recommender's neighbourhood provides the next set of refinement suggestions.
+User selection triggers a descent step in `L(G_AB)` — the selected candidate becomes the current question, and the recommender's neighbourhood provides the next set of refinement suggestions.
+
+The options are one ordered, versioned collection. The list rendered to the user is the list consulted when the answer arrives; each option has an id that does not depend on its position.
+
+```
+Shown (option_set_version = 2):
+  c_9f2e  Total revenue from retail customers year-to-date
+  c_41ab  Number of orders from retail customers year-to-date
+  c_d07c  Rolling 30-day revenue trend for retail customers
+
+Answer                                                   Outcome
+{select, version 2, c_41ab}                              → c_41ab, wherever it sits in the list
+{select, version 1, c_41ab}  (an older rendering)        → rejected; the list is shown again
+{select, version 2, c_ffff}  (not in the list)           → rejected; the list is shown again
+{refine, "wholesale customers this quarter"}             → new utterance; entity resolution runs again
+{more}                                                   → same grounding; next page of candidates
+```
+
+A refinement replaces the utterance. Everything derived from the previous text — resolved entities, temporal and compositional classification, candidates and their ranking — is discarded and recomputed from entity resolution, so that a change of entity or anchor in the new text is reflected in the candidates. In the example, "wholesale" re-resolves `c.segment = 'wholesale'` and "this quarter" re-resolves the window to QTD before any candidate is generated.
 
 ### 11.6  Ambiguity resolution grounded in the question space
 
@@ -3732,17 +3774,24 @@ Three formal mechanisms prevent the LLM from producing invalid queries:
 
 The NL interface feeds directly into the pre-execution gate (§6.3). When the gate returns `CLARIFY`, the clarification options are generated by the recommender as lattice refinements — not as generic "try a simpler query" messages. The NL interface renders them in natural language using the entity registry.
 
-When the gate returns `ASYNC`, the NL interface immediately acknowledges with the query DAG node id as a reference:
+When the gate returns `ASYNC`, the interface first submits the job (`enqueue_async`, §11.10) and acknowledges only what the executor accepted. The reference given to the user is the job id of the returned ticket:
 
 ```
-"This analysis will take approximately 3 minutes.
- I've queued it (reference: q_7f3a2b).
- You'll be notified when it's ready.
- In the meantime, here's a 10% sample result with ±3.2% error bound:
- [sampled result]"
+Job accepted:
+"This analysis will run in the background.
+ It is queued (job: j_7f3a2b, status: QUEUED).
+ You'll be notified at the callback when it's ready."
+
+Submission failed:
+"I could not queue this analysis: <reason>. Nothing is running.
+ You can retry, or narrow the question."
 ```
 
-The sample is produced by Strategy 3 (sampling with error bounds) in parallel with the async execution — the user gets an immediate approximate result while the full computation runs.
+No acknowledgement mentions a queued job or a materialised result without a ticket. Submission is idempotent on the `result_key` (§8.14): re-submitting the same question over the same snapshot returns the existing job.
+
+A preview may accompany the acknowledgement only when the plan satisfies the sampling conditions S1–S4 of §6.3; it is then produced by Strategy 3 and carries the error bound defined there. For any other plan no approximate figure is shown.
+
+When the gate returns `REWRITE`, the interface runs the rewritten plan under the delivery the gate attached to it and shows the gate's warning; it does not rebuild the DAG or consult the gate again for that plan.
 
 ### 11.10  Implementation: LangGraph + Pydantic-AI
 
@@ -3750,25 +3799,53 @@ The NL interface is implemented as a LangGraph state graph of specialist Pydanti
 
 **Why Pydantic-AI for each specialist agent.**
 
-DGM's formal types are the Pydantic output schemas. Every agent output must be drawn from a closed set validated against the live graph. An agent that produces a `PropRef` not in `P(n)` fails Pydantic validation and retries with a corrected prompt — hallucination is structurally prevented, not post-hoc filtered.
+DGM's formal types are the Pydantic output schemas. Every agent output must be drawn from a closed set validated against the live graph. An agent that produces a `PropRef` outside the declared properties fails validation and is asked again — the output vocabulary is constrained at generation, not filtered afterwards.
 
-**Pydantic output schemas (DGM formal types as models):**
+**Reference versions.** The code below is written against Pydantic-AI 2.x (documentation as of v2.60.0, 2026-10-22; Output API: https://pydantic.dev/docs/ai/core-concepts/output/) and LangGraph 1.x (https://docs.langchain.com/oss/python/langgraph/graph-api). It is a specification sketch, not a module. The schema and agent blocks were executed once against `pydantic-ai-slim` 1.71.0 with Pydantic-AI's test model (construction of the five agents, the `get_valid_prop_refs` tool, an awaited `agent.run` and its `.output`); the names used exist from that version through the 2.x documentation. The graph block was checked for syntax only and was not run against LangGraph. The names it relies on:
+
+| Library | Name used here | Note |
+|---|---|---|
+| Pydantic-AI | `Agent(..., output_type=...)`, `result.output` | `result_type` and `.data` were removed in v0.6.0 |
+| Pydantic-AI | model id `'<provider>:<model>'` | a bare model name raises `UserError` from v2.0.0 |
+| Pydantic-AI | `await agent.run(...)` | `run_sync` drives an event loop itself and is not called from async nodes |
+| LangGraph | `StateGraph(State, context_schema=...)`, `Runtime[Context]`, `invoke/ainvoke(..., context=...)` | runtime dependencies stay out of the checkpointed state |
+| LangGraph | `InMemorySaver`, `interrupt()`, `Command(resume=...)` | a checkpointer and a `thread_id` are required for interrupts |
+
+**Identifiers.** Three kinds of identity appear, and they are different types:
 
 ```python
-from pydantic import BaseModel, field_validator
-from pydantic_ai import Agent, RunContext
+from typing import NewType
+
+CandidateId = NewType("CandidateId", str)   # stable id of a proposed question, assigned before any DAG exists:
+                                            # the hash of the candidate's canonical spec
+QuestionKey = NewType("QuestionKey", str)   # persistent identity of a constructed question (§8.14)
+DagNodeId   = NewType("DagNodeId", int)     # handle local to one QueryDAG manager; never stored in state
+```
+
+A candidate has a `CandidateId` from the moment it is generated. A `QuestionKey` exists only after `dag_construction`. A `DagNodeId` is obtained from the live manager inside a node and discarded when the node returns.
+
+**Runtime context and state.** Live objects — graph handles, BDD and DAG managers, connections — are runtime context. The checkpointed state holds only serialisable data.
+
+```python
 from dataclasses import dataclass
 from enum import Enum
+from pydantic import BaseModel, Field, model_validator
+from pydantic_ai import Agent, RunContext
+
+MODEL = "anthropic:claude-sonnet-5-5"       # '<provider>:<model>'; configured per deployment
+AGENT_TIMEOUT_S   = 30
+MAX_GATE_ROUNDS   = 5                       # budget-gate evaluations per conversation turn
+MAX_INVALID_PICKS = 3                       # consecutive invalid selections before giving up
 
 @dataclass
-class DGMContext:
-    graph:           object          # DGM = (G_S, G_I, h)
-    entity_registry: object          # NL term → PropRef mapping
-    bdd:             object          # DGMPredicateBDD (Level 1)
-    query_dag:       object          # QueryDAG (Level 2)
-    recommender:     object          # L(G_AB) navigator
-    budget:          object          # ExecutionBudget
-    q_current:       object | None   # current lattice position
+class DGMRuntime:                           # NOT checkpointed; supplied on every invoke / resume
+    schema:          object                 # G_S, Σ and mapping M
+    entity_registry: object                 # EntityRegistry (§11.3)
+    query_dag:       object                 # QueryDAG manager (local DagNodeIds)
+    recommender:     object
+    gate:            object                 # gate(plan, budget) of §6.3
+    executor:        object                 # runs and enqueues plans
+    budget:          object                 # ExecutionBudget
 
 class TemporalModeEnum(str, Enum):
     EVENTUALLY="EVENTUALLY"; GLOBALLY="GLOBALLY"; NEXT="NEXT"
@@ -3783,48 +3860,105 @@ class QAlgebraOpEnum(str, Enum):
 
 class PropRefModel(BaseModel):
     alias: str
-    prop:  str   # validated against live P(n) via agent tool
+    prop:  str
 
 class EntityResolutionResult(BaseModel):
+    utterance_version: int
     resolved:     list[PropRefModel]
-    unresolved:   list[str]           # trigger CLARIFY
-    node_aliases: dict[str, str]      # "customer" → alias "c"
+    unresolved:   list[str]                 # terms with no match: asked back to the user, never guessed
+    node_aliases: dict[str, str]            # NL term → alias, e.g. "customer" → "c"
 
 class TemporalClassificationResult(BaseModel):
+    utterance_version: int
     mode:        TemporalModeEnum | None = None
     property_:   TemporalPropertyEnum | None = None
-    window_type: str | None = None    # ROLLING|TRAILING|PERIOD|YTD|QTD|MTD
+    window_type: str | None = None          # ROLLING|TRAILING|PERIOD|YTD|QTD|MTD|LATEST|EARLIEST
     confidence:  float
 
 class CompositionalDetectionResult(BaseModel):
+    utterance_version: int
     operation:  QAlgebraOpEnum | None = None
     join_key:   PropRefModel | None = None
     confidence: float
 
-class QueryCandidate(BaseModel):
-    dag_node_id:   int               # must exist in query_dag.nodes
+class QueryCandidate(BaseModel):            # exists BEFORE any DAG node: no dag id here
+    candidate_id:  CandidateId
+    spec:          dict                     # canonical, serialisable description of the question
     description:   str
     band_coverage: list[str]
     cost_estimate: float
 
+class OptionSet(BaseModel):                 # the one collection shown to the user AND read back
+    version: int
+    kind:    str                            # "candidates" | "clarifications"
+    items:   list[QueryCandidate]           # in display order
+
+    def get(self, candidate_id: str) -> QueryCandidate | None:
+        return next((c for c in self.items if c.candidate_id == candidate_id), None)
+
 class CandidateRankingResult(BaseModel):
-    ranked:     list[QueryCandidate]  # pre-validated by BDD; LLM only reorders
+    order:      list[CandidateId]           # a permutation of the ids it was given
     confidence: list[float]
+
+class Selection(BaseModel):                 # what the user sends back
+    action:             str                 # "select" | "refine" | "more"
+    option_set_version: int | None = None   # required for "select"
+    candidate_id:       CandidateId | None = None
+    text:               str | None = None   # required for "refine"
+
+class PlanRef(BaseModel):                   # serialisable reference to a plan; the plan itself is rebuilt
+    question_key:     QuestionKey           # from (question_key, applied_rewrites) by the runtime
+    plan_version:     int = 0
+    applied_rewrites: list[str] = []        # rewrite rule names, in order
+
+class BudgetDecisionModel(BaseModel):
+    type:     str                           # PROCEED|STREAM|ASYNC|REWRITE|SAMPLE|PAGINATE|CLARIFY|REJECT
+    delivery: str | None = None             # `then` of REWRITE / SAMPLE: PROCEED|STREAM|ASYNC|PAGINATE
+    rewrite_rule: str | None = None
+    warning:  str | None = None
+    reason:   str | None = None
+    sink:     str | None = None
+    callback: str | None = None
+    ttl_s:    int | None = None
+
+class JobTicket(BaseModel):
+    job_id: str
+    status: str                             # initial status reported by the executor, e.g. "QUEUED"
 
 class ExplanationRenderResult(BaseModel):
     explanation:           str
     follow_up_suggestions: list[str]
+
+class NLInterfaceState(BaseModel):          # every field is serialisable
+    utterance:         str
+    utterance_version: int = 0
+    entity_result:     EntityResolutionResult | None = None
+    temporal_result:   TemporalClassificationResult | None = None
+    compositional:     CompositionalDetectionResult | None = None
+    options:           OptionSet | None = None
+    option_page:       int = 0
+    selection:         Selection | None = None
+    selection_error:   str | None = None
+    invalid_picks:     int = 0
+    selected:          QueryCandidate | None = None
+    plan:              PlanRef | None = None
+    gate_rounds:       int = 0
+    budget_decision:   BudgetDecisionModel | None = None
+    job:               JobTicket | None = None
+    submission_error:  str | None = None
+    final_result:      dict | None = None
+    explanation:       str | None = None
 ```
 
-**The five specialist agents:**
+**The five specialist agents.** Each agent takes `DGMRuntime` as its dependency type and returns a typed output.
 
 ```python
 # Agent 1 — Entity Resolution
 entity_agent = Agent(
-    model="claude-sonnet-4-6",
-    deps_type=DGMContext,
-    result_type=EntityResolutionResult,
-    system_prompt=(
+    MODEL,
+    deps_type=DGMRuntime,
+    output_type=EntityResolutionResult,
+    instructions=(
         "Map natural language terms to DGM PropRef values. "
         "Use get_valid_prop_refs to check what exists. "
         "Only return PropRef values the tool confirms. "
@@ -3833,27 +3967,26 @@ entity_agent = Agent(
 )
 
 @entity_agent.tool
-def get_valid_prop_refs(ctx: RunContext[DGMContext], node_type: str) -> list[str]:
-    """Returns all valid PropRef keys for nodes of the given type."""
+def get_valid_prop_refs(ctx: RunContext[DGMRuntime], node_type: str) -> list[str]:
+    """Returns every valid 'alias.prop' for aliases bound to the given node type."""
+    registry = ctx.deps.entity_registry
+    schema   = ctx.deps.schema
     return [
-        alias + "." + k
-        for n, alias in ctx.deps.entity_registry.node_terms.items()
-        if n == node_type
-        for k in ctx.deps.graph.P(n).keys()
+        f"{alias}.{prop}"
+        for alias, alias_type in registry.alias_types.items()    # alias → node type
+        if alias_type == node_type
+        for prop in schema.property_keys(alias_type)             # dom K_S(alias_type)
     ]
 
 @entity_agent.tool
-def get_verb_labels(ctx: RunContext[DGMContext],
-                    from_type: str, to_type: str) -> list[str]:
+def get_verb_labels(ctx: RunContext[DGMRuntime], from_type: str, to_type: str) -> list[str]:
     """Returns verb labels connecting two node types."""
-    return ctx.deps.entity_registry.verb_terms.get((from_type, to_type), [])
+    return ctx.deps.entity_registry.verb_labels.get((from_type, to_type), [])
 
 # Agent 2 — Temporal Classifier
 temporal_agent = Agent(
-    model="claude-sonnet-4-6",
-    deps_type=DGMContext,
-    result_type=TemporalClassificationResult,
-    system_prompt=(
+    MODEL, deps_type=DGMRuntime, output_type=TemporalClassificationResult,
+    instructions=(
         "Classify temporal intent. Map to exactly one of: "
         "TemporalMode enum, TemporalProperty enum, or TemporalWindow type string. "
         "If no temporal intent, return all None with confidence=0."
@@ -3862,10 +3995,8 @@ temporal_agent = Agent(
 
 # Agent 3 — Compositional Detector
 compositional_agent = Agent(
-    model="claude-sonnet-4-6",
-    deps_type=DGMContext,
-    result_type=CompositionalDetectionResult,
-    system_prompt=(
+    MODEL, deps_type=DGMRuntime, output_type=CompositionalDetectionResult,
+    instructions=(
         "Detect multi-question composition. "
         "UNION='or'; INTERSECT='and both'; JOIN='compared to/alongside'; "
         "CHAIN='then/among those'. Return None for atomic questions."
@@ -3874,154 +4005,203 @@ compositional_agent = Agent(
 
 # Agent 4 — Candidate Ranking
 ranking_agent = Agent(
-    model="claude-sonnet-4-6",
-    deps_type=DGMContext,
-    result_type=CandidateRankingResult,
-    system_prompt=(
-        "Rank provided Q_valid candidates by linguistic proximity. "
-        "Do not add or remove candidates — only reorder the pre-validated list. "
+    MODEL, deps_type=DGMRuntime, output_type=CandidateRankingResult,
+    instructions=(
+        "Order the provided candidate ids by linguistic proximity to the utterance. "
+        "Return every id exactly once. Do not add or remove ids. "
         "Assign confidence scores in [0,1]."
     ),
 )
 
 # Agent 5 — Explanation Renderer
 explanation_agent = Agent(
-    model="claude-sonnet-4-6",
-    deps_type=DGMContext,
-    result_type=ExplanationRenderResult,
-    system_prompt=(
-        "Render the query DAG decomposition as natural language (2-4 sentences). "
-        "Use dag_decomposition and get_next_suggestions tools."
+    MODEL, deps_type=DGMRuntime, output_type=ExplanationRenderResult,
+    instructions=(
+        "Render the supplied query decomposition as natural language (2-4 sentences). "
+        "State only what the supplied facts say: do not claim that a job was queued or "
+        "a result materialised unless a job ticket is present."
     ),
 )
-
-@explanation_agent.tool
-def dag_decomposition(ctx: RunContext[DGMContext], dag_node_id: int) -> dict:
-    """Returns the structured DAG decomposition for the given query DAG node."""
-    return ctx.deps.query_dag.decompose(dag_node_id)
-
-@explanation_agent.tool
-def get_next_suggestions(ctx: RunContext[DGMContext],
-                         dag_node_id: int, k: int = 3) -> list[str]:
-    """Returns top-k recommender suggestions from the current lattice position."""
-    return ctx.deps.recommender.neighbourhood_descriptions(dag_node_id, k)
 ```
 
-**The LangGraph state graph:**
+**The LangGraph state graph.** Every node is `async def`. Agent calls are awaited under a timeout; blocking DGM work runs in a worker thread.
 
 ```python
+import asyncio
 from langgraph.graph import StateGraph, END
-from langgraph.checkpoint.memory import MemorySaver
-from langgraph.types import interrupt
-from typing import Literal
+from langgraph.checkpoint.memory import InMemorySaver
+from langgraph.runtime import Runtime
+from langgraph.types import interrupt, Command
 
-class NLInterfaceState(BaseModel):
-    utterance:       str
-    dgm_ctx:         DGMContext
-    entity_result:   EntityResolutionResult | None = None
-    temporal_result: TemporalClassificationResult | None = None
-    compositional:   CompositionalDetectionResult | None = None
-    candidates:      list[QueryCandidate] = []
-    ranking_result:  CandidateRankingResult | None = None
-    q_current:       int | None = None    # query DAG node id
-    user_selection:  object | None = None
-    budget_decision: str | None = None
-    partial_result:  object | None = None
-    final_result:    object | None = None
-    explanation:     str | None = None
+Ctx = Runtime[DGMRuntime]
 
-# Non-LLM nodes (pure DGM computation):
+async def run_agent(agent, prompt: str, ctx: DGMRuntime):
+    result = await asyncio.wait_for(agent.run(prompt, deps=ctx), AGENT_TIMEOUT_S)
+    return result.output
 
-def candidate_generation_node(state: NLInterfaceState) -> dict:
-    candidates = state.dgm_ctx.recommender.top_k_candidates(
-        entity_result=state.entity_result,
-        temporal_result=state.temporal_result,
-        compositional=state.compositional,
-        q_current=state.q_current, k=5
-    )
-    return {"candidates": candidates}
+# ---- LLM-backed nodes (5) ----
 
-def confirmation_loop_node(state: NLInterfaceState) -> dict:
-    selection = interrupt({
-        "type": "confirmation",
-        "candidates": [c.description for c in state.ranking_result.ranked],
-        "prompt": "Which fits best, or type 'more' for additional options?"
+async def entity_resolution_node(s: NLInterfaceState, rt: Ctx) -> dict:
+    out = await run_agent(entity_agent, s.utterance, rt.context)
+    return {"entity_result": out.model_copy(update={"utterance_version": s.utterance_version})}
+
+async def temporal_classification_node(s: NLInterfaceState, rt: Ctx) -> dict:
+    out = await run_agent(temporal_agent, s.utterance, rt.context)
+    return {"temporal_result": out.model_copy(update={"utterance_version": s.utterance_version})}
+
+async def compositional_detection_node(s: NLInterfaceState, rt: Ctx) -> dict:
+    out = await run_agent(compositional_agent, s.utterance, rt.context)
+    return {"compositional": out.model_copy(update={"utterance_version": s.utterance_version})}
+
+async def candidate_ranking_node(s: NLInterfaceState, rt: Ctx) -> dict:
+    shown  = {c.candidate_id: c.description for c in s.options.items}
+    out    = await run_agent(ranking_agent, f"Utterance: {s.utterance}\nCandidates: {shown}", rt.context)
+    by_id  = {c.candidate_id: c for c in s.options.items}
+    if sorted(out.order) != sorted(by_id):                 # not a permutation: keep the recommender's order
+        return {}
+    return {"options": OptionSet(version=s.options.version + 1, kind=s.options.kind,
+                                 items=[by_id[i] for i in out.order])}
+
+async def explanation_rendering_node(s: NLInterfaceState, rt: Ctx) -> dict:
+    facts = {
+        "decision":         s.budget_decision.model_dump() if s.budget_decision else None,
+        "job":              s.job.model_dump() if s.job else None,          # present only if accepted
+        "submission_error": s.submission_error,
+        "decomposition":    rt.context.query_dag.decompose_by_key(s.plan.question_key) if s.plan else None,
+        "has_result":       s.final_result is not None,
+    }
+    out = await run_agent(explanation_agent, str(facts), rt.context)
+    return {"explanation": out.explanation}
+
+# ---- Deterministic nodes (9) ----
+
+async def candidate_generation_node(s: NLInterfaceState, rt: Ctx) -> dict:
+    v = s.utterance_version                                 # refuse results of an older utterance
+    assert s.entity_result.utterance_version == v
+    assert s.temporal_result.utterance_version == v and s.compositional.utterance_version == v
+    items = rt.context.recommender.top_k_candidates(
+        entity_result=s.entity_result, temporal_result=s.temporal_result,
+        compositional=s.compositional, k=5, page=s.option_page)
+    version = (s.options.version + 1) if s.options else 1
+    return {"options": OptionSet(version=version, kind="candidates", items=items),
+            "selection": None, "selection_error": None}
+
+async def confirmation_loop_node(s: NLInterfaceState, rt: Ctx) -> dict:
+    answer = interrupt({                                    # payload is JSON-serialisable
+        "type": s.options.kind,
+        "option_set_version": s.options.version,
+        "options": [{"candidate_id": c.candidate_id, "description": c.description,
+                     "cost_estimate": c.cost_estimate} for c in s.options.items],
+        "error": s.selection_error,
+        "prompt": "Pick one by candidate_id, send new text to refine, or ask for more.",
     })
-    return {"user_selection": selection}
+    sel = Selection.model_validate(answer)
+    if sel.action == "select":
+        picked = s.options.get(sel.candidate_id) if sel.option_set_version == s.options.version else None
+        if picked is None:                                  # stale version or unknown id: do not advance
+            return {"selection": sel, "selected": None, "invalid_picks": s.invalid_picks + 1,
+                    "selection_error": "That option is not in the list currently shown."}
+        return {"selection": sel, "selected": picked, "selection_error": None, "invalid_picks": 0}
+    return {"selection": sel, "selected": None, "selection_error": None, "invalid_picks": 0}
 
-def dag_construction_node(state: NLInterfaceState) -> dict:
-    selected = state.ranking_result.ranked[state.user_selection]
-    dag_node_id = state.dgm_ctx.query_dag.make_from_candidate(
-        selected, state.entity_result,
-        state.temporal_result, state.compositional,
-    )
-    return {"q_current": dag_node_id}
+async def apply_refinement_node(s: NLInterfaceState, rt: Ctx) -> dict:
+    if s.selection.action == "more":                        # same utterance: next page of candidates
+        return {"option_page": s.option_page + 1}
+    return {"utterance": s.selection.text,                  # new text: everything derived from the old
+            "utterance_version": s.utterance_version + 1,   # utterance is invalidated
+            "entity_result": None, "temporal_result": None, "compositional": None,
+            "options": None, "option_page": 0, "selected": None, "plan": None}
 
-def budget_gate_node(state: NLInterfaceState) -> dict:
-    from dgm.execution import gate
-    plan     = state.dgm_ctx.query_dag.to_export_plan(state.q_current)
-    decision = gate(plan, state.dgm_ctx.budget)
-    partial  = None
-    if decision.type == "ASYNC":
-        partial = state.dgm_ctx.query_dag.execute_sample(
-            state.q_current, fraction=0.10
-        )
-    return {"budget_decision": decision.type, "partial_result": partial}
+async def dag_construction_node(s: NLInterfaceState, rt: Ctx) -> dict:
+    dag = rt.context.query_dag
+    node: DagNodeId = dag.make_from_spec(s.selected.spec)   # the DAG node is created HERE
+    return {"plan": PlanRef(question_key=dag.question_key(node))}   # only the persistent key is stored
 
-def clarification_node(state: NLInterfaceState) -> dict:
-    refinements = state.dgm_ctx.recommender.clarification_options(
-        state.q_current, budget=state.dgm_ctx.budget
-    )
-    return {"candidates": refinements}
+async def budget_gate_node(s: NLInterfaceState, rt: Ctx) -> dict:
+    if s.gate_rounds >= MAX_GATE_ROUNDS:
+        return {"budget_decision": BudgetDecisionModel(
+            type="REJECT", reason="No executable form found after the allowed number of attempts.")}
+    plan = rt.context.query_dag.plan_for(s.plan)            # rebuilt from the PlanRef
+    d    = rt.context.gate(plan, rt.context.budget)         # §6.3: at most one REWRITE, already delivered
+    return {"gate_rounds": s.gate_rounds + 1,
+            "budget_decision": BudgetDecisionModel(
+                type=d.type, delivery=getattr(d, "then_type", None),
+                rewrite_rule=getattr(d, "rewrite_rule", None), warning=getattr(d, "warning", None),
+                reason=getattr(d, "reason", None), sink=getattr(d, "sink", None),
+                callback=getattr(d, "callback", None), ttl_s=getattr(d, "ttl_s", None))}
 
-# Routing functions:
+async def apply_rewrite_node(s: NLInterfaceState, rt: Ctx) -> dict:
+    rule = s.budget_decision.rewrite_rule
+    assert rule not in s.plan.applied_rewrites              # the same transformation is never reapplied
+    return {"plan": s.plan.model_copy(update={
+                "plan_version": s.plan.plan_version + 1,
+                "applied_rewrites": s.plan.applied_rewrites + [rule]})}
+    # The rewritten plan is NOT gated again: its delivery is budget_decision.delivery (§6.3).
 
-def route_after_confirmation(state: NLInterfaceState) -> Literal[
-        "confirmed", "refine", "more_options"]:
-    if state.user_selection == "more":   return "more_options"
-    if state.user_selection == "refine": return "refine"
-    return "confirmed"
+async def enqueue_async_node(s: NLInterfaceState, rt: Ctx) -> dict:
+    d = s.budget_decision
+    try:
+        ticket = await rt.context.executor.submit(          # idempotent on the result key (§8.14)
+            plan=rt.context.query_dag.plan_for(s.plan),
+            sink=d.sink, callback=d.callback, ttl_s=d.ttl_s,
+            idempotency_key=rt.context.query_dag.result_key(s.plan))
+    except Exception as e:                                  # submission failure is not an accepted job
+        return {"job": None, "submission_error": str(e)}
+    return {"job": JobTicket(job_id=ticket.job_id, status=ticket.status), "submission_error": None}
 
-def route_budget(state: NLInterfaceState) -> str:
-    return state.budget_decision
+async def execution_node(s: NLInterfaceState, rt: Ctx) -> dict:
+    d    = s.budget_decision
+    mode = d.delivery if d.type in ("REWRITE", "SAMPLE") else d.type
+    plan = rt.context.query_dag.plan_for(s.plan)
+    result = await asyncio.to_thread(rt.context.executor.run, plan, mode)   # blocking work off the loop
+    return {"final_result": result}
 
-# Graph assembly:
+async def clarification_node(s: NLInterfaceState, rt: Ctx) -> dict:
+    items = rt.context.recommender.clarification_options(s.plan, budget=rt.context.budget)
+    return {"options": OptionSet(version=s.options.version + 1, kind="clarifications", items=items),
+            "selection": None, "selection_error": None}
 
-graph = StateGraph(NLInterfaceState)
+# ---- Routing ----
 
-# LLM nodes (5):
-graph.add_node("entity_resolution",
-    lambda s: {"entity_result":
-        entity_agent.run_sync(s.utterance, deps=s.dgm_ctx).data})
-graph.add_node("temporal_classification",
-    lambda s: {"temporal_result":
-        temporal_agent.run_sync(s.utterance, deps=s.dgm_ctx).data})
-graph.add_node("compositional_detection",
-    lambda s: {"compositional":
-        compositional_agent.run_sync(s.utterance, deps=s.dgm_ctx).data})
-graph.add_node("candidate_ranking",
-    lambda s: {"ranking_result":
-        ranking_agent.run_sync(
-            "Utterance: " + s.utterance + " Candidates: " + str(s.candidates),
-            deps=s.dgm_ctx).data})
-graph.add_node("explanation_rendering",
-    lambda s: {"explanation":
-        explanation_agent.run_sync(
-            "DAG node: " + str(s.q_current) +
-            " Budget: " + str(s.budget_decision),
-            deps=s.dgm_ctx).data.explanation})
+def route_after_confirmation(s: NLInterfaceState) -> str:
+    if s.selection.action in ("refine", "more"):  return "revise"
+    if s.selected is not None:                    return "confirmed"
+    return "give_up" if s.invalid_picks >= MAX_INVALID_PICKS else "invalid"
 
-# Non-LLM nodes (6):
-graph.add_node("candidate_generation", candidate_generation_node)
-graph.add_node("confirmation_loop",    confirmation_loop_node)
-graph.add_node("dag_construction",     dag_construction_node)
-graph.add_node("budget_gate",          budget_gate_node)
-graph.add_node("execution",
-    lambda s: {"final_result":
-        s.dgm_ctx.query_dag.execute(s.q_current, mode=s.budget_decision)})
-graph.add_node("clarification", clarification_node)
+def route_after_revision(s: NLInterfaceState) -> str:
+    return "regenerate" if s.entity_result is not None else "reresolve"
 
-# Edges:
+def delivery_route(kind: str) -> str:
+    return "enqueue" if kind == "ASYNC" else "execute"      # PROCEED, STREAM, PAGINATE run now
+
+def route_budget(s: NLInterfaceState) -> str:
+    t = s.budget_decision.type
+    if t == "REWRITE":             return "rewrite"
+    if t == "CLARIFY":             return "clarify"
+    if t == "REJECT":              return "explain"
+    if t == "SAMPLE":              return delivery_route(s.budget_decision.delivery)
+    return delivery_route(t)
+
+def route_after_rewrite(s: NLInterfaceState) -> str:
+    return delivery_route(s.budget_decision.delivery)
+
+# ---- Assembly ----
+
+graph = StateGraph(NLInterfaceState, context_schema=DGMRuntime)
+
+for name, fn in [
+    ("entity_resolution", entity_resolution_node), ("temporal_classification", temporal_classification_node),
+    ("compositional_detection", compositional_detection_node), ("candidate_ranking", candidate_ranking_node),
+    ("explanation_rendering", explanation_rendering_node),
+    ("candidate_generation", candidate_generation_node), ("confirmation_loop", confirmation_loop_node),
+    ("apply_refinement", apply_refinement_node), ("dag_construction", dag_construction_node),
+    ("budget_gate", budget_gate_node), ("apply_rewrite", apply_rewrite_node),
+    ("enqueue_async", enqueue_async_node), ("execution", execution_node),
+    ("clarification", clarification_node),
+]:
+    graph.add_node(name, fn)
+
+graph.set_entry_point("entity_resolution")
 graph.add_edge("entity_resolution",       "temporal_classification")
 graph.add_edge("temporal_classification", "compositional_detection")
 graph.add_edge("compositional_detection", "candidate_generation")
@@ -4029,50 +4209,70 @@ graph.add_edge("candidate_generation",    "candidate_ranking")
 graph.add_edge("candidate_ranking",       "confirmation_loop")
 
 graph.add_conditional_edges("confirmation_loop", route_after_confirmation,
-    {"confirmed":    "dag_construction",
-     "refine":       "candidate_generation",
-     "more_options": "candidate_generation"})
+    {"confirmed": "dag_construction",
+     "revise":    "apply_refinement",
+     "invalid":   "confirmation_loop",        # re-ask with the error; the workflow does not advance
+     "give_up":   "explanation_rendering"})
+
+graph.add_conditional_edges("apply_refinement", route_after_revision,
+    {"reresolve":  "entity_resolution",       # new text: entity resolution runs again
+     "regenerate": "candidate_generation"})   # "more": same grounding, next page
 
 graph.add_edge("dag_construction", "budget_gate")
 
 graph.add_conditional_edges("budget_gate", route_budget,
-    {"PROCEED":  "execution",   "STREAM":   "execution",
-     "ASYNC":    "explanation_rendering",
-     "REWRITE":  "dag_construction",
-     "SAMPLE":   "execution",   "PAGINATE": "execution",
-     "CLARIFY":  "clarification",
-     "REJECT":   "explanation_rendering"})
+    {"execute": "execution", "enqueue": "enqueue_async",
+     "rewrite": "apply_rewrite", "clarify": "clarification", "explain": "explanation_rendering"})
 
-graph.add_edge("execution",            "explanation_rendering")
-graph.add_edge("explanation_rendering", END)
+graph.add_conditional_edges("apply_rewrite", route_after_rewrite,
+    {"execute": "execution", "enqueue": "enqueue_async"})   # never back to dag_construction or the gate
+
 graph.add_edge("clarification",         "confirmation_loop")
+graph.add_edge("enqueue_async",         "explanation_rendering")
+graph.add_edge("execution",             "explanation_rendering")
+graph.add_edge("explanation_rendering", END)
 
-graph.set_entry_point("entity_resolution")
-nl_app = graph.compile(checkpointer=MemorySaver())
+nl_app = graph.compile(checkpointer=InMemorySaver())
+
+# One turn. The runtime context is passed on every call, including a resume:
+#   config = {"configurable": {"thread_id": "t-1"}}
+#   await nl_app.ainvoke({"utterance": "..."}, config=config, context=dgm_runtime)
+#   await nl_app.ainvoke(Command(resume={"action": "select", "option_set_version": 2,
+#                                        "candidate_id": "c_9f2e"}), config=config, context=dgm_runtime)
 ```
 
 **Key structural properties:**
 
-*Five LLM nodes, six deterministic nodes.* Only `entity_resolution`, `temporal_classification`, `compositional_detection`, `candidate_ranking`, and `explanation_rendering` invoke an LLM. The remaining six nodes are pure DGM computation — formal, deterministic, and verifiable.
+*Five LLM-backed nodes, nine deterministic nodes.* `entity_resolution`, `temporal_classification`, `compositional_detection`, `candidate_ranking` and `explanation_rendering` each make exactly one agent call. The other nine nodes call no model. The correspondence with §11.2 is one task, one agent, one node.
 
-*Explicit cycles with state persistence.* The `candidate_generation → confirmation_loop` refinement cycle and the `clarification → confirmation_loop` budget cycle are first-class LangGraph constructs. `MemorySaver` persists state across the human-in-the-loop pause at `confirmation_loop`, enabling multi-turn conversations without bespoke session management.
+*Sync and async contract.* Every node is a coroutine. An agent is awaited with `agent.run` under `AGENT_TIMEOUT_S`; `run_sync` is never called inside a node, since it would drive an event loop from within one. Blocking DGM work (`executor.run`) is moved off the loop with `asyncio.to_thread`. A timeout raises in the node and fails the step; cancelling the graph task cancels the awaited agent call. Work already handed to a thread cannot be cancelled by the event loop, so `executor.run` must honour its own cancellation signal (for DuckDB, interrupting the connection).
 
-*Bounded retry via Pydantic-AI.* If an agent produces output that fails Pydantic validation, Pydantic-AI retries with a corrected prompt. After exhausting retries, the agent returns `UNRESOLVED` items rather than propagating invalid output downstream.
+*State is serialisable; context is not checkpointed.* `NLInterfaceState` contains only models, strings, numbers and lists. `DGMRuntime` is supplied through `context=` on every invocation and resume. After a resume in a new process the DAG manager is new: nodes rebuild what they need from `PlanRef` — the persistent `question_key` plus the ordered list of applied rewrites — and never from a local node id.
 
-*Parallel leaf execution in streaming mode.* When `budget_gate` returns `STREAM`, the `execution_node` runs topologically independent `query_dag` leaves in parallel using `asyncio.gather`.
+*One option set.* What is shown and what is read back is the same `OptionSet`. A selection names a `candidate_id` and the `option_set_version` it was shown under; reordering by the ranking agent creates a new version, so an index or an id from an older rendering cannot land on a different candidate. An unknown id or a stale version is rejected, the question is asked again, and after `MAX_INVALID_PICKS` the turn ends with an explanation.
+
+*Refinement restarts at entity resolution.* New text increments `utterance_version` and clears every result derived from the previous utterance; `candidate_generation` refuses inputs whose version does not match. Asking for more options keeps the grounding and advances the page.
+
+*Rewrites make progress and terminate.* The gate returns at most one `REWRITE`, already carrying the delivery of the rewritten plan (§6.3). `apply_rewrite` records the rule in the `PlanRef`, increments `plan_version` and routes straight to delivery; the plan is not gated again and `dag_construction` is not revisited. A plan with no viable rewrite never yields `REWRITE`. Clarification can bring the conversation back to the gate; `MAX_GATE_ROUNDS` bounds that, after which the decision is `REJECT`.
+
+*ASYNC means a submitted job.* The ASYNC route passes through `enqueue_async`, which submits the plan with the sink, callback and TTL of the decision and stores the returned `JobTicket`. If submission fails there is no ticket and `submission_error` is set; the explanation agent is given both and is instructed not to claim a queued job without a ticket.
+
+*Bounded retry via Pydantic-AI.* If an agent produces output that fails validation, Pydantic-AI asks the model again up to its configured output-retry budget; exhausting it raises, and the node fails rather than returning unvalidated output.
 
 **The ontology-to-Pydantic mapping (formal relationship):**
 
 ```
-DGM formal constraint                  Pydantic enforcement
-────────────────────────────────────────────────────────────────────────
-PropRef alias ∈ EntityRegistry         field_validator checks registry
-PropRef prop ∈ P(n).keys              get_valid_prop_refs tool confirms pre-generation
+DGM formal constraint                  Enforcement
+──────────────────────────────────────────────────────────────────────
+PropRef alias ∈ EntityRegistry         get_valid_prop_refs lists only aliases with a node type
+PropRef prop ∈ dom K_S(T)              get_valid_prop_refs reads schema.property_keys(T)
 TemporalMode ∈ {EVENTUALLY,...}        TemporalModeEnum; no free strings permitted
 QAlgebraOp ∈ {UNION,INTERSECT,...}     QAlgebraOpEnum; closed set
-QueryCandidate.dag_node_id valid       field_validator checks query_dag.nodes
-candidates pre-validated by BDD        generated by recommender, not LLM
-BudgetDecision variant ∈ fixed set     discriminated union enforces per-variant fields
+candidates pre-validated by BDD        generated by the recommender, not by the LLM
+ranking only reorders                  CandidateRankingResult.order checked to be a permutation
+selection ∈ options shown              candidate_id and option_set_version checked against OptionSet
+DAG identity exists only after build   QueryCandidate has no DAG id; PlanRef holds the question_key
+BudgetDecision variant ∈ fixed set     BudgetDecisionModel.type; delivery carried for REWRITE/SAMPLE
 ```
 
 This is the machine-executable form of §11.8 (hallucination prevention): not a post-hoc filter, but a generation constraint baked into every agent's output schema. The DGM specification is the formal source; the Pydantic schema is its executable projection.
