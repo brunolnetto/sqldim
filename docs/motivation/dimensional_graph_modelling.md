@@ -436,7 +436,39 @@ TemporalMode ::= EVENTUALLY | GLOBALLY | NEXT
                | ONCE | PREVIOUSLY
 ```
 
-FORALL ≡ NOT PathPred(EXISTS, ..., NOT(sub_filter)) — De Morgan at construction.
+**FORALL elimination.** FORALL is eliminated at construction, leaving only EXISTS-quantified PathPreds. Without a `temporal_mode` this is De Morgan over the finite set of path instances:
+
+```
+PathPred(FORALL, ..., φ)  ≡  NOT PathPred(EXISTS, ..., NOT φ)
+```
+
+With a `temporal_mode` the quantifier cannot be swapped alone: CTL duality dualises the temporal operator together with the path quantifier. Writing φ for `sub_filter`:
+
+| FORALL form | CTL duality | Construction |
+|---|---|---|
+| FORALL, GLOBALLY | AG φ = ¬EF ¬φ | NOT PathPred(EXISTS, EVENTUALLY, NOT φ) |
+| FORALL, EVENTUALLY | AF φ = ¬EG ¬φ | NOT PathPred(EXISTS, GLOBALLY, NOT φ) |
+| FORALL, NEXT | AX φ = ¬EX ¬φ | NOT PathPred(EXISTS, NEXT, NOT φ) |
+| FORALL, UNTIL(ψ) | A(φ U ψ) = ¬E(¬ψ U (¬φ ∧ ¬ψ)) ∧ ¬EG ¬ψ | AND(NOT PathPred(EXISTS, UNTIL(AND(NOT φ, NOT ψ)), NOT ψ), NOT PathPred(EXISTS, GLOBALLY, NOT ψ)) |
+| FORALL, PREVIOUSLY | past-time AX; self-dual | NOT PathPred(EXISTS, PREVIOUSLY, NOT φ) |
+
+EVENTUALLY and GLOBALLY exchange; NEXT and PREVIOUSLY are self-dual; UNTIL needs both a dualised UNTIL and a GLOBALLY term. Swapping only the quantifier under EVENTUALLY would yield ¬EF ¬φ, which is AG φ, not AF φ. These are dualities: they hold for whichever set of maximal paths the semantics assigns to a state, provided A and E range over the same set.
+
+FORALL with ONCE or SINCE(ψ) is rejected at construction. Their duals require a past-time GLOBALLY operator, which `TemporalMode` does not contain; EXISTS with ONCE or SINCE is unaffected.
+
+**AF and AG are distinct.** Two minimal graphs, evaluated at s₀, with terminal nodes ending their paths:
+
+```
+G₁:  s₀ → s₁                 φ holds at s₁ only      paths from s₀: (s₀ s₁)
+G₂:  s₀ → s₁,  s₀ → s₂       φ holds at s₁ only      paths from s₀: (s₀ s₁), (s₀ s₂)
+```
+
+| | AF φ | ¬EG ¬φ | AG φ | ¬EF ¬φ |
+|---|---|---|---|---|
+| G₁ | true — the only path reaches φ at s₁ | true — no path stays in ¬φ | false — s₀ violates φ | false |
+| G₂ | false — (s₀ s₂) never reaches φ | false — (s₀ s₂) stays in ¬φ | false | false |
+
+On G₁, `PathPred(FORALL, EVENTUALLY, φ)` is true, while the quantifier-only reduction ¬EF ¬φ is false. On G₂ the path (s₀ s₂) that never reaches φ is exactly the EG ¬φ witness that falsifies AF φ.
 
 **CTL operator map:**
 
@@ -669,19 +701,30 @@ BDD provides O(1) equivalence, satisfiability/tautology, implication, minterm en
 
 Core: BDDNode (var, low, high), FALSE_NODE=0, TRUE_NODE=1. Unique table (var,low,high)→id; computed cache (op,u,v)→result.
 
-Operations: make (elimination+sharing), apply (Shannon expansion; memoised), negate (single-pass), FORALL→NOT EXISTS NOT at construction.
+Operations: make (elimination+sharing), apply (Shannon expansion; memoised), negate (single-pass), FORALL elimination by CTL duality at construction (§4.1).
 
-PathPred + TemporalMode opaque atoms. SQL templates:
+PathPred + TemporalMode opaque atoms. After FORALL elimination every atom is EXISTS-quantified, so the SQL templates are the E-forms:
 
 ```
-EVENTUALLY  → EXISTS (CTE to any node)
-GLOBALLY    → NOT EXISTS (NOT sub_filter anywhere)
+EVENTUALLY  → EXISTS (CTE reaches a node satisfying sub_filter)                  -- EF
+GLOBALLY    → EXISTS (CTE restricted to nodes satisfying sub_filter
+                      reaches the end of a maximal path)                         -- EG
 NEXT        → EXISTS, single-hop CTE
 UNTIL(ψ)   → EXISTS recursive CTE, hold_pred at every intermediate node
 SINCE(ψ)   → EXISTS reverse-direction CTE on G^T
 ONCE        → EXISTS backward CTE on G^T
 PREVIOUSLY  → EXISTS single backward hop via G^T
 ```
+
+The A-forms are never emitted as templates of their own; they arise from the negated E-atoms produced by FORALL elimination (§4.1):
+
+```
+AG φ = NOT EF(NOT φ)  → NOT EXISTS (CTE reaches a node violating sub_filter)
+AF φ = NOT EG(NOT φ)  → NOT EXISTS (CTE restricted to nodes violating sub_filter
+                                    reaches the end of a maximal path)
+```
+
+AF φ is not `NOT EXISTS EVENTUALLY NOT` — that expression is AG φ. Because the atoms are opaque to the BDD, an atom built with the wrong dual would be preserved unchanged through optimisation; correctness depends on the construction step.
 
 SignaturePred: opaque atom, expanded as label sequence filter on CTE path array.
 
@@ -699,7 +742,7 @@ Logical optimisation pipeline:
 5. PathPred boolean context propagation
 6. TemporalMode SQL template selection
 7. Minterm count → SQL translation strategy
-8. FORALL → NOT EXISTS NOT (at construction)
+8. FORALL elimination by CTL duality (at construction; §4.1)
 ```
 
 ### 6.2  Query planner
@@ -1334,11 +1377,11 @@ Satisfiable minterms bounded by |C|. Equivalence: same minterm set. Unsatisfiabi
 
 ### 8.4  PathPred as exponential compression
 
-PathPred(EXISTS,ALL,φ) over k instances: k-disjunct DNF compressed. FORALL: dual k-conjunct CNF via NOT EXISTS NOT. TemporalMode extends to continuous path properties.
+PathPred(EXISTS,ALL,φ) over k instances: k-disjunct DNF compressed. FORALL: dual k-conjunct CNF via NOT EXISTS NOT over path instances. TemporalMode extends to continuous path properties.
 
 ### 8.5  EXISTS/FORALL as minterm/maxterm duality
 
-EXISTS = disjunction/minterms. FORALL = conjunction/maxterms. SHORTEST/MIN_WEIGHT collapse both to single term.
+EXISTS = disjunction/minterms. FORALL = conjunction/maxterms. SHORTEST/MIN_WEIGHT collapse both to single term. This duality is over path instances; with a TemporalMode the dual pairs are (EF, AG), (EG, AF) and (EX, AX), so eliminating FORALL exchanges EVENTUALLY and GLOBALLY (§4.1).
 
 ### 8.6  Finite traversal space
 
@@ -1938,7 +1981,7 @@ Estimated: `f_structure ≈ 5! = 120` (short-path dominated), `f_predicate ≈ 2
 
 **Phase 3a — Filter tree typing (3–4 days)**
 - ScalarPred / PathPred / SignaturePred with Ref kind enforcement.
-- FORALL → NOT EXISTS NOT; TemporalMode SQL templates.
+- FORALL elimination by CTL duality (§4.1); TemporalMode SQL templates.
 
 **Phase 3b — BDD layer (~1.5 weeks)**
 - Core BDD; DGMPredicateBDD compiler (TemporalMode, SignaturePred atoms).
