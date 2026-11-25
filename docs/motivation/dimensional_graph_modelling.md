@@ -43,11 +43,11 @@
    - [8.1 DGM as Kripke structure](#81--dgm-as-kripke-structure)
    - [8.2 Propositional completeness of the filter tree](#82--propositional-completeness-of-the-filter-tree)
    - [8.3 Minterms, maxterms, canonical form](#83--minterms-maxterms-canonical-form)
-   - [8.4 PathPred as exponential compression](#84--pathpred-as-exponential-compression)
+   - [8.4 PathPred as compact quantification over paths](#84--pathpred-as-compact-quantification-over-paths)
    - [8.5 EXISTS/FORALL as disjunction/conjunction duality](#85--existsforall-as-disjunctionconjunction-duality)
    - [8.6 Finite traversal space](#86--finite-traversal-space)
    - [8.7 RelationshipSubgraph containment lattice](#87--relationshipsubgraph-containment-lattice)
-   - [8.8 Allen's interval algebra completeness](#88--allens-interval-algebra-completeness)
+   - [8.8 Allen's interval algebra: domain of exhaustiveness](#88--allens-interval-algebra-domain-of-exhaustiveness)
    - [8.9 Temporal property class hierarchy](#89--temporal-property-class-hierarchy)
    - [8.10 SIGNATURE_ENTROPY as information-theoretic measure](#810--signature_entropy-as-information-theoretic-measure)
    - [8.11 Question completeness theorem](#811--question-completeness-theorem)
@@ -74,7 +74,7 @@
    - [11.5 Confirmation and refinement loop](#115--confirmation-and-refinement-loop)
    - [11.6 Ambiguity resolution grounded in the question space](#116--ambiguity-resolution-grounded-in-the-question-space)
    - [11.7 Schema evolution handling](#117--schema-evolution-handling)
-   - [11.8 Hallucination prevention](#118--hallucination-prevention)
+   - [11.8 Hallucination prevention: what is guaranteed and what is not](#118--hallucination-prevention-what-is-guaranteed-and-what-is-not)
    - [11.9 Integration with the execution budget gate](#119--integration-with-the-execution-budget-gate)
    - [11.10 Implementation: LangGraph + Pydantic-AI](#1110--implementation-langgraph--pydantic-ai)
 12. [Supervisor Agent Architecture](#12--supervisor-agent-architecture)
@@ -2137,7 +2137,8 @@ else: date filter + AggFn
 DUCKDB/MOTHERDUCK: CREATE TABLE AS / INSERT INTO
 POSTGRESQL:        COPY via postgres extension
 PARQUET:           COPY TO (FORMAT PARQUET, PARTITION_BY)
-DELTA:             CREATE OR REPLACE / INSERT INTO delta_scan
+DELTA:             INSERT INTO an attached Delta table (APPEND only) — see "Delta writes" below;
+                   never through delta_scan
 ICEBERG:           INSERT INTO / MERGE INTO <catalog>.<schema>.<table> on an attached Iceberg
                    REST catalog — see "Iceberg writes" below; never through iceberg_scan
 
@@ -2145,6 +2146,27 @@ if TemporalAgg and sink ∈ {PARQUET,DELTA,ICEBERG}: partition by timestamp unit
 if Q_delta and sink = DELTA: APPEND mode
 if Grain(ACCUMULATING) and CHANGED_PROPERTY: APPEND mode
 ```
+
+**Delta writes.** `delta_scan(path)` is a table function for reading; it is not a write target, and `INSERT INTO delta_scan(...)` is a syntax error. Writes go to a Delta table attached as a catalog:
+
+```
+ATTACH 's3://bucket/path' AS sales_delta (TYPE delta);
+INSERT INTO sales_delta SELECT …;
+```
+
+| Operation | DuckDB 1.5.0 (tested) | DuckDB 2.0 / 2.0.1 (documented) | WritePlan |
+|---|---|---|---|
+| Read: `delta_scan(path)`, `SELECT` from attached table | works | supported | — |
+| Append: `INSERT INTO <attached>` | works on an existing table | supported (no `RETURNING`, no `ON CONFLICT`) | APPEND |
+| Create: `CREATE TABLE <attached>.<name>` | rejected: "Delta tables do not support creating tables" | supported from 2.0, incl. `PARTITIONED BY` | APPEND to a new table |
+| `CREATE TABLE … AS`, `COPY … TO … (FORMAT delta)` | not tested | supported from 2.0.1; neither appends to nor overwrites an existing table | APPEND to a new table |
+| `UPDATE`, `DELETE`, `MERGE INTO` | rejected: "Can only update base table" / "Can only delete from base table" / "Can only merge into base tables!" | not supported | MERGE — rejected |
+| `CREATE OR REPLACE TABLE`, overwrite | no Delta commit is made (see note) | not supported | MERGE (atomic swap) — rejected |
+| `ALTER TABLE`, `DROP TABLE` | not tested | not supported | — |
+
+Consequences for planning: a Delta `WritePlan` is APPEND only. A plan that needs MERGE — `write_mode = REFRESH`, or ADAPTIVE resolving to MERGE (§2.4, Rule 10) — with a DELTA sink is rejected at planning time with that reason; such a pipeline needs another sink or a writer outside DuckDB. Creating a new Delta table requires DuckDB 2.0 or later. Concurrent writers: from 2.0.1 a conflicting commit fails at COMMIT and is not retried by DuckDB.
+
+Evidence. *Tested* on 2026-11-25 with the `duckdb` 1.5.0 Python package installed in this repository and the `delta` extension build `380933c`, against a minimal Delta table (protocol 1/2, one Parquet file) built for the test: attach, read, append and the rejections above were observed; after `CREATE OR REPLACE TABLE <attached name> AS …` the table's `_delta_log` was unchanged, so no Delta write took place. *Documented* refers to the DuckDB 2.0 Delta extension page (https://duckdb.org/docs/current/core_extensions/delta, redirecting to the 2.0 documentation), read 2026-11-25; it labels CREATE TABLE as new in 2.0 and CTAS and COPY as new in 2.0.1, and states "UPDATE, DELETE, MERGE INTO, ALTER TABLE, and DROP TABLE are not supported." The 2.0 rows were not tested.
 
 **Iceberg writes.** `iceberg_scan(path)` reads an Iceberg table directly from storage and is read-only: a write must commit new table metadata, and only a catalog can do that. An Iceberg write plan therefore has a precondition and a fixed target form.
 
@@ -2542,7 +2564,15 @@ Per-depth streaming for PathPred(ALL):
   depth=3 complete → deliver: "2,340 nodes reachable (converged)"
 ```
 
-**Strategy 3 — Sampling with error bounds.** Applied at the `Anchor` step in Band 1, and only to plans that satisfy S1–S4 above. The sample size is derived from the target error via Hoeffding's inequality for the mean of range-normalised values, with `n = f · |A|` anchor nodes drawn uniformly without replacement.
+**Strategy 3 — Sampling with error bounds.** Applied at the `Anchor` step in Band 1, and only to plans that satisfy S1–S4 above.
+
+*What is estimated.* The population is the finite set A of anchor nodes of the query, of size |A|. For an average `AVG(p)` (S3a) the random variable is `Xᵢ = p(aᵢ)`, the value of p at the i-th sampled anchor, and the schema declares that every value lies in `[lo, hi]`; the estimand is `μ = (1/|A|) Σ_{a∈A} p(a)` and the estimator is the sample mean `X̄`. For a proportion (S3b), `Xᵢ` is 1 if the i-th sampled anchor satisfies the Where predicate and 0 otherwise, so `[lo, hi] = [0, 1]`. Anchors are drawn uniformly without replacement. Hoeffding's inequality [15] then gives, for n draws,
+
+```
+P( |X̄ − μ| ≥ t ) ≤ 2 · exp( −2 n t² / (hi − lo)² )
+```
+
+and it holds for sampling without replacement as well as with replacement ([15], §6). Setting `t = ε · (hi − lo)` and requiring the right-hand side to be at most `δ/k` for each of k aggregates (union bound) gives the sample size below; each estimate then lies within `ε · (hi − lo)` of its true value, jointly for all k, with probability at least `1 − δ`. The sample size is derived from the target error via Hoeffding's inequality for the mean of range-normalised values, with `n = f · |A|` anchor nodes drawn uniformly without replacement.
 
 ```
 Sampling (k aggregates, δ = SAMPLE_DELTA, ε = SAMPLE_MAX_ERROR):
@@ -2553,6 +2583,12 @@ Sampling (k aggregates, δ = SAMPLE_DELTA, ε = SAMPLE_MAX_ERROR):
   -- returned with: "Estimated (±{error_bound*100:.1f}% of range at 95% confidence)"
 ```
 
+*Anchors are sampled, not paths.* Sampling keeps every path and tuple of a sampled anchor and drops every path of an unsampled one. S2 makes this exact for the covered aggregates: there is one tuple per anchor, so the sampled tuples are a uniform sample of the population being averaged. Nothing else inherits the bound. In particular:
+
+- `SUM` and `COUNT` of rows are not covered directly. A COUNT can be recovered from a proportion as `|A| · X̄`, with error `|A| · ε`; a SUM would need `|A| · X̄` with a declared range and is excluded by S3.
+- `MIN` and `MAX` have no Hoeffding bound: a sample mean does not estimate an extremum.
+- With a fan-out join (S2 violated), tuples per anchor vary and the sample mean of tuples is not an unbiased estimate of the tuple mean; such plans are not sampled.
+- Graph metrics computed on a sampled subgraph change with connectivity — removing anchors removes paths, communities and centralities — and receive no guarantee from this bound.
 `GraphExpr` algorithms are not sampled by the gate. Their approximate variants are substituted by the PreComputation timeout guard (`substitute_approximation`) or by a rewrite rule, and carry the accuracy statement of the substituted algorithm — not the Hoeffding bound above, and not a `SAMPLE` decision.
 
 ```
@@ -2595,7 +2631,8 @@ options are generated by the recommender navigating L(G_AB).
 
 ```
 QueryTarget ::= SQL_DUCKDB|SQL_POSTGRESQL|SQL_MOTHERDUCK|CYPHER|SPARQL|DGM_JSON|DGM_YAML
-SinkTarget  ::= DUCKDB|POSTGRESQL|MOTHERDUCK|PARQUET(URI)|DELTA(URI)
+SinkTarget  ::= DUCKDB|POSTGRESQL|MOTHERDUCK|PARQUET(URI)
+              | DELTA(URI)                                     -- attached with TYPE delta; APPEND only
               | ICEBERG(catalog: K, schema: K, table: K)      -- an attached REST catalog; not a storage URI
 ```
 
@@ -2603,26 +2640,44 @@ Expressiveness constraints:
 
 ```
 Construct                 DuckDB  PG(DD)  Parq  Delta  Ice  MDuck  Cypher   SPARQL
-──────────────────────────────────────────────────────────────────────────────────────
-VerbHop⁻¹                 CTE     CTE     CTE   CTE    CTE  CTE    MATCH    ✗
-BoundPath/PathPred        CTE     CTE     CTE   CTE    CTE  CTE    MATCH    FILTER
-TemporalMode UNTIL/SINCE  CTE     CTE     CTE   CTE    CTE  CTE    ✗        ✗
+──────────────────────────────────────────────────────────────────────────────────
+VerbHop⁻¹                 CTE     CTE     CTE   CTE    CTE  CTE    native   native
+BoundPath/PathPred        CTE     CTE     CTE   CTE    CTE  CTE    partial  partial
+Repeat (closure)          CTE     CTE     CTE   CTE    CTE  CTE    partial  partial
+Strategy SHORTEST         CTE     CTE     CTE   CTE    CTE  CTE    partial  ✗
+TemporalMode UNTIL/SINCE  CTE     CTE     CTE   CTE    CTE  CTE    partial  ✗
 SignaturePred             CTE     CTE     CTE   CTE    CTE  CTE    partial  ✗
-TemporalJoin (node)       native  native  nat   nat    nat  native ✗        partial
+TemporalJoin (node)       native  native  nat   nat    nat  native native   partial
 TemporalAgg               native  native  nat   nat    nat  native ✗        ✗
-TrailExpr Bound→Bound     ext/py  ext/py  py    py     py   ext/py native   partial
-TrailExpr Bound→Free      py      py      py    py     py   py     partial  ✗
-TrailExpr Free→Bound      py      py      py    py     py   py     partial  ✗
+TrailExpr Bound→Bound     ext/py  ext/py  py    py     py   ext/py partial  partial
+TrailExpr Bound→Free      py      py      py    py     py   py     partial  partial
+TrailExpr Free→Bound      py      py      py    py     py   py     partial  partial
 TrailExpr Free→Free       py      py      py    py     py   py     ✗        ✗
 SIGNATURE_ENTROPY         py      py      py    py     py   py     ✗        ✗
-REACHABLE_FROM/TO         CTE     CTE     CTE   CTE    CTE  CTE    MATCH*   ✗
+REACHABLE_FROM/TO         CTE     CTE     CTE   CTE    CTE  CTE    partial  partial
 QUALIFY                   native  via DD  nat   nat    nat  native ✗        ✗
 Q_delta                   SQL     SQL     SQL   SQL    SQL  SQL    ✗        ✗
 ```
 
-MATCH*: Cypher variable-length pattern approximates REACHABLE_FROM/TO but does not enforce exact cone boundary.
+native=direct; SQL=standard SQL; CTE=recursive CTE; ext/py=extension or Python pre-computation; py=Python only; partial=expressible only for the restriction stated below, emitted with a warning; ✗=rejected at construction.
 
-native=direct; SQL=standard SQL; CTE=recursive CTE; ext/py=extension or Python pre-computation; py=Python only; partial=approximate with warning; ✗=rejected at construction.
+**Cypher and SPARQL cells.** Each classification below is reproducible from the cited documents: SPARQL 1.1 Query Language, W3C Recommendation, 21 March 2013 (https://www.w3.org/TR/sparql11-query/, sections 9 Property Paths, 11 Aggregates, 17.4.1.4 EXISTS) — the SPARQL 1.2 Query Language Working Draft of 19 November 2026 leaves section 9 unchanged in the parts read — and the Neo4j Cypher Manual for Cypher 25 (pages *Variable-length patterns*, *Shortest paths*, *Predicate functions*), read 2026-11-25. "Not documented" means the pages read do not describe the feature; it is not a claim that the engine lacks it.
+
+| Construct | Cypher | SPARQL |
+|---|---|---|
+| VerbHop⁻¹ | **native** — a pattern traversed against the stored direction: `(d)<-[:PLACED]-(f)` | **native** — inverse path `^p`: `?f ^:placed ?d` |
+| BoundPath / PathPred | **partial** — fixed patterns and quantified path patterns with per-iteration `WHERE`; EXISTS as an `EXISTS { … }` subquery. Uniqueness differs: Cypher's default is relationship-unique (trail), DGM's default SIMPLE needs the `ACYCLIC` mode (Neo4j 2026.03, Cypher 25). FORALL needs `NOT EXISTS { … WHERE NOT φ }`; that form is not documented in the pages read | **partial** — fixed-length BoundPaths with aliases are basic graph patterns; EXISTS/NOT EXISTS are `FILTER EXISTS { … }` / `FILTER NOT EXISTS { … }` (SPARQL 1.1 sec. 17.4.1.4). A path with repetition cannot bind intermediate nodes: "Variables can not be used as part of the path itself, only the ends" (SPARQL 1.1 sec. 9) |
+| Repeat (closure) | **partial** — quantified path patterns `((a)-[:R]->(b)){m,n}`, `+`, with group variables per iteration; `depth_alias` via `size(relationships(p))`. SIMPLE needs `ACYCLIC` (see above) | **partial** — `p*`, `p+`, `p?` give the set of reachable endpoints without duplicates (SPARQL 1.1 sec. 9.4). No bounded repetition `{m,n}`, no access to intermediate nodes or length, no simple-path constraint: only `Repeat(p, 0|1, UNBOUNDED)` without body aliases is expressible, or bounded depth by unrolling into a UNION of fixed-length patterns |
+| Strategy SHORTEST | **partial** — `SHORTEST 1` is documented as non-deterministic among ties ("Which one is returned is non-deterministic"); DGM's tie-break (§3.3) is emitted as `ALL SHORTEST` followed by `ORDER BY` the canonical key and `LIMIT 1` | **✗** — no shortest-path or path-length construct |
+| TemporalMode UNTIL / SINCE | **partial** — `E(φ U ψ)` as a quantified path pattern whose iterations require φ on the source node, ending at a node satisfying ψ; SINCE is the same on a time-ordered path traversed backwards. A-forms need the undocumented NOT EXISTS form; match mode as above | **✗** — a per-position condition along a repeated path needs intermediate variables, which property paths do not bind |
+| SignaturePred | **partial** — the label sequence is `[r IN relationships(p) \| type(r)]`; EXACT and PREFIX by list equality and slicing; CONTAINS and REGEX need conversion to a string | **✗** — the path cannot be bound, so its label sequence is not available |
+| TemporalJoin (node) | **native** — validity and version resolution are predicates on node and relationship properties in `WHERE` | **partial** — `FILTER` on date literals expresses the validity predicates; selecting the version depends on how versions are encoded in RDF (separate resources or reification), which the exporter fixes per target |
+| TemporalAgg | **✗** — rolling, trailing and to-date windows need per-row windowed aggregation; window functions are not documented in the pages read | **✗** — SPARQL 1.1 aggregates are `COUNT, SUM, MIN, MAX, AVG, GROUP_CONCAT, SAMPLE` (SPARQL 1.1 sec. 11); there are no window functions |
+| TrailExpr Bound→Bound, Bound→Free, Free→Bound | **partial** — paths are enumerable as values and their type lists aggregated; exact SIMPLE semantics needs `ACYCLIC` | **partial** — only with finite `max_depth`, by unrolling into fixed-length patterns with a variable per predicate (`?a ?p1 ?x1 . ?x1 ?p2 ?b`), `FILTER` for distinct nodes, and `GROUP BY` the predicate variables. Unbounded depth is ✗ |
+| TrailExpr Free→Free, SIGNATURE_ENTROPY | **✗** — enumeration of every path in the scope; not attempted by the exporter | **✗** — as above, and entropy needs a logarithm, which SPARQL 1.1's function library does not provide |
+| REACHABLE_FROM / TO | **partial** — `(a)-[*]->(n)` or `(a)(()-->()){1,}(n)` yields the reachable node set, which equals `N_A*`; the edge cone `E_A*` (edges on a *simple* path from A) is not the set of traversed relationships and needs pre-computation | **partial** — `?a (:p1\|:p2)* ?n` yields the reachable node set `N_A*` (with `^` for the backward cone); `E_A*` is not expressible |
+| QUALIFY | **✗** — window functions not documented in the pages read | **✗** — no window functions (SPARQL 1.1 sec. 11) |
+| Q_delta | **✗** — the exporter does not encode snapshot versions in either target model | **✗** — same |
 
 SQL emitter flow:
 
@@ -2647,7 +2702,7 @@ Sink write semantics:
 DUCKDB/MOTHERDUCK:  CREATE TABLE AS / INSERT INTO
 POSTGRESQL:         ATTACH ... AS pg; CREATE/INSERT
 PARQUET:            COPY TO (FORMAT PARQUET, PARTITION_BY)
-DELTA:              CREATE OR REPLACE / INSERT INTO delta_scan
+DELTA:              ATTACH … (TYPE delta); INSERT INTO the attached table — APPEND only (§6.2 Rule 8)
 ICEBERG:            INSERT INTO / MERGE INTO catalog.schema.table on an attached REST catalog (§6.2 Rule 8)
 ```
 
@@ -2872,9 +2927,22 @@ Over V = {p, q, r}, `p ∧ q` is a cube — a DNF term — but not a minterm: it
 
 Logical properties, over the BDD variables and relative to Δ (§6.1): equivalence — same minterm set; unsatisfiability — empty minterm set; tautology — full minterm set; implication — subset. These are properties of the formula. The number of minterms *realised* by the tuples of a join context C is at most |C|; that is a property of the data, and a logically satisfiable formula may be realised by no tuple at all.
 
-### 8.4  PathPred as exponential compression
+### 8.4  PathPred as compact quantification over paths
 
-PathPred(EXISTS,ALL,φ) over k instances: k-disjunct DNF compressed. FORALL: dual k-conjunct CNF via NOT EXISTS NOT over path instances. TemporalMode extends to continuous path properties.
+A PathPred quantifies over the instances of a path pattern without listing them. `PathPred(EXISTS, ALL, φ)` over k instances is equivalent to a k-term disjunction of per-instance conditions, and FORALL to a k-clause conjunction (via NOT EXISTS NOT over path instances). The PathPred has size O(|pattern| + |φ|) whatever k is; the expanded formula has size Θ(k · |φ|).
+
+The gap is exponential only for families of graphs in which k grows exponentially with the size of the graph. Such families exist:
+
+```
+Diamond chain D_n:  s = v₀, and for i = 1..n a diamond  v_{i-1} → aᵢ → vᵢ,  v_{i-1} → bᵢ → vᵢ.
+                    |N| = 3n + 1,  |E| = 4n.
+                    Simple paths from s to t = v_n:  2ⁿ  (an independent choice at each diamond).
+
+PathPred(s, Repeat(BridgeHop(X, 'next', X), 1, UNBOUNDED), EXISTS, ALL, EVENTUALLY, φ)
+                    has the same size for every n; its expansion over instances has 2ⁿ disjuncts.
+```
+
+On graphs with few paths per endpoint pair the gap is small or absent: in a tree there is exactly one path between two nodes, so k = 1 and the PathPred is no more compact than the single condition it stands for. "Compression" refers to the size of the representation only. Evaluating a PathPred under strategy ALL can still cost time proportional to the number of instances (§6.3 rewrites it to SHORTEST for that reason); compactness of the formula is not a claim about evaluation cost.
 
 ### 8.5  EXISTS/FORALL as disjunction/conjunction duality
 
@@ -2899,9 +2967,25 @@ Proof: n ∈ G_A* iff A →* n. n ∈ G_*B iff n →* B. Their intersection is {
 
 Rule 9 exploits this: replacing two independent cone computations with one fixed-endpoint computation is provably correct and produces a strictly smaller (or equal) subgraph. The optimisation is always safe to apply.
 
-### 8.8  Allen's interval algebra completeness
+### 8.8  Allen's interval algebra: domain of exhaustiveness
 
-Allen's 13 relations are mutually exclusive and jointly exhaustive over non-degenerate time intervals. Complete coverage of all interval-to-interval temporal relationships.
+**Domain.** Let T be a totally ordered time domain (Date or Timestamp) extended with −∞ and +∞. An interval is `[s, e)` with `s < e`, where a NULL start is read as −∞ and a NULL end as +∞ (§3.2). This is the domain of the theorem; it includes intervals with open (NULL) bounds.
+
+**Theorem.** For any two intervals `l = [a, b)` and `r = [c, d)` of the domain, exactly one of Allen's 13 relations, as defined in §3.2, holds.
+
+Proof. The relation is decided by at most three comparisons, each of which has exactly one outcome in a total order:
+
+```
+a = c:  b < d → STARTS      b = d → EQUALS        b > d → STARTED_BY
+a < c:  b < c → PRECEDES    b = c → MEETS
+        b > c:  b < d → OVERLAPS    b = d → FINISHED_BY    b > d → CONTAINS
+a > c:  a > d → PRECEDED_BY a = d → MET_BY
+        a < d:  b < d → DURING      b = d → FINISHES       b > d → OVERLAPPED_BY
+```
+
+The branches are disjoint and cover every outcome, so at least one relation holds; each leaf condition is exactly the defining condition of its relation in §3.2, and the conditions of different leaves contradict each other, so at most one holds. Thirteen leaves, thirteen relations. ∎
+
+**Outside the domain.** A degenerate interval, with `start ≥ end` — including `start = end` — is not in the domain: it satisfies no Allen relation (§3.2), so exhaustiveness does not hold for it and is not claimed. A comparison whose endpoint expression evaluates to NULL for reasons other than an open bound is UNKNOWN. A TimePoint is not an interval; point relations are a separate family. The theorem says nothing about intervals over different types, which TO4 rejects.
 
 ### 8.9  Temporal property class hierarchy
 
@@ -3471,7 +3555,21 @@ For the `social_network` domain the schema graph has 3 node types and 5 edge typ
 | `V_Op` | ~6 | COUNT, SUM, AVG, MIN, MAX, EXISTS |
 | `V_Par` | ~20 | nota thresholds, forca_conexao ranges, date windows |
 
-Estimated: `f_structure ≈ 5! = 120` (short-path dominated), `f_predicate ≈ 2^10 = 1024` (but BDD compacts to ~50 satisfiable), `f_parameter ≈ 20^2 = 400`, `f_operator ≈ 6`. Naive `|A_full| ≈ 120 × 1024 × 400 × 6 ≈ 2.9 × 10^8`. With semantic sparsity: `|A_eff| ≈ 50 × 50 × 40 × 6 = 600,000`. Neighbourhood size: `O(15 + 3 × 20) = O(75)` — polynomial. Every figure in this example is computed from the schema graph and its annotations: an eleventh reader, or ten thousand more, leaves all of them unchanged. An individual reader such as `Ana` is an element of `N_I` with `h_N(Ana) = Leitor`; she contributes to query results and to recommender scores, not to `V_N`.
+Estimate, with every factor and assumption stated:
+
+| Factor | Full space | Assumed effective part | Basis of the assumption |
+|---|---:|---:|---|
+| `f_structure` | 5! = 120 | 50 | path patterns that satisfy Σ; illustrative, not measured |
+| `f_predicate` | 2^10 = 1 024 | 50 | logically satisfiable predicate subsets (§6.1); illustrative |
+| `f_parameter` | 20² = 400 | 40 | parameter settings to which the result is sensitive; illustrative |
+| `f_operator` | 6 | 6 | all operators kept |
+
+```
+|A_full| ≤ 120 × 1 024 × 400 × 6 = 294 912 000 ≈ 2.9 × 10⁸
+|A_eff|  ≈  50 ×    50 ×  40 × 6 =     600 000 = 6.0 × 10⁵
+```
+
+The full-space figure follows from the vocabulary sizes. The effective-space figure depends entirely on the three assumed reductions in the table, which are round numbers chosen to illustrate the order of magnitude; they were not computed from the dataset. The hierarchy used is the four-level one of §8.16.3 (Structure, Predicate, Parameter, Operator). Neighbourhood size: `O(15 + 3 × 20) = O(75)` — polynomial. Every figure in this example is computed from the schema graph and its annotations: an eleventh reader, or ten thousand more, leaves all of them unchanged. An individual reader such as `Ana` is an element of `N_I` with `h_N(Ana) = Leitor`; she contributes to query results and to recommender scores, not to `V_N`.
 
 ---
 
@@ -3981,6 +4079,8 @@ Pipeline lifecycle unification: each layer transition is modelled by a `Pipeline
 
 [14] W3C (2026). RDF 1.2 Concepts and Abstract Data Model. W3C Candidate Recommendation Draft, 16 November 2026. https://www.w3.org/TR/2026/CRD-rdf12-concepts-20261116/ — not a W3C Recommendation; status checked 2026-11-25 at https://www.w3.org/standards/history/rdf12-concepts/ (Candidate Recommendation Snapshot of 7 April 2026, Candidate Recommendation Drafts from 11 November 2026). RDF 1.2 Semantics is likewise a Candidate Recommendation Draft (24 September 2026). Claims in this specification about RDF 1.2 refer to this draft and may change before Recommendation.
 
+[15] Hoeffding, W. (1963). Probability Inequalities for Sums of Bounded Random Variables. *Journal of the American Statistical Association*, 58(301), 13–30. https://doi.org/10.1080/01621459.1963.10500830
+
 
 ### 10.6  Changelog
 
@@ -4000,7 +4100,7 @@ Version history of this specification. Earlier versions than v0.16 are not recor
 
 **v0.25** — Parameter space `Π(q)` formalization (§8.15) — six parameter families (temporal, strategy, filter, aggregation, window, algorithm) as dependent product over `Q_valid(A, B)`; annotation constraint projection onto parameter space; parameter completeness theorem; parameter type stratification (discrete finite / discrete infinite / continuous); finite parametric skeleton corollary; parameter equivalence and effective parameter space; parametric BDD extension (`BDD_full = BDD_structural × BDD_parametric`); full analytical space `A(A, B) = Σ_{q ∈ Q_valid} Π_valid(q)` as sigma type (dependent sum); `ExecutionBudget` cost sensitivity `cost(q, π)` and parametric rewriting; recommender navigation space `Nav(A, B) = L(G_AB) × Π` with structural/parametric/mixed moves; composed analytical space `A_composed`. §7.7 parametric suggestion types (temporal refinement, strategy shift, aggregation alternative, algorithm variant, threshold relaxation) with annotation-driven parametric rules and cost-aware parametric rewriting via `ExecutionBudget`. §10.2 updated with PipelineArtifact and MedallionLayer rows in schema annotations table; parameter families summary table added. D30 design decision on parameter space separation.
 
-**v0.26** — §8.16 Vocabulary decomposition and analytical space characterisation — six vocabularies (`V_N`, `V_E`, `V_P`, `V_Pred`, `V_Op`, `V_Par`); factored size estimate via multiplicative decomposition; four-level hierarchy (term → phrase → sentence → paragraph); semantic sparsity and effective analytical space `A_eff`; semantic basis as minimal generating set; polynomial neighbourhood bound; per-level navigation strategies for recommender and NL interface; worked example for BookClub `social_network` domain (10 nodes, 5 edge types → 14-element semantic basis, ~2.3 k effective questions). §8.11 cross-reference to §8.16.6–8.16.7 for size characterisation. §7.7 cross-reference to §8.16.5–8.16.6 for formal basis justification. §12 Supervisor Agent Architecture — six agent-safe properties; five-point tool contract (`BaseTool` ABC: `capability_schema`, `cost_estimate`, `execute`, `compose`, `explain`); nine core tools (`dgm_query`, `what_can_i_answer`, `correlate`, `explore_from`, `sensitivity_sweep`, `validate_invariant`, `store_finding`, `retrieve_related`, `map_analytical_space`); `TOOL_REGISTRY` dict; five-node LangGraph supervisor graph (plan → select_tool → execute_tool → synthesize → respond); budget propagation via `budget_fraction` on `ToolCallRequest`; six supervisor workflows (single-domain, cross-domain, hypothesis-driven, exhaustive-survey, validation, meta-analytical); knowledge base with lattice-adjacent retrieval keyed by `(A, B, q, π)`; meta-tool operationalising §8.11 question completeness; relationship to §7 recommender as supplier of `Q_valid`/lattice to supervisor navigation.
+**v0.26** — §8.16 Vocabulary decomposition and analytical space characterisation — six vocabularies (`V_N`, `V_E`, `V_P`, `V_Pred`, `V_Op`, `V_Par`); factored size estimate via multiplicative decomposition; four-level hierarchy (see the superseded note at the end of this entry); semantic sparsity and effective analytical space `A_eff`; semantic basis as minimal generating set; polynomial neighbourhood bound; per-level navigation strategies for recommender and NL interface; worked example for BookClub `social_network` domain. *Superseded:* this entry originally described a hierarchy "term → phrase → sentence → paragraph" and gave a 14-element semantic basis and ~2.3 k effective questions; the body of v0.26 uses the Structure / Predicate / Parameter / Operator hierarchy of §8.16.3 and estimates ~6.0 × 10⁵ effective questions (§8.16.8), which are the figures in force. §8.11 cross-reference to §8.16.6–8.16.7 for size characterisation. §7.7 cross-reference to §8.16.5–8.16.6 for formal basis justification. §12 Supervisor Agent Architecture — six agent-safe properties; five-point tool contract (`BaseTool` ABC: `capability_schema`, `cost_estimate`, `execute`, `compose`, `explain`); nine core tools (`dgm_query`, `what_can_i_answer`, `correlate`, `explore_from`, `sensitivity_sweep`, `validate_invariant`, `store_finding`, `retrieve_related`, `map_analytical_space`); `TOOL_REGISTRY` dict; five-node LangGraph supervisor graph (plan → select_tool → execute_tool → synthesize → respond); budget propagation via `budget_fraction` on `ToolCallRequest`; six supervisor workflows (single-domain, cross-domain, hypothesis-driven, exhaustive-survey, validation, meta-analytical); knowledge base with lattice-adjacent retrieval keyed by `(A, B, q, π)`; meta-tool operationalising §8.11 question completeness; relationship to §7 recommender as supplier of `Q_valid`/lattice to supervisor navigation.
 
 **v0.27 (in progress)** — Revision of v0.26 in response to the review tracked in issues #21–#96. Decisions are recorded as D31–D33 (§10.4) and in `docs/adr/0001`–`0003`; each change is linked to its issue in the pull request that made it.
 
@@ -4303,15 +4403,22 @@ Q_delta(t₁, t₂) triggers:
 
 Saved questions are stored by `question_key` (§8.14) together with their canonical serialisation. When the schema changes, `schema_version` changes and the stored key no longer matches; the interface re-derives the DAG from the stored serialisation against the new schema. If derivation fails, the question is invalidated. If derivation succeeds but produces a different DAG, the user is notified of the semantic change.
 
-### 11.8  Hallucination prevention
+### 11.8  Hallucination prevention: what is guaranteed and what is not
 
-Three formal mechanisms prevent the LLM from producing invalid queries:
+The mechanisms below constrain *what the model can produce*. They guarantee that every query the interface executes refers only to declared schema elements and is structurally valid. They do not guarantee that it is the query the user meant.
 
-**Closed PropRef vocabulary.** Entity resolution maps NL terms to the declared properties `{dom K_S(T) | T ∈ N_S}`. A term that does not resolve to any existing property triggers `UNRESOLVED` — the interface asks for clarification rather than guessing a column name.
+**Guaranteed — closed vocabulary.** Entity resolution may only return `PropRef`s that `get_valid_prop_refs` lists for an alias with a node type (§11.3), i.e. elements of `{dom K_S(T) | T ∈ N_S}`. Agent output is validated against the entity registry in the runtime context (an output validator reading `RunContext`); an output naming anything else fails validation and is retried, and after the retry budget the node fails. A term with no match is returned as `UNRESOLVED`, which leads to a question, not a guess.
 
-**BDD-validated candidates.** The recommender generates candidates from `Q_valid(A, B)` using the BDD feasibility filter. Every candidate surfaced to the LLM for ranking is already structurally valid and non-redundant. The LLM cannot introduce an invalid candidate by ranking — it can only choose among pre-validated options.
+**Guaranteed — structural validity.** Candidates are generated by the recommender from `Q_valid` and pass the BDD feasibility filter (§7). The ranking agent may only reorder them; its output is checked to be a permutation of the ids it was given (§11.10). Every executed query is therefore a member of `Q_valid`: well-typed, consistent with Σ, and not provably empty.
 
-**Query DAG canonical form.** Even if the LLM's ranking is imperfect, the canonical form catches semantic equivalents — two syntactically different queries that reduce to the same DAG node id are treated as identical, and the cached result (if any) is returned without re-execution.
+**Not guaranteed — semantic correctness of a valid mapping.** A term can be mapped to a property that exists but is not the one meant: "revenue" to `s.gross_amount` when the user meant `s.net_amount`, or "customers" to the wrong role of a role-playing dimension. The output is in the vocabulary and the query is valid, so neither mechanism above detects it. This is the residual risk of the interface.
+
+**Controls for the residual risk.** Two controls address it, neither of them formal:
+
+- *Confirmation.* No candidate is executed before the user selects it from options rendered in plain language (§11.5); a misreading shows up as a description the user does not recognise.
+- *Refinement and clarification.* The user can rephrase, which restarts resolution (§11.5), and ambiguous terms are surfaced as explicit choices (§11.6).
+
+**Equivalent questions.** Two syntactically different but equivalent queries reduce to the same canonical DAG and `question_key` (§8.14), so they are treated as one question and share a cached result. This removes duplicated work; it does not make an incorrect mapping correct.
 
 ### 11.9  Integration with the execution budget gate
 
