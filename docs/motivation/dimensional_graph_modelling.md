@@ -99,7 +99,7 @@ The framework rests on fifteen core ideas:
 - **Path-local bindings** allow hops in a BoundPath to introduce named aliases evaluated over C ∪ L.
 - **A unified predicate language** governs all filter clauses via three constructors (ScalarPred, PathPred, SignaturePred). Functionally complete; realises full CTL via TemporalMode.
 - **A unified expression language** governs all computed values. TrailExpr algorithms operate over RelationshipSubgraph scopes with relaxed or fixed endpoints — enabling forward-cone, backward-cone, and full traversal-space analysis.
-- **DGM is a Kripke structure** — nodes are states, edges are transitions, property bags are labels. The transposed graph G^T enables backward-cone computation and past-temporal model checking.
+- **DGM is a Kripke structure** — nodes are states, edges are transitions, property bags are labels. The transposed graph G^T reverses adjacency: it enables backward-cone computation, and past-temporal model checking on the edge types that carry a temporal meaning.
 - **Temporal queries** come in two forms: snapshot queries (Q) and delta queries (Q_delta).
 - **A query planner** makes DGM-specific physical execution decisions informed by schema annotations, including cone containment optimisation (Rule 9) for relaxed-endpoint traversals.
 - **A query exporter** translates physical plans to multiple query and sink targets.
@@ -195,9 +195,9 @@ By H1 the same invariants hold on the instance graph with every subscript S repl
 
 The two readings of `G_AB` are defined in §3.4.2 (instance) and §3.4.5 (schema) and related by the projection lemma of §3.4.5.
 
-**Transposed graph.** G_I^T = (N_I, E_I^R, P) where E_I^R = { (b,a,l) | (a,b,l) ∈ E_I }, typed by h over the transposed schema graph G_S^T. Reverses all edge directions. Produced by adjacency-list reversal at graph load time (O(|E_I|)); shared across all queries. Used by the planner for Free→Bound backward-cone computation and by SINCE/ONCE/PREVIOUSLY TemporalMode SQL generation. Written G^T elsewhere.
+**Transposed graph.** G_I^T = (N_I, E_I^R, P) where E_I^R = { (b,a,l) | (a,b,l) ∈ E_I }, typed by h over the transposed schema graph G_S^T. Reverses all edge directions. Produced by adjacency-list reversal at graph load time (O(|E_I|)); shared across all queries. Used by the planner for Free→Bound backward-cone computation and by SINCE/ONCE/PREVIOUSLY TemporalMode SQL generation. Written G^T elsewhere. G^T is a reversal of adjacency and nothing more: following an edge backwards reaches a predecessor in path order, which is an earlier moment only where the edge type is time-ordered (§2.3).
 
-**Kripke equivalence.** G_I is formally a Kripke structure K = (S, R, L) under S=N_I, R=E_I, L=P. G_I^T is the time-reversal of K — past-temporal model checking runs on G_I^T. See §8.1.
+**Kripke equivalence.** G_I is formally a Kripke structure K = (S, R, L) under S=N_I, R=E_I, L=P. G_I^T is the transpose of K. Restricted to time-ordered edge types it is the time-reversal of K, and past-temporal model checking runs on that restriction. See §8.1.
 
 ### 2.2  Node types
 
@@ -233,6 +233,10 @@ P(b).valid_from/to : Timestamp (optional)
 | fact | fact | Causal chain, succession, supersession | CAUSAL/TEMPORAL/SUPERSESSION |
 | fact | dim | Event-to-entity structural link | STRUCTURAL |
 | dim | fact | Structural reference | STRUCTURAL |
+
+**Direction is not time.** The direction of an edge type is a schema convention. A verb edge `(Customer, Sale, 'placed')` says who placed the sale; it does not say the customer precedes the sale, and a customer attribute read along that edge may have been written after the sale occurred. The same holds for STRUCTURAL bridges: a category is not earlier than its parent, nor a fact earlier than the entity it links to.
+
+An edge type is **time-ordered** iff it is a bridge edge type annotated `BridgeSemantics(CAUSAL)`, `BridgeSemantics(TEMPORAL)` or `BridgeSemantics(SUPERSESSION)` (§2.4). Such an annotation asserts that, for every instance `(a, b)`, `a` occurs no later than `b`. No other edge type carries a temporal meaning: verb edge types and STRUCTURAL bridge edge types are never time-ordered, and nothing temporal may be inferred from their direction. A path is time-ordered iff every hop traverses a time-ordered edge type in its schema direction; a path with no hops (`NodeRef`) is trivially time-ordered.
 
 ### 2.4  Schema annotation layer (Σ)
 
@@ -337,10 +341,10 @@ BoundPath ::= NodeRef(n: N_S)
 RepeatMode ::= SIMPLE | TRAIL | WALK        -- default SIMPLE
 
 TemporalOrdering ::=
-  -- Point-based:
+  -- Point-based (left_ts, right_ts: TimePoint; tolerance: SExpr of type Duration):
     BEFORE(left_ts,right_ts) | AFTER(left_ts,right_ts)
   | CONCURRENT(left_ts,right_ts,tolerance?)
-  -- Allen's 13 interval relations:
+  -- Allen's 13 interval relations (l, r: Interval):
   | MEETS(l,r) | MET_BY(l,r) | OVERLAPS(l,r) | OVERLAPPED_BY(l,r)
   | STARTS(l,r) | STARTED_BY(l,r) | DURING(l,r) | CONTAINS(l,r)
   | FINISHES(l,r) | FINISHED_BY(l,r) | EQUALS(l,r)
@@ -348,10 +352,37 @@ TemporalOrdering ::=
   | UNTIL(hold_pred: Pred, trigger_pred: Pred)
   | SINCE(hold_pred: Pred, trigger_pred: Pred)
 
-Interval ::= (start: PropRef, end: PropRef)
+TimePoint ::= SExpr                         -- of type Timestamp or Date (§4.1)
+Interval  ::= (start: TimePoint, end: TimePoint)   -- same type at both ends
 ```
 
-Allen's relations apply to PERIOD/ACCUMULATING grain facts. UNTIL(φ,ψ): φ holds at every intermediate hop until first ψ. SINCE is the past dual.
+Allen's relations apply to PERIOD/ACCUMULATING grain facts. UNTIL(φ,ψ): φ holds at every intermediate hop until first ψ. SINCE is its mirror image over predecessors, and is admitted only on time-ordered paths (§4.1).
+
+**Path order and clock time.** A path instance has two independent orderings, and the specification never derives one from the other.
+
+```
+PathPosition   the index i ≥ 0 of a node in a path instance: 0 is the start node, i the node
+               reached after i hops. Path order is the order of PathPositions. It is structural.
+
+Clock time     the values of Timestamp, Date and Interval properties. Clock order is asserted
+               only by a TemporalOrdering, which compares typed TimePoints or Intervals.
+```
+
+- The point-based and Allen constructors of TemporalOrdering compare clock values named explicitly by their arguments. Both TimePoints of a point-based constructor have the same type; a Date is not compared with a Timestamp. They constrain the instance whatever the direction of the hops between the two aliases.
+- Path order alone never implies clock order. `Compose(VerbHop(c,'placed',s), …)` puts `c` at an earlier PathPosition than `s`; it does not make any timestamp of `c` earlier than `s.occurred_on`. To require that, the query states `BEFORE(c.effective_from, s.occurred_on)`.
+- On a time-ordered path (§2.3) the two orderings agree by annotation: a later PathPosition is no earlier in time. Only there may path order be read as "before" and "after".
+
+Example — a hop dim → fact carries no chronology:
+
+```
+Compose(VerbHop(Customer,'placed',Sale, node_alias=s),
+        BridgeHop(Sale,'refunded_by',Refund, node_alias=r))        -- BridgeSemantics(refunded_by, CAUSAL)
+
+-- PathPositions: customer 0, s 1, r 2.
+-- s → r is time-ordered: the sale occurs no later than its refund.
+-- customer → s is not: the customer version joined here may have become effective after the sale.
+-- The path as a whole is not time-ordered, so ONCE, SINCE and PREVIOUSLY are rejected on it.
+```
 
 **Constellation path** — two-hop via conformed dimension:
 
@@ -639,6 +670,10 @@ A finite trace is complete: EG φ and AG φ hold on a trace where φ holds at ev
 **Empty domain.** T(s) = ∅ when no path instance from s has an evaluation position; Succ(s) = ∅ when s is terminal. EXISTS is false on an empty domain. FORALL follows `on_empty`: `REQUIRE_WITNESS` makes it false, `VACUOUS` makes it true. A customer with no sales does not satisfy "all sales exceed 500" unless the query sets `on_empty = VACUOUS`.
 
 FORALL with ONCE or SINCE(ψ) is rejected at construction. Their duals require a past-time GLOBALLY operator, which `TemporalMode` does not contain; EXISTS with ONCE or SINCE is unaffected.
+
+**Path-order modes and temporal modes.** EVENTUALLY, GLOBALLY, NEXT and UNTIL quantify over the PathPositions of a trace (§3.2). They are valid on any path. On a path that is not time-ordered they mean "at some position", "at every position", "after one hop" and "at every position before the first one where ψ holds" — statements about the structure traversed, with no claim about when anything happened. They are future-time operators only on a time-ordered path (§2.3).
+
+SINCE, ONCE and PREVIOUSLY are past-time operators and have no structural reading. A PathPred using one of them is rejected at construction unless its path is time-ordered. A backward structural traversal is written with reverse hops (`VerbHop⁻¹`, a bridge edge type traversed against its direction) under the path-order modes; it is not a query about the past.
 
 **AF and AG are distinct.** Two minimal graphs, evaluated at s₀; s₁ and s₂ are terminals and every node is an evaluation position:
 
@@ -1111,9 +1146,9 @@ GLOBALLY    → EXISTS (CTE restricted to nodes satisfying sub_filter
               -- (terminal), or the closing of a cycle (§4.1)
 NEXT        → EXISTS, single-hop CTE
 UNTIL(ψ)   → EXISTS recursive CTE, hold_pred at every intermediate node
-SINCE(ψ)   → EXISTS reverse-direction CTE on G^T
-ONCE        → EXISTS backward CTE on G^T
-PREVIOUSLY  → EXISTS single backward hop via G^T
+SINCE(ψ)   → EXISTS reverse-direction CTE on G^T     -- time-ordered paths only (§4.1)
+ONCE        → EXISTS backward CTE on G^T               -- time-ordered paths only
+PREVIOUSLY  → EXISTS single backward hop via G^T       -- time-ordered paths only
 ```
 
 The A-forms are never emitted as templates of their own; they arise from the negated E-atoms produced by FORALL elimination (§4.1):
@@ -1917,7 +1952,7 @@ R is not assumed total; CTL formulas are interpreted over maximal paths (§4.1, 
 
 Consequences: CTL/LTL model checking applies directly. BDD layer is standard symbolic CTL machinery (Bryant 1986; Clarke et al. 1986). PathPred(FORALL/EXISTS,ALL) are CTL path quantifiers A/E. TemporalMode realises full CTL operator hierarchy.
 
-G^T is the time-reversal of K. Backward-cone RelationshipSubgraph(Free,Bound(B)) is the computation tree for past-temporal formulas about "all paths leading to B." SINCE/ONCE/PREVIOUSLY TemporalMode execute as model checking on G^T.
+G^T is the transpose of K: it reverses adjacency. Backward-cone RelationshipSubgraph(Free,Bound(B)) is the set of paths leading to B in path order. It is the computation tree for past-temporal formulas about B only when restricted to time-ordered edge types (§2.3); over other edge types it is a structural predecessor set and says nothing about earlier moments. SINCE/ONCE/PREVIOUSLY TemporalMode execute as model checking on G^T under that restriction.
 
 **RDF named graphs as multiple accessibility relations.** An RDF Dataset consists of a default graph and zero or more named graphs — each named graph is a distinct set of triples. In Kripke terms, an RDF Dataset with named graphs G₁, G₂, ..., Gₙ is a Kripke structure with multiple accessibility relations R₁, R₂, ..., Rₙ — one per named graph. DGM's computed `RelationshipSubgraph(A, B, strategy)` is a *restriction* of the single accessibility relation R = E to the subset of edges lying on simple paths between A and B. This is a structural distinction: RDF named graphs are asserted by the author; DGM's `G_AB` is derived from the graph topology by traversal. The analytical consequence is significant — DGM's scoped subgraph has formal completeness guarantees (§8.11) that RDF named graphs do not.
 
