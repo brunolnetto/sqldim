@@ -79,14 +79,16 @@
    - [11.10 Implementation: LangGraph + Pydantic-AI](#1110--implementation-langgraph--pydantic-ai)
 12. [Supervisor Agent Architecture](#12--supervisor-agent-architecture)
    - [12.1 DGM as a composable tool](#121--dgm-as-a-composable-tool)
-   - [12.2 Five-point tool contract](#122--five-point-tool-contract)
+   - [12.2 Tool contract and types](#122--tool-contract-and-types)
    - [12.3 Nine core tools](#123--nine-core-tools)
    - [12.4 Supervisor graph](#124--supervisor-graph)
-   - [12.5 Budget propagation](#125--budget-propagation)
+   - [12.5 Budget propagation and recovery](#125--budget-propagation-and-recovery)
    - [12.6 Six supervisor workflows](#126--six-supervisor-workflows)
    - [12.7 Knowledge base with lattice-adjacent retrieval](#127--knowledge-base-with-lattice-adjacent-retrieval)
    - [12.8 Meta-tool: question completeness theorem operationalized](#128--meta-tool-question-completeness-theorem-operationalized)
    - [12.9 Relationship to §7 recommender](#129--relationship-to-7-recommender)
+   - [12.10 Authorization and dataset isolation](#1210--authorization-and-dataset-isolation)
+   - [12.11 Partial failures and terminal outcomes](#1211--partial-failures-and-terminal-outcomes)
 
 ---
 
@@ -4935,77 +4937,253 @@ The NL interface (§11) processes a single question against a single dataset per
 
 ### 12.1  DGM as a composable tool
 
-Six formal properties make DGM **agent-safe** — suitable for autonomous use by a supervisor without human-in-the-loop per step:
+Six formal properties make DGM **agent-safe** — suitable for autonomous use by a supervisor without human-in-the-loop per step. They concern the tools; who may call which tool on which data is governed separately by §12.10, and what happens when calls fail by §12.11:
 
 | # | Property | Guarantee |
 |---|---|---|
 | 1 | **Closed output vocabulary** | Every tool output is typed; no free-text unless explicitly requested |
 | 2 | **Formal question space** | Tools operate on `Q_valid(A, B)` — the supervisor cannot ask an invalid question |
 | 3 | **Deterministic equivalence** | Same `(q, π)` input yields the same canonical DAG (§8.14) |
-| 4 | **Formal failure modes** | Errors are typed (`BudgetDecisionKind`), not exceptions — the supervisor can react programmatically |
+| 4 | **Formal failure modes** | Every call ends in a typed `ToolCallResult` with a status, a `ToolErrorKind` and, when the gate was reached, a `BudgetDecisionKind` (§12.2) — the supervisor reacts by rule, not by catching exceptions |
 | 5 | **Cost estimation before execution** | Every tool provides `cost_estimate(args)` before `execute(args)` |
 | 6 | **Composable via Q_algebra** | Tool outputs are joinable/unionable via `Q_algebra` operations (§8.13) |
 
-### 12.2  Five-point tool contract
+### 12.2  Tool contract and types
 
-Each DGM tool exposes a uniform interface:
+Every symbol used by the supervisor is defined here. Types are written as Pydantic-style schemas; `CostEstimate` and `ExecutionBudget` are those of §6.3, and `DatasetId` is the identifier of a dataset as known to the host.
+
+**Budget decisions.** `BudgetDecisionKind` is the variant tag of `BudgetDecision` (§6.3), not a separate taxonomy:
 
 ```
-ToolContract:
-  capability_schema  → ToolCapabilitySchema   # what the tool can do
-  cost_estimate(args) → float                  # estimated cost before execution
-  execute(args, ctx)  → ToolCallResult         # run the tool
-  compose(left, right) → ToolCallResult        # combine two results
-  explain(args)        → str                   # human-readable description
+BudgetDecisionKind ::= PROCEED | STREAM | ASYNC | REWRITE | SAMPLE | PAGINATE | CLARIFY | REJECT
 ```
 
-The `capability_schema` declares input/output types and `composable_with` — the list of tools whose outputs can be fed into this tool. This enables the supervisor to validate tool chains at plan time rather than at execution time.
+A child call that reaches the gate records the kind it received. `REJECT` makes the call `REJECTED` (§12.4). The supervisor runs without a human per step, so `CLARIFY` is treated as `REJECTED` with error `NEEDS_CLARIFICATION`; the options it carried are kept in the result for the final response.
+
+**Authorization context** (§12.10). Issued by the host from the authenticated session; never produced or modified by a model.
+
+```
+AuthContext(
+  principal_id: str,
+  tenant_id:    str,
+  grants:       frozenset[DatasetGrant])
+
+DatasetGrant(dataset_id: DatasetId, actions: frozenset[READ | CORRELATE | WRITE_KB])
+```
+
+**Capability schema.** Declared by each tool, fixed at startup.
+
+```
+ToolCapabilitySchema(
+  name:            ToolName,                 -- key in TOOL_REGISTRY
+  version:         str,
+  description:     str,
+  input_schema:    JSONSchema,               -- arguments are validated against it
+  output_schema:   JSONSchema,               -- ToolCallResult.data is validated against it
+  reads:           list[JSONPointer],        -- argument fields that name datasets the tool reads
+  writes_kb:       bool,                     -- stores findings (§12.7)
+  idempotent:      bool,                     -- re-executing with the same arguments has no further effect
+  composable_with: list[ToolName],           -- tools whose output this tool may take as input
+  degrade_to:      ToolName | None)          -- cheaper substitute used by the degrade route (§12.5)
+```
+
+**Request, result and error.**
+
+```
+ToolCallRequest(
+  call_id:          str,                     -- unique within the plan
+  tool_name:        ToolName,
+  arguments:        dict,                    -- valid against input_schema
+  depends_on:       list[call_id],           -- results this call consumes; earlier steps only
+  budget_fraction:  float ∈ [0, 1])
+  -- derived by the supervisor, never by the planner model:
+  datasets:         list[DatasetId]          -- read from `arguments` at the `reads` pointers
+  idempotency_key:  str                      -- H(plan_id, call_id, tool_name, canonical(arguments))
+
+ToolCallResult(
+  call_id:      str,
+  tool_name:    ToolName,
+  status:       SUCCEEDED | FAILED | REJECTED | SKIPPED | CANCELLED,
+  data:         Any | None,                  -- present iff SUCCEEDED; valid against output_schema
+  decision:     BudgetDecisionKind | None,   -- kind returned by the child gate, if it was reached
+  error:        ToolError | None,            -- present iff status ∉ {SUCCEEDED}
+  datasets:     list[DatasetId],             -- provenance of `data`
+  attempts:     int,                         -- ≥ 1 unless SKIPPED
+  cost_actual:  CostEstimate,
+  started_at:   Timestamp | None,
+  finished_at:  Timestamp | None)
+
+ToolError(kind: ToolErrorKind, message: str, retryable: bool)
+
+ToolErrorKind ::= UNKNOWN_TOOL | INVALID_ARGUMENTS | UNAUTHORIZED
+                | BUDGET_REJECTED | NEEDS_CLARIFICATION
+                | TIMEOUT | CANCELLED | TOOL_FAILURE | INVALID_OUTPUT
+                | DEPENDENCY_NOT_MET | COMPOSITION_FAILURE
+```
+
+`retryable` is true only for `TIMEOUT` and for `TOOL_FAILURE` that the tool marks transient. All other kinds are final for that call.
+
+**Plan.**
+
+```
+SupervisorPlan(
+  plan_id:    str,
+  version:    int,                           -- incremented by each replan
+  goal:       str,
+  steps:      list[ToolCallRequest],
+  confidence: float ∈ [0, 1],
+  reasoning:  str)
+```
+
+A plan is **valid** iff:
+
+```
+P1  call_ids are unique.
+P2  every depends_on names an earlier step: the dependency relation is acyclic and respects step order.
+P3  every tool_name is in TOOL_REGISTRY, and its arguments validate against the tool's input_schema.
+P4  for every dependency d of step s: tool(s) ∈ composable_with(tool(d)).
+P5  Σ budget_fraction ≤ 1.
+P6  every dataset of every step is granted to the principal with the actions the tool needs (§12.10).
+```
+
+**Tool interface.** `BaseTool` is the single normative interface; "ToolContract" in earlier versions denotes the same thing.
+
+```python
+class BaseTool(ABC):
+    capability_schema: ToolCapabilitySchema
+
+    def cost_estimate(self, arguments: dict, ctx: "ToolContext") -> CostEstimate:
+        """Estimate from statistics only: reads no data and has no side effect."""
+
+    async def execute(self, request: ToolCallRequest, ctx: "ToolContext") -> ToolCallResult:
+        """Run the call within ctx.budget and ctx.deadline; never raises for an expected failure,
+        which is returned as a ToolCallResult with status and error set."""
+
+    def compose(self, left: ToolCallResult, right: ToolCallResult) -> ToolCallResult:
+        """Combine two SUCCEEDED results; defined only when right.tool_name is in composable_with."""
+
+    def explain(self, arguments: dict) -> str:
+        """Plain-language description of what the call will do."""
+
+@dataclass
+class ToolContext:                           # runtime context; never checkpointed, never shown to a model
+    auth:     AuthContext
+    budget:   ExecutionBudget                # the child budget (§12.5)
+    deadline: Timestamp
+    cancel:   CancelToken
+    kb:       KnowledgeBaseHandle            # scoped to auth.tenant_id (§12.10)
+    data:     DataAccess                     # opens only the datasets of the current request
+```
+
+**Registry.**
+
+```
+TOOL_REGISTRY : Mapping[ToolName, BaseTool]
+```
+
+- *Content.* Built at startup from the tools of §12.3 and immutable for the duration of a run.
+- *Resolution.* Exact match on `ToolName`. There is no fuzzy or case-insensitive matching and no fallback to a default tool.
+- *Validation.* Plan validation (P1–P6) uses the registry. A plan naming an unknown tool is invalid: no step of it runs, and the supervisor replans with error `UNKNOWN_TOOL` (§12.5).
+- *Execution.* `execute_tool` resolves the name again, so a tool removed between validation and execution yields `UNKNOWN_TOOL` for that call, never a call to another tool.
+
+**`run_ask_from_source`.** The entry point used by `dgm_query`: one non-interactive turn of the NL interface (§11.10) on one dataset.
+
+```
+run_ask_from_source(source: DatasetId, utterance: str, ctx: ToolContext) → NLTurnResult
+
+NLTurnResult(
+  question_key: QuestionKey | None,          -- §8.14
+  decision:     BudgetDecisionKind,
+  rows:         list[dict] | None,
+  job:          JobTicket | None,            -- ASYNC only (§11.10)
+  explanation:  str,
+  unresolved:   list[str])
+```
+
+Where the interactive interface would ask the user to confirm a candidate, the non-interactive turn takes the top-ranked candidate and records the others in `explanation`.
 
 ### 12.3  Nine core tools
 
-| Tool | Purpose | Maps to |
-|---|---|---|
-| `dgm_query` | Full NL→SQL pipeline against a dataset | `run_ask_from_source` (§11.10) |
-| `dgm_what_can_i_answer` | List answerable questions from `Q_valid(A, B)` | BDD enumeration (§8.3) |
-| `dgm_correlate` | Cross-domain JOIN of two results | `Q_algebra.JOIN` (§8.13) |
-| `dgm_explore_from` | Navigate from a result to related questions | Recommender (§7) |
-| `dgm_sensitivity_sweep` | Parameter sweep over `P_Σ` | §8.15 + §8.16.7 Level 3 strategy |
-| `dgm_validate_invariant` | Check a formal model invariant | Schema validation (§3) |
-| `dgm_store_finding` | Persist an analytical finding | Knowledge base (§12.7) |
-| `dgm_retrieve_related` | Lattice-adjacent retrieval from KB | **Not** vector similarity — lattice distance in `L(G_AB)` |
-| `dgm_map_analytical_space` | Map vocabulary decomposition | §8.16 computation |
+| Tool | Purpose | Maps to | Reads | KB write | Idempotent | `degrade_to` |
+|---|---|---|---|---|---|---|
+| `dgm_query` | One NL question against a dataset | `run_ask_from_source` (§12.2, §11.10) | `/dataset` | no | yes | `dgm_what_can_i_answer` |
+| `dgm_what_can_i_answer` | List answerable questions from `Q_valid` | BDD enumeration (§8.3) | `/dataset` | no | yes | — |
+| `dgm_correlate` | Cross-domain JOIN of two results | `Q_algebra.JOIN` (§8.13) | `/left/dataset`, `/right/dataset` | no | yes | — |
+| `dgm_explore_from` | Navigate from a result to related questions | Recommender (§7) | `/dataset` | no | yes | — |
+| `dgm_sensitivity_sweep` | Parameter sweep over `Π(q)` | §8.15 + §8.16.7 Level 3 strategy | `/dataset` | no | yes | `dgm_query` |
+| `dgm_validate_invariant` | Check a formal model invariant | Schema validation (§2–§3) | `/dataset` | no | yes | — |
+| `dgm_store_finding` | Persist an analytical finding | Knowledge base (§12.7) | `/finding/datasets/*` | yes | yes, by `idempotency_key` | — |
+| `dgm_retrieve_related` | Lattice-adjacent retrieval from KB | **Not** vector similarity — lattice distance in `L(G_AB)` | `/dataset` | no | yes | — |
+| `dgm_map_analytical_space` | Map vocabulary decomposition | §8.16 computation | `/dataset` | no | yes | — |
+
+`dgm_store_finding` is idempotent only through its key: storing the same finding twice under one `idempotency_key` stores it once.
 
 ### 12.4  Supervisor graph
 
-The supervisor is a five-node LangGraph state machine:
-
 ```
-plan → select_tool → execute_tool → synthesize → respond
-                 ↑          |
-                 └── more ──┘
-```
-
-- **plan**: Decompose the user utterance into a `SupervisorPlan` — an ordered list of `ToolCallRequest` items, each with a `budget_fraction` summing to ≤ 1.0
-- **select_tool**: Pick the next unexecuted step from the plan
-- **execute_tool**: Invoke the selected tool via `TOOL_REGISTRY`; append `ToolCallResult` to state
-- **synthesize**: Combine all results into a coherent answer (composition via `Q_algebra` or natural language)
-- **respond**: Format the final output
-
-The `execute_tool → select_tool` loop repeats until all plan steps are executed, then routes to `synthesize`.
-
-### 12.5  Budget propagation
-
-The supervisor's total budget (an `ExecutionBudget` from §6.3) is distributed across child tool calls according to `budget_fraction`:
-
-```
-child_budget(step_i) = supervisor_budget × step_i.budget_fraction
+plan → validate_plan ──invalid──→ replan
+            │ valid
+            ▼
+       select_step ──none runnable──→ synthesize → respond → END
+            │
+            ▼
+       execute_tool → route_result ─┬─ continue ─→ select_step
+                                    ├─ retry ────→ execute_tool        (same call, same idempotency_key)
+                                    ├─ degrade ──→ select_step          (step replaced, §12.5)
+                                    ├─ replan ───→ validate_plan        (new plan version, §12.5)
+                                    └─ abort ────→ respond → END
 ```
 
-Each child tool invocation passes through its own `ExecutionGate` (§6.3), but with the scaled budget. If a child tool returns `REJECT`, the supervisor can:
+- **plan**: decompose the utterance into a `SupervisorPlan` (§12.2). The planner sees only the datasets granted to the principal (§12.10).
+- **validate_plan**: check P1–P6. An invalid plan never runs a step.
+- **select_step**: pick the first PENDING step whose dependencies are all SUCCEEDED. A PENDING step with a dependency that ended in any other status becomes SKIPPED with `DEPENDENCY_NOT_MET`. When no step is runnable, go to synthesize.
+- **execute_tool**: authorize the request (§12.10), compute the child budget (§12.5), call `TOOL_REGISTRY[tool_name].execute`, validate `data` against the output schema (`INVALID_OUTPUT` otherwise), and record the result.
+- **route_result**: apply the routing table below.
+- **synthesize**: compose the SUCCEEDED results and state coverage (§12.11).
+- **respond**: format the outcome: COMPLETE, PARTIAL, FAILED, ABORTED or CANCELLED (§12.11).
 
-1. **Replan** — reassign the rejected step's budget to remaining steps
-2. **Degrade** — substitute a cheaper tool (e.g., `dgm_what_can_i_answer` instead of `dgm_query`)
-3. **Abort** — propagate REJECT to the user
+Steps run one at a time, in plan order among runnable steps. Running independent steps concurrently is not specified here (issue #86).
+
+**Routing after a result.** Evaluated top to bottom; the first matching row applies.
+
+| Result | Condition | Route |
+|---|---|---|
+| SUCCEEDED | — | continue |
+| FAILED, `retryable` | tool is idempotent and `attempts < MAX_ATTEMPTS` | retry |
+| REJECTED (`BUDGET_REJECTED` or `NEEDS_CLARIFICATION`) | tool has `degrade_to`, the substitute was not yet tried for this step, its `cost_estimate` fits the child budget, and `degrades < MAX_DEGRADES` | degrade |
+| REJECTED | `replans < MAX_REPLANS` | replan |
+| REJECTED | otherwise | abort |
+| FAILED, CANCELLED by the run | — | abort, outcome CANCELLED |
+| FAILED, any other | — | continue (dependents become SKIPPED) |
+
+`UNAUTHORIZED` is FAILED and not retryable: the call is not retried, degraded or replanned around, and its dependents are skipped. A replan may not reintroduce a dataset the principal is not granted (P6).
+
+**Abort** is terminal. It keeps the diagnostic of the step that caused it — `call_id`, tool, arguments, child budget, `decision`, `error` — and every result obtained so far. `respond` reports them; no synthesis is attempted and no partial result is presented as an answer.
+
+### 12.5  Budget propagation and recovery
+
+The supervisor's total budget `B` is an `ExecutionBudget` (§6.3). A step's child budget scales every cost field of `B` by the step's fraction and bounds time by the run's deadline:
+
+```
+child_budget(step) = B with
+  max_estimated_cost, streaming_threshold, async_threshold  ×  step.budget_fraction
+  max_result_rows, max_precompute_time                        unchanged
+  max_wall_time                                               min(B.max_wall_time, deadline − now)
+```
+
+Scaling every cost field by the same non-negative factor preserves invariants I1–I3 of §6.3, so a child budget is always valid. Each child call passes through its own gate (§6.3) with this budget. `spent` is the sum of `cost_actual` over finished calls; `remaining = B.max_estimated_cost − spent`.
+
+When a step is REJECTED, the routing table of §12.4 chooses one of three recoveries:
+
+1. **Degrade.** Replace the rejected step by its tool's `degrade_to` substitute, with the same `depends_on` and budget fraction and `call_id` suffixed `/degraded`. Arguments are mapped by the substitute's declared mapping; a step whose arguments cannot be mapped is not degraded. Each step is degraded at most once, and the run at most `MAX_DEGRADES` times.
+2. **Replan.** Call the planner again with the goal, the current plan, every result so far and the rejection. The new plan increments `version` and must satisfy, besides P1–P6:
+   - every SUCCEEDED call is kept with its `call_id`; its result is reused, not recomputed;
+   - the rejected call does not reappear with the same tool, arguments and budget fraction — a replan has to change something;
+   - the fractions of the new and still-pending steps sum to at most `remaining / B.max_estimated_cost`.
+   A plan that violates these is invalid and counts as a further replan. At most `MAX_REPLANS` replans per run.
+3. **Abort.** When neither applies, the run ends ABORTED (§12.4).
+
+`MAX_ATTEMPTS`, `MAX_DEGRADES` and `MAX_REPLANS` are policy constants. Each recovery consumes a bounded counter, and none can re-run the same rejected call unchanged, so a run terminates.
 
 ### 12.6  Six supervisor workflows
 
@@ -5044,6 +5222,89 @@ The supervisor's `dgm_explore_from` tool wraps the recommender (§7) as a first-
 - **§12 supervisor**: Uses recommender suggestions as **navigation signals** across datasets — a recommendation in dataset A may trigger a correlated query in dataset B
 
 The polynomial neighbourhood bound (§8.16.6) guarantees that each `dgm_explore_from` call returns a manageable number of suggestions, preventing the supervisor from being overwhelmed by the combinatorial space.
+
+### 12.10  Authorization and dataset isolation
+
+**Identity.** Every run carries one `AuthContext` (§12.2), built by the host from the authenticated session before the supervisor starts. It lives in the runtime context: it is not part of the checkpointed state, not part of any model input or output, and not a field the planner can set. Planner output that names a principal, tenant or grant is ignored.
+
+**Visibility.** The planner and `dgm_what_can_i_answer` see only datasets with a `READ` grant. A dataset that is not granted is not mentioned to a model, so a denial does not reveal that it exists.
+
+**Check at execution time.** `execute_tool` checks the request against the grants immediately before calling the tool, even though plan validation (P6) already checked it, because grants can change during a run:
+
+| Tool | Required on every dataset of the request |
+|---|---|
+| any tool that reads | `READ` |
+| `dgm_correlate` | `READ` and `CORRELATE` on **both** datasets |
+| `dgm_store_finding` | `WRITE_KB`, plus `READ` on every dataset the finding derives from |
+| `dgm_retrieve_related` | `READ`; findings are returned only if every dataset they derive from is granted |
+
+The datasets of a request are those named in its arguments at the tool's `reads` pointers (§12.2) — derived by the supervisor from validated arguments, never asserted by the model. A failed check returns `UNAUTHORIZED` with the message "not authorized or not found", reads no data and is not retried.
+
+**Isolation.**
+
+- *Data access.* `ToolContext.data` opens connections only to the datasets of the current request, for the duration of the call.
+- *Results.* Every result records the datasets it derives from. A composition inherits the union, and `dgm_correlate` checks the grants of all of them.
+- *Knowledge base.* Partitioned by `tenant_id`; one tenant's findings are never stored in or returned to another tenant.
+- *State and caches.* Supervisor state and checkpoints are keyed by `(tenant_id, thread_id)`. Result caches (§8.14) are scoped by `tenant_id`, so a cached result computed for one tenant is never served to another.
+
+**Credentials.** Tools never receive credentials in arguments, results or state. The runtime opens connections with the principal's own credentials, or with a service identity restricted to the principal's grants, and holds them in `ToolContext.data`. Credentials are never logged, checkpointed or passed to a model.
+
+### 12.11  Partial failures and terminal outcomes
+
+**State per call.** Each step has exactly one status at any time:
+
+```
+PENDING → RUNNING → SUCCEEDED | FAILED | REJECTED | CANCELLED
+PENDING → SKIPPED                         -- a dependency ended in a status other than SUCCEEDED
+RUNNING → RUNNING                         -- a retry; attempts increments
+```
+
+The plan's state is the status of each step; the supervisor never records success for the plan as a whole except as the outcome below.
+
+**Retry, timeout, cancellation and idempotency.**
+
+- *Retry.* Only `retryable` failures of idempotent tools are retried, at most `MAX_ATTEMPTS` times, with the same `idempotency_key`. A non-idempotent call is never retried.
+- *Timeout.* Each call has the deadline `min(started_at + child max_wall_time, run deadline)`. On expiry the call's cancel token is set and the result is FAILED with `TIMEOUT`.
+- *Cancellation.* A cancelled run sets the cancel token of the running call, marks it CANCELLED, marks every PENDING step CANCELLED, and ends with outcome CANCELLED.
+- *Idempotency.* A tool with a side effect (`dgm_store_finding`) performs it at most once per `idempotency_key`, so a retry after an ambiguous failure — a timeout after the write — does not duplicate it.
+
+**Three kinds of failure are reported apart:**
+
+- a *tool error*: FAILED, with the tool's `ToolErrorKind`;
+- a *budget rejection*: REJECTED, with `decision = REJECT` (or CLARIFY);
+- a *composition error*: `compose` or `synthesize` cannot combine results that each succeeded — `COMPOSITION_FAILURE`, recorded on the synthesis; the individual results are still reported.
+
+**Synthesis and outcome.** `synthesize` uses SUCCEEDED results only and computes coverage:
+
+```
+coverage = (SUCCEEDED steps) / (steps of the final plan version)
+missing  = [(call_id, tool, status, error.kind) for every step not SUCCEEDED]
+```
+
+| Outcome | Condition |
+|---|---|
+| COMPLETE | every step SUCCEEDED and synthesis succeeded |
+| PARTIAL | at least one step SUCCEEDED, and some step did not or synthesis failed |
+| FAILED | no step SUCCEEDED |
+| ABORTED | routing chose abort (§12.4) |
+| CANCELLED | the run was cancelled |
+
+The response always states the outcome. A PARTIAL response states coverage and lists the missing steps with their reasons; it does not present the available results as the answer to the whole question.
+
+Example — one dataset answers, the other times out:
+
+```
+Plan v1:  q_a = dgm_query(dataset=sales_eu)       q_b = dgm_query(dataset=sales_us)
+          c   = dgm_correlate(left=q_a, right=q_b)          depends_on [q_a, q_b]
+
+q_a  SUCCEEDED (1 attempt)
+q_b  FAILED, TIMEOUT, retryable → retried → FAILED, TIMEOUT (attempts = MAX_ATTEMPTS = 2)
+c    SKIPPED, DEPENDENCY_NOT_MET
+
+Outcome PARTIAL, coverage 1/3.
+Response: the result for sales_eu; "sales_us: not available (timeout after 2 attempts);
+          the EU–US correlation was not computed."
+```
 
 ---
 
