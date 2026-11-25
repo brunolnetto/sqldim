@@ -117,56 +117,112 @@ The framework rests on fifteen core ideas:
 
 ### 2.1  Structure and invariants
 
-A DGM graph is a 6-tuple:
+A DGM model has two levels. The **schema graph** `G_S` holds the types — entity types, fact types and relationship types. The **instance graph** `G_I` holds the occurrences — individual entities, individual events and the links between them. A **typing homomorphism** `h` assigns every occurrence to its type.
 
 ```
-G = (N, E, τ_N, τ_E, P, Σ)
+DGM = (G_S, G_I, h)
+
+G_S = (N_S, E_S, τ_N, τ_E, K_S, Σ)      -- schema graph
+G_I = (N_I, E_I, P)                      -- instance graph
+h   = (h_N, h_E) : G_I → G_S             -- typing homomorphism
 ```
+
+**Schema graph.**
 
 | Symbol | Definition |
 |---|---|
-| N | Finite set of nodes. |
-| E ⊆ N×N×L | Set of directed labeled edges. L is the set of verb labels. |
-| τ_N : N → {dim, fact} | Node type function. Partitions N into D (dimension) and F (fact). |
-| τ_E : E → {verb, bridge} | Edge type function. Partitions E into V (verb) and B (bridge). |
-| P : N∪E → (K→V) | Property function. Maps every node and edge to a key-value property bag. |
-| Σ | Schema annotation set. See §2.4. |
+| N_S | Finite set of node types. |
+| E_S ⊆ N_S×N_S×L | Set of directed labeled edge types. L is the finite set of verb labels. |
+| τ_N : N_S → {dim, fact} | Node kind function. Partitions N_S into D_S (dimension types) and F_S (fact types). |
+| τ_E : E_S → {verb, bridge} | Edge kind function. Partitions E_S into V_S (verb edge types) and B_S (bridge edge types). |
+| K_S : N_S∪E_S → (K→Type) | Property signature. Maps every node type and edge type to its declared property keys and their value types. |
+| Σ | Schema annotation set over G_S. See §2.4. |
 
-Structural invariants:
+**Instance graph.**
+
+| Symbol | Definition |
+|---|---|
+| N_I | Finite set of node instances. |
+| E_I ⊆ N_I×N_I×L | Set of directed labeled edge instances. |
+| P : N_I∪E_I → (K→V) | Property function. Maps every node instance and edge instance to a key-value property bag. |
+
+**Typing homomorphism.** `h_N : N_I → N_S` is total, and `h_E` is determined by it:
 
 ```
-D ∩ F = ∅,   D ∪ F = N
-V ∩ B = ∅,   V ∪ B = E
-V ⊆ D × F × L     -- verb edges: dim → fact only (schema direction)
-B ⊆ N × N × L     -- bridge edges: any node → any node
+H1  (a, b, l) ∈ E_I  ⟹  h_E(a, b, l) = (h_N(a), h_N(b), l) ∈ E_S       -- edges map to edge types; labels are preserved
+H2  dom P(x) ⊆ dom K_S(h(x))                                            -- only declared properties occur
+H3  P(x)(k) ∈ K_S(h(x))(k) ∪ {NULL}                                     -- values inhabit the declared type
 ```
 
-**Transposed graph.** G^T = (N, E^R, τ_N, τ_E, P, Σ) where E^R = { (b,a,l) | (a,b,l) ∈ E }. Reverses all edge directions. Produced by adjacency-list reversal at graph load time (O(|E|)); shared across all queries. Used by the planner for Free→Bound backward-cone computation and by SINCE/ONCE/PREVIOUSLY TemporalMode SQL generation.
+`h` is not required to be injective (many instances share a type) or surjective (a type may have no instances yet). Kinds are defined on `G_S` and inherited by instances through `h`:
 
-**Kripke equivalence.** G is formally a Kripke structure K = (S, R, L) under S=N, R=E, L=P. G^T is the time-reversal of K — past-temporal model checking runs on G^T. See §8.1.
+```
+kind(n) = τ_N(h_N(n))        D_I = h_N⁻¹(D_S)      F_I = h_N⁻¹(F_S)
+kind(e) = τ_E(h_E(e))        V_I = h_E⁻¹(V_S)      B_I = h_E⁻¹(B_S)
+```
+
+Structural invariants are stated on the schema graph:
+
+```
+D_S ∩ F_S = ∅,   D_S ∪ F_S = N_S
+V_S ∩ B_S = ∅,   V_S ∪ B_S = E_S
+V_S ⊆ D_S × F_S × L     -- verb edge types: dim → fact only (schema direction)
+B_S ⊆ N_S × N_S × L     -- bridge edge types: any node type → any node type
+```
+
+By H1 the same invariants hold on the instance graph with every subscript S replaced by I; they need not be checked separately.
+
+**Two levels, one example each.** In a retail model, `Customer ∈ D_S` and `Sale ∈ F_S` are types and `(Customer, Sale, 'placed') ∈ V_S` is a verb edge type; the customer `c₄₂` and the sale `s₁₀₀₁` are instances with `h_N(c₄₂) = Customer`, `h_N(s₁₀₀₁) = Sale`, and `(c₄₂, s₁₀₀₁, 'placed') ∈ V_I`. In the BookClub model of §8.16.8, `Leitor`, `Livro` and `Genero` are the three elements of `N_S`; the ten individual readers and eight individual books are elements of `N_I`. `|N_S| = 3` whatever the number of readers.
+
+**Level of each construction.** Every construction in this specification belongs to exactly one level. Where a later section writes an unsubscripted `N`, `E`, `D`, `F`, `V`, `B` or `G_AB`, it is read at the level given here.
+
+| Construction | Level | Reads |
+|---|---|---|
+| τ_N, τ_E, K_S, Σ and every `SchemaAnnotation` argument (§2.4) | Schema | `D_S`, `F_S`, `B_S`, `N_S` |
+| `Path`, `BoundPath`, `Anchor(node_type)`, labels, `Strategy`, `TemporalOrdering` (§3.1–§3.3, §5.2) | Schema — patterns over types | `G_S` |
+| Aliases, join context `C`, path-local context `L`, path instances (§3.5) | Instance — bound to occurrences | `G_I` |
+| Property bags `P`, temporal properties, snapshot `G(t)`, delta `ΔG` (§2.5) | Instance | `G_I` |
+| Transposed graph `G^T`, Kripke structure (§8.1) | Instance | `G_I` |
+| `RelationshipSubgraph` with `Bound`/`Free` endpoints, `TrimJoin`, cone identities (§3.4, §8.7) | Instance | `G_AB = G_AB^I` |
+| `PathPred`, `PathAgg`, `TrailExpr`, `GraphExpr` evaluation (§4) | Instance — evaluated over path instances | `G_I` |
+| `GraphStatistics`, cost estimates, planner thresholds on `|N|`, `|E|` (§6.2) | Instance | `|N_I|`, `|E_I|` |
+| Finite traversal space (§8.6) | Instance | `|N_I|` |
+| Predicate typing, `Ref` validity, structural BDD (§4.1, §6.1) | Schema | `K_S`, `Σ` |
+| `Q_space`, `Q_valid(A, B)`, question lattice `L(G_AB)`, `Σ|_AB` (§8.11–§8.16) | Schema — `A, B ∈ N_S` | `G_AB = G_AB^S` |
+| Recommender candidate generation and feasibility filtering (§7.1 Layers 1–2) | Schema | `G_AB^S`, `Σ` |
+| Recommender scoring (§7.1 Layer 3, §8.12) | Instance | statistics of `G_I` |
+| Closed `PropRef` vocabulary of the NL interface (§11) | Schema | `K_S` |
+
+The two readings of `G_AB` are defined in §3.4.2 (instance) and §3.4.5 (schema) and related by the projection lemma of §3.4.5.
+
+**Transposed graph.** G_I^T = (N_I, E_I^R, P) where E_I^R = { (b,a,l) | (a,b,l) ∈ E_I }, typed by h over the transposed schema graph G_S^T. Reverses all edge directions. Produced by adjacency-list reversal at graph load time (O(|E_I|)); shared across all queries. Used by the planner for Free→Bound backward-cone computation and by SINCE/ONCE/PREVIOUSLY TemporalMode SQL generation. Written G^T elsewhere.
+
+**Kripke equivalence.** G_I is formally a Kripke structure K = (S, R, L) under S=N_I, R=E_I, L=P. G_I^T is the time-reversal of K — past-temporal model checking runs on G_I^T. See §8.1.
 
 ### 2.2  Node types
 
-**Dimension nodes** d ∈ D — domain entities. P(d) carries attributes for filtering and grouping. May be SCD-versioned (SCDType annotation, §2.4). Notation: d.attr.
+**Dimension nodes** — domain entities. A dimension type T ∈ D_S declares the attributes K_S(T); a dimension node d ∈ D_I with h_N(d) = T carries them in P(d), for filtering and grouping. May be SCD-versioned (SCDType annotation on the type, §2.4). Notation: d.attr.
 
-**Fact nodes** f ∈ F — measurable events or states. P(f) carries measures and a timestamp or interval depending on grain annotation (§2.4). Notation: f.measure, f.occurred_on.
+**Fact nodes** — measurable events or states. A fact type T ∈ F_S declares measures in K_S(T); a fact node f ∈ F_I with h_N(f) = T carries them in P(f), with a timestamp or interval depending on the grain annotation of T (§2.4). Notation: f.measure, f.occurred_on.
 
-Fact nodes may not be the source of verb edges (§10.4, D6).
+Fact types may not be the source of verb edge types, hence fact nodes may not be the source of verb edges (§10.4, D6).
 
 A fact node with no outgoing bridge edge is a terminal of every forward path (§4.1).
 
 ### 2.3  Edge types
 
-**Verb edges** v = (d, f, label) ∈ V. Schema direction: dim → fact. Query-time reverse traversal permitted via VerbHop⁻¹ (§3.2).
+Edge types live in G_S and edge instances in G_I; an instance (a, b, label) is admitted only if (h_N(a), h_N(b), label) is an edge type (H1, §2.1).
+
+**Verb edges** v = (d, f, label). Schema direction: dim → fact. Query-time reverse traversal permitted via VerbHop⁻¹ (§3.2).
 
 ```
-V ⊆ D × F × L
+V_S ⊆ D_S × F_S × L        V_I ⊆ D_I × F_I × L
 ```
 
-**Bridge edges** b = (n₁, n₂, label) ∈ B.
+**Bridge edges** b = (n₁, n₂, label). The weight and validity window are properties of each bridge edge instance.
 
 ```
-B ⊆ N × N × L
+B_S ⊆ N_S × N_S × L        B_I ⊆ N_I × N_I × L
 P(b).weight ∈ ℝ⁺ (optional; defaults to 1)
 P(b).valid_from/to : Timestamp (optional)
 ```
@@ -180,32 +236,32 @@ P(b).valid_from/to : Timestamp (optional)
 
 ### 2.4  Schema annotation layer (Σ)
 
-Σ carries semantic metadata. Annotations do not change graph topology or property bags.
+Σ carries semantic metadata. It belongs to the schema graph: every annotation argument is a node type or edge type of G_S, never an instance, and an annotation on a type governs all instances that h maps to it. Annotations do not change graph topology or property bags.
 
 ```
 Σ ⊆ SchemaAnnotation*
 
 SchemaAnnotation ::=
-    Conformed(d: D, fact_types: set[τ_N])
-  | Grain(f: F, grain: EVENT | PERIOD | ACCUMULATING)
-  | SCDType(d: D, scd: SCD1|SCD2|SCD3|SCD6,
+    Conformed(d: D_S, fact_types: set[F_S])
+  | Grain(f: F_S, grain: EVENT | PERIOD | ACCUMULATING)
+  | SCDType(d: D_S, scd: SCD1|SCD2|SCD3|SCD6,
              versioned_attrs?: set[K], overwrite_attrs?: set[K], prev_attrs?: set[K])
-  | Degenerate(d: D)
-  | RolePlaying(d: D, roles: list[L])
-  | ProjectsFrom(d_mini: D, d_full: D)
-  | FactlessFact(f: F)
-  | DerivedFact(f: F, sources: list[F], expr: Expr)
-  | WeightConstraint(b: B, constraint: ALLOCATIVE | UNCONSTRAINED)
-  | BridgeSemantics(b: B, sem: CAUSAL|TEMPORAL|SUPERSESSION|STRUCTURAL)
-  | Hierarchy(root: D, depth: ℕ | RAGGED)
+  | Degenerate(d: D_S)
+  | RolePlaying(d: D_S, roles: list[L])
+  | ProjectsFrom(d_mini: D_S, d_full: D_S)
+  | FactlessFact(f: F_S)
+  | DerivedFact(f: F_S, sources: list[F_S], expr: Expr)
+  | WeightConstraint(b: B_S, constraint: ALLOCATIVE | UNCONSTRAINED)
+  | BridgeSemantics(b: B_S, sem: CAUSAL|TEMPORAL|SUPERSESSION|STRUCTURAL)
+  | Hierarchy(root: D_S, depth: ℕ | RAGGED)
   -- Pipeline annotations
-  | PipelineArtifact(f: F,
+  | PipelineArtifact(f: F_S,
                      pipeline_id: K,
                      ttl: Duration,
                      backfill_horizon: Duration,
                      write_mode: BACKFILL | REFRESH | ADAPTIVE)
   -- Medallion layer annotation
-  | MedallionLayer(n: N,
+  | MedallionLayer(n: N_S,
                    layer: BRONZE | SILVER | GOLD | DIAMOND,
                    promoted_at?: Timestamp)
 ```
@@ -220,7 +276,7 @@ Key annotation semantics:
 
 **BridgeSemantics(CAUSAL)** — DAG; drop cycle guard; use DAG BFS on both G and G^T.
 
-**PipelineArtifact(f, pipeline_id, ttl, backfill_horizon, write_mode)** — composite annotation. Implies `Grain(f, ACCUMULATING)`. Models five-state machine over `P(f).state ∈ {Missing, In-flight, Complete, Stale, Failed}`. Transition bridge edges carry implied BridgeSemantics:
+**PipelineArtifact(f, pipeline_id, ttl, backfill_horizon, write_mode)** — composite annotation. Implies `Grain(f, ACCUMULATING)`. Models five-state machine over `P(x).state ∈ {Missing, In-flight, Complete, Stale, Failed}` for each instance x of the fact type f. Transition bridge edges carry implied BridgeSemantics:
 ```
 Missing    →[scheduled]→   In-flight   TEMPORAL
 In-flight  →[succeeded]→   Complete    CAUSAL
@@ -231,7 +287,7 @@ Failed     →[retried]→     In-flight   SUPERSESSION
 ```
 `write_mode`: BACKFILL → always APPEND; REFRESH → always MERGE (atomic swap); ADAPTIVE → inferred from state (planner Rule 10).
 
-**MedallionLayer(n, layer, promoted_at)** — Tags which Medallion layer a node or edge originates from. Operational consequences: (1) Planner warns when `PathPred` traversal crosses a node with `MedallionLayer(BRONZE)` — raw data in analytical paths may be unvalidated. (2) Recommender suppresses `BRONZE` nodes from `GroupBy` suggestions. (3) Exporter tags `DGM_JSON` output with the minimum layer of all nodes in the query — touching Bronze nodes gets tagged `min_layer: BRONZE`.
+**MedallionLayer(n, layer, promoted_at)** — Tags which Medallion layer the instances of a node type originate from. Operational consequences: (1) Planner warns when `PathPred` traversal crosses a node with `MedallionLayer(BRONZE)` — raw data in analytical paths may be unvalidated. (2) Recommender suppresses `BRONZE` nodes from `GroupBy` suggestions. (3) Exporter tags `DGM_JSON` output with the minimum layer of all nodes in the query — touching Bronze nodes gets tagged `min_layer: BRONZE`.
 
 **Σ is an operational decision table**: every annotation drives specified planner, recommender, and exporter behaviour.
 
@@ -242,7 +298,7 @@ P(n).effective_from/to : Timestamp (NULL = open)
 P(e).valid_from/to     : Timestamp (NULL = open)
 ```
 
-Snapshot G(t): nodes/edges valid at t. Delta ΔG(t₁, t₂): N_added, N_removed, E_added, E_removed, P_changed.
+Temporal properties belong to instances. Snapshot G(t) = G_I(t): the node and edge instances valid at t, typed by the restriction of h; G_S is the same for every t. Delta ΔG(t₁, t₂): N_added, N_removed, E_added, E_removed, P_changed — sets of instances.
 
 ---
 
@@ -250,18 +306,24 @@ Snapshot G(t): nodes/edges valid at t. Delta ΔG(t₁, t₂): N_added, N_removed
 
 ### 3.1  Unbound paths
 
+A path is a pattern over the schema graph: its arguments are node types and each hop names an edge type of E_S.
+
 ```
-Path ::= NodeRef(n: N)
-       | VerbHop(d: D, label: L, f: F)
-       | VerbHop⁻¹(f: F, label: L, d: D)    -- reverse: fact → dim (query-time)
-       | BridgeHop(n₁: N, label: L, n₂: N)
+Path ::= NodeRef(n: N_S)
+       | VerbHop(d: D_S, label: L, f: F_S)
+       | VerbHop⁻¹(f: F_S, label: L, d: D_S)    -- reverse: fact → dim (query-time)
+       | BridgeHop(n₁: N_S, label: L, n₂: N_S)
        | Compose(Path, Path)
 ```
 
+A **path instance** of a pattern π is a sequence of node and edge instances of G_I whose image under h is π, hop by hop. Patterns are finite objects of the schema; the number of instances of a pattern depends on the data.
+
 ### 3.2  Bound paths and TemporalOrdering
 
+A BoundPath is a Path whose positions carry aliases. The pattern stays at the schema level; each alias is bound, per path instance, to the node or edge instance occupying that position.
+
 ```
-BoundPath ::= NodeRef(n: N)
+BoundPath ::= NodeRef(n: N_S)
             | VerbHop(d,label,f, node_alias?,edge_alias?)
             | VerbHop⁻¹(f,label,d, node_alias?,edge_alias?)
             | BridgeHop(n₁,label,n₂, node_alias?,edge_alias?)
@@ -317,9 +379,11 @@ Endpoint ::= Bound(alias: A)   -- fixed node, resolved in C
 
 #### 3.4.2  Extended definition
 
+RelationshipSubgraph is evaluated on the instance graph. Throughout §3.4.2–§3.4.4, A and B denote the node instances bound to the endpoint aliases in the current tuple of C, N and E abbreviate N_I and E_I, and G_AB abbreviates G_AB^I.
+
 ```
 RelationshipSubgraph(source: Endpoint, target: Endpoint, strategy: Strategy)
-  → G_src_tgt = (N_src_tgt, E_src_tgt, τ_N, τ_E, P, Σ)
+  → G_src_tgt = (N_src_tgt, E_src_tgt, P)        -- subgraph of G_I, typed by the restriction of h
 ```
 
 **Case 1 — Bound(A) → Bound(B)** (fixed endpoints; existing):
@@ -388,6 +452,30 @@ Tier assignment preserves the granularity placement rule (§4.2) without modific
 | Free→Bound | INCOMING_SIGNATURES | Provenance type inventory into B |
 | Free→Bound | SIGNATURE_DIVERSITY | Normalised variety of incoming paths |
 | Free→Free | SIGNATURE_ENTROPY | Graph-scope relationship diversity |
+
+#### 3.4.5  Schema-level subgraph and projection
+
+The question space (§8.11) is defined over types, not occurrences. For node types `A, B ∈ N_S` the schema-level relationship subgraph is taken by reachability in G_S:
+
+```
+G_AB^S = (N_AB^S, E_AB^S, τ_N, τ_E, K_S, Σ|_AB)
+
+N_AB^S = { T ∈ N_S | A →* T →* B in G_S }
+E_AB^S = { (T, U, l) ∈ E_S | A →* T  and  U →* B in G_S }
+Σ|_AB  = { σ ∈ Σ | every type named by σ lies in N_AB^S or E_AB^S }
+```
+
+Reachability uses walks: a type may be visited more than once, since a simple path of instances can pass through several instances of the same type (reader → reader → book). `G_AB^S` depends only on G_S.
+
+**Projection lemma.** For node instances a, b ∈ N_I with h_N(a) = A and h_N(b) = B, h maps G_ab^I into G_AB^S:
+
+```
+h_N(N_ab^I) ⊆ N_AB^S        h_E(E_ab^I) ⊆ E_AB^S
+```
+
+Proof: let n lie on a simple path a →* n →* b in G_I. By H1 every edge of the path maps to an edge type with the same label, so the image is a walk A →* h_N(n) →* B in G_S; hence h_N(n) ∈ N_AB^S. The same walk places the image of each path edge in E_AB^S. ∎
+
+Consequently every path instance evaluated between a and b is an instance of a pattern over `G_AB^S`. A question formulated over `G_AB^S` is well-typed for every pair of instances of (A, B), and no instance pair gives rise to a question outside it. The inclusion may be strict: a type in `N_AB^S` need not have an instance on any path between a particular a and b.
 
 ### 3.5  Evaluation contexts and L-promotion
 
@@ -639,8 +727,8 @@ STRICT: reject missing versions. LAX: silently drop. Explicit TemporalJoin overr
 ```
 Q_delta = (t₁, t₂, spec: DeltaSpec, filter?: T_W)
 
-DeltaSpec ::= ADDED_NODES(τ_N) | REMOVED_NODES(τ_N)
-            | ADDED_EDGES(τ_E) | REMOVED_EDGES(τ_E)
+DeltaSpec ::= ADDED_NODES(N_S) | REMOVED_NODES(N_S)      -- instances of the given node type
+            | ADDED_EDGES(E_S) | REMOVED_EDGES(E_S)      -- instances of the given edge type
             | CHANGED_PROPERTY(alias,prop,comparator)
             | ROLE_DRIFT(alias,from_type,to_type)
 ```
@@ -656,7 +744,7 @@ B₁ = what, B₂ = how to collapse, B₃ = which tuples. Cross-band Ref rules e
 ```
 B₁ = (Join, Where?)
 
-Join ::= Anchor(node_type: τ_N, alias: A)
+Join ::= Anchor(node_type: N_S, alias: A)
        | PathJoin(alias: A, path: Path, alias': A')
        | CrossJoin(Join, Join)
        | TemporalJoin(join, as_of, node_resolution?, edge_resolution?)
@@ -790,8 +878,9 @@ GraphStatistics = (node_count, edge_count, degree_dist,
                    path_cardinality: BoundPath→ℕ,
                    property_dist: PropRef→Distribution,
                    temporal_density: PropRef×Duration→ℝ,
-                   scc_sizes: N→ℕ,
-                   transposed_adj: N→list[N])   -- G^T adjacency; built at load time
+                   scc_sizes: N_I→ℕ,
+                   transposed_adj: N_I→list[N_I])   -- G^T adjacency; built at load time
+-- GraphStatistics describes G_I. It informs cost and scoring; it never changes Q_valid.
 
 ExportPlan = (query_target, query_text, pre_compute: list[PreComputation],
               sink_target?, write_plan?, cost_estimate,
@@ -1392,6 +1481,8 @@ Layer 3 — Data scoring                (small surviving set)
 Ranked suggestions
 ```
 
+Layers 1 and 2 operate on the schema graph: candidates are drawn from `Q_valid(A, B)` over `G_AB^S` and filtered against `Σ`, so the set of suggestions that can be offered is fixed by the schema. Layer 3 alone reads the instance graph, through `GraphStatistics` and trail metrics, to rank the survivors.
+
 ### 7.2  Two-stage trail exploration and compositional suggestions
 
 **Two-stage trail exploration.** The endpoint relaxation extension gives the recommender a natural two-stage exploration protocol:
@@ -1538,7 +1629,7 @@ Parametric suggestions are validated by `BDD_parametric` feasibility (§8.15) an
 
 ### 8.1  DGM as Kripke structure
 
-**Theorem.** G = (N,E,τ_N,τ_E,P,Σ) is a Kripke structure K=(S,R,L) under S=N, R=E, L=P.
+**Theorem.** The instance graph G_I = (N_I, E_I, P) is a Kripke structure K=(S,R,L) under S=N_I, R=E_I, L=P. In §8.1–§8.10, G, N and E denote G_I, N_I and E_I.
 
 R is not assumed total; CTL formulas are interpreted over maximal paths (§4.1, D30).
 
@@ -1568,7 +1659,7 @@ EXISTS = disjunction/minterms. FORALL = conjunction/maxterms. SHORTEST/MIN_WEIGH
 
 ### 8.6  Finite traversal space
 
-total ≤ Σₖ |N|! / (|N|-k)! (finite). BridgeSemantics(CAUSAL): DAG — eliminates cycles.
+The number of simple path instances in G_I is finite: total ≤ Σₖ |N_I|! / (|N_I|-k)!. BridgeSemantics(CAUSAL): DAG — eliminates cycles. This bounds execution, and grows with the data. The number of path *patterns* is a schema quantity: at most Σ_{j=0}^{k} (2·|E_S|)^j patterns of at most k hops, each hop taking an edge type forwards or (VerbHop⁻¹) backwards.
 
 ### 8.7  RelationshipSubgraph containment lattice
 
@@ -1603,17 +1694,21 @@ Relationship to recommender routing: high H → Stage 1 characterisation (Free e
 
 ### 8.11  Question completeness theorem
 
-**Theorem (Question completeness).** For any two nodes `A, B ∈ N` with `RelationshipSubgraph G_AB = (N_AB, E_AB, τ_N, τ_E, P, Σ|_AB)`, the set of valid analytical questions `Q_valid(A, B)` is finite and constructively enumerable from `G_AB` and `Σ|_AB` alone.
+**Level.** This section is stated on the schema graph. `A` and `B` are node types in `N_S`; `G_AB`, `N_AB` and `E_AB` abbreviate `G_AB^S`, `N_AB^S` and `E_AB^S` (§3.4.5). A question is a *structural* question: constants such as thresholds and windows are parameters in `Π(q)` (§8.15), not part of `q`. Path patterns are taken up to a hop bound `k` (`max_hops`, §8.16.2); where `G_AB` is acyclic, `k` may be taken as the length of its longest path.
+
+**Theorem (Question completeness).** For any two node types `A, B ∈ N_S` with schema-level subgraph `G_AB = (N_AB, E_AB, τ_N, τ_E, K_S, Σ|_AB)`, the set of valid analytical questions `Q_valid(A, B)` is finite and constructively enumerable from `G_AB` and `Σ|_AB` alone.
 
 **Proof sketch.** Three results combine:
 
-(1) From §8.2 (functional completeness): the predicate language over `ScalarPred` atoms derived from `{P(n) | n ∈ N_AB}` and `{P(e) | e ∈ E_AB}` is functionally complete. The atom set is finite given finite `N_AB` and `E_AB`.
+(1) From §8.2 (functional completeness): the predicate language over `ScalarPred` atoms derived from the property signatures `{K_S(T) | T ∈ N_AB}` and `{K_S(e) | e ∈ E_AB}` is functionally complete. A structural atom is a declared property together with a comparison operator, its constant left as a parameter; the atom set is finite given finite `N_AB`, `E_AB` and finite signatures.
 
-(2) From §8.6 (finite traversal space): the number of distinct `BoundPath` structures over `N_AB, E_AB` is bounded by `|N_AB|!`. The `PathPred` and `PathAgg` spaces are therefore finite.
+(2) From §8.6 (path patterns): the number of distinct `BoundPath` patterns of at most `k` hops over `G_AB` is at most `Σ_{j=0}^{k} (2·|E_AB|)^j`. The `PathPred` and `PathAgg` spaces are therefore finite.
 
-(3) From §8.3 (minterm enumeration): the satisfiable minterms over the join context `C` derived from `G_AB` are bounded by `|C| ≤ |N_AB|^k` for join depth `k`. Finite.
+(3) From §8.3 (minterm enumeration): the minterms over a finite set of `m` structural atoms number at most `2^m`. Finite. The number of minterms *realised* by a particular instance graph is further bounded by the size of the join context `C`, but that is a property of the data and plays no part in the size of the question space.
 
-The Band 2 aggregation space is finite given finite measure properties in `F ∩ N_AB` and finite `TemporalWindow` variants. The Band 3 ranking space is finite given the finite Band 2 output schema. The cross-product of all three bands over `G_AB` is therefore finite. ∎
+The Band 2 aggregation space is finite given the finite measure properties declared by the fact types in `F_S ∩ N_AB` and finite `TemporalWindow` variants. The Band 3 ranking space is finite given the finite Band 2 output schema. The cross-product of all three bands over `G_AB` is therefore finite. ∎
+
+**Corollary (Schema determinacy).** `Q_valid(A, B)` and its cardinality are functions of `(G_AB, K_S, Σ|_AB, k)` only. Two instance graphs typed over the same schema graph have the same `Q_valid(A, B)`; inserting or deleting instances changes query results, `GraphStatistics` and recommender scores (§8.12), never the question space. By the projection lemma (§3.4.5), every question in `Q_valid(A, B)` is well-typed for every pair of instances `(a, b)` with `h_N(a) = A`, `h_N(b) = B`.
 
 **Definition (Question space).** The full question space is:
 
@@ -1634,8 +1729,8 @@ Each annotation in `Σ|_AB` removes a structurally invalid subset:
 **Definition (Question lattice).** `Q_valid(A, B)` forms a lattice `L(G_AB)` ordered by semantic specificity:
 
 ```
-top    = tautological query: Anchor(N_AB), no Where, no GroupBy, no Window
-           — returns all tuples in G_AB
+top    = tautological query: Anchor(A), no Where, no GroupBy, no Window
+           — returns all tuples of instances typed in G_AB
 bottom = contradictory query: Where(FALSE_NODE)
            — returns no tuples
 every other q ∈ Q_valid(A, B) lies strictly between top and bottom
@@ -2000,18 +2095,18 @@ The query DAG canonical form (§8.14) extends naturally: two parameterized compo
 
 #### 8.16.1  Six vocabularies
 
-Every analytical question is assembled from six vocabularies inherent to `G_AB`:
+Every analytical question is assembled from six vocabularies inherent to the schema-level subgraph `G_AB = G_AB^S` (§3.4.5):
 
 | Vocabulary | Symbol | Source | Size driver |
 |---|---|---|---|
-| **Node terms** | `V_N` | `N_D ∪ N_F` — dimension and fact nodes | `|N|` (graph order) |
-| **Edge terms** | `V_E` | `E_AB` — all typed edges | `|E|` (graph size) |
-| **Property terms** | `V_P` | `P(n)` for all `n ∈ N` — node properties | `Σ |P(n)|` |
+| **Node terms** | `V_N` | `N_AB^S` — dimension and fact node types | `|N_S|` (number of node types) |
+| **Edge terms** | `V_E` | `E_AB^S` — edge types | `|E_S|` (number of edge types) |
+| **Property terms** | `V_P` | `K_S(T)` for all `T ∈ N_AB^S` — declared properties | `Σ |K_S(T)|` |
 | **Predicate terms** | `V_Pred` | `PathPred`, `TemporalMode`, `SignaturePred` | Fixed per §4–§5 |
 | **Operator terms** | `V_Op` | `AggFn`, `ComparisonOp`, `JoinKind` | Small constant set |
 | **Parameter terms** | `V_Par` | `Π(q)` for each `q ∈ Q_valid` | §8.15 |
 
-The first three vocabularies are **schema-derived** (grow with graph size); the last three are **formalism-derived** (fixed or slowly growing).
+The first three vocabularies are **schema-derived**: they grow with the size of the schema graph and are unaffected by the number of instances. The last three are **formalism-derived** (fixed or slowly growing).
 
 #### 8.16.2  Factored size estimate
 
@@ -2099,18 +2194,18 @@ The key insight is that the dominant factor (Level 1) is the one that is **never
 
 #### 8.16.8  Worked example: BookClub social network
 
-For the `social_network` domain (10 readers, 8 books, 7 genres — 25 vertices, 69 edges, 5 edge types):
+For the `social_network` domain the schema graph has 3 node types and 5 edge types. The instance graph used for illustration has 10 readers, 8 books and 7 genres — 25 node instances and 69 edge instances — and none of those four counts enters the table below:
 
 | Vocabulary | Size | Notes |
 |---|---|---|
-| `V_N` | 3 types × ~8 avg | Leitor, Livro, Genero |
-| `V_E` | 5 | SEGUE, RECOMENDOU, LEU, PERTENCE_AO_GENERO, INTERESSE_EM |
+| `V_N` | 3 | Leitor, Livro, Genero — node types |
+| `V_E` | 5 | SEGUE, RECOMENDOU, LEU, PERTENCE_AO_GENERO, INTERESSE_EM — edge types |
 | `V_P` | ~15 | nome, idade, titulo, autor, nota, forca_conexao, ... |
 | `V_Pred` | ~10 | PathPred + TemporalMode (formalism-fixed) |
 | `V_Op` | ~6 | COUNT, SUM, AVG, MIN, MAX, EXISTS |
 | `V_Par` | ~20 | nota thresholds, forca_conexao ranges, date windows |
 
-Estimated: `f_structure ≈ 5! = 120` (short-path dominated), `f_predicate ≈ 2^10 = 1024` (but BDD compacts to ~50 satisfiable), `f_parameter ≈ 20^2 = 400`, `f_operator ≈ 6`. Naive `|A_full| ≈ 120 × 1024 × 400 × 6 ≈ 2.9 × 10^8`. With semantic sparsity: `|A_eff| ≈ 50 × 50 × 40 × 6 = 600,000`. Neighbourhood size: `O(15 + 3 × 20) = O(75)` — polynomial.
+Estimated: `f_structure ≈ 5! = 120` (short-path dominated), `f_predicate ≈ 2^10 = 1024` (but BDD compacts to ~50 satisfiable), `f_parameter ≈ 20^2 = 400`, `f_operator ≈ 6`. Naive `|A_full| ≈ 120 × 1024 × 400 × 6 ≈ 2.9 × 10^8`. With semantic sparsity: `|A_eff| ≈ 50 × 50 × 40 × 6 = 600,000`. Neighbourhood size: `O(15 + 3 × 20) = O(75)` — polynomial. Every figure in this example is computed from the schema graph and its annotations: an eleventh reader, or ten thousand more, leaves all of them unchanged. An individual reader such as `Ana` is an element of `N_I` with `h_N(Ana) = Leitor`; she contributes to query results and to recommender scores, not to `V_N`.
 
 ---
 
@@ -2270,7 +2365,7 @@ The LLM is responsible for five tasks only. All analytical guarantees are provid
 1. Entity resolution
    Input:  NL term (e.g. "retail customers", "Q3 revenue")
    Output: PropRef value in P(n) for n ∈ G, or UNRESOLVED
-   Constraint: output must exist in {P(n).keys | n ∈ N}
+   Constraint: output must exist in {dom K_S(T) | T ∈ N_S}
    Hallucination prevention: unresolved terms trigger clarification,
                               not query generation
 
@@ -2456,7 +2551,7 @@ Saved questions are stored by query DAG node id. When `G` changes, the interface
 
 Three formal mechanisms prevent the LLM from producing invalid queries:
 
-**Closed PropRef vocabulary.** Entity resolution maps NL terms to `{P(n).keys | n ∈ N}`. A term that does not resolve to any existing property triggers `UNRESOLVED` — the interface asks for clarification rather than guessing a column name.
+**Closed PropRef vocabulary.** Entity resolution maps NL terms to the declared properties `{dom K_S(T) | T ∈ N_S}`. A term that does not resolve to any existing property triggers `UNRESOLVED` — the interface asks for clarification rather than guessing a column name.
 
 **BDD-validated candidates.** The recommender generates candidates from `Q_valid(A, B)` using the BDD feasibility filter. Every candidate surfaced to the LLM for ranking is already structurally valid and non-redundant. The LLM cannot introduce an invalid candidate by ranking — it can only choose among pre-validated options.
 
@@ -2496,7 +2591,7 @@ from enum import Enum
 
 @dataclass
 class DGMContext:
-    graph:           object          # G = (N, E, τ_N, τ_E, P, Σ)
+    graph:           object          # DGM = (G_S, G_I, h)
     entity_registry: object          # NL term → PropRef mapping
     bdd:             object          # DGMPredicateBDD (Level 1)
     query_dag:       object          # QueryDAG (Level 2)
@@ -3077,7 +3172,7 @@ Semantics: maximal paths over a non-total transition relation; FORALL on an empt
 
 **Datalog and fixpoint query languages.** Datalog [13] is the query language whose semantics are least-fixpoint computations over relations, equivalent to first-order logic with least fixpoint (FO+LFP). The Immerman-Vardi theorem establishes that FO+LFP captures PTIME on ordered structures. DGM's question algebra `Q_algebra(A, B)` under CTE composition is equivalent to Datalog over `G_AB` (§8.13) — establishing that DGM's full compositional question space is exactly PTIME-bounded. This positions DGM precisely in the database query language complexity hierarchy and grounds the D17 restriction (no `Free→Free` in `Where PathPred` scope) as a decidability preservation measure.
 
-**Ontologies, RDF 1.2, and knowledge representation.** RDF [10], RDFS, and OWL [11] constitute the standard ontological stack, currently evolving toward RDF 1.2 [14]. An RDF triple `(subject, predicate, object)` is structurally identical to DGM's verb edge `(dim, label, fact)` — both are typed directed labeled edges between entities. The `τ_N : N → {dim, fact}` type function is a two-class hierarchy equivalent to `rdf:type` with `rdfs:subClassOf`. SPARQL 1.1 property paths (`+`, `*`, `|`, `^`) correspond to DGM's `BoundPath` traversal, and SPARQL's `FILTER EXISTS` / `FILTER NOT EXISTS` correspond to `PathPred(EXISTS)` / `PathPred(FORALL)`. DGM independently arrived at the same graph primitive as RDF — evidence that the triple / typed directed labeled edge is the correct foundational structure.
+**Ontologies, RDF 1.2, and knowledge representation.** RDF [10], RDFS, and OWL [11] constitute the standard ontological stack, currently evolving toward RDF 1.2 [14]. An RDF triple `(subject, predicate, object)` is structurally identical to DGM's verb edge `(dim, label, fact)` — both are typed directed labeled edges between entities. The `τ_N : N_S → {dim, fact}` kind function is a two-class hierarchy equivalent to `rdf:type` with `rdfs:subClassOf`. SPARQL 1.1 property paths (`+`, `*`, `|`, `^`) correspond to DGM's `BoundPath` traversal, and SPARQL's `FILTER EXISTS` / `FILTER NOT EXISTS` correspond to `PathPred(EXISTS)` / `PathPred(FORALL)`. DGM independently arrived at the same graph primitive as RDF — evidence that the triple / typed directed labeled edge is the correct foundational structure.
 
 **RDF 1.2 and triple terms.** RDF 1.2 introduces *triple terms* — the ability to use an RDF triple as a term (in the object position of another triple) — together with a reification mechanism via `rdf:reifies`. This significantly narrows a historical gap with DGM: N-ary events, which previously required verbose standard reification or blank-node workarounds, can now be represented more cleanly in RDF. A triple term annotated via `rdf:reifies` is the RDF 1.2 approximation of DGM's fact node — a named resource that participates in multiple relationships simultaneously. However, the gap is narrowed, not closed: DGM's fact node is enforced by a structural invariant (`V ⊆ D×F×L`) that prevents fact nodes from being verb sources and ensures the dim/fact separation at the schema level. RDF 1.2 triple terms are syntactic sugar with no enforced type discipline — any triple can be reified and any reifier can be used in any position. DGM arrived at the clean solution (fact-as-typed-node) earlier and more strictly by encoding it as a schema invariant rather than a modelling convention.
 
@@ -3104,7 +3199,7 @@ The precise positioning: DGM is an **analytical graph model**, not a knowledge r
 | Medallion layer | DGM construct | Role |
 |---|---|---|
 | Bronze | `Provenance(n, record_source, load_timestamp)` + `WritePlan(APPEND)` | Data substrate: raw, append-only, audit trail |
-| Silver | `G = (N, E, τ_N, τ_E, P, Σ)` — τ_N typing + Σ annotation layer | Semantic model: typed nodes, annotated edges, conformed dimensions, SCD2 history |
+| Silver | `DGM = (G_S, G_I, h)` — τ_N typing + Σ annotation layer on `G_S`, instances in `G_I` | Semantic model: typed nodes, annotated edges, conformed dimensions, SCD2 history |
 | Gold | `Q = B₁ ∘ B₂? ∘ B₃?` execution → `ExportPlan` → `WritePlan` | Query delivery: business-ready aggregates materialised to Delta/Iceberg |
 | Diamond/Semantic | `Q_valid(A, B)` + recommender + NL interface (§11) + `ExecutionBudget` (§6.3) | Governed semantic layer: formal question space, NL access, completeness |
 
