@@ -113,7 +113,7 @@ The framework rests on twenty-one core ideas (21 items below):
 - **A query planner** makes DGM-specific physical execution decisions informed by schema annotations, including cone containment optimisation (Rule 9) for relaxed-endpoint traversals.
 - **A query exporter** translates physical plans to multiple query and sink targets.
 - **A recommender** surfaces analytically useful next steps via a two-stage trail exploration flow grounded in endpoint relaxation.
-- **ExecutionBudget and pre-execution gate** — a runtime policy layer between the planner and execution that intercepts expensive queries and redirects gracefully via cost-aware rewriting, progressive streaming, sampling with Hoeffding error bounds, or async execution with PipelineArtifact materialisation.
+- **ExecutionBudget and pre-execution gate** — a runtime policy layer between the planner and execution that intercepts expensive queries and delivers them exactly by progressive streaming, pagination or async execution with PipelineArtifact materialisation, or reduces them by cost-aware rewriting or sampling with Hoeffding error bounds only when the caller allows that substitution; otherwise it offers the options and runs nothing (D40).
 - **Natural language interface** — a five-layer architecture mapping NL utterances to formally bounded Q_valid(A,B) positions. The LLM navigates the canonical question lattice rather than generating SQL from scratch.
 - **RDF 1.2 relationship stated** — DGM and RDF 1.2 converge on the N-ary event representation problem (RDF 1.2 triple terms ≈ DGM fact nodes) and differ along six axes of scope, each with its trade-off (§10.3): typed schema invariant, aggregation, operational annotation semantics, temporal predicates, trail space analysis, and enforcement strictness. The DGM SPARQL exporter encodes fact nodes more faithfully as RDF 1.2 matures.
 - **LangGraph + Pydantic-AI implementation stack** — five specialist Pydantic-AI agents with output schemas derived from DGM formal types, orchestrated by a LangGraph state graph with explicit HIL checkpoints and cyclic refinement workflows. DGM's bounded vocabulary is enforced as Pydantic validators.
@@ -410,6 +410,21 @@ PA4  P(a).state = state_at(a, now); a versioned artifact carries state_at(a, t) 
 The current state is thus a projection of the transition history: a snapshot at `t` and the history read up to `t` agree by PA3–PA4. A trace of the machine is the `followed_by` chain of one artifact; it is time-ordered (§2.3), so TemporalMode, Repeat and Monitor apply to it.
 
 `write_mode`: BACKFILL → always APPEND; REFRESH → always MERGE (atomic swap); ADAPTIVE → inferred from state (planner Rule 10).
+
+**Execution protocol (D46; ADR 0005).** Planning produces `WritePlan`s and `TransitionPlan`s and writes nothing. An authorised runtime executes a plan in four steps:
+
+1. *Validate.* The plan id, artifact, sink and operation are those of the plan. The principal holds `WRITE` (§12.10). The proposed transition is a row of δ from the artifact's current state. Any failure rejects the plan, and nothing is written.
+2. *Dispatch.* Append the `scheduled` transition (ON_DISPATCH) under its `idempotency_key`.
+3. *Write.* Execute the `WritePlan`, tagged with `write_id = H(plan id, artifact_key, window_start, window_end)`.
+4. *Record.* Append `succeeded` if the write committed, `failed` otherwise.
+
+Steps 3 and 4 must be atomic with respect to failure:
+
+- If the sink and the transition table are in one transactional store, such as one DuckDB or one PostgreSQL database, steps 3 and 4 run in one transaction.
+- Otherwise, the write's commit must record `write_id` in commit metadata that the runtime can query. After a failure between steps 3 and 4, recovery looks up `write_id`. If it is present, recovery appends `succeeded`; if it is absent, recovery appends `failed`, and the window can be retried through `Failed —retried→ In-flight`.
+- A sink that offers neither guarantee is `UNSUPPORTED` for materialisation. The runtime attempts no write; it does not choose another sink, mode or backend.
+
+A retry repeats steps 3 and 4 under the same `write_id`, so a write that already committed is not repeated.
 
 Each artifact covers a window `[window_start, window_end)`; both are non-NULL Timestamp properties of the fact type. `backfill_horizon` bounds how far back a gap is still repaired. With `now` the evaluation instant and `H = backfill_horizon`, a window is **eligible for backfill** iff
 
@@ -1591,7 +1606,7 @@ Two occurrences of `Now` are the same value; a composed query has one τ for all
 
 A query is **τ-dependent** iff it uses any construct of this table, including default version or validity resolution over a versioned type or an edge type with a validity window.
 
-STRICT: reject missing versions. LAX: silently drop. Explicit TemporalJoin overrides version and validity resolution for its sub-join; it does not change τ. Valid forms: B₁, B₁∘B₂, B₁∘B₃, B₁∘B₂∘B₃.
+STRICT: reject missing versions. LAX: drop the tuple, since the node is absent from `G_I(t)`; the caller chooses the mode explicitly, as neither field has a default. Explicit TemporalJoin overrides version and validity resolution for its sub-join; it does not change τ. Valid forms: B₁, B₁∘B₂, B₁∘B₃, B₁∘B₂∘B₃.
 
 **Delta query:**
 
@@ -2321,7 +2336,7 @@ After elimination, the canonical query DAG is topologically sorted. Each node be
 
 ### 6.3  Execution budget and pre-execution gate
 
-The pre-execution gate sits between the planner and execution. It intercepts every `ExportPlan` before it reaches the SQL emitter, compares the cost estimate against a declared `ExecutionBudget`, classifies the failure mode if any, and applies one of four graceful handling strategies. Rewriting is always tried before a delivery mode is chosen: streaming and async execution are decided for the best plan that remains, not for the plan as submitted.
+The pre-execution gate sits between the planner and execution. It intercepts every `ExportPlan` before it reaches the SQL emitter, compares the cost estimate against a declared `ExecutionBudget`, classifies the failure mode if any, and returns a `BudgetDecision`. A plan the budget admits is delivered exactly as submitted. A reduction that changes the answer — a rewrite, a sample or an approximate algorithm — is applied only when the caller has allowed that kind of substitution in the budget; otherwise it is offered to the caller and nothing runs until the caller chooses (D40; ADR 0010). Allowed rewrites are tried before a delivery mode is chosen: streaming and async execution are decided for the best plan that remains, not for the plan as submitted.
 
 **ExecutionBudget type:**
 
@@ -2332,7 +2347,8 @@ ExecutionBudget = (
   max_wall_time:        Duration,       -- synchronous execution timeout
   max_precompute_time:  Duration,       -- per PreComputation timeout
   streaming_threshold:  CostEstimate,  -- strictly above → stream results progressively
-  async_threshold:      CostEstimate   -- strictly above → async with callback + materialisation
+  async_threshold:      CostEstimate,  -- strictly above → async with callback + materialisation
+  substitutions:        set[Substitution]   -- answer-changing reductions the caller allows; default ∅
 )
 
 Policy constants:
@@ -2343,6 +2359,18 @@ Policy constants:
 ```
 
 `CostEstimate` values are compared by their scalar total in planner cost units; `≤` and `>` below denote that total order.
+
+**Substitutions are opt-in (D40; ADR 0010).** Every reduction the gate knows changes the answer. Each kind is applied only if the caller lists it in `substitutions`:
+
+```
+Substitution ::= STRATEGY_SHORTEST     -- PathPred(ALL) → PathPred(SHORTEST)              (Strategy 1)
+               | DEPTH_LIMIT           -- unbounded TrailExpr → max_depth = 3             (Strategy 1)
+               | CONE_SCOPE            -- SubgraphExpr Free→Free → Bound(A)→Free          (Strategy 1)
+               | APPROX_ALGORITHM      -- exact GraphExpr → approximate variant           (Strategy 1, Step 1b)
+               | SAMPLE                -- anchor sampling with a Hoeffding bound          (Strategy 3)
+```
+
+The default is `substitutions = ∅`. The gate never applies a substitution outside the set, and no later stage — interface, supervisor or executor — applies one on its behalf. A substitution that is viable but not allowed is returned to the caller as a `CLARIFY` option and runs only if the caller selects it. Transformations that do not change the answer need no permission and are not substitutions: BDD simplification (§6.1), CSE and the canonical DAG (§6.2), pagination, and the choice among `PROCEED`, `STREAM` and `ASYNC`. The set is part of the budget, so a supervisor child budget (§12.5) inherits it unchanged; a child call can never allow more than its parent.
 
 **Budget invariants.** Checked by the `ExecutionBudget` constructor. A budget that violates any of them is rejected with a configuration error at construction, before any plan is gated — `gate()` is never called with an invalid budget and therefore never has to classify one.
 
@@ -2373,10 +2401,11 @@ zone(c: CostEstimate, b: ExecutionBudget) → Zone:
 |---|---|
 | `streaming_threshold = async_threshold` | STREAMING is empty; costs above the shared value go straight to DEFERRED. Disables streaming. |
 | `async_threshold = max_estimated_cost` | DEFERRED is empty; costs above the shared value are OVER. Disables async execution. |
-| `HARD_CEILING_FACTOR = 1` | OVER is empty; every cost above `max_estimated_cost` is FORBIDDEN. Disables SAMPLE and CLARIFY. |
+| `HARD_CEILING_FACTOR = 1` | OVER is empty; every cost above `max_estimated_cost` is FORBIDDEN. Disables SAMPLE and CLARIFY in that zone. |
+| `substitutions = ∅` (default) | No rewrite, sample or approximation is ever executed; viable ones are offered as `CLARIFY` options. |
 | `streaming_threshold = 0` | Only zero-cost plans are SYNC. |
 
-`max_estimated_cost` and the hard ceiling are different limits. Above `max_estimated_cost` the submitted plan is never executed, but the gate still tries to reduce it (rewrite, sample, clarify). Above `hard_ceiling(b)` the gate does no further work and refuses.
+`max_estimated_cost` and the hard ceiling are different limits. Above `max_estimated_cost` the submitted plan is never executed, but the gate still looks for a reduction: an allowed rewrite or sample, or else options for the caller (clarify). Above `hard_ceiling(b)` the gate does no further work and refuses.
 
 ```
 BudgetDecision ::= PROCEED                      -- SYNC zone; execute synchronously
@@ -2385,20 +2414,25 @@ BudgetDecision ::= PROCEED                      -- SYNC zone; execute synchronou
                          callback: Endpoint,
                          ttl: Duration)          -- DEFERRED zone; execute async
                  | REWRITE(plan: ExportPlan,
+                           substitution: Substitution,
                            warning: string,
-                           then: Delivery)       -- cost-reduced rewrite + transparency note
+                           then: Delivery)       -- allowed substitution + transparency note
                  | SAMPLE(fraction: ℝ,
                           method: RANDOM | STRATIFIED | RESERVOIR,
                           error_bound: ℝ,
                           confidence: ℝ,
-                          then: Delivery)        -- approximate result with a stated guarantee
-                 | PAGINATE(page_size: ℕ)        -- rewrite to paginate result set
-                 | CLARIFY(options: list[ExportPlan],
-                           cost_per_option: list[CostEstimate])
-                                                 -- ask user to narrow; surface lattice refinements
+                          then: Delivery)        -- allowed sample with a stated guarantee
+                 | PAGINATE(page_size: ℕ)        -- deliver the exact result page by page
+                 | CLARIFY(options: list[ClarifyOption])
+                                                 -- ask the caller to choose; nothing is executed
                  | REJECT(reason: string)         -- refuse; nothing is executed
 
 Delivery ::= PROCEED | STREAM | ASYNC(…) | PAGINATE(…)        -- the decisions that execute a plan as given
+
+ClarifyOption = (plan:    ExportPlan,
+                 cost:    CostEstimate,
+                 kind:    REFINEMENT | SUBSTITUTION(Substitution),
+                 warning: string | None)          -- present iff kind = SUBSTITUTION; for SAMPLE it states the bound
 ```
 
 `REWRITE.then` and `SAMPLE.then` carry the delivery decision the gate has already taken for the rewritten or sampled plan. The caller executes that plan under `then`; it does **not** submit it to `gate()` again, so a rewrite can never trigger another rewrite.
@@ -2417,34 +2451,52 @@ gate(plan: ExportPlan, budget: ExecutionBudget) → BudgetDecision:
   if z = FORBIDDEN:
     return REJECT("Query exceeds hard cost ceiling. " + narrowing_hint(plan))
 
+  -- Step 1b — PreComputation time guard. An exact PreComputation that would
+  -- exceed max_precompute_time is never started; its approximation is a substitution.
+  slow = [pc for pc in plan.pre_compute if estimated_time(pc) > budget.max_precompute_time]
+  if slow ≠ []:
+    a = approximate(plan, slow)                         -- NONE unless every pc in slow has an
+                                                        -- approximate variant (Strategy 3 table)
+    if a ≠ NONE and zone(a.cost_estimate, budget) ≤ DEFERRED:
+      if APPROX_ALGORITHM ∈ budget.substitutions:
+        return REWRITE(plan=a, substitution=APPROX_ALGORITHM,
+                       warning=approximation_explanation(a), then=deliver(a, budget))
+      return CLARIFY([option(a, SUBSTITUTION(APPROX_ALGORITHM))])
+    return REJECT("PreComputation exceeds max_precompute_time and has no "
+                  + "executable approximation. " + narrowing_hint(plan))
+
   -- Step 2 — cost-aware rewrite, before any delivery decision.
-  -- Candidates preserve analytical intent; each applies one rewrite rule.
+  -- Each candidate applies one rewrite rule and is one substitution.
+  viable = []
   if z > SYNC:
     rewrites = [
-      rewrite_strategy(plan, SHORTEST)    if has_ALL_PathPred(plan),
-      rewrite_depth_limit(plan, depth=3)  if has_unbounded_TrailExpr(plan),
-      rewrite_cone(plan, BOUND_FREE)      if has_FREE_FREE_scope(plan),
+      rewrite_strategy(plan, SHORTEST)    if has_ALL_PathPred(plan),          -- STRATEGY_SHORTEST
+      rewrite_depth_limit(plan, depth=3)  if has_unbounded_TrailExpr(plan),   -- DEPTH_LIMIT
+      rewrite_cone(plan, BOUND_FREE)      if has_FREE_FREE_scope(plan),       -- CONE_SCOPE
     ]
-    viable = [r for r in rewrites if zone(r.cost_estimate, budget) < z]
-    if viable:
-      r = best(viable)
-      return REWRITE(plan=r, warning=rewrite_explanation(r), then=deliver(r, budget))
+    viable  = [r for r in rewrites if zone(r.cost_estimate, budget) < z]
+    allowed = [r for r in viable if r.substitution ∈ budget.substitutions]
+    if allowed:
+      r = best(allowed)
+      return REWRITE(plan=r, substitution=r.substitution,
+                     warning=rewrite_explanation(r), then=deliver(r, budget))
 
-  -- Step 3 — over the executable ceiling and no viable rewrite:
-  -- approximate with a guarantee, else ask the user to narrow, else refuse.
+  -- Step 3 — over the executable ceiling and no allowed rewrite:
+  -- an allowed sample, else options for the caller, else refuse.
   if z = OVER:
     s = sampling_plan(plan, budget)                    -- NONE unless S1–S4 hold
-    if s ≠ NONE:
+    if s ≠ NONE and SAMPLE ∈ budget.substitutions:
       return SAMPLE(fraction=s.fraction, method=RANDOM,
                     error_bound=SAMPLE_MAX_ERROR, confidence=1 − SAMPLE_DELTA,
                     then=deliver(s.plan, budget))
-    options = clarification_options(plan, budget)      -- [] unless C1–C2 hold
+    options = clarification_options(plan, budget, viable, s)   -- [] unless C1–C3 admit one
     if options ≠ []:
-      return CLARIFY(options, cost_per_option=[o.cost_estimate for o in options])
-    return REJECT("Query exceeds max_estimated_cost and admits no rewrite, "
-                  + "guaranteed sample or refinement. " + narrowing_hint(plan))
+      return CLARIFY(options)
+    return REJECT("Query exceeds max_estimated_cost and admits no allowed or "
+                  + "offerable reduction. " + narrowing_hint(plan))
 
-  -- Step 4 — the submitted plan is executable; choose its delivery.
+  -- Step 4 — the submitted plan is executable; deliver it exactly.
+  -- A viable rewrite that is not allowed is not offered here: the exact answer is available.
   return deliver(plan, budget)
 
 
@@ -2456,28 +2508,22 @@ deliver(plan: ExportPlan, budget: ExecutionBudget) → Delivery:
     DEFERRED:  return ASYNC(sink=default_sink, callback=user_endpoint, ttl=24h)      -- keeps the τ captured at submission (§5.1)
     STREAMING: return STREAM
     SYNC:
-      -- Result size guard
+      -- Result size guard: the exact result, delivered in pages
       if estimated_rows(plan) > budget.max_result_rows:
         return PAGINATE(page_size=default_page_size)
-
-      -- PreComputation timeout guard
-      for pc in plan.pre_compute:
-        if estimated_time(pc) > budget.max_precompute_time:
-          -- substitute approximation algorithm
-          plan = substitute_approximation(plan, pc)
-
       return PROCEED
 ```
 
-**Rewrite precedence.** A rewrite is *viable* only when it moves the plan to a strictly cheaper zone. This fixes every case:
+**Rewrite precedence.** A rewrite is *viable* only when it moves the plan to a strictly cheaper zone, and *allowed* only when its substitution is in `budget.substitutions`. Only allowed rewrites are returned as `REWRITE`; viable rewrites that are not allowed matter only in the OVER zone, where they become `CLARIFY` options. This fixes every case:
 
 - A rewrite that lowers cost without leaving the plan's zone is discarded. It would give up exactness and buy no better delivery, so the submitted plan is delivered as-is (Step 4) or, in the OVER zone, falls through to Step 3.
 - A rewrite that still lands above a threshold is returned as `REWRITE` with the matching delivery: `then=STREAM` in the STREAMING zone, `then=ASYNC` in the DEFERRED zone. `STREAM` and `ASYNC` are returned for the submitted plan only after every rewrite candidate has been estimated and found non-viable.
 - A viable rewrite always lands in DEFERRED or below (viable means `zone < z` and `z ≤ OVER`), so the precondition of `deliver` holds.
-- `best(viable)` selects the lowest zone; ties are broken by rule order in the `rewrites` list (strategy, depth limit, cone), then by lowest `cost_estimate`. The warning describes the rewrite actually returned.
+- `best(allowed)` selects the lowest zone; ties are broken by rule order in the `rewrites` list (strategy, depth limit, cone), then by lowest `cost_estimate`. The warning describes the rewrite actually returned.
+- In the STREAMING and DEFERRED zones the submitted plan is executable, so a viable rewrite that is not allowed is dropped and the exact plan is delivered. The gate never trades exactness for speed without permission.
 - A SYNC plan is never rewritten: no cheaper zone exists.
 
-**SAMPLE branch.** `sampling_plan(plan, budget)` returns a sampled plan only when all of S1–S4 hold; otherwise it returns `NONE` and the gate moves on to CLARIFY.
+**SAMPLE branch.** `sampling_plan(plan, budget)` returns a sampled plan only when all of S1–S4 hold; otherwise it returns `NONE` and the gate moves on to CLARIFY. A sampled plan is returned as `SAMPLE` only when `SAMPLE ∈ budget.substitutions`; otherwise it is offered as a CLARIFY option.
 
 ```
 S1  plan is a snapshot query with Band 2, empty GroupBy, no Having and no Band 3; not a Q_delta.
@@ -2499,22 +2545,25 @@ Data required: `GraphStatistics` anchor cardinality, the declared value range of
 
 `error_bound` is stated on the range-normalised scale and holds jointly for all `k` aggregates with probability at least `confidence`: ±`error_bound · (hi − lo)` for an average, ±`error_bound` for a proportion, ±`error_bound · |A|` for the count recovered from it. No bound is promised for anything outside S3 — SUM, MIN, MAX, PROD, distinct counts, PathAgg, TemporalAgg, grouped or windowed aggregates, row-level results, and TrailExpr/GraphExpr values. A plan containing any of these is not sampled by the gate; it is clarified instead.
 
-**CLARIFY branch.** `clarification_options(plan, budget)` returns refinements of the submitted question; the gate asks the user to choose rather than approximating whenever no guarantee covers the query.
+**CLARIFY branch.** `clarification_options(plan, budget, viable, s)` returns the choices the gate puts to the caller when it may not reduce the plan itself.
 
 ```
-C1  Each option is a single descent step in L(G_AB) produced by the recommender (§7)
+C1  A REFINEMENT option is a single descent step in L(G_AB) produced by the recommender (§7)
     and is BDD-valid.
-C2  Each option o is executable: zone(o.cost_estimate, budget) ≤ DEFERRED.
+C2  A SUBSTITUTION option is a viable rewrite of Step 2, or the sampled plan s of Step 3,
+    whose substitution is not in budget.substitutions. It carries the rewrite's warning,
+    or for a sample the error bound and confidence of Strategy 3.
+C3  Each option o is executable: zone(o.cost, budget) ≤ DEFERRED.
 
-Options are ordered by zone, then cost_estimate ascending, then recommender rank,
-and truncated to MAX_CLARIFY_OPTIONS. cost_per_option[i] is the cost of options[i].
+Options are ordered by zone, then cost ascending, then REFINEMENT before SUBSTITUTION,
+then recommender rank or rule order, and truncated to MAX_CLARIFY_OPTIONS.
 ```
 
-Data required: the recommender's refinement candidates and `GraphStatistics.path_cardinality` for their cost estimates. Fallback: when no option satisfies C1–C2 the gate returns `REJECT`. An option chosen by the user is a new question and is submitted to `gate()` as such; by C2 it is executable, so the exchange ends in a delivery or a `REWRITE`.
+Data required: the recommender's refinement candidates and `GraphStatistics.path_cardinality` for their cost estimates. When no option satisfies C1–C3 the gate returns `REJECT`. A chosen REFINEMENT is a new question and is submitted to `gate()` as such. A chosen SUBSTITUTION is the caller's explicit permission for that one plan: the plan is executed under `deliver(o.plan, budget)` and its result carries the option's warning, exactly as if the gate had returned `REWRITE` or `SAMPLE` for it. By C3 every choice is executable, so the exchange ends in a delivery or a `REWRITE`.
 
-**Decision precedence.** `REJECT` (hard ceiling) › `REWRITE` › `SAMPLE` › `CLARIFY` › `REJECT` (fallback) › `ASYNC` › `STREAM` › `PAGINATE` › `PROCEED`. SAMPLE, CLARIFY and the fallback REJECT are reachable only in the OVER zone.
+**Decision precedence.** `REJECT` (hard ceiling) › PreComputation guard (`REWRITE`, `CLARIFY` or `REJECT`) › `REWRITE` › `SAMPLE` › `CLARIFY` › `REJECT` (no option) › `ASYNC` › `STREAM` › `PAGINATE` › `PROCEED`. Apart from the PreComputation guard, SAMPLE, CLARIFY and the no-option REJECT are reachable only in the OVER zone.
 
-**Boundary cases.** Normative for any implementation of `gate()`. Budget: `streaming_threshold = 100`, `async_threshold = 1 000`, `max_estimated_cost = 10 000`, `HARD_CEILING_FACTOR = 2` (hard ceiling 20 000); rows within `max_result_rows` unless stated.
+**Boundary cases.** Normative for any implementation of `gate()`. Budget: `streaming_threshold = 100`, `async_threshold = 1 000`, `max_estimated_cost = 10 000`, `HARD_CEILING_FACTOR = 2` (hard ceiling 20 000); rows within `max_result_rows` and PreComputations within `max_precompute_time` unless stated. T1–T15 take `substitutions` = all five kinds; T16–T20 take the default `substitutions = ∅`.
 
 | # | `est` | Rewrite candidates | S1–S4 | Options (C1–C2) | Decision |
 |---|---:|---|---|---|---|
@@ -2533,12 +2582,17 @@ Data required: the recommender's refinement candidates and `GraphStatistics.path
 | T13 | 15 000 | none | fail | none | `REJECT` — fallback |
 | T14 | 20 000 | none | fail | 1 option | `CLARIFY` — equals the hard ceiling, still OVER |
 | T15 | 20 001 | SHORTEST → 50 | hold | 2 options | `REJECT` — hard ceiling precedes; nothing else is evaluated |
+| T16 | 5 000 | SHORTEST → 80 | — | — | `ASYNC` — rewrite not allowed; the exact plan is delivered |
+| T17 | 15 000 | cone → 900 | hold, sampled cost 40 | refinement 700 | `CLARIFY`: sample 40 (SUBSTITUTION), refinement 700, cone 900 (SUBSTITUTION) |
+| T18 | 15 000 | none | fail | none | `REJECT` — as T13 |
+| T19 | 50, one PreComputation over `max_precompute_time`, approximation cost 60 | — | — | — | `CLARIFY`: approximation 60 (SUBSTITUTION `APPROX_ALGORITHM`); with `APPROX_ALGORITHM` allowed, `REWRITE(then=PROCEED)` |
+| T20 | 50, one PreComputation over `max_precompute_time`, no approximate variant | — | — | — | `REJECT` — never started, whatever `substitutions` holds |
 
 Budgets rejected at construction: `streaming_threshold = 200, async_threshold = 100` (inverted); `streaming_threshold = −1` (negative); `async_threshold = 20 000, max_estimated_cost = 10 000` (above the ceiling); any threshold NaN or ∞. A budget with `streaming_threshold = async_threshold = 100` is valid: `est = 100` gives `PROCEED` and `est = 101` gives `ASYNC`.
 
-**Four graceful handling strategies:**
+**Four handling strategies.** Strategies 1 and 3 change the answer and run only under the matching `Substitution` (D40); strategies 2 and 4 deliver the exact answer.
 
-**Strategy 1 — Cost-aware rewriting.** Moves the query down the strategy refinement order (§3.3) while preserving analytical intent. Rewrites are transparent — the user sees a note explaining what was approximated.
+**Strategy 1 — Cost-aware rewriting.** Moves the query down the strategy refinement order (§3.3). Each rule is a `Substitution` and applies only when the caller allows it. Rewrites are transparent — the result carries a note explaining what was approximated.
 
 ```
 Rewrite rules:
@@ -2595,7 +2649,7 @@ Sampling (k aggregates, δ = SAMPLE_DELTA, ε = SAMPLE_MAX_ERROR):
 - `MIN` and `MAX` have no Hoeffding bound: a sample mean does not estimate an extremum.
 - With a fan-out join (S2 violated), tuples per anchor vary and the sample mean of tuples is not an unbiased estimate of the tuple mean; such plans are not sampled.
 - Graph metrics computed on a sampled subgraph change with connectivity — removing anchors removes paths, communities and centralities — and receive no guarantee from this bound.
-`GraphExpr` algorithms are not sampled by the gate. Their approximate variants are substituted by the PreComputation timeout guard (`substitute_approximation`) or by a rewrite rule, and carry the accuracy statement of the substituted algorithm — not the Hoeffding bound above, and not a `SAMPLE` decision.
+`GraphExpr` algorithms are not sampled by the gate. Their approximate variants are used only under `APPROX_ALGORITHM`, through the PreComputation guard (Step 1b) or the rewrite rule of Strategy 1, and carry the accuracy statement of the approximate algorithm — not the Hoeffding bound above, and not a `SAMPLE` decision. Without that permission the approximation is offered as a `CLARIFY` option.
 
 ```
 GraphExpr approximations:
@@ -2604,7 +2658,7 @@ GraphExpr approximations:
   SIGNATURE_ENTROPY       →  reservoir sample of path instances (k=1000)
 ```
 
-**Strategy 4 — Async execution with materialisation.** In the DEFERRED zone (cost above `async_threshold`, at most `max_estimated_cost`), once no viable rewrite exists, the gate returns ASYNC; the gate itself schedules nothing. The runtime's executor then submits the plan (§11.10 `enqueue_async`), and the query is materialised as a `PipelineArtifact` (§2.4) — the result is written to a `SinkTarget` and the query DAG node id is the cache key. The user receives an immediate acknowledgement; subsequent identical questions are answered from the cached result.
+**Strategy 4 — Async execution with materialisation.** In the DEFERRED zone (cost above `async_threshold`, at most `max_estimated_cost`), once no allowed rewrite applies, the gate returns ASYNC; the gate itself schedules nothing. The runtime's executor then submits the plan (§11.10 `enqueue_async`), and the query is materialised as a `PipelineArtifact` (§2.4) — the result is written to a `SinkTarget` and the query DAG node id is the cache key. The user receives an immediate acknowledgement; subsequent identical questions are answered from the cached result.
 
 ```
 Async lifecycle:
@@ -2618,7 +2672,7 @@ WritePlan inferred from ADAPTIVE mode (PipelineArtifact Rule 10):
   Re-run after stale: WritePlan(mode=MERGE)
 ```
 
-**Clarification messages are lattice refinements.** When `CLARIFY` is returned, the options are not generic suggestions — they are specific BDD-valid descent steps in `L(G_AB)` that bring the query back within `max_estimated_cost` (conditions C1–C2), cheapest first:
+**Clarification messages are lattice refinements or named substitutions.** When `CLARIFY` is returned, the options are not generic suggestions. Each is a specific BDD-valid descent step in `L(G_AB)`, or a substitution the caller has not allowed, stated with its warning; every option brings the query back within `max_estimated_cost` (conditions C1–C3), cheapest first:
 
 ```
 Example clarification for Free→Free query over dense G:
@@ -3407,8 +3461,10 @@ result_key    = H( question_key,
 `H` is SHA-256 over a length-prefixed, type-tagged encoding, so that no two distinct inputs share a byte string; keys are not truncated below 128 bits. `Now` is serialised as a symbol in `dag_hash`; its value enters only through τ in `result_key`.
 
 ```
-cache[result_key]   = (result_set, possibly_stale)
+cache[result_key]   = (result_set, computed_at, unversioned)   -- unversioned: deps(plan) has a source without a watermark
 saved[question_key] = a saved question, independent of data and of time
+
+CachePolicy(accept_stale: Duration | None = None)              -- supplied by the caller with each request
 ```
 
 Consequences:
@@ -3420,8 +3476,25 @@ Consequences:
 **Invalidation by source watermark (D34; ADR 0004).** `deps(plan)` is the set of source relations, or partitions after pruning, that the plan can read: the NodeTables and RelationTables of every type in its patterns (including inside EXISTS and Repeat), the tables used for version resolution, and the base relations of Derived views (§2.6). Each source has a watermark `w(src)` that changes whenever a committed change to it becomes visible, such as a table version or snapshot id. `W` is the sorted list of `(src, w(src))` over `deps(plan)`.
 
 - A committed change to any dependency advances its watermark, changes `W`, and therefore changes the key: the stale entry is never found again. A change to a source outside `deps(plan)` does not affect the entry.
-- A source with no watermark is *unversioned*. An entry that depends on one expires after `CACHE_TTL_UNVERSIONED` and is served with `possibly_stale = true`.
+- A source with no watermark is *unversioned*: no key change can reveal that it changed. An entry that depends on one is **not served by default** — the lookup misses and the plan runs (D41; ADR 0011). It is served only when the caller's `CachePolicy.accept_stale` is set and `now − computed_at ≤ accept_stale`; the result then carries `possibly_stale = true` and `computed_at`. No component sets `accept_stale` on the caller's behalf.
 - A plan with sampling includes its seed among the parameters.
+
+**Reading watermarks (D45).** A cached result is correct only if it was computed from exactly the source versions in its key. The runtime therefore reads `W` before executing the plan, and then either:
+
+1. *pins* every read of a source to its version in `W`, where the backend can read at a version; or
+2. reads `W` again after execution and stores the result only if `W` is unchanged. Otherwise the result is returned to the caller but not cached.
+
+Where each backend's watermark comes from; whether a given backend version actually satisfies the requirement is recorded in the conformance matrix (#138):
+
+| Backend | Watermark | Pinned read |
+|---|---|---|
+| Delta table | table version | yes — read at that version |
+| Iceberg table (REST catalog) | current snapshot id | yes — read at that snapshot |
+| DuckDB native table | none built in; a commit counter maintained by the loader, incremented in the same transaction as the change | no — rule 2 |
+| PostgreSQL table | as DuckDB | no — rule 2 |
+| Parquet or CSV files | none; file times are not trusted | — (unversioned) |
+
+A watermark must advance on every committed change that becomes visible and must never move otherwise. A source whose watermark does not satisfy this is treated as unversioned.
 
 Example: revenue by region for 2024 reads `fact_sale` partitions 2024-01 … 2024-12 and `dim_customer`. A load into partition 2025-01 leaves the entry valid; an SCD2 update of `dim_customer` invalidates it.
 
@@ -3842,7 +3915,7 @@ Each phase names the sections it implements and the result that shows it is done
 - *Done when:* a turn checkpointed after confirmation resumes in a new process and reaches the same decision.
 
 **Phase 9 — Supervisor agent (scope to be fixed by #82–#87)** · §12
-- Tool contracts and registry; supervisor graph with replan, degrade and abort routes; budget propagation; partial-failure handling; dataset isolation.
+- Tool contracts and registry; supervisor graph with replan and abort routes; budget propagation; partial-failure handling; dataset isolation.
 - The supervisor is part of this roadmap, but its contracts are still open in the review (issues #82–#87). Its estimate and completion criterion are set when they close.
 
 ---
@@ -4211,7 +4284,7 @@ Pipeline lifecycle unification: each layer transition is modelled by a `Pipeline
 **D22** — DGM shares the graph primitive with RDF — the typed directed labelled edge — and differs above it: it adds the dim/fact typed split, the three-band analytical query structure, the annotation-driven planner, CTL temporal predicates, trail space analysis and the question space of §8.11. These are not part of the RDF/OWL standards; RDF in turn offers open-world semantics, inference and cross-vocabulary integration that DGM does not attempt.
 **D23** — CTE composition extends `Q_valid` to `Q_algebra`. The BDD covers single-query predicate optimisation; cross-CTE CSE (Rule 11) extends it to multi-query scope. The fragment `F_D` translates into stratified Datalog with comparisons and has polynomial data complexity; the rest of `Q_algebra` carries no such guarantee (§8.13).
 **D24** — The query DAG canonical form is the composition-level analogue of the BDD. The analogy is exact: variable ordering ↔ dependency partial order; sharing rule ↔ CSE; elimination rule ↔ semiring laws. Containment-based elimination is applied only for Band 1 leaf nodes (NP-complete but tractable in practice). For Band 2/3 nodes, only syntactic laws are applied — this is the conservative choice that preserves correctness at the cost of some missed simplifications. Caching by the canonical DAG's persistent key (§8.14) is the semantic-level generalisation of SQL text caching: it is sound — it never merges inequivalent questions — and incomplete, since some equivalent forms are not identified.
-**D25** — The pre-execution gate produces `BudgetDecision` rather than raising errors or blocking. Every failure mode has a graceful path: cost explosion → rewrite or clarify; result explosion → paginate; slow pre-computation → approximate; very expensive → async. `REJECT` is reserved for the hard ceiling and for the terminal fallback of a query above `max_estimated_cost` that admits no rewrite, guaranteed sample or refinement — most queries reach `PROCEED`, `STREAM`, or `REWRITE`. Rewriting precedes the choice of delivery mode; sampling is offered only where its error guarantee applies, and clarification otherwise. The clarification path surfaces lattice refinements, not generic "simplify your query" messages — this is only possible because `Q_valid(A, B)` is formally defined.
+**D25** — The pre-execution gate produces `BudgetDecision` rather than raising errors or blocking. An executable plan is delivered exactly (`PROCEED`, `STREAM`, `ASYNC`, `PAGINATE`). A plan the budget does not admit is reduced only by a substitution the caller allowed (D40), and is otherwise answered with `CLARIFY` — refinements and the not-allowed substitutions, each named — or with `REJECT` when there is nothing to offer. Allowed rewriting precedes the choice of delivery mode; sampling is used or offered only where its error guarantee applies. The clarification path surfaces lattice refinements, not generic "simplify your query" messages — this is only possible because `Q_valid(A, B)` is formally defined.
 **D26** — The NL interface does not generate queries from the LLM. It navigates a formally bounded question space. The LLM's five responsibilities are each a constrained mapping task — entity resolution against a closed vocabulary, candidate ranking over pre-validated options, pattern classification to a closed CTL vocabulary, compositional detection, and structured explanation rendering. This architecture prevents the two failure modes of SQL-generation NL interfaces: hallucinated schema references (prevented by closed PropRef vocabulary) and semantically invalid queries (prevented by BDD-validated candidates).
 **D27** — LangGraph is chosen for the NL interface workflow and Pydantic-AI for each specialist agent. This pairing is structurally forced, not arbitrary. LangGraph handles the two properties that linear pipelines cannot: stateful cyclic workflows (the refinement and clarification cycles) and human-in-the-loop checkpoints with multi-turn state persistence. Pydantic-AI handles the two properties that unstructured LLM calls cannot: closed-vocabulary output enforcement (DGM formal types as Pydantic schemas) and bounded retry on validation failure. The majority of the LangGraph graph nodes (9 of 14) are deterministic DGM computation — only 5 nodes invoke LLMs, each with a formally bounded output type (§11.10). This ratio is intentional: the more computation that is formal and deterministic, the fewer guarantees depend on LLM reliability.
 **D28** — The DGM/RDF relationship is one of convergence on the graph primitive and divergence on everything above it. RDF 1.2's triple terms narrow the N-ary event representation gap (axis vi), making the solutions more structurally similar than in RDF 1.1. DGM's position is that RDF leaves as conventions some constraints that analytical planning needs: DGM adds a type invariant where RDF has a convention, an operational annotation layer where RDF has assertions, window functions that SPARQL 1.1 does not have, and the question space of §8.11. As RDF 1.2 matures, the DGM SPARQL exporter target (§6.4) becomes a more faithful representation — triple terms enable cleaner encoding of fact nodes in SPARQL output. DGM is an analytical graph model; ontologies are knowledge representation languages. The relationship is complementary, not competitive: DGM can export to SPARQL as one execution target. The shared primitive and the divergence above it are stated in D22.
@@ -4221,12 +4294,26 @@ Pipeline lifecycle unification: each layer transition is modelled by a `Pipeline
 **D31** — CTL is interpreted over maximal paths, not over a totalised transition relation. A path ends where the graph ends: a finite trace that reaches a terminal is complete, and EG/AG are decided on it without an implicit self-loop. Self-loops were rejected because they are edges no event produced — visible to hop counts, SHORTEST, signatures and PathAgg — and because they make NEXT at a terminal mean "now". Quantification over an empty domain is governed by `PathPred.on_empty`: FORALL is false by default (`REQUIRE_WITNESS`) and true only when `VACUOUS` is requested, so a universal condition never holds silently for a node with no path instance. Recorded in `docs/adr/0001-ctl-finite-trace-semantics.md`.
 **D32** — PipelineArtifact transitions are facts. The artifact carries its current state as a property; every state change is an EVENT-grain transition fact linked to its artifact (`transition_of`) and to the next transition (`followed_by`, CAUSAL). State names are enumeration values, never nodes, and the state machine is a relation δ over those values. The current state is by definition the projection of the latest transition, so snapshot and history agree. Chosen over a mutable property (nothing to traverse) and over artifact versions (pipeline events entangled with attribute history). Recorded in `docs/adr/0002-pipeline-artifact-transition-facts.md`.
 **D33** — Every query evaluation has one reference instant τ: `TemporalContext.default_as_of` when supplied, otherwise the planning service's clock captured once before planning and truncated to `REFERENCE_GRANULARITY`. `Now`, calendar and rolling windows, default version and validity resolution, TTL rules and monitor deadlines all resolve against τ; calendar boundaries use `TemporalContext.time_zone`. The query DAG is built with `Now` symbolic, so determinism of the DAG is preserved, and τ enters evaluation and cache identity instead. Dynamic `now` was rejected as incorrect (two expressions of one query could disagree; caches would serve the wrong instant) and a mandatory `as_of` as needing a default in practice. Recorded in `docs/adr/0003-reference-instant.md`.
-**D34** — Result caches are invalidated by source watermarks. A cached result is keyed by the watermarks of the source relations its plan can read, so a committed change to any of them changes the key; sources without a watermark fall back to a flagged TTL. Fine-grained provenance was not adopted because nothing records it; a TTL alone was rejected as unsound. Recorded in `docs/adr/0004-cache-invalidation-by-source-watermark.md`.
+**D34** — Result caches are invalidated by source watermarks. A cached result is keyed by the watermarks of the source relations its plan can read, so a committed change to any of them changes the key; an entry that depends on a source without a watermark is served only to a caller that accepts staleness explicitly (D41). Fine-grained provenance was not adopted because nothing records it; a TTL alone was rejected as unsound. Recorded in `docs/adr/0004-cache-invalidation-by-source-watermark.md`.
 **D35** — PipelineArtifact is declarative. Evaluating annotations and planning queries has no side effect: the planner produces `WritePlan`s and `TransitionPlan`s, and an authorised runtime executes them and appends transition facts when their conditions hold. An active annotation was rejected because evaluating the model could then write; removing lifecycle from DGM was rejected because the planner needs its semantics. Recorded in `docs/adr/0005-pipeline-artifact-is-declarative.md`.
 **D36** — The instance graph is a labelled transition system with actions `L × {fwd, rev}`; CTL is evaluated on a Kripke structure derived for each path predicate as the product of the system with the pattern automaton, with the atoms of the predicate as propositions. A pure Kripke encoding was rejected because it pushes edge labels into states; an action-based logic is not needed for the current operators. Recorded in `docs/adr/0006-lts-as-primary-model.md`.
 **D37** — Retrieval distance `d_L` is the shortest path between skeletons in the graph of structural local moves (§8.16.6), with parameter differences as a tie-breaker; it is a metric on each connected component and gives a total, reproducible retrieval order. BDD-weighted and composite distances were not adopted. Recorded in `docs/adr/0007-retrieval-distance.md`.
 **D38** — The supervisor runs independent steps concurrently up to `MAX_CONCURRENT_CALLS`, reserving each step's budget before dispatch, serialising knowledge-base writes, pausing dispatch for degrade and replan, and synthesising in plan order. Strict sequencing and unbounded parallelism were not adopted. Recorded in `docs/adr/0008-supervisor-bounded-concurrency.md`.
 **D39** — Diamond is DGM's own extension of the Bronze/Silver/Gold Medallion pattern, labelled as such wherever it appears. Attributing it to another framework would need a source; removing it would lose a name for the semantic layer. Recorded in `docs/adr/0009-diamond-as-dgm-extension.md`.
+
+**D40** — Every reduction the pre-execution gate can apply — the three rewrite rules, approximate algorithms and sampling — changes the answer, so each is a `Substitution` the caller must allow in `ExecutionBudget.substitutions`; the default allows none. A viable substitution that is not allowed is offered as a `CLARIFY` option and runs only when chosen. The PreComputation guard no longer swaps in an approximation silently. Applying substitutions automatically was rejected because it returned a different answer than the one asked for without the caller's consent. Recorded in `docs/adr/0010-gate-substitutions-are-opt-in.md`.
+
+**D41** — A cached result that depends on a source without a watermark is not served unless the caller sets `CachePolicy.accept_stale`, and then only within that age and flagged `possibly_stale`. This replaces the TTL fallback of ADR 0004. Recorded in `docs/adr/0011-unversioned-cache-entries-are-opt-in.md`.
+
+**D42** — The supervisor and the NL interface fail closed. `SUCCEEDED` means the contract was executed; an empty result is a success only after complete execution; missing capability, configuration or grant is reported as `NOT_IMPLEMENTED`, `UNSUPPORTED` or `UNAUTHORIZED`. The degrade route and `degrade_to` are removed: a REJECTED step is recovered only by a validated replan or ends the run. The NL graph runs only with all fourteen components and never with stub nodes. Recorded in `docs/adr/0012-supervisor-and-nl-fail-closed.md`.
+
+**D43** — Each of the nine supervisor tools has a contract table entry (§12.3): what it executes, what a success holds, when an empty result is legitimate, and its typed failures. Enumeration is bounded by explicit arguments and reports `complete`; a sweep runs exactly the listed values; an invariant check reports `holds` only after complete evaluation. These entries are the conformance target of #129 and #132–#134.
+
+**D44** — Authorization (§12.10) applies to every entry point that touches data — NL interface, query API, result cache and PipelineArtifact executor — not only to the supervisor. A call without an `AuthContext` is refused. Writes and transition appends require the new `WRITE` action.
+
+**D45** — Watermarks are read before execution; a result is cached only if its reads were pinned to those versions or the watermarks are unchanged afterwards. The source of each backend's watermark is tabulated in §8.14, and a source whose watermark is not monotonic is unversioned.
+
+**D46** — A PipelineArtifact plan is executed by a four-step protocol (validate, dispatch, write, record). The write and its terminal transition are atomic, either in one transaction or through a `write_id` that recovery can find. A sink with neither guarantee is unsupported for materialisation; there is no fallback sink. Extends ADR 0005.
 
 ### 10.5  References
 
@@ -4291,7 +4378,7 @@ Version history of this specification. Earlier versions than v0.16 are not recor
 
 **v0.26** — §8.16 Vocabulary decomposition and analytical space characterisation — six vocabularies (`V_N`, `V_E`, `V_P`, `V_Pred`, `V_Op`, `V_Par`); factored size estimate via multiplicative decomposition; four-level hierarchy (see the superseded note at the end of this entry); semantic sparsity and effective analytical space `A_eff`; semantic basis as minimal generating set; polynomial neighbourhood bound; per-level navigation strategies for recommender and NL interface; worked example for BookClub `social_network` domain. *Superseded:* this entry originally described a hierarchy "term → phrase → sentence → paragraph" and gave a 14-element semantic basis and ~2.3 k effective questions; the body of v0.26 uses the Structure / Predicate / Parameter / Operator hierarchy of §8.16.3 and estimates ~6.0 × 10⁵ effective questions (§8.16.8), which are the figures in force. §8.11 cross-reference to §8.16.6–8.16.7 for size characterisation. §7.7 cross-reference to §8.16.5–8.16.6 for formal basis justification. §12 Supervisor Agent Architecture — six agent-safe properties; five-point tool contract (`BaseTool` ABC: `capability_schema`, `cost_estimate`, `execute`, `compose`, `explain`); nine core tools (`dgm_query`, `what_can_i_answer`, `correlate`, `explore_from`, `sensitivity_sweep`, `validate_invariant`, `store_finding`, `retrieve_related`, `map_analytical_space`); `TOOL_REGISTRY` dict; five-node LangGraph supervisor graph (plan → select_tool → execute_tool → synthesize → respond); budget propagation via `budget_fraction` on `ToolCallRequest`; six supervisor workflows (single-domain, cross-domain, hypothesis-driven, exhaustive-survey, validation, meta-analytical); knowledge base with lattice-adjacent retrieval keyed by `(A, B, q, π)`; meta-tool operationalising §8.11 question completeness; relationship to §7 recommender as supplier of `Q_valid`/lattice to supervisor navigation.
 
-**v0.27 (in progress)** — Revision of v0.26 in response to the review tracked in issues #21–#96. Decisions are recorded as D31–D33 (§10.4) and in `docs/adr/0001`–`0003`; each change is linked to its issue in the pull request that made it.
+**v0.27 (in progress)** — Revision of v0.26 in response to the review tracked in issues #21–#96. Decisions are recorded as D31–D39 (§10.4) and in `docs/adr/0001`–`0009`; each change is linked to its issue in the pull request that made it. The conformance audit tracked in issue #141 adds the fail-closed rules: gate substitutions are opt-in (D40), unversioned cache entries are opt-in (D41), and the supervisor and NL interface fail closed without a degrade route (D42); `docs/adr/0010`–`0012`. It also closes specification gaps found by the audit: per-tool contracts (D43), authorization at every entry point (D44), watermark reading (D45) and the PipelineArtifact execution protocol (D46).
 
 ---
 
@@ -4611,7 +4698,7 @@ The mechanisms below constrain *what the model can produce*. They guarantee that
 
 ### 11.9  Integration with the execution budget gate
 
-The NL interface feeds directly into the pre-execution gate (§6.3). When the gate returns `CLARIFY`, the clarification options are generated by the recommender as lattice refinements — not as generic "try a simpler query" messages. The NL interface renders them in natural language using the entity registry.
+The NL interface feeds directly into the pre-execution gate (§6.3). The interface passes the user's `ExecutionBudget` unchanged, including `substitutions`; it never widens that set. When the gate returns `CLARIFY`, the options are lattice refinements generated by the recommender, plus any substitution the user has not allowed, each with its warning — not generic "try a simpler query" messages. The NL interface renders them in natural language using the entity registry. A substitution runs only after the user picks it.
 
 When the gate returns `ASYNC`, the interface first submits the job (`enqueue_async`, §11.10) and acknowledges only what the executor accepted. The reference given to the user is the job id of the returned ticket:
 
@@ -4628,9 +4715,9 @@ Submission failed:
 
 No acknowledgement mentions a queued job or a materialised result without a ticket. Submission is idempotent on the `result_key` (§8.14): re-submitting the same question over the same snapshot returns the existing job.
 
-A preview may accompany the acknowledgement only when the plan satisfies the sampling conditions S1–S4 of §6.3; it is then produced by Strategy 3 and carries the error bound defined there. For any other plan no approximate figure is shown.
+A preview may accompany the acknowledgement only when `SAMPLE ∈ substitutions` and the plan satisfies the sampling conditions S1–S4 of §6.3; it is then produced by Strategy 3 and carries the error bound defined there. For any other plan no approximate figure is shown.
 
-When the gate returns `REWRITE`, the interface runs the rewritten plan under the delivery the gate attached to it and shows the gate's warning; it does not rebuild the DAG or consult the gate again for that plan.
+When the gate returns `REWRITE`, the substitution was allowed by the user's budget. The interface runs the rewritten plan under the delivery the gate attached to it and shows the gate's warning; it does not rebuild the DAG or consult the gate again for that plan.
 
 ### 11.10  Implementation: LangGraph + Pydantic-AI
 
@@ -4753,7 +4840,7 @@ class PlanRef(BaseModel):                   # serialisable reference to a plan; 
 class BudgetDecisionModel(BaseModel):
     type:     str                           # PROCEED|STREAM|ASYNC|REWRITE|SAMPLE|PAGINATE|CLARIFY|REJECT
     delivery: str | None = None             # `then` of REWRITE / SAMPLE: PROCEED|STREAM|ASYNC|PAGINATE
-    rewrite_rule: str | None = None
+    rewrite_rule: str | None = None         # the Substitution of a REWRITE
     warning:  str | None = None
     reason:   str | None = None
     sink:     str | None = None
@@ -5092,6 +5179,8 @@ nl_app = graph.compile(checkpointer=InMemorySaver())
 
 *Refinement restarts at entity resolution.* New text increments `utterance_version` and clears every result derived from the previous utterance; `candidate_generation` refuses inputs whose version does not match. Asking for more options keeps the grounding and advances the page.
 
+*Fail closed (D42; ADR 0012).* The graph is built only with all fourteen components: the five agents and the nine deterministic nodes above. A component that cannot be constructed — a missing model, agent, schema, checkpointer or backend — is a startup error naming the component. No node is replaced by a passthrough or stub, and the topology is never reduced to run without it. At run time, an agent that fails validation after its bounded retries ends the turn with a typed error in `explanation_rendering`; it does not route around the agent or rewrite the question by heuristic. An `ASYNC` decision is always enqueued; a failed submission is reported (§11.9) and never converted into synchronous execution.
+
 *Rewrites make progress and terminate.* The gate returns at most one `REWRITE`, already carrying the delivery of the rewritten plan (§6.3). `apply_rewrite` records the rule in the `PlanRef`, increments `plan_version` and routes straight to delivery; the plan is not gated again and `dag_construction` is not revisited. A plan with no viable rewrite never yields `REWRITE`. Clarification can bring the conversation back to the gate; `MAX_GATE_ROUNDS` bounds that, after which the decision is `REJECT`.
 
 *ASYNC means a submitted job.* The ASYNC route passes through `enqueue_async`, which submits the plan with the sink, callback and TTL of the decision and stores the returned `JobTicket`. If submission fails there is no ticket and `submission_error` is set; the explanation agent is given both and is instructed not to claim a queued job without a ticket.
@@ -5155,7 +5244,7 @@ AuthContext(
   tenant_id:    str,
   grants:       frozenset[DatasetGrant])
 
-DatasetGrant(dataset_id: DatasetId, actions: frozenset[READ | CORRELATE | WRITE_KB])
+DatasetGrant(dataset_id: DatasetId, actions: frozenset[READ | CORRELATE | WRITE_KB | WRITE])
 ```
 
 **Capability schema.** Declared by each tool, fixed at startup.
@@ -5171,8 +5260,10 @@ ToolCapabilitySchema(
   writes_kb:       bool,                     -- stores findings (§12.7)
   idempotent:      bool,                     -- re-executing with the same arguments has no further effect
   composable_with: list[ToolName],           -- tools whose output this tool may take as input
-  degrade_to:      ToolName | None)          -- cheaper substitute used by the degrade route (§12.5)
+  available:       bool)                     -- false: registered but cannot execute in this deployment
 ```
+
+`available` is computed at startup from the build and the host configuration — a tool whose implementation, model or backend is missing is registered with `available = false`. The planner sees only available tools, and dispatching an unavailable one returns `NOT_IMPLEMENTED` or `UNSUPPORTED` without running anything.
 
 **Request, result and error.**
 
@@ -5200,15 +5291,26 @@ ToolCallResult(
   started_at:   Timestamp | None,
   finished_at:  Timestamp | None)
 
-ToolError(kind: ToolErrorKind, message: str, retryable: bool)
+ToolError(kind: ToolErrorKind, message: str, retryable: bool,
+          context: dict)                     -- structured detail: the violated rule, the offending argument,
+                                             -- the missing component, work completed before the failure
 
 ToolErrorKind ::= UNKNOWN_TOOL | INVALID_ARGUMENTS | UNAUTHORIZED
+                | NOT_IMPLEMENTED                    -- the capability is not implemented or not configured here
+                | UNSUPPORTED                        -- a valid request this dataset, backend or version cannot execute
                 | BUDGET_REJECTED | NEEDS_CLARIFICATION
                 | TIMEOUT | CANCELLED | TOOL_FAILURE | INVALID_OUTPUT
                 | DEPENDENCY_NOT_MET | COMPOSITION_FAILURE
 ```
 
 `retryable` is true only for `TIMEOUT` and for `TOOL_FAILURE` that the tool marks transient. All other kinds are final for that call.
+
+**Fail closed (D42; ADR 0012).** A result reports what was executed, never what was intended:
+
+- `SUCCEEDED` means the tool executed its whole contract. Its `data` is computed output, never a placeholder, default, synthetic identifier or stub marker.
+- An empty collection is `SUCCEEDED` only when the operation ran to completion and observed nothing. Not executing, failing, lacking a capability and lacking a grant are each reported by their own status and `ToolErrorKind`, never as an empty result.
+- A tool that cannot execute the request exactly as contracted returns FAILED with the matching kind. It does not substitute another tool, query, dataset, tenant, key, strategy or backend, and it does not widen the scope of a search to find something to return.
+- Answer-changing reductions exist only as gate substitutions the caller allowed (§6.3, D40). No tool, router or recovery route introduces one.
 
 **Plan.**
 
@@ -5227,7 +5329,7 @@ A plan is **valid** iff:
 ```
 P1  call_ids are unique.
 P2  every depends_on names an earlier step: the dependency relation is acyclic and respects step order.
-P3  every tool_name is in TOOL_REGISTRY, and its arguments validate against the tool's input_schema.
+P3  every tool_name is in TOOL_REGISTRY with available = true, and its arguments validate against the tool's input_schema.
 P4  for every dependency d of step s: tool(s) ∈ composable_with(tool(d)).
 P5  Σ budget_fraction ≤ 1.
 P6  every dataset of every step is granted to the principal with the actions the tool needs (§12.10).
@@ -5270,7 +5372,7 @@ TOOL_REGISTRY : Mapping[ToolName, BaseTool]
 
 - *Content.* Built at startup from the tools of §12.3 and immutable for the duration of a run.
 - *Resolution.* Exact match on `ToolName`. There is no fuzzy or case-insensitive matching and no fallback to a default tool.
-- *Validation.* Plan validation (P1–P6) uses the registry. A plan naming an unknown tool is invalid: no step of it runs, and the supervisor replans with error `UNKNOWN_TOOL` (§12.5).
+- *Validation.* Plan validation (P1–P6) uses the registry. A plan naming an unknown or unavailable tool is invalid: no step of it runs, and the supervisor replans with error `UNKNOWN_TOOL` or `NOT_IMPLEMENTED` (§12.5).
 - *Execution.* `execute_tool` resolves the name again, so a tool removed between validation and execution yields `UNKNOWN_TOOL` for that call, never a call to another tool.
 
 **`run_ask_from_source`.** The entry point used by `dgm_query`: one non-interactive turn of the NL interface (§11.10) on one dataset.
@@ -5287,23 +5389,39 @@ NLTurnResult(
   unresolved:   list[str])
 ```
 
-Where the interactive interface would ask the user to confirm a candidate, the non-interactive turn takes the top-ranked candidate and records the others in `explanation`.
+Where the interactive interface would ask the user to confirm a candidate, the non-interactive turn takes the top-ranked candidate and records the others in `explanation`; this is the declared contract of the non-interactive mode, which the supervisor selects explicitly. Everything else follows the interactive graph: `run_ask_from_source` uses the full graph of §11.10, and if the NL interface is not available (§11.10, *Fail closed*) `dgm_query` is registered with `available = false`.
 
 ### 12.3  Nine core tools
 
-| Tool | Purpose | Maps to | Reads | KB write | Idempotent | `degrade_to` |
-|---|---|---|---|---|---|---|
-| `dgm_query` | One NL question against a dataset | `run_ask_from_source` (§12.2, §11.10) | `/dataset` | no | yes | `dgm_what_can_i_answer` |
-| `dgm_what_can_i_answer` | List answerable questions from `Q_valid` | BDD enumeration (§8.3) | `/dataset` | no | yes | — |
-| `dgm_correlate` | Cross-domain JOIN of two results | `Q_algebra.JOIN` (§8.13) | `/left/dataset`, `/right/dataset` | no | yes | — |
-| `dgm_explore_from` | Navigate from a result to related questions | Recommender (§7) | `/dataset` | no | yes | — |
-| `dgm_sensitivity_sweep` | Parameter sweep over `Π(q)` | §8.15 + §8.16.7 Level 3 strategy | `/dataset` | no | yes | `dgm_query` |
-| `dgm_validate_invariant` | Check a formal model invariant | Schema validation (§2–§3) | `/dataset` | no | yes | — |
-| `dgm_store_finding` | Persist an analytical finding | Knowledge base (§12.7) | `/finding/datasets/*` | yes | yes, by `idempotency_key` | — |
-| `dgm_retrieve_related` | Retrieval from KB by move distance | **Not** vector similarity — `d_L` of §12.7 | `/dataset` | no | yes | — |
-| `dgm_map_analytical_space` | Map vocabulary decomposition | §8.16 computation | `/dataset` | no | yes | — |
+| Tool | Purpose | Maps to | Reads | KB write | Idempotent |
+|---|---|---|---|---|---|
+| `dgm_query` | One NL question against a dataset | `run_ask_from_source` (§12.2, §11.10) | `/dataset` | no | yes |
+| `dgm_what_can_i_answer` | List answerable questions from `Q_valid` | BDD enumeration (§8.3) | `/dataset` | no | yes |
+| `dgm_correlate` | Cross-domain JOIN of two results | `Q_algebra.JOIN` (§8.13) | `/left/dataset`, `/right/dataset` | no | yes |
+| `dgm_explore_from` | Navigate from a result to related questions | Recommender (§7) | `/dataset` | no | yes |
+| `dgm_sensitivity_sweep` | Parameter sweep over `Π(q)` | §8.15 + §8.16.7 Level 3 strategy | `/dataset` | no | yes |
+| `dgm_validate_invariant` | Check a formal model invariant | Schema validation (§2–§3) | `/dataset` | no | yes |
+| `dgm_store_finding` | Persist an analytical finding | Knowledge base (§12.7) | `/finding/datasets/*` | yes | yes, by `idempotency_key` |
+| `dgm_retrieve_related` | Retrieval from KB by move distance | **Not** vector similarity — `d_L` of §12.7 | `/dataset` | no | yes |
+| `dgm_map_analytical_space` | Map vocabulary decomposition | §8.16 computation | `/dataset` | no | yes |
 
 `dgm_store_finding` is idempotent only through its key: storing the same finding twice under one `idempotency_key` stores it once.
+
+**Per-tool contracts (D43).** Arguments are validated against `input_schema` before anything runs; `data` is present only on SUCCEEDED (§12.2). For each tool: what it executes, what `data` holds, when an empty result is legitimate, and its tool-specific failures. A case not listed is a `TOOL_FAILURE`; no case is answered by running something else.
+
+| Tool | Arguments | Executes | `data` on SUCCEEDED | Empty is legitimate when | Tool-specific failures |
+|---|---|---|---|---|---|
+| `dgm_query` | `dataset`, `utterance` | one non-interactive NL turn (`run_ask_from_source`) | `NLTurnResult`; for `ASYNC`, the accepted `job` and `rows = None` | the executed plan returned no row | utterance not grounded (§12.8) → `INVALID_ARGUMENTS`, unresolved terms in `context`; gate `REJECT`/`CLARIFY` → REJECTED |
+| `dgm_what_can_i_answer` | `dataset`, `anchors` (required), `max_hops ≤ MAX_ENUM_HOPS`, `limit ≤ MAX_ENUM_QUESTIONS` | the enumeration of §8.11 (theorem, part 1) restricted to skeletons of `Q_valid(anchors)` whose connecting paths have at most `max_hops` edges; parameters are not enumerated | `questions` (`question_key` and a skeleton summary, in enumeration order), `complete` — true iff the bounded domain was exhausted before `limit` — and the bounds used | the bounded domain has no valid skeleton; then `complete = true` | `anchors` missing or not an anchor set (AS1–AS3) → `INVALID_ARGUMENTS`; no default anchor set is chosen and the domain is never widened |
+| `dgm_map_analytical_space` | `dataset`, `utterance?` | the vocabulary decomposition of §8.16 from `G_S`, `K_S` and `Σ`; with an utterance, the grounding check of §12.8 | the six vocabularies with members and sizes (`V_Par` as parameter families and their domains), the anchor sets admissible under AS1–AS3 up to `MAX_ANCHORS`, and the §12.8 answer if an utterance was given | never: a dataset with a schema has non-empty `V_N` | — |
+| `dgm_correlate` | `left`, `right` (call ids of SUCCEEDED `dgm_query` results), `keys` | a drill-across of the two results (§5.2.2, Rule 12): FULL OUTER JOIN on `keys` | the joined rows, with DA4 for a side that has no row | both inputs are empty | a key not declared `Conformed` for both results' fact types, a key that is not a GroupBy key of both, or different GroupBy key sets (grain) → `INVALID_ARGUMENTS` naming the DA rule; an input without rows (`ASYNC`) → `UNSUPPORTED`; no other key, grain or dataset is tried |
+| `dgm_explore_from` | `source` (call id), `limit ≤ MAX_EXPLORE` | the structural moves of §8.16.6 from the source skeleton, each checked for membership in `Q_valid` | `suggestions`: question key, the move, its parameters and the reason, ordered by recommender score (§7) then `question_key` | no move from the source yields a valid skeleton | source not SUCCEEDED or without a `question_key` → `INVALID_ARGUMENTS` |
+| `dgm_sensitivity_sweep` | `source` (call id), `parameter`, `values` (1…`MAX_SWEEP_POINTS`) | the source question at every listed value, in order; the gate is consulted once for the total cost before the first execution | `points`: (value, rows or job) for every value | never: each point is reported | a value outside `Π_valid(q)` → `INVALID_ARGUMENTS` naming it; total cost over the child budget → REJECTED, nothing executed; a point that fails → FAILED with the completed values in `context`. No value is skipped, sampled or chosen by the tool. Level 3 guidance (§8.16.7) may inform the planner's choice of `values`, which is then visible in the request. |
+| `dgm_validate_invariant` | `dataset`, `invariant`, `max_witnesses ≤ MAX_WITNESSES` | evaluation of one invariant over every instance in its scope | `holds`, `checked` (instances examined), `violation_count`, `violations` (up to `max_witnesses` witnesses) | — | `invariant` outside `H1`–`H3`, `PARTITION` (the structural invariants of §2.1), `M1`–`M7`, `PA1`–`PA4` → `INVALID_ARGUMENTS`; `PA*` on a dataset with no PipelineArtifact type → `INVALID_ARGUMENTS`; evaluation not completed → FAILED or REJECTED. `holds` is never set without complete evaluation. |
+| `dgm_store_finding` | `finding` with `(q, π)`, datasets and content | durable write to the tenant's knowledge base (§12.7) | `finding_id = H(tenant_id, idempotency_key)` | — | dataset not granted → `UNAUTHORIZED` (§12.10) |
+| `dgm_retrieve_related` | `dataset`, `(q', π')`, `k` | the breadth-first retrieval of §12.7 | findings in the total order of §12.7, with `d_S` and `d_P` | no granted finding lies within `k` | — |
+
+`MAX_ENUM_HOPS`, `MAX_ENUM_QUESTIONS`, `MAX_EXPLORE`, `MAX_SWEEP_POINTS` and `MAX_WITNESSES` are policy constants of the deployment. A request above one is `INVALID_ARGUMENTS`; it is not truncated silently.
 
 ### 12.4  Supervisor graph
 
@@ -5316,7 +5434,6 @@ plan → validate_plan ──invalid──→ replan
             ▼
        execute_tool → route_result ─┬─ continue ─→ select_step
                                     ├─ retry ────→ execute_tool        (same call, same idempotency_key)
-                                    ├─ degrade ──→ select_step          (step replaced, §12.5)
                                     ├─ replan ───→ validate_plan        (new plan version, §12.5)
                                     └─ abort ────→ respond → END
 ```
@@ -5333,7 +5450,7 @@ plan → validate_plan ──invalid──→ replan
 
 - *Limit.* At most `MAX_CONCURRENT_CALLS` (default 4) calls are RUNNING; free slots are filled with runnable steps in plan order. Two steps that write to the knowledge base never run at the same time.
 - *Budget reservation.* A step's child budget (§12.5) is reserved before dispatch, and a step is dispatched only if `spent + reserved + its child budget ≤ B.max_estimated_cost`. On completion its reservation is released and its `cost_actual` added to `spent`.
-- *Recovery barrier.* A result routed to degrade or replan stops new dispatches until every RUNNING call has finished; the recovery then sees a stable set of results. A retry re-dispatches only the failed call.
+- *Recovery barrier.* A result routed to replan stops new dispatches until every RUNNING call has finished; the recovery then sees a stable set of results. A retry re-dispatches only the failed call.
 - *Deterministic synthesis.* Results are consumed in plan order, never in completion order.
 
 `MAX_CONCURRENT_CALLS = 1` gives strictly sequential execution.
@@ -5344,13 +5461,12 @@ plan → validate_plan ──invalid──→ replan
 |---|---|---|
 | SUCCEEDED | — | continue |
 | FAILED, `retryable` | tool is idempotent and `attempts < MAX_ATTEMPTS` | retry |
-| REJECTED (`BUDGET_REJECTED` or `NEEDS_CLARIFICATION`) | tool has `degrade_to`, the substitute was not yet tried for this step, its `cost_estimate` fits the child budget, and `degrades < MAX_DEGRADES` | degrade |
 | REJECTED | `replans < MAX_REPLANS` | replan |
 | REJECTED | otherwise | abort |
 | FAILED, CANCELLED by the run | — | abort, outcome CANCELLED |
 | FAILED, any other | — | continue (dependents become SKIPPED) |
 
-`UNAUTHORIZED` is FAILED and not retryable: the call is not retried, degraded or replanned around, and its dependents are skipped. A replan may not reintroduce a dataset the principal is not granted (P6).
+`UNAUTHORIZED` is FAILED and not retryable: the call is not retried or replanned around, and its dependents are skipped. `NOT_IMPLEMENTED` and `UNSUPPORTED` are FAILED and not retryable in the same way; no other tool is substituted for the call (D42). A replan may not reintroduce a dataset the principal is not granted (P6).
 
 **Abort** is terminal. It keeps the diagnostic of the step that caused it — `call_id`, tool, arguments, child budget, `decision`, `error` — and every result obtained so far. `respond` reports them; no synthesis is attempted and no partial result is presented as an answer.
 
@@ -5361,23 +5477,22 @@ The supervisor's total budget `B` is an `ExecutionBudget` (§6.3). A step's chil
 ```
 child_budget(step) = B with
   max_estimated_cost, streaming_threshold, async_threshold  ×  step.budget_fraction
-  max_result_rows, max_precompute_time                        unchanged
+  max_result_rows, max_precompute_time, substitutions         unchanged
   max_wall_time                                               min(B.max_wall_time, deadline − now)
 ```
 
 Scaling every cost field by the same non-negative factor preserves invariants I1–I3 of §6.3, so a child budget is always valid. Each child call passes through its own gate (§6.3) with this budget. `spent` is the sum of `cost_actual` over finished calls; `remaining = B.max_estimated_cost − spent − reserved`, where `reserved` is the sum of child budgets of RUNNING calls (§12.4).
 
-When a step is REJECTED, the routing table of §12.4 chooses one of three recoveries:
+When a step is REJECTED, the routing table of §12.4 chooses one of two recoveries. Neither replaces the rejected call by another tool on its own: a different call can only come from a new plan that is validated and recorded like the first (D42; ADR 0012).
 
-1. **Degrade.** Replace the rejected step by its tool's `degrade_to` substitute, with the same `depends_on` and budget fraction and `call_id` suffixed `/degraded`. Arguments are mapped by the substitute's declared mapping; a step whose arguments cannot be mapped is not degraded. Each step is degraded at most once, and the run at most `MAX_DEGRADES` times.
-2. **Replan.** Call the planner again with the goal, the current plan, every result so far and the rejection. The new plan increments `version` and must satisfy, besides P1–P6:
+1. **Replan.** Call the planner again with the goal, the current plan, every result so far and the rejection. The new plan increments `version` and must satisfy, besides P1–P6:
    - every SUCCEEDED call is kept with its `call_id`; its result is reused, not recomputed;
    - the rejected call does not reappear with the same tool, arguments and budget fraction — a replan has to change something;
    - the fractions of the new and still-pending steps sum to at most `remaining / B.max_estimated_cost`.
    A plan that violates these is invalid and counts as a further replan. At most `MAX_REPLANS` replans per run.
-3. **Abort.** When neither applies, the run ends ABORTED (§12.4).
+2. **Abort.** When replanning does not apply, the run ends ABORTED (§12.4).
 
-`MAX_ATTEMPTS`, `MAX_DEGRADES` and `MAX_REPLANS` are policy constants. Each recovery consumes a bounded counter, and none can re-run the same rejected call unchanged, so a run terminates.
+`MAX_ATTEMPTS` and `MAX_REPLANS` are policy constants. Each recovery consumes a bounded counter, and none can re-run the same rejected call unchanged, so a run terminates.
 
 ### 12.6  Six supervisor workflows
 
@@ -5445,6 +5560,14 @@ The supervisor's `dgm_explore_from` tool wraps the recommender (§7) as a first-
 The polynomial neighbourhood bound (§8.16.6) guarantees that each `dgm_explore_from` call returns a manageable number of suggestions, preventing the supervisor from being overwhelmed by the combinatorial space.
 
 ### 12.10  Authorization and dataset isolation
+
+**Scope (D44).** The rules of this section apply to every entry point that reads, enumerates, caches, persists or writes data — the NL interface of §11 used directly, the query API, the result cache of §8.14 and the PipelineArtifact executor of §2.4 — and not only to the supervisor. Each entry point receives an `AuthContext` from the host. A call without one is refused with `UNAUTHORIZED` before any data is touched; there is no anonymous or default context, and no component builds one from request arguments.
+
+| Operation | Required on every dataset involved |
+|---|---|
+| execute a query, read a cached result | `READ` |
+| enumerate or map the question space | `READ` |
+| execute a `WritePlan` or append a transition fact (§2.4) | `WRITE` on the sink and on the dataset that holds the artifact's transitions |
 
 **Identity.** Every run carries one `AuthContext` (§12.2), built by the host from the authenticated session before the supervisor starts. It lives in the runtime context: it is not part of the checkpointed state, not part of any model input or output, and not a field the planner can set. Planner output that names a principal, tenant or grant is ignored.
 

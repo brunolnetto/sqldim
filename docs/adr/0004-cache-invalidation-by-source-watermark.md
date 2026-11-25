@@ -1,6 +1,6 @@
 # ADR 0004 — Cache invalidation by source watermark
 
-- **Status:** Accepted
+- **Status:** Accepted; amended by ADR 0011 (unversioned sources)
 - **Date:** 2026-11-25
 - **Issue:** #48
 - **Spec sections:** §2.6, §8.14, §10.4 (D34)
@@ -37,6 +37,8 @@ hit  iff  an entry with the current result_key exists  and  deps(plan) contains 
 When a dependency advances, `W` changes, the key changes and the old entry is simply not found. Old entries are evicted by capacity or age; correctness does not depend on eviction.
 
 **Unversioned sources.** If `deps(plan)` contains an unversioned source, the entry is stored with an expiry of `CACHE_TTL_UNVERSIONED`. It is served only before that expiry, and with the flag `possibly_stale = true` in the result metadata.
+
+> **Amended by ADR 0011.** The TTL fallback above is replaced: an entry that depends on an unversioned source is served only when the caller sets `CachePolicy.accept_stale`, within that age, and flagged `possibly_stale = true`. By default the lookup misses and the plan runs.
 
 **Non-deterministic plans.** A plan with sampling (SAMPLE) includes its seed in the parameters, so equal keys denote equal results.
 
