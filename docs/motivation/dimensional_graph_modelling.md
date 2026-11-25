@@ -151,7 +151,9 @@ B ⊆ N × N × L     -- bridge edges: any node → any node
 
 **Fact nodes** f ∈ F — measurable events or states. P(f) carries measures and a timestamp or interval depending on grain annotation (§2.4). Notation: f.measure, f.occurred_on.
 
-Fact nodes may not be the source of verb edges (§10.4, D6). A fact node with no outgoing bridge edge is therefore a terminal of every forward path (§4.1).
+Fact nodes may not be the source of verb edges (§10.4, D6).
+
+A fact node with no outgoing bridge edge is a terminal of every forward path (§4.1).
 
 ### 2.3  Edge types
 
@@ -1388,7 +1390,9 @@ Parametric suggestions are validated by `BDD_parametric` feasibility (§8.15) an
 
 ### 8.1  DGM as Kripke structure
 
-**Theorem.** G = (N,E,τ_N,τ_E,P,Σ) is a Kripke structure K=(S,R,L) under S=N, R=E, L=P. R is not assumed total; CTL formulas are interpreted over maximal paths (§4.1, D30).
+**Theorem.** G = (N,E,τ_N,τ_E,P,Σ) is a Kripke structure K=(S,R,L) under S=N, R=E, L=P.
+
+R is not assumed total; CTL formulas are interpreted over maximal paths (§4.1, D30).
 
 Consequences: CTL/LTL model checking applies directly. BDD layer is standard symbolic CTL machinery (Bryant 1986; Clarke et al. 1986). PathPred(FORALL/EXISTS,ALL) are CTL path quantifiers A/E. TemporalMode realises full CTL operator hierarchy.
 
