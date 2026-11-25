@@ -1720,14 +1720,16 @@ logical_sat(φ)       ⟹  nothing about non_empty or estimated_rows
 estimated_rows(q)=0  ⟹  nothing about non_empty                        -- an estimate never short-circuits
 ```
 
-A satisfiable filter over an empty table is still logically satisfiable and still returns no rows. Atoms are opaque to the BDD, so `logical_sat` is also weaker than satisfiability in the theory of the atoms: `x > 5 AND x < 3` is two distinct variables and is logically satisfiable until an atom theory relates them.
+A satisfiable filter over an empty table is still logically satisfiable and still returns no rows. Atoms are opaque to the BDD: by itself it knows only whether two atoms are the same variable. What it knows about the *values* the atoms speak of comes exclusively from the axioms Δ, including the order theory below; an inference about values with no axiom behind it is never made.
 
 **Variables.** A BDD variable is an atom in canonical form:
 
 ```
 ScalarPred     the ScalarCond AST after normalisation: operands of commutative operators ordered;
                a > b rewritten b < a;  a ≠ b rewritten NOT(a = b);  a ≥ b rewritten NOT(a < b);
-               a ≤ b rewritten NOT(b < a). The Ref kind (PropRef, AggRef, WinRef) is part of the atom.
+               a ≤ b rewritten NOT(b < a). A comparison with a constant is instead rewritten over
+               the basis atoms L and E of the order theory below. The Ref kind (PropRef, AggRef,
+               WinRef) is part of the atom.
 PathPred       (path, strategy, temporal_mode, on_empty, BDD id of sub_filter), EXISTS-quantified
 SignaturePred  (path_alias, sequence, match)
 ```
@@ -1766,6 +1768,7 @@ Translation    T⁺(φ) is the BDD of "φ is TRUE", T⁻(φ) of "φ is FALSE":
 Axioms Δ       Δ_excl   ¬(p⁺ ∧ p⁻)                       for every nullable atom p
                Δ_null   IsNull(e) → ¬p⁺ ∧ ¬p⁻            for every nullable atom p in which e occurs
                                                          outside a COALESCE
+               Δ_ord    the order theory of atoms, below
 ```
 
 The BDD of a filter φ is T⁺(φ), and every property is decided relative to Δ:
@@ -1779,7 +1782,56 @@ equivalent(φ, ψ)  iff  Δ → (T⁺(φ) ↔ T⁺(ψ))  is the TRUE node       
 
 `NotTrue(φ)` is the complement of φ's truth set — SQL `(φ) IS NOT TRUE` — and is two-valued. It is not written by users; FORALL elimination (§4.1) produces it, so that a position where `sub_filter` is UNKNOWN counts as a violation of a universal condition.
 
-The encoding is sound for Kleene logic: whatever it reports as a tautology, contradiction, implication or equivalence holds for every assignment of TRUE, FALSE and UNKNOWN to the atoms. It is not complete with respect to the theory of the atoms — a filter that is TRUE on every tuple for arithmetic reasons is not recognised.
+**Order theory of atoms.** Propositional equivalence — two formulas over the same variables having the same truth table — is what the BDD decides natively. Inference about values — that `x > 5` entails `x > 3` — is not propositional: the two atoms are different variables. It is supplied by a theory layer that contributes axioms to Δ and nothing else.
+
+The theory covers atoms that compare an expression with a constant:
+
+```
+Scope     Compare(e, op, c) and In(e, {c₁, …}) where e is any SExpr and c is a literal, or a Param
+          already bound to a value. Atoms whose constant side contains Now or an unbound Param, and
+          atoms comparing two non-constant expressions, are outside the theory and stay opaque.
+
+Basis     For each expression e and each constant c compared with it, two base atoms:
+            L(e,c)  ≡  e < c          E(e,c)  ≡  e = c
+          Every comparison is rewritten over the basis before translation:
+            e < c  ↦ L            e = c  ↦ E             e ≤ c  ↦ L OR E
+            e ≥ c  ↦ NOT L        e ≠ c  ↦ NOT E         e > c  ↦ NOT L AND NOT E
+            In(e, {c₁,…,cₙ})  ↦  E(e,c₁) OR … OR E(e,cₙ)
+          A constant on the left is moved to the right first (c < e ↦ e > c).
+          These rewritings are exact in Kleene logic: both sides are UNKNOWN exactly when e is NULL.
+```
+
+For one expression `e` of an ordered type (Int, Real, String, Date, Timestamp, Duration) and constants `c < c'`, the axioms Δ_ord are:
+
+```
+O1   L(e,c)⁺  → L(e,c')⁺           e < c  entails  e < c'
+O2   L(e,c')⁻ → L(e,c)⁻            e ≥ c' entails  e ≥ c
+O3   E(e,c)⁺  → L(e,c')⁺           e = c  entails  e < c'
+O4   L(e,c')⁻ → E(e,c)⁻            e ≥ c' entails  e ≠ c
+O5   E(e,c)⁺  → L(e,c)⁻            e = c  entails  not e < c            (same constant)
+O6   (L(e,c)⁺ ∨ L(e,c)⁻) ↔ (E(e,c)⁺ ∨ E(e,c)⁻) ↔ (L(e,c')⁺ ∨ L(e,c')⁻)
+                                    all atoms over e are defined together: exactly when e is not NULL
+```
+
+For a type that admits only = and ≠ (Bool, Enum, LabelSeq) there is no L; the axioms are `E(e,c)⁺ → E(e,c')⁻` for distinct constants, and O6 over the E atoms.
+
+Each axiom is valid in every total order, for every value of `e` including NULL, so adding Δ_ord keeps the BDD sound. It suffices to instantiate O1–O4 for adjacent constants: with n distinct constants compared with `e`, Δ_ord has O(n) clauses.
+
+```
+x > 5  ⇒  x > 3
+  T⁺(x > 5) = L(x,5)⁻ ∧ E(x,5)⁻            T⁺(x > 3) = L(x,3)⁻ ∧ E(x,3)⁻
+  L(x,5)⁻ gives L(x,3)⁻ by O2 and E(x,3)⁻ by O4.  Hence Δ ∧ T⁺(x > 5) → T⁺(x > 3): implies holds.
+
+x > 5  ∧  x < 3      is not logically satisfiable
+  T⁺ = L(x,5)⁻ ∧ E(x,5)⁻ ∧ L(x,3)⁺.   L(x,3)⁺ gives L(x,5)⁺ by O1, contradicting L(x,5)⁻ by Δ_excl.
+
+x > 5  ⇒  y > 3      is not derived: no axiom relates atoms over different expressions.
+x > y  ∧  y > x      is logically satisfiable for the BDD: atoms over two expressions are outside the theory.
+```
+
+The last two lines are deliberate. A simplification is applied only when an axiom of Δ proves it; where the theory is silent the atoms stay independent and the filter is kept as written.
+
+The encoding is sound for Kleene logic: whatever it reports as a tautology, contradiction, implication or equivalence holds for every assignment of TRUE, FALSE and UNKNOWN to the atoms consistent with their meaning. It is complete for propositional reasoning and for comparisons of one expression with constants; it is not complete beyond that — arithmetic identities, relations between different expressions and integer discreteness (`x > 5 ∧ x < 6` over Int) are not recognised.
 
 Short-circuit behaviour, with p a nullable atom and n a non-nullable one:
 
@@ -1979,6 +2031,7 @@ Each is a theorem about aggregates of a non-empty multiset. A tuple with `e` NUL
 Where: s.revenue > 500     GroupBy: [c.id]     Agg: min_rev := MIN(s.revenue), units := SUM(s.quantity)
 
 Having: min_rev > 500      -- removed: BX1 derives MIN(s.revenue) > 500
+Having: min_rev > 100      -- removed: BX1 derives MIN(s.revenue) > 500, and Δ_ord (§6.1) gives > 100
 Having: units > 100        -- kept: no axiom relates s.revenue to SUM(s.quantity)
 ```
 
