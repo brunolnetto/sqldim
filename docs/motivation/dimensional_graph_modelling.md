@@ -12,6 +12,7 @@
    - 2.3 Edge types
    - 2.4 Schema annotation layer (Σ)
    - 2.5 Temporal properties and snapshots
+   - 2.6 Relational mapping
 3. [Traversal Paths](#3-traversal-paths)
    - 3.1 Unbound paths
    - 3.2 Bound paths and TemporalOrdering
@@ -195,7 +196,7 @@ By H1 the same invariants hold on the instance graph with every subscript S repl
 
 The two readings of `G_AB` are defined in §3.4.2 (instance) and §3.4.5 (schema) and related by the projection lemma of §3.4.5.
 
-**Transposed graph.** G_I^T = (N_I, E_I^R, P) where E_I^R = { (b,a,l) | (a,b,l) ∈ E_I }, typed by h over the transposed schema graph G_S^T. Reverses all edge directions. Produced by adjacency-list reversal at graph load time (O(|E_I|)); shared across all queries. Used by the planner for Free→Bound backward-cone computation and by SINCE/ONCE/PREVIOUSLY TemporalMode SQL generation. Written G^T elsewhere. G^T is a reversal of adjacency and nothing more: following an edge backwards reaches a predecessor in path order, which is an earlier moment only where the edge type is time-ordered (§2.3).
+**Transposed graph.** G_I^T = (N_I, E_I^R, P) where E_I^R = { (b,a,l) | (a,b,l) ∈ E_I }, typed by h over the transposed schema graph G_S^T. Reverses all edge directions. It is a logical object: a reverse hop reads the same edge relation by its target key (§2.6). Reversed adjacency may additionally be materialised (O(|E_I|)) and shared across queries when the graph fits in memory. Used by the planner for Free→Bound backward-cone computation and by SINCE/ONCE/PREVIOUSLY TemporalMode SQL generation. Written G^T elsewhere. G^T is a reversal of adjacency and nothing more: following an edge backwards reaches a predecessor in path order, which is an earlier moment only where the edge type is time-ordered (§2.3).
 
 **Kripke equivalence.** G_I is formally a Kripke structure K = (S, R, L) under S=N_I, R=E_I, L=P. G_I^T is the transpose of K. Restricted to time-ordered edge types it is the time-reversal of K, and past-temporal model checking runs on that restriction. See §8.1.
 
@@ -304,7 +305,165 @@ P(n).effective_from/to : Timestamp (NULL = open)
 P(e).valid_from/to     : Timestamp (NULL = open)
 ```
 
-Temporal properties belong to instances. Snapshot G(t) = G_I(t): the node and edge instances valid at t, typed by the restriction of h; G_S is the same for every t. Delta ΔG(t₁, t₂): N_added, N_removed, E_added, E_removed, P_changed — sets of instances.
+Temporal properties belong to instances. Snapshot G(t) = G_I(t): the node and edge instances valid at t, typed by the restriction of h; G_S is the same for every t. Delta ΔG(t₁, t₂): N_added, N_removed, E_added, E_removed, P_changed — sets of instances. §2.6 defines both as relational expressions.
+
+### 2.6  Relational mapping
+
+`G_S` and `G_I` are a logical view over relations. Nothing in this specification requires the instance graph to be loaded: every node, edge, snapshot and traversal is defined here as a relational expression over the tables that hold the data.
+
+```
+M = (M_N, M_E)          M_N : N_S → NodeMapping          M_E : E_S → EdgeMapping
+
+NodeMapping ::= NodeTable(relation: R,
+                          entity_key: list[Col],          -- identity of the node across versions
+                          version_key?: Col,              -- identity of one version (surrogate key)
+                          props: K → Col,                 -- one column per key of K_S
+                          effective_from?: Col, effective_to?: Col)
+
+EdgeMapping ::= ForeignKey(holder: SOURCE | TARGET,       -- which endpoint's NodeTable stores the column
+                           columns: list[Col],
+                           references: ENTITY_KEY | VERSION_KEY)
+              | RelationTable(relation: R,
+                              source: list[Col], target: list[Col],
+                              references: ENTITY_KEY | VERSION_KEY,
+                              props: K → Col,
+                              valid_from?: Col, valid_to?: Col)
+              | Derived(view: R,                          -- read-only
+                        source: list[Col], target: list[Col],
+                        valid_from?: Col, valid_to?: Col)
+```
+
+**Mapping table.**
+
+| `G_S` construct | Relational artefact | Notes |
+|---|---|---|
+| Dimension type `T ∈ D_S` | `NodeTable` — table or view | `entity_key` is the natural (durable) key. With `SCDType(T, SCD2 \| SCD6)`: one row per version, `version_key`, `effective_from`, `effective_to`. Otherwise one row per entity. |
+| Fact type `T ∈ F_S` | `NodeTable` — table or view | `entity_key` is the grain key. Measures and timestamps are `props`. |
+| Property key `k ∈ dom K_S(T)` | Column of the NodeTable | Column type conforms to `K_S(T)(k)`. |
+| Verb edge type, N:1 from fact to dimension | `ForeignKey(holder = TARGET)` | A column of the fact table referencing the dimension. One column per verb label; role-playing dimensions have one column per role. |
+| Verb edge type, N:N (multi-valued dimension) | `RelationTable` | One row per (dimension, fact) pair. |
+| Bridge edge type, N:1 (hierarchy parent, succession) | `ForeignKey(holder = SOURCE)` | A column of the source table referencing the target, e.g. `employee.manager_key`. |
+| Bridge edge type with weight, validity window, properties, or N:N multiplicity | `RelationTable` — bridge table | `weight`, `valid_from`, `valid_to` and `K_S(e)` are columns. |
+| Edge type computed from other data | `Derived` — view | Pairs are defined by a query. Read-only: never a `WritePlan` target. |
+| Edge property key `k ∈ dom K_S(e)` | Column of the RelationTable or Derived view | A ForeignKey edge type has no properties. |
+| Annotations `Σ` | Not stored in data relations | Held with the mapping as schema metadata. |
+
+**Mapping invariants.**
+
+```
+M1  M_N and M_E are total: every node type and edge type of G_S has a mapping.
+M2  A NodeTable declares effective_from, effective_to and version_key iff its type is SCD2 or SCD6.
+    The version intervals of one entity_key are half-open [effective_from, effective_to) and
+    pairwise disjoint; effective_to = NULL is an open interval.
+M3  ForeignKey: each row of the holder yields at most one edge instance; a NULL column yields none.
+    It carries no validity window and no edge property.
+M4  An edge type that declares properties, a weight or a validity window, or that is N:N,
+    is mapped by RelationTable or Derived.
+M5  A reference that matches no row of the referenced NodeTable yields no edge instance.
+M6  references = VERSION_KEY stores a version surrogate; the endpoint is the entity that version
+    belongs to. Whether a traversal then reads the stored version or the version valid at as_of
+    is the SCD resolution policy (§2.5), not part of the mapping.
+```
+
+**The instance graph as a view.**
+
+```
+N_I restricted to type T   = the distinct entity_key values of M_N(T)
+h_N(n)                     = the type whose NodeTable holds n
+E_I restricted to type e   = the (source, target) pairs produced by M_E(e), subject to M5
+P(n), P(e)                 = the props columns of the row; for a versioned node, of the version in force
+```
+
+A node instance is an entity, not a version row. A versioned entity has one property bag per version; which one is `P(n)` is fixed by the instant of evaluation.
+
+**Version and validity at an instant.**
+
+```
+version(T, key, t)  = the row r of M_N(T) with r.entity_key = key
+                      and r.effective_from ≤ t and (r.effective_to IS NULL or t < r.effective_to)
+                      -- at most one row, by M2; for an unversioned type, the single row of key
+
+valid(e, t)         = (e.valid_from IS NULL or e.valid_from ≤ t)
+                      and (e.valid_to IS NULL or t < e.valid_to)
+                      -- TRUE for every t when the mapping declares no validity columns
+```
+
+Both windows are half-open: an instant equal to `effective_to` or `valid_to` belongs to the next version or to no validity. The snapshot of §2.5 is then
+
+```
+N_I(t) = { n | version(h_N(n), n, t) exists }
+E_I(t) = { e = (a, b, l) ∈ E_I | valid(e, t) and a, b ∈ N_I(t) }
+P_t(n) = props of version(h_N(n), n, t)
+```
+
+A node with no version at `t` is absent from `G_I(t)`; `TemporalContext.node_resolution` (§5.1) decides whether a query that reaches it is rejected (STRICT) or drops the tuple (LAX).
+
+**Traversal applies validity per hop.** A hop is a join between the current frontier and one edge relation, with `valid(e, t)` and `version(·, ·, t)` in the join condition. For a bridge table and a forward hop:
+
+```sql
+SELECT b.target_key
+FROM   frontier f
+JOIN   bridge_e b ON b.source_key = f.node_key
+                 AND (b.valid_from IS NULL OR b.valid_from <= :as_of)
+                 AND (b.valid_to   IS NULL OR :as_of < b.valid_to)
+JOIN   node_t  n ON n.entity_key = b.target_key
+                 AND n.effective_from <= :as_of
+                 AND (n.effective_to IS NULL OR :as_of < n.effective_to)
+```
+
+The reverse hop is the same statement with `source_key` and `target_key` exchanged. A `Repeat` (§3.2) is this join as the recursive step of a recursive CTE. `G^T` is therefore not a second structure: it is the same edge relations read by their target key. An implementation may additionally keep a reversed adjacency list in memory for graphs that fit there; it is an optimisation, never a precondition.
+
+No step reads rows outside the frontier's neighbourhood, so memory is bounded by the frontier and the visited set — not by `|N_I| + |E_I|` — and an edge invalid at `as_of` is never followed.
+
+**SCD2 at two instants.** `SCDType(Customer, SCD2)`; the verb edge type `(Customer, Sale, 'placed')` is `ForeignKey(holder = TARGET, columns = [customer_key], references = ENTITY_KEY)`.
+
+```
+dim_customer                                              fact_sale
+version_key  entity_key  segment    effective_from  effective_to     sale_id  customer_key  occurred_on  revenue
+101          C42         retail     2023-01-01      2024-03-01       S1       C42           2023-06-10   600
+102          C42         wholesale  2024-03-01      NULL
+```
+
+| `as_of` | `version(Customer, C42, as_of)` | `c.segment` reached from `S1` |
+|---|---|---|
+| 2022-12-31 | none — `C42 ∉ N_I(t)` | STRICT: rejected; LAX: tuple dropped |
+| 2023-12-31 | 101 | `retail` |
+| 2024-03-01 | 102 — the boundary instant belongs to the new version | `wholesale` |
+| 2024-06-30 | 102 | `wholesale` |
+
+The edge `(C42, S1, 'placed')` has no validity window and is present at every instant; only the version read at its dimension endpoint changes.
+
+**Reverse traversal with edge validity.** `(Employee, Employee, 'reports_to')` is a `RelationTable` with a validity window:
+
+```
+bridge_reports_to
+source_key  target_key  valid_from  valid_to
+E7          M1          2023-01-01  2024-01-01
+E7          M2          2024-01-01  NULL
+```
+
+"Direct reports of M1" is a reverse hop — rows with `target_key = 'M1'` and `valid(e, as_of)`. At `as_of = 2023-06-30` it returns `E7`; at `as_of = 2024-06-30` it returns nothing, and the same hop from `M2` returns `E7`. Each answer reads the rows for one target key through the index I4 below.
+
+**Minimum physical access paths.** Each is an index, or on a columnar store without secondary indexes, a clustering or sort order on the same leading columns.
+
+| # | Relation | Leading columns | Serves |
+|---|---|---|---|
+| I1 | NodeTable | `entity_key`, `effective_from` | `version(T, key, t)`; fact → dimension hop |
+| I2 | NodeTable holding a ForeignKey | the foreign key columns | hop from the referenced node to the holders (dimension → facts) |
+| I3 | RelationTable | `source`, `valid_from` | forward hop |
+| I4 | RelationTable | `target`, `valid_from` | reverse hop |
+| I5 | NodeTable with `version_key` | `version_key` | resolving a VERSION_KEY reference to its entity (M6) |
+
+**Cost.** With these access paths:
+
+| Operation | Cost |
+|---|---|
+| `version(T, key, t)` | O(log \|rel(T)\|) — the last version starting at or before `t`, then one check of `effective_to` |
+| One hop from one node, forward or reverse | O(log \|rel(e)\| + d), `d` the number of edge rows of that node |
+| Traversal visiting node set `X` and edge rows `Y` | O((\|X\| + \|Y\|) · log \|E_I\|) time; O(\|X\|) memory for the visited set |
+| Materialising reversed adjacency (optional) | O(\|E_I\|) time and memory, once |
+
+A mapping that lacks an access path is still valid, but the hop it serves degrades to a scan of the relation, O(|rel(e)|) per step. The planner costs it as such (§6.2) and `GraphStatistics` records which access paths exist. A `Derived` edge type costs whatever its view costs; it has an access path only if the view is materialised with one.
 
 ---
 
@@ -1195,7 +1354,8 @@ GraphStatistics = (node_count, edge_count, degree_dist,
                    property_dist: PropRef→Distribution,
                    temporal_density: PropRef×Duration→ℝ,
                    scc_sizes: N_I→ℕ,
-                   transposed_adj: N_I→list[N_I])   -- G^T adjacency; built at load time
+                   transposed_adj?: N_I→list[N_I],  -- G^T adjacency; optional materialisation (§2.6)
+                   access_paths: E_S→set[I1..I5])   -- physical access paths present per mapping (§2.6)
 -- GraphStatistics describes G_I. It informs cost and scoring; it never changes Q_valid.
 
 ExportPlan = (query_target, query_text, pre_compute: list[PreComputation],
@@ -1222,7 +1382,7 @@ Bound→Free (REACHABLE_FROM(A)):
     -- ALL: full DFS collecting all simple paths
 
 Free→Bound (REACHABLE_TO(B)):
-    forward BFS/DFS from B on G^T (using transposed_adj)
+    forward BFS/DFS from B on G^T (reverse access path of §2.6, or transposed_adj when materialised)
     -- CAUSAL: reverse topological order BFS on G^T
     -- semantically equivalent to backward BFS in G
 
@@ -3566,7 +3726,7 @@ Novel contributions added in v0.26: §8.16 Vocabulary decomposition and analytic
 **D15** — ExportPlan.alternatives: mechanical, auditable plan explanation.
 **D16** — Endpoint relaxation shifts granularity tier (Bound→Free = NodeExpr; Free→Free = SubgraphExpr). Preserves placement rule without modification.
 **D17** — Free→Free scope restricted to Agg/Window. Graph-scope computation in Where PathPred scope is semantically undefined and computationally unscalable.
-**D18** — G^T built at load time O(|E|), amortised across all queries needing backward traversal (SINCE, ONCE, PREVIOUSLY, REACHABLE_TO, INCOMING_SIGNATURES).
+**D18** — G^T is logical: backward traversal (SINCE, ONCE, PREVIOUSLY, REACHABLE_TO, INCOMING_SIGNATURES) reads each edge relation by its target key and needs only the reverse access path of §2.6. Materialising reversed adjacency costs O(|E|) once and is amortised across queries; it is an optimisation for graphs that fit in memory, not a requirement.
 **D19** — Cone containment (Rule 9) as structural theorem, not heuristic. Grounded in G_A* ∩ G_*B = G_AB. Always correct; fires whenever both constraints present on same Join branch.
 **D20** — PipelineArtifact is syntactic sugar, not a new fact type. The backfill-incremental state machine is modelled entirely within existing constructs: Grain(ACCUMULATING), BridgeSemantics, WritePlan, Q_delta(CHANGED_PROPERTY), and CTL temporal properties. PipelineArtifact assembles these into one declaration and infers semantics from P(f).state at planning time (planner Rule 10). Follows the same pattern as TemporalProperty classes (D9).
 **D21** — Backfill and refresh require different WritePlan modes by construction. Backfill (APPEND) has no prior artifact — failure leaves the window durably in Failed. Refresh (MERGE) preserves the prior Complete via atomic swap — failure regresses to Stale, not Failed. ADAPTIVE mode makes this automatic from P(f).state at planning time.
