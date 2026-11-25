@@ -254,6 +254,9 @@ SchemaAnnotation ::=
   | Degenerate(f: F_S, key: K)                    -- key ∈ dom K_S(f)
   | RolePlaying(d: D_S, roles: list[L])
   | ProjectsFrom(d_mini: D_S, d_full: D_S)
+  | Additivity(f: F_S, key: K,                    -- key ∈ dom K_S(f), a numeric measure
+               kind: ADDITIVE | SEMI_ADDITIVE(over: set[Axis]) | NON_ADDITIVE)
+                                                  -- Axis ::= TIME | D_S
   | FactlessFact(f: F_S)
   | DerivedFact(f: F_S, sources: list[F_S], expr: Expr)
   | WeightConstraint(b: B_S, constraint: ALLOCATIVE | UNCONSTRAINED)
@@ -283,7 +286,43 @@ Key annotation semantics:
 
 **Hierarchy(root, depth, via)** — `root` carries a self-referential bridge edge type `(root, root, via) ∈ B_S` relating a member to its parent. `via` may be omitted when `root` has exactly one self-referential bridge edge type. `depth = n` declares at most n levels; `RAGGED` declares no fixed depth. Traversal is written with Repeat (§3.2).
 
-**Grain(f, grain)** — EVENT: additive; PERIOD: state (SUM invalid); ACCUMULATING: lifecycle row.
+**Grain(f, grain)** — EVENT: one row per event; PERIOD: one row per entity per period, recording a state; ACCUMULATING: one lifecycle row per entity. Grain fixes the default additivity of the measures of `f`; whether a particular SUM is valid is decided per measure by `Additivity`.
+
+**Additivity(f, key, kind)** — declares along which axes the measure `f.key` may be summed.
+
+| Kind | Meaning | Typical measure |
+|---|---|---|
+| ADDITIVE | Summing over any set of tuples is meaningful | revenue, quantity |
+| SEMI_ADDITIVE(over) | Summing is meaningful except across the axes in `over` — `TIME`, or a dimension type | account balance, inventory level: not summable across TIME |
+| NON_ADDITIVE | Summing is never meaningful | rate, ratio, unit price, percentage |
+
+A measure with no Additivity annotation takes its default from the grain: ADDITIVE under `Grain(EVENT)` and `Grain(ACCUMULATING)`, SEMI_ADDITIVE({TIME}) under `Grain(PERIOD)`.
+
+```
+AD1  ADDITIVE         SUM is valid under any GroupBy.
+AD2  SEMI_ADDITIVE    SUM is valid only if each tuple set it sums over is confined to one value
+                      of every axis in `over`:
+                        TIME      the GroupBy contains the period of the fact, or a Where pins one period,
+                                  or the aggregate is a TemporalAgg with window LATEST or EARLIEST;
+                        d ∈ D_S   the GroupBy contains the key of d, or a Where pins one entity of d.
+                      Otherwise the SUM is rejected at construction.
+AD3  NON_ADDITIVE     SUM is rejected at construction. AVG is accepted with a warning that it is
+                      unweighted; the exact figure is recomputed from additive measures
+                      (an ArithExpr of SUMs).
+AD4  COUNT, MIN and MAX are valid for every kind. AVG is valid for ADDITIVE and SEMI_ADDITIVE.
+```
+
+```
+-- Grain(AccountBalance, PERIOD); Additivity(AccountBalance, balance, SEMI_ADDITIVE({TIME}))
+-- one row per account per day
+
+GroupBy [b.branch]             Agg: SUM(b.balance)                                   -- rejected (AD2): sums a
+                                                                                     -- balance over many days
+GroupBy [b.branch, b.day]      Agg: SUM(b.balance)                                   -- valid: one day per group
+GroupBy [b.branch]             Agg: TemporalAgg(SUM, b.balance, b.day, LATEST)       -- valid: closing balance,
+                                                                                     -- summed over accounts
+GroupBy [b.branch]             Agg: AVG(b.balance)                                   -- valid (AD4)
+```
 
 **SCDType** — SCD1: strip temporal resolution. SCD2: effective_from/to. SCD3: current/previous props. SCD6: per-attribute policy. Which version a traversal reads is fixed by the SCD resolution mode, AS_WAS or AS_IS (§2.5).
 
@@ -825,7 +864,7 @@ key(π)     the sequence of its edge instances, each written (label, source enti
 SHORTEST returns one path, not every path of minimum length. When several instances tie on length, the one with the least `key` is returned, and it is the same one on every execution over the same snapshot. A caller that needs all minimum-length paths uses ALL with a filter on length, or K_SHORTEST.
 
 Single-instance (SHORTEST, MIN_WEIGHT): promote: true compatible — the cardinality bound of 1 holds by the tie-break, not by an assumption about the data.
-Multi-instance (ALL, K_SHORTEST): explicit fan-out.
+Multi-instance (ALL, K_SHORTEST): explicit fan-out — one tuple per selected instance. Aggregates do not inherit the fan-out unless they say `over = PATHS` (§4.2).
 
 **Refinement order.** Write `s ⊑ s'` when `s(I) ⊆ s'(I)` for every instance set I. Because all strategies but MIN_WEIGHT select prefixes of the same order ≺:
 
@@ -1314,8 +1353,9 @@ Q_delta(t₁ = last_scheduler_run, t₂ = now, …)
 ### 4.2  Expression language
 
 ```
-Expr ::= AggFn(fn: AggFn, arg: SExpr | NodeArg(alias: A))
-                                                     -- arg over PropRefs of C; NodeArg with COUNT only
+Expr ::= AggFn(fn: AggFn, arg: SExpr | NodeArg(alias: A), over?: ENTITIES | PATHS)
+                                                     -- arg over PropRefs of C; NodeArg with COUNT only;
+                                                     -- over defaults to ENTITIES
        | PathAgg(alias, path: BoundPath, strategy, promote?, fn: AggFn, arg: SExpr)
                                                      -- arg over PropRefs of C ∪ L
        | TemporalAgg(fn: AggFn, arg: SExpr, timestamp: PropRef, window: TemporalWindow)
@@ -1327,7 +1367,31 @@ TemporalWindow ::= ROLLING(d: SExpr)                  -- d: Duration
                  | TRAILING(n: ℕ, unit: TimeUnit)    -- n ≥ 1
                  | PERIOD(start: SExpr, end: SExpr)  -- both Date or both Timestamp
                  | YTD | QTD | MTD
+                 | LATEST | EARLIEST                 -- only the tuples of the last / first period of each group
 TimeUnit       ::= DAY | WEEK | MONTH | QUARTER | YEAR
+```
+
+**What an aggregate counts.** A PathJoin under ALL or K_SHORTEST puts one tuple in C per path instance, so a node reached by several paths appears in several tuples. `over` fixes the unit of aggregation:
+
+```
+ENTITIES (default)  Within each group, each distinct combination of the instances bound to the node
+                    aliases referenced by arg contributes once, however many paths reach it.
+                    COUNT(NodeArg(x)) counts distinct instances of x.
+PATHS               Every tuple contributes: a measure is taken once per path instance.
+                    Must be written explicitly.
+```
+
+A measure is therefore never multiplied by path fan-out unless the query asks for it. `PathAgg` is by definition per path — it aggregates along the instances of its own path, typically with weights — and is unaffected by `over`. `over = PATHS` on a measure whose bridge carries `WeightConstraint(ALLOCATIVE)` without a weight raises the warning of §6.2.
+
+```
+Sale S1 (revenue 100) is linked to Store T by two paths: via campaign A and via campaign B
+(allocation weights 0.5 each). PathJoin(s, …, st) with ALL yields two tuples for S1.
+
+SUM(s.revenue)                                   = 100     -- ENTITIES: S1 once
+SUM(s.revenue, over=PATHS)                       = 200     -- explicit: once per path
+COUNT(s)                                         = 1       -- distinct sales
+COUNT(s, over=PATHS)                             = 2       -- paths
+PathAgg(…, ALL, SUM, s.revenue * p.weight)       = 100     -- per path, allocated
 ```
 
 Expr is the aggregate level; SExpr (§4.1) is the row level beneath it. An aggregate argument is an SExpr — a bare reference or an arithmetic combination of references — typed by the rules of §4.1. ArithExpr at the Expr level combines aggregate results under the same ArithOp typing rules. `AggFn(COUNT, NodeArg(x))` counts the tuples in which the node alias `x` is bound; NodeArg is rejected with every other AggFn. Result types: COUNT → Int for any argument; AVG → Real; SUM and PROD require a numeric argument and return its type; MIN and MAX require an ordered type and return it. These result types are the types of the AggRef and WinRef that name the expression. In TemporalAgg, `timestamp` has type Date or Timestamp and the window bounds are literals or parameters.
@@ -1835,7 +1899,11 @@ Free→Free:
 **Rule 1b — Grain-aware aggregation:**
 
 ```
-Grain(PERIOD):        SUM → reject; suggest LAST; TemporalAgg(SUM) → rewrite
+Additivity:           SUM checked per measure by AD1–AD4 (§2.4); a rejected SUM on a
+                      SEMI_ADDITIVE({TIME}) measure suggests TemporalAgg(SUM, …, LATEST), AVG, or
+                      grouping by the period
+AggFn over=ENTITIES:  deduplicate on the entity keys of the referenced aliases within each group
+                      before aggregating; skipped when the Join has no multi-instance PathJoin
 Grain(ACCUMULATING):  cross-row agg → warn; NULL → COALESCE
 FactlessFact:         SUM/AVG/MIN/MAX → reject at construction
 ```
@@ -2517,7 +2585,7 @@ Correlation candidates identified by DAG node sharing are essentially free — t
 |---|---|---|
 | Degenerate(f, key) | — (nothing is suppressed because the attribute is degenerate) | GroupBy on `f.key` for per-transaction roll-ups; ScalarPred on `f.key` |
 | Conformed(d,Fs) | — | Constellation paths; Bound→Free from d to confirm/extend Fs |
-| Grain(PERIOD) | SUM across periods | LAST; Q_delta |
+| Grain(PERIOD) / Additivity(SEMI_ADDITIVE({TIME})) | SUM across periods | TemporalAgg(SUM, …, LATEST); AVG; Q_delta |
 | Grain(ACCUMULATING) | Row aggregation | Stage predicates; time-between-stages |
 | SCDType(SCD1) | Temporal pivots | — |
 | SCDType(SCD3) | — | PropRef(d.previous_value) comparison |
@@ -2592,7 +2660,7 @@ Parametric suggestions are validated by `BDD_parametric` feasibility (§8.15) an
 | Annotation | Parametric constraint | Parametric suggestion |
 |---|---|---|
 | Grain(EVENT) | Allen excluded from Π_temporal | Use point-based BEFORE/AFTER |
-| Grain(PERIOD) | SUM excluded from Π_agg | Use LAST or AVG |
+| Grain(PERIOD) / Additivity(SEMI_ADDITIVE({TIME})) | SUM across periods excluded from Π_agg | Use the LATEST window or AVG |
 | FactlessFact | SUM/AVG/MIN/MAX excluded from Π_agg | Use COUNT |
 | MedallionLayer(BRONZE) | BRONZE excluded from GroupBy in Π_agg | Filter to SILVER+ before GroupBy |
 | WeightConstraint(ALLOC) | Unweighted PathAgg excluded | Use weighted form with explicit weight ref |
@@ -2698,7 +2766,7 @@ Q_valid(A, B) = Q_space(A, B) \ { q | q violates any annotation in Σ|_AB }
 ```
 
 Each annotation in `Σ|_AB` removes a structurally invalid subset:
-`FactlessFact(f)` removes SUM/AVG/MIN/MAX; `Grain(f, PERIOD)` removes cross-period SUM; `Degenerate(f, key)` removes nothing — `f.key` stays a valid GroupBy and filter key, and no path question can start from it because it is not a node type; `SCDType(d, SCD1)` removes temporal join questions on `d`.
+`FactlessFact(f)` removes SUM/AVG/MIN/MAX; `Additivity` removes the SUMs forbidden by AD1–AD4 (for `Grain(f, PERIOD)`, by default, cross-period SUM); `Degenerate(f, key)` removes nothing — `f.key` stays a valid GroupBy and filter key, and no path question can start from it because it is not a node type; `SCDType(d, SCD1)` removes temporal join questions on `d`.
 
 **Definition (Question lattice).** `Q_valid(A, B)` forms a lattice `L(G_AB)` ordered by semantic specificity:
 
@@ -2981,7 +3049,7 @@ Annotation projection rules:
 | Annotation | Constraint on Π(q) |
 |---|---|
 | Grain(f, EVENT) | Allen interval relations excluded from Π_temporal; only BEFORE/AFTER |
-| Grain(f, PERIOD) | SUM excluded from Π_agg for cross-period aggregation |
+| Grain(f, PERIOD), Additivity(f, key, kind) | SUM excluded from Π_agg where AD1–AD4 forbid it |
 | FactlessFact(f) | {SUM, AVG, MIN, MAX} excluded from Π_agg; only COUNT |
 | SCDType(d, SCD1) | Temporal resolution parameters in Π_temporal irrelevant |
 | Degenerate(f, key) | none — `f.key` remains selectable as a GroupBy key in Π_agg |
@@ -3036,7 +3104,7 @@ The `ExecutionBudget` gate (§6.3) evaluates `cost(q, π)` — cost is a functio
 BDD_full = BDD_structural × BDD_parametric
 
 BDD_parametric encodes:
-  ¬(Grain(PERIOD) ∧ AggFn = SUM)
+  ¬(Additivity forbids SUM by AD2/AD3 ∧ AggFn = SUM)        -- default for Grain(PERIOD): across TIME
   ¬(FactlessFact ∧ AggFn ∈ {SUM, AVG, MIN, MAX})
   ¬(Grain(EVENT) ∧ TemporalOrdering ∈ Allen_interval_set)
   ¬(SCDType(SCD1) ∧ temporal_resolution ≠ identity)
