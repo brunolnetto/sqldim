@@ -85,7 +85,7 @@
    - [12.5 Budget propagation and recovery](#125--budget-propagation-and-recovery)
    - [12.6 Six supervisor workflows](#126--six-supervisor-workflows)
    - [12.7 Knowledge base with lattice-adjacent retrieval](#127--knowledge-base-with-lattice-adjacent-retrieval)
-   - [12.8 Meta-tool: question completeness theorem operationalized](#128--meta-tool-question-completeness-theorem-operationalized)
+   - [12.8 Meta-tool: grounding check and question-space map](#128--meta-tool-grounding-check-and-question-space-map)
    - [12.9 Relationship to §7 recommender](#129--relationship-to-7-recommender)
    - [12.10 Authorization and dataset isolation](#1210--authorization-and-dataset-isolation)
    - [12.11 Partial failures and terminal outcomes](#1211--partial-failures-and-terminal-outcomes)
@@ -3003,23 +3003,63 @@ Relationship to recommender routing: high H → Stage 1 characterisation (Free e
 
 ### 8.11  Question completeness theorem
 
-**Level.** This section is stated on the schema graph. `A` and `B` are node types in `N_S`; `G_AB`, `N_AB` and `E_AB` abbreviate the anchor-set subgraph `G_{A,B}` and its node and edge types (§3.4.6), which contains the directed `G_AB^S` of §3.4.5. A question is a *structural* question: constants such as thresholds and windows are parameters in `Π(q)` (§8.15), not part of `q`. Path patterns are taken up to a hop bound `k` (`max_hops`, §8.16.2); where `G_AB` is acyclic, `k` may be taken as the length of its longest path.
+**Level.** This section is stated on the schema graph. `A` and `B` are node types in `N_S`; `G_AB`, `N_AB` and `E_AB` abbreviate the anchor-set subgraph `G_{A,B}` and its node and edge types (§3.4.6), which contains the directed `G_AB^S` of §3.4.5.
 
-**Theorem (Question completeness).** For any two node types `A, B ∈ N_S` with schema-level subgraph `G_AB = (N_AB, E_AB, τ_N, τ_E, K_S, Σ|_AB)`, the set of valid analytical questions `Q_valid(A, B)` is finite and constructively enumerable from `G_AB` and `Σ|_AB` alone.
+**Hypotheses.** The theorem holds under the following assumptions, and claims nothing outside them:
 
-**Proof sketch.** Three results combine:
+```
+QH1  Finite schema       N_AB, E_AB and every property signature K_S(T) are finite.
+QH2  Hop bound           path patterns have at most h hops (max_hops, §8.16.2); Repeat bounds
+                         min and max are parameters, not part of the question.
+QH3  Expression bound    SExpr and Expr nest to depth at most d (ArithExpr, Func, aggregate arguments).
+QH4  Finite formalism    the operator vocabularies — ComparisonOp, AggFn, ArithOp, ScalarFn, TemporalMode,
+                         Strategy kinds, TemporalWindow kinds, RankFn, StatFn, GraphAlgorithm kinds — are finite.
+QH5  Structural question a question is a skeleton: every constant (threshold, literal, window length,
+                         as_of, k) is a typed parameter slot of Π(q) (§8.15), not part of q.
+QH6  Syntactic identity  two skeletons are the same question iff they have the same canonical form —
+                         BDD canonical predicates (§6.1) and canonical query DAG (§8.14). Equivalence
+                         that holds only on particular data is not used.
+```
 
-(1) From §8.2 (propositional completeness): the predicate language over `ScalarPred` atoms derived from the property signatures `{K_S(T) | T ∈ N_AB}` and `{K_S(e) | e ∈ E_AB}` expresses every Boolean function of those atoms. A structural atom is a declared property together with a comparison operator, its constant left as a parameter; the atom set is finite given finite `N_AB`, `E_AB` and finite signatures.
+**Theorem (Question completeness).** Under QH1–QH6, for any two node types `A, B ∈ N_S`:
 
-(2) From §8.6 (path patterns): the number of distinct `BoundPath` patterns of at most `k` hops over `G_AB` is at most `Σ_{j=0}^{k} (2·|E_AB|)^j`. The `PathPred` and `PathAgg` spaces are therefore finite.
+1. *Finiteness and enumeration.* `Q_valid(A, B)` is finite, and there is an algorithm that lists each of its elements exactly once, reading only `(G_AB, K_S, Σ|_AB, h, d)` and no instance data.
+2. *Decidable membership.* Whether a given skeleton belongs to `Q_valid(A, B)` is decidable from the same inputs.
+3. *Coverage.* For every instance graph typed over `G_S` and every concrete query `Q` whose join scope lies in `G_AB` and which satisfies the typing rules (§4.1, §5) and `Σ|_AB`, replacing the constants of `Q` by parameter slots yields a skeleton `q ∈ Q_valid(A, B)` and a parameter assignment `π ∈ Π_valid(q)` with `Q = q(π)`.
 
-(3) From §8.3 (minterm enumeration): the minterms over a finite set of `m` structural atoms number at most `2^m`. Finite. The number of minterms *realised* by a particular instance graph is further bounded by the size of the join context `C`, but that is a property of the data and plays no part in the size of the question space.
+Part 1 alone would be close to trivial: any finite vocabulary has finitely many bounded combinations. The content of the theorem lies in parts 2 and 3 together with the instance independence of part 1. The question space is computed from the schema alone, membership can be checked, and every concrete question a user can pose over `G_AB` is a point of `Q_valid × Π_valid` — none falls outside it.
 
-The Band 2 aggregation space is finite given the finite measure properties declared by the fact types in `F_S ∩ N_AB` and finite `TemporalWindow` variants. The Band 3 ranking space is finite given the finite Band 2 output schema. The cross-product of all three bands over `G_AB` is therefore finite. ∎
+**Proof, by construction.**
+
+*Enumeration.* A skeleton is assembled from a finite sequence of choices, each from a finite set:
+
+```
+(a) Join        a set of path patterns over G_AB of at most h hops each, connecting the anchors:
+                at most Σ_{j≤h} (2|E_AB|)^j patterns per connection (§8.6)            — finite by QH1, QH2
+(b) Atoms       structural atoms: a Ref in scope, a ComparisonOp and a typed parameter slot, or two
+                Refs and a ComparisonOp; PathPred atoms over the patterns of (a) with a TemporalMode;
+                SExpr operands of depth ≤ d                                             — finite: m atoms
+(c) Where       a Boolean function of the m atoms, represented by its canonical BDD:
+                at most 2^(2^m) functions                                               — finite by QH6
+(d) Band 2      a GroupBy subset of the properties in scope, aggregates (AggFn × measure SExpr of
+                depth ≤ d), and a Having function of the AggRef atoms                   — finite
+(e) Band 3      window functions from the finite kinds over the Band 2 schema, and a Qualify function  — finite
+```
+
+The algorithm iterates over (a)–(e) in nested loops in a fixed order. It emits the canonical form of each combination that passes the typing rules of §4.1 and §5 and every annotation rule of `Σ|_AB` listed below, skipping a canonical form already emitted. Every loop ranges over a finite set computed from the inputs, so the algorithm terminates. QH6 makes the emitted list free of duplicates.
+
+*Membership.* Given a skeleton, check that each component is drawn from the corresponding finite set, that it type-checks, and that no annotation rule rejects it. Each check is a finite computation on the inputs.
+
+*Coverage.* Let `Q` be a concrete query as in part 3. Its Join uses patterns of at most h hops in `G_AB` (QH2), so (a) contains it. Its predicates are Boolean combinations of comparisons whose operands are Refs or constants; abstracting the constants gives atoms in (b) and a Boolean function in (c). The same holds for Bands 2 and 3 by QH3–QH4. The resulting skeleton passes the typing and annotation checks because `Q` does, so it is emitted, and the abstracted constants form `π`, which satisfies `Π_valid` because `Q` satisfies `Σ|_AB`. ∎
+
+**Outside the claim.**
+- *Parameters.* `Π(q)` is not claimed finite: thresholds, `as_of` and damping factors range over infinite or continuous domains (§8.15). Enumeration over parameters requires a declared discretisation (§8.16.6).
+- *Data-dependent equivalence.* Two skeletons that happen to return the same result on the current data are distinct questions. The quotient by such equivalence depends on the instance and is not part of `Q_valid`.
+- *Without QH2 or QH3.* Unbounded path length or expression depth makes the set of skeletons infinite. The bounds are hypotheses, not consequences.
 
 **Corollary (Schema determinacy).** `Q_valid(A, B)` and its cardinality are functions of `(G_AB, K_S, Σ|_AB, k)` only. Two instance graphs typed over the same schema graph have the same `Q_valid(A, B)`; inserting or deleting instances changes query results, `GraphStatistics` and recommender scores (§8.12), never the question space. By the projection lemma (§3.4.5), every question in `Q_valid(A, B)` is well-typed for every pair of instances `(a, b)` with `h_N(a) = A`, `h_N(b) = B`.
 
-**Anchor sets.** Everything in this section is stated for two anchors for readability and holds for any valid anchor set `𝒜` (§3.4.6), with `G_𝒜` in place of `G_AB`: `Q_space(𝒜)` is the set of valid queries whose Join binds every anchor alias and whose scope lies in `G_𝒜`; `Q_valid(𝒜)` removes those that violate `Σ|_𝒜`; `Q_valid(A, B)` is `Q_valid({A, B})`. The proof sketch uses only the finiteness of `N_𝒜`, `E_𝒜` and the property signatures, so the theorem and the schema-determinacy corollary carry over unchanged. Two bounds depend on the number of anchors `k`:
+**Anchor sets.** Everything in this section is stated for two anchors for readability and holds for any valid anchor set `𝒜` (§3.4.6), with `G_𝒜` in place of `G_AB`: `Q_space(𝒜)` is the set of valid queries whose Join binds every anchor alias and whose scope lies in `G_𝒜`; `Q_valid(𝒜)` removes those that violate `Σ|_𝒜`; `Q_valid(A, B)` is `Q_valid({A, B})`. The proof uses only the finiteness of `N_𝒜`, `E_𝒜` and the property signatures (QH1), so the theorem and the schema-determinacy corollary carry over unchanged. Two bounds depend on the number of anchors `k`:
 
 ```
 Computing G_𝒜        k breadth-first searches of depth h over U(G_S):  O(k · (|N_S| + |E_S|))
@@ -3066,7 +3106,7 @@ Aggregation grain:  no grouping → fine grouping → per-entity grain
 
 The recommender (§7) is a **guided navigator of `L(G_AB)`** — using BDD feasibility filtering to rule out invalid or redundant points, and trail metrics to score remaining points by analytical value, without enumerating the full lattice.
 
-**Size characterisation.** While `Q_valid(A, B)` is finite (above), its cardinality ranges from trivially small to factorial in graph size. §8.16 decomposes the full analytical space `A_full(A, B)` by vocabulary level, identifies the dominant growth factor (path combinatorics), and proves that the recommender's navigation neighbourhood remains polynomial despite the factorial worst-case — see §8.16.6 for the bound and §8.16.7 for the per-level navigation strategies.
+**Size characterisation.** While `Q_valid(A, B)` is finite (above), its cardinality ranges from trivially small to exponential in the hop bound. §8.16 decomposes the full analytical space `A_full(A, B)` by vocabulary level, identifies the dominant growth factor (path combinatorics), and bounds the size of the neighbourhood generated by the recommender's local moves — see §8.16.6 for the bound, and what it does not claim, and §8.16.7 for the per-level navigation strategies.
 
 ### 8.12  Semantic scoring of the question lattice
 
@@ -3523,7 +3563,7 @@ The query DAG canonical form (§8.14) extends naturally: two parameterized compo
 
 ### 8.16  Vocabulary decomposition and analytical space characterisation
 
-§8.11 proves that `Q_valid(A, B)` is finite. §8.15 adds parameter space `Π`. This section decomposes the full analytical space `A_full(A, B)` into vocabulary levels, quantifies its size, and establishes bounds that make the recommender (§7) tractable.
+§8.11 proves that `Q_valid(A, B)` is finite under its hypotheses. §8.15 adds parameter space `Π`. This section decomposes the full analytical space `A_full(A, B)` into vocabulary levels, quantifies its size, and establishes bounds that make the recommender (§7) tractable.
 
 #### 8.16.1  Six vocabularies
 
@@ -3542,18 +3582,19 @@ The first three vocabularies are **schema-derived**: they grow with the size of 
 
 #### 8.16.2  Factored size estimate
 
-The full analytical space factors as:
+Let `S` be the set of structural skeletons of `A_full(A, B)` — choices of Join and path patterns, §8.11 (a). The other factors are families indexed by the skeleton, since what is applicable depends on it:
 
 ```
-|A_full(A, B)| ≤ f_structure × f_predicate × f_operator × f_parameter
+f_predicate(s)  = |applicable_predicates(s)|  -- canonical Boolean functions over the atoms in scope of s
+f_operator(s)   = |V_Op|^r(s)                 -- operator choices for the r(s) property references of s
+f_parameter(s)  = |Π_disc_valid(s)|           -- valid parameter settings over the declared discretisation (§8.16.6)
+
+|A_full(A, B)| = Σ_{s ∈ S} f_predicate(s) · f_operator(s) · f_parameter(s)
+              ≤ f_structure × max_s f_predicate(s) × max_s f_operator(s) × max_s f_parameter(s),
+  with f_structure = |S| = |paths(G_AB, max_hops)|
 ```
 
-where:
-
-- `f_structure = |paths(G_AB, max_hops)|` — the number of distinct traversal paths (factorial in worst case, bounded in practice by §8.6 acyclicity)
-- `f_predicate = Π_{q} |applicable_predicates(q)|` — predicates applicable per path
-- `f_operator = |V_Op|^k` — operator combinations over `k` property references (small constant)
-- `f_parameter = Σ_{q} |Π_valid(q)|` — parametric combinations per structural skeleton
+`f_parameter` is finite only over a discretised parameter domain; with a continuous threshold `|Π(s)|` is infinite and the estimate is not defined. The worked example (§8.16.8) uses the bound on the second line.
 
 #### 8.16.3  Four-level vocabulary hierarchy
 
@@ -3568,48 +3609,74 @@ The factors fall into four asymptotic levels ordered by growth rate:
 
 **Level 1 dominates.** The structural path space (Level 1) is the primary source of analytical space size. All other levels are multiplicative but grow strictly more slowly.
 
-#### 8.16.4  Semantic sparsity and effective analytical space A_eff
+#### 8.16.4  Effect of a parameter and the effective analytical space
 
-Not every syntactically valid combination is semantically meaningful. The **effective analytical space** `A_eff ⊆ A_full` contains only those `(q, π)` pairs where:
+Not every valid configuration is analytically distinct: changing a parameter often leaves the result unchanged. The effective space keeps the configurations where some parameter visibly matters. Parameters are discrete or discretised, so "matters" is defined by comparing results, not by a derivative.
 
-1. `q ∈ Q_valid(A, B)` — the structural query is valid (§8.3 BDD-satisfiable)
-2. `π ∈ Π_valid(q)` — the parameter configuration is compatible (§8.15)
-3. `∂result/∂p ≠ 0` for at least one parameter `p` — the result is **sensitive** to the parameterization (non-degenerate)
+**Result comparison.** For `q ∈ Q_valid`, `π ∈ Π_valid(q)` and a snapshot `G_I(t)`, `res(q, π, t)` is the result as a multiset of rows. Two results are **equal within tolerance**, `r ≈_ε r'`, iff after sorting rows by all columns they have the same number of rows, the same non-numeric values, NULL in the same places, and numeric values with `|x − x'| ≤ ε_abs + ε_rel · max(|x|, |x'|)`. `ε_abs` and `ε_rel` are policy constants (default 0 and 10⁻⁹).
 
-The sensitivity function `∂result/∂p` identifies degenerate parameter regions (where changes have no effect on the result) and excludes them. In practice, `A_eff` is orders of magnitude smaller than `A_full`:
+**Discretised domains.** Every parameter `p` of `q` has a finite domain `D_p`. For a finite type, `D_p` is the type itself; for a numeric or temporal parameter, `D_p` is a declared grid — quantiles of the property's distribution in `GraphStatistics`, or a fixed step. Two values of an ordered `D_p` are *adjacent* when no grid value lies between them.
+
+**Observed effect.** A parameter `p` has an observed effect at `(q, π)` on snapshot `t` iff some `π'` that differs from `π` only in `p`, with `π'(p)` adjacent to `π(p)` in `D_p` (any other value, for an unordered `D_p`), satisfies `res(q, π, t) ≉_ε res(q, π', t)`.
+
+**Three spaces**, which differ in what is needed to compute them:
+
+| Space | Definition | Needs |
+|---|---|---|
+| `A_struct` | `{(q, π) : q ∈ Q_valid, π ∈ Π_disc_valid(q)}` | the schema only (§8.11) |
+| `A_eff^obs(t)` | `{(q, π) ∈ A_struct : q has no parameter, or some parameter of q has an observed effect at (q, π) on G_I(t)}` | executing queries on snapshot `t` |
+| `A_eff^est(t)` | the same test with results replaced by estimates from `GraphStatistics` | statistics only; a heuristic with no guarantee |
+
+`A_eff^obs` is data-dependent: it changes with the snapshot. Computing it means executing `q` at `π` and at each neighbour of `π`, so its cost is that of those executions. The specification does not claim to compute `A_eff^obs` without executing queries; the recommender uses `A_eff^est` to prioritise and treats it as an estimate.
+
+Example — `q = Where s.revenue > θ`, with `D_θ = {100, 200, 300, 400, 500, 600}` and the data `revenue ∈ {100, 600}`:
 
 ```
-|A_eff(A, B)| ≪ |A_full(A, B)|
+θ = 200:  rows with revenue > 200 → {600};  θ = 100 → {600};  θ = 300 → {600}   no observed effect at θ = 200
+θ = 500:  → {600};  θ = 600 → {} (600 > 600 is false)                              observed effect at θ = 500
 ```
 
-The ratio `|A_eff| / |A_full|` is the **semantic density** of the model — higher density means the schema is more efficiently utilized.
+`(q, θ = 200)` is in `A_struct` but not in `A_eff^obs(t)`; `(q, θ = 500)` is in both. Adding a row with revenue 250 moves `θ = 200` into `A_eff^obs` — the dependence on data.
+
+The ratio `|A_eff^obs(t)| / |A_struct|` is the **semantic density** of the model on snapshot `t`.
 
 #### 8.16.5  Semantic basis
 
-Define the **semantic basis** as the minimal generating set of the effective space:
+Define the **semantic basis** of a skeleton's predicates:
 
 ```
-Basis(A_full) = minterms(Q_valid) × interesting_params(P_Σ)
+Basis(s) = minterms(s) × interesting_params(s)
 ```
 
 where:
 
-- `minterms(Q_valid)` are the atoms of the Boolean algebra of predicates — its minimal non-FALSE, ∨-irreducible elements, i.e. the minterms of §8.3 — from which all others are composed via `Q_algebra`
-- `interesting_params(P_Σ)` are the parameter configurations where sensitivity is non-zero for at least one minterm
+- `minterms(s)` are the minterms (§8.3) over the structural atoms in scope of skeleton `s` — the atoms of the Boolean algebra of its predicates, its minimal non-FALSE, ∨-irreducible elements;
+- `interesting_params(s)` are the parameter settings at which some parameter has an observed effect (§8.16.4) for at least one minterm.
 
-The basis is the **minimal set of questions the system must be able to answer** — every other question is a composition (§8.13) of basis elements with parameter specialization. The recommender (§7) navigates `Basis(A_full)` rather than `A_full` itself.
+For Band 1 questions over a fixed skeleton, every Where predicate is the union of the minterms it contains, so UNION in `Q_algebra` (§8.13) generates every Band 1 predicate of `s` from `minterms(s)`. For Band 2 and Band 3 the basis is not claimed to generate the space. The recommender uses the basis as a starting set, not as the only questions it can reach.
 
-#### 8.16.6  Polynomial neighbourhood bound
+#### 8.16.6  Neighbourhood size under local moves
 
-For any point `(q, π)` in `A_eff`, the **navigation neighbourhood** — the set of reachable points in one recommender step — has polynomial size:
+The recommender moves from a point `(q, π)` by one of a fixed set of local moves. Let `m` be the number of structural atoms in scope of `q`'s skeleton, `L` the total number of hops in its path patterns, `a` its number of aggregates, `P_ord` its parameters with ordered discretised domains and `P_unord` those with unordered finite domains.
 
 ```
-|neighbourhood(q, π)| ≤ O(|V_P| + |free_params(q)| × max(cardinalities))
+Move                                              Number of moves at (q, π)
+─────────────────────────────────────────────────────────────────────────
+add or remove one atom in Where                   ≤ m
+replace one GroupBy key                           ≤ |V_P|
+replace one hop of one path pattern               ≤ L · 2|E_AB|
+replace the AggFn of one aggregate                ≤ a · |AggFn|
+move one ordered parameter to an adjacent value   ≤ 2 · |P_ord|
+change one unordered parameter                    ≤ Σ_{p ∈ P_unord} (|D_p| − 1)
 ```
 
-where `|V_P|` bounds the structural moves (property substitutions), `|free_params(q)|` bounds the parametric moves (§8.15), and `cardinalities` are the domain sizes of the free parameters.
+**Proposition.** The neighbourhood generated by these moves has size at most `m + |V_P| + 2L·|E_AB| + a·|AggFn| + 2|P_ord| + Σ_{p∈P_unord} (|D_p| − 1)`. This is polynomial in the size of the schema and of `q`.
 
-This bound is polynomial in graph size despite the factorial worst-case of `A_full` itself. The reason: the recommender performs **local** navigation (one-hop lattice/parameter moves) rather than global enumeration.
+*Proof.* Each line counts the results of one kind of move, and the neighbourhood is their union. ∎
+
+**The bound needs finite moves.** If a parameter may move to *any* value of an infinite domain — a threshold over ℝ — its line is infinite and so is the neighbourhood. The proposition holds only with discretised domains and adjacency moves.
+
+**What the bound does not say.** It bounds the size of one step. It does not say that every point of `A_struct` is reachable from a given start by these moves, and it says nothing about how well the recommender ranks the neighbours (§8.12). Reachability and ranking quality are not claimed.
 
 #### 8.16.7  Navigation strategies per vocabulary level
 
@@ -3648,10 +3715,10 @@ Estimate, with every factor and assumption stated:
 
 ```
 |A_full| ≤ 120 × 1 024 × 400 × 6 = 294 912 000 ≈ 2.9 × 10⁸
-|A_eff|  ≈  50 ×    50 ×  40 × 6 =     600 000 = 6.0 × 10⁵
+|A_eff^obs| ≈  50 ×    50 ×  40 × 6 =     600 000 = 6.0 × 10⁵
 ```
 
-The full-space figure follows from the vocabulary sizes. The effective-space figure depends entirely on the three assumed reductions in the table, which are round numbers chosen to illustrate the order of magnitude; they were not computed from the dataset. The hierarchy used is the four-level one of §8.16.3 (Structure, Predicate, Parameter, Operator). Neighbourhood size: `O(15 + 3 × 20) = O(75)` — polynomial. Every figure in this example is computed from the schema graph and its annotations: an eleventh reader, or ten thousand more, leaves all of them unchanged. An individual reader such as `Ana` is an element of `N_I` with `h_N(Ana) = Leitor`; she contributes to query results and to recommender scores, not to `V_N`.
+The full-space figure follows from the vocabulary sizes. The effective-space figure depends entirely on the three assumed reductions in the table, which are round numbers chosen to illustrate the order of magnitude; they were not computed from the dataset. The hierarchy used is the four-level one of §8.16.3 (Structure, Predicate, Parameter, Operator). Neighbourhood size under the moves of §8.16.6, with for illustration m = 10 atoms, |V_P| = 15, one path of L = 2 hops over |E_AB| = 5 edge types, a = 1 aggregate with |AggFn| = 6 and three ordered parameters: `10 + 15 + 2·2·5 + 6 + 2·3 = 57`. Every figure in this example is computed from the schema graph and its annotations: an eleventh reader, or ten thousand more, leaves all of them unchanged. An individual reader such as `Ana` is an element of `N_I` with `h_N(Ana) = Leitor`; she contributes to query results and to recommender scores, not to `V_N`.
 
 ---
 
@@ -5290,19 +5357,43 @@ When a step is REJECTED, the routing table of §12.4 chooses one of three recove
 
 The `dgm_store_finding` / `dgm_retrieve_related` pair implements a **knowledge base** indexed by position in the question lattice `L(G_AB)`:
 
-- **Storage**: Each finding is tagged with its `(q, π)` coordinates in `A_eff` (§8.16.4)
+- **Storage**: Each finding is tagged with its `(q, π)` coordinates in `A_struct` (§8.16.4)
 - **Retrieval**: Given a query point `(q', π')`, retrieve findings whose lattice distance `d_L(q, q') ≤ k` for a configurable radius `k`
 - **Not vector similarity**: Retrieval uses **lattice adjacency** (structural similarity in the BDD), not embedding-space cosine similarity. This ensures retrieved findings are formally related to the current question, not just textually similar.
 
-### 12.8  Meta-tool: question completeness theorem operationalized
+### 12.8  Meta-tool: grounding check and question-space map
 
-The `dgm_map_analytical_space` tool is the **operational form** of the question completeness theorem (§8.11):
+`dgm_map_analytical_space` reports the size and composition of the question space of a dataset (§8.16) and, given an utterance, says whether and how it maps into that space. The second function rests on a notion of grounding defined independently of `Q_valid` and `A_eff`.
+
+**Definition (grounded utterance).** Relative to a dataset's schema `G_S`, entity registry (§11.3) and closed vocabularies (§11.2), an utterance `u` is **grounded** iff there is a reading of `u` in which:
 
 ```
-∀ utterance u: if u has a valid mapping, then ∃ (q, π) ∈ A_eff(A, B)
+GR1  every content term resolves through the entity registry: entity terms to node types,
+     property terms to declared properties dom K_S(T) of those types, verb terms to edge types;
+GR2  every aggregation, temporal and compositional term resolves to a member of the closed
+     enumerations (AggFn, TemporalMode / TemporalProperty / TemporalWindow, Q_algebra operation);
+GR3  the resolved node types form a valid anchor set (AS1–AS3, §3.4.6);
+GR4  every constant in u has a type compatible, under §4.1, with the property it is compared with.
 ```
 
-By computing `A_eff` (§8.16), the tool can answer: "For this dataset, how many distinct analytical questions exist? What vocabulary levels dominate? Where should the analyst focus?" This transforms the abstract completeness theorem into a practical navigation aid for the supervisor.
+The definition mentions the registry, the signatures, the vocabularies and the typing rules — never `Q_valid` or `A_eff`.
+
+**Proposition.** If `u` is grounded, the reading determines a skeleton `q` and constants `π`, and exactly one of the following holds:
+
+1. `q ∈ Q_valid(𝒜)` and `π ∈ Π_valid(q)`, so `(q, π) ∈ A_struct` (§8.16.4); or
+2. some annotation of `Σ|_𝒜` rejects `q` or `π`, and that annotation is identified.
+
+*Proof.* GR1–GR3 give a Join within `G_𝒜` built from declared types and edges; GR2 fixes the operators; GR4 makes every comparison type-check. The result is a concrete query that satisfies the typing rules. If it satisfies `Σ|_𝒜`, part 3 of the question completeness theorem (§8.11) gives case 1. Otherwise the first annotation rule that fails is reported, which is case 2. The two cases are exclusive because membership in `Q_valid` is defined as passing every annotation rule. ∎
+
+**The meta-tool's answers.** For an utterance the tool returns one of:
+
+| Answer | When | Example |
+|---|---|---|
+| `NOT_GROUNDED(terms)` | some term fails GR1–GR4; the failing terms are listed | "What is the churn propensity of customers?" — no property resolves "churn propensity" |
+| `VIOLATES(annotation)` | grounded, case 2 | "Total account balance over the year" — `SUM` of a balance across time is rejected by `Additivity` (AD2, §2.4) |
+| `MAPS_TO(q, π)` | grounded, case 1 | "Total revenue by region in 2024" |
+
+Membership in `A_eff^obs` is not reported: it depends on data and requires execution (§8.16.4).
 
 ### 12.9  Relationship to §7 recommender
 
