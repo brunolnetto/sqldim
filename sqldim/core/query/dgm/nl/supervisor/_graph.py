@@ -1,4 +1,4 @@
-"""DGM Supervisor — the §12.4 graph, sequential dispatch.
+"""DGM Supervisor — the §12.4 graph.
 
 ::
 
@@ -9,12 +9,14 @@
                 │
                 ▼
            execute_tool → route_result ─┬─ continue ─→ select_step
-                                        ├─ retry ────→ execute_tool
                                         ├─ replan ───→ replan
                                         └─ abort ────→ respond → END
 
-Steps run one at a time in plan order (``MAX_CONCURRENT_CALLS = 1``); the
-concurrent scheduler of ADR 0008 builds on this graph.
+``execute_tool`` runs the bounded concurrent scheduler of ADR 0008
+(:mod:`._scheduler`) until a stable point.  The per-result routing table of
+§12.4 is applied inside it — including *retry*, which re-dispatches only the
+failed call — and ``route_result`` follows the run-level event it reports.
+Checkpoints are therefore never taken while a call is RUNNING.
 
 Identity, grants, data access and the registry live in
 :class:`SupervisorRuntime`, which is closed over by the nodes and never
@@ -40,13 +42,13 @@ from sqldim.core.query.dgm.nl.supervisor._auth import (
     DataAccess,
     DatasetOpener,
 )
-from sqldim.core.query.dgm.nl.supervisor._dispatch import execute_tool
 from sqldim.core.query.dgm.nl.supervisor._planner import (
     KeywordDemoPlanner,
     LLMPlanner,
     Planner,
     PlannerView,
 )
+from sqldim.core.query.dgm.nl.supervisor._scheduler import Scheduler, cost_total
 from sqldim.core.query.dgm.nl.supervisor._schemas import (
     DEFAULT_POLICY,
     SupervisorPolicy,
@@ -193,17 +195,16 @@ def _error(kind: ToolErrorKind, message: str, **context: Any) -> ToolError:
     return ToolError(kind=kind, message=message, context=context)
 
 
-def _cost_total(cost: Any) -> int:
-    return int(cost.cpu_ops) + int(cost.io_ops)
-
-
 def _remaining_fraction(state: SupervisorState, runtime: SupervisorRuntime) -> float:
-    """``remaining / B.max_estimated_cost`` with nothing reserved (§12.5)."""
-    ceiling = _cost_total(runtime.budget.max_estimated_cost)
+    """``remaining / B.max_estimated_cost`` at a stable point (§12.5).
+
+    Nothing is reserved at a stable point; ``spent`` accumulates over every
+    finished call of every plan version, including calls a replan dropped.
+    """
+    ceiling = cost_total(runtime.budget.max_estimated_cost)
     if ceiling <= 0:
         return 0.0
-    spent = sum(_cost_total(r.cost_actual) for r in state.results.values())
-    return max(0.0, 1.0 - spent / ceiling)
+    return max(0.0, 1.0 - state.spent / ceiling)
 
 
 def _view(
@@ -387,47 +388,21 @@ def _select_node(
 ) -> Callable[[SupervisorState], dict[str, Any]]:
     def select_step(state: SupervisorState) -> dict[str, Any]:
         assert state.plan is not None
+        if not runtime.cancel.cancelled:
+            return {"route": None}
         statuses = dict(state.statuses)
         results = dict(state.results)
-        if runtime.cancel.cancelled:
-            for step in state.plan.steps:
-                if statuses[step.call_id] is CallStatus.PENDING:
-                    statuses[step.call_id] = CallStatus.CANCELLED
-                    results[step.call_id] = ToolCallResult.failure(
-                        step,
-                        CallStatus.CANCELLED,
-                        ToolErrorKind.CANCELLED,
-                        "the run was cancelled before this step started",
-                        attempts=0,
-                    )
-            return {
-                "statuses": statuses,
-                "results": results,
-                "next_call": None,
-                "outcome": Outcome.CANCELLED,
-            }
-        next_call: str | None = None
         for step in state.plan.steps:
-            if statuses[step.call_id] is not CallStatus.PENDING:
-                continue
-            dep_states = [statuses[d] for d in step.depends_on]
-            if any(
-                s not in (CallStatus.SUCCEEDED, CallStatus.PENDING) for s in dep_states
-            ):
-                statuses[step.call_id] = CallStatus.SKIPPED
+            if statuses[step.call_id] is CallStatus.PENDING:
+                statuses[step.call_id] = CallStatus.CANCELLED
                 results[step.call_id] = ToolCallResult.failure(
                     step,
-                    CallStatus.SKIPPED,
-                    ToolErrorKind.DEPENDENCY_NOT_MET,
-                    "a dependency did not succeed",
-                    context={
-                        "depends_on": {d: statuses[d].value for d in step.depends_on}
-                    },
+                    CallStatus.CANCELLED,
+                    ToolErrorKind.CANCELLED,
+                    "the run was cancelled before this step started",
+                    attempts=0,
                 )
-                continue
-            if next_call is None and all(s is CallStatus.SUCCEEDED for s in dep_states):
-                next_call = step.call_id
-        return {"statuses": statuses, "results": results, "next_call": next_call}
+        return {"statuses": statuses, "results": results, "outcome": Outcome.CANCELLED}
 
     return select_step
 
@@ -435,79 +410,48 @@ def _select_node(
 def _route_after_select(state: SupervisorState) -> str:
     if state.outcome is Outcome.CANCELLED:
         return "stop"
-    return "run" if state.next_call is not None else "done"
+    pending = any(s is CallStatus.PENDING for s in state.statuses.values())
+    return "run" if pending else "done"
 
 
 def _execute_node(
     runtime: SupervisorRuntime,
 ) -> Callable[[SupervisorState], dict[str, Any]]:
     def execute(state: SupervisorState) -> dict[str, Any]:
-        assert state.plan is not None and state.next_call is not None
-        step = state.plan.step(state.next_call)
-        attempt = state.attempts.get(step.call_id, 0) + 1
-        result = _run_sync(
-            execute_tool(
-                step, runtime.registry, runtime.tool_context(), attempt=attempt
-            )
+        assert state.plan is not None
+        scheduler = Scheduler(
+            plan=state.plan,
+            registry=runtime.registry,
+            ctx=runtime.tool_context(),
+            policy=runtime.policy,
+            statuses=dict(state.statuses),
+            results=dict(state.results),
+            attempts=dict(state.attempts),
+            spent=state.spent,
+            replans=state.replans,
+            run_cancel=runtime.cancel,
         )
-        return {
-            "attempts": {**state.attempts, step.call_id: attempt},
-            "results": {**state.results, step.call_id: result},
-            "statuses": {**state.statuses, step.call_id: result.status},
+        event = _run_sync(scheduler.run())
+        update: dict[str, Any] = {
+            "statuses": scheduler.statuses,
+            "results": scheduler.results,
+            "attempts": scheduler.attempts,
+            "spent": scheduler.spent,
+            "route": event.route,
         }
+        if event.route == "replan":
+            update["rejection"] = event.rejection
+        if event.route == "abort":
+            update["outcome"] = event.outcome
+            update["abort_diagnostic"] = event.diagnostic
+        return update
 
     return execute
 
 
-def _route_node(
-    runtime: SupervisorRuntime,
-) -> Callable[[SupervisorState], dict[str, Any]]:
-    """Apply the §12.4 routing table, top to bottom."""
-
-    def route_result(state: SupervisorState) -> dict[str, Any]:
-        assert state.plan is not None and state.next_call is not None
-        result = state.results[state.next_call]
-        tool = runtime.registry.get(result.tool_name)
-        idempotent = bool(tool and tool.capability_schema.idempotent)
-        if result.status is CallStatus.SUCCEEDED:
-            return {"route": "continue"}
-        if (
-            result.status is CallStatus.FAILED
-            and result.error is not None
-            and result.error.retryable
-            and idempotent
-            and result.attempts < runtime.policy.max_attempts
-        ):
-            return {
-                "route": "retry",
-                "statuses": {**state.statuses, result.call_id: CallStatus.RUNNING},
-            }
-        if result.status is CallStatus.REJECTED:
-            if state.replans < runtime.policy.max_replans:
-                return {"route": "replan", "rejection": result}
-            return _abort(state, result)
-        if result.status is CallStatus.CANCELLED or runtime.cancel.cancelled:
-            return {**_abort(state, result), "outcome": Outcome.CANCELLED}
-        return {"route": "continue"}
-
-    return route_result
-
-
-def _abort(state: SupervisorState, result: ToolCallResult) -> dict[str, Any]:
-    assert state.plan is not None
-    step = state.plan.step(result.call_id)
-    return {
-        "route": "abort",
-        "outcome": Outcome.ABORTED,
-        "abort_diagnostic": {
-            "call_id": step.call_id,
-            "tool_name": step.tool_name,
-            "arguments": step.arguments,
-            "budget_fraction": step.budget_fraction,
-            "decision": result.decision.value if result.decision else None,
-            "error": result.error.model_dump(mode="json") if result.error else None,
-        },
-    }
+def _route_node(state: SupervisorState) -> dict[str, Any]:
+    """Follow the run-level event of the scheduler (§12.4 routing table)."""
+    return {"route": state.route or "continue"}
 
 
 def _route_after_result(state: SupervisorState) -> str:
@@ -665,7 +609,7 @@ def build_supervisor_graph(
         "replan": _replan_node(runtime),
         "select_step": _select_node(runtime),
         "execute_tool": _execute_node(runtime),
-        "route_result": _route_node(runtime),
+        "route_result": _route_node,
         "synthesize": _synthesize_node,
         "respond": _respond_node,
     }
@@ -695,7 +639,6 @@ def build_supervisor_graph(
         _route_after_result,
         {
             "continue": "select_step",
-            "retry": "execute_tool",
             "replan": "replan",
             "abort": "respond",
         },

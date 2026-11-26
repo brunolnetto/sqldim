@@ -85,8 +85,11 @@ class ToolErrorKind(str, Enum):
     COMPOSITION_FAILURE = "COMPOSITION_FAILURE"
 
 
-_MAY_HAVE_NO_ATTEMPT = frozenset({CallStatus.SKIPPED, CallStatus.CANCELLED})
-"""SKIPPED never runs; CANCELLED may be a step cancelled before dispatch."""
+_MAY_HAVE_NO_ATTEMPT = frozenset(
+    {CallStatus.SKIPPED, CallStatus.CANCELLED, CallStatus.REJECTED}
+)
+"""SKIPPED never runs; CANCELLED may be a step cancelled before dispatch;
+REJECTED may be a step whose reservation never fits (§12.4, ADR 0008)."""
 
 _RETRYABLE_KINDS = frozenset({ToolErrorKind.TIMEOUT, ToolErrorKind.TOOL_FAILURE})
 
@@ -176,7 +179,7 @@ class ToolCallResult(BaseModel):
 
     Invariants (fail closed, D42): ``data`` is present iff ``status`` is
     SUCCEEDED; ``error`` is present iff it is not; ``attempts`` is ≥ 1 unless
-    the call was SKIPPED or cancelled before dispatch.  ``demo`` marks output of the explicit demo mode
+    the call was SKIPPED, or cancelled or budget-rejected before dispatch.  ``demo`` marks output of the explicit demo mode
     (D47): such a result is never a contract SUCCEEDED.
     """
 
@@ -351,7 +354,7 @@ class SupervisorState(BaseModel):
     results: dict[str, ToolCallResult] = Field(default_factory=dict)
     attempts: dict[str, int] = Field(default_factory=dict)
     replans: int = 0
-    next_call: str | None = None
+    spent: int = 0
     route: str | None = None
     rejection: ToolCallResult | None = None
     abort_diagnostic: dict[str, Any] | None = None
