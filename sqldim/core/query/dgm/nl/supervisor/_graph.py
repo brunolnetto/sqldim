@@ -1,351 +1,639 @@
-"""DGM Supervisor Agent — LangGraph state graph (§12.2).
+"""DGM Supervisor — the §12.4 graph, sequential dispatch.
 
-Six-node supervisor graph:
-  plan          → decompose user question into ordered tool calls
-  reflect       → (conditional) if confidence < threshold, prepend orientation
-  select_tool   → pick next tool from plan
-  execute_tool  → invoke the selected tool
-  synthesize    → combine results into coherent answer
-  respond       → format final response
+::
 
-Routing:
-  route_after_plan      — low confidence? → reflect; else → select_tool
-  route_after_execution — more steps? → select_tool; done? → synthesize
+    plan → validate_plan ──invalid──→ replan ─→ validate_plan
+                │ valid
+                ▼
+           select_step ──none runnable──→ synthesize → respond → END
+                │
+                ▼
+           execute_tool → route_result ─┬─ continue ─→ select_step
+                                        ├─ retry ────→ execute_tool
+                                        ├─ replan ───→ replan
+                                        └─ abort ────→ respond → END
 
-The reflect node handles ill-defined or ambiguous questions by front-loading
-two orientation steps (dgm_what_can_i_answer + dgm_map_analytical_space)
-before the original plan steps, so the synthesizer always has context about
-the analytical space even when the user's intent was unclear.
+Steps run one at a time in plan order (``MAX_CONCURRENT_CALLS = 1``); the
+concurrent scheduler of ADR 0008 builds on this graph.
+
+Identity, grants, data access and the registry live in
+:class:`SupervisorRuntime`, which is closed over by the nodes and never
+written to the checkpointed :class:`SupervisorState` (§12.10).
 """
 
 from __future__ import annotations
 
+import asyncio
+import concurrent.futures
 import time
-from collections.abc import Callable
-from typing import Any
+import uuid
+from collections.abc import Callable, Coroutine, Mapping
+from dataclasses import dataclass, field
+from datetime import datetime, timedelta, timezone
+from typing import Any, TypeVar
 
 from langgraph.checkpoint.memory import MemorySaver
 from langgraph.graph import END, StateGraph
 
+from sqldim.core.query.dgm.nl.supervisor._auth import (
+    AuthContext,
+    DataAccess,
+    DatasetOpener,
+)
+from sqldim.core.query.dgm.nl.supervisor._dispatch import execute_tool
+from sqldim.core.query.dgm.nl.supervisor._planner import (
+    KeywordDemoPlanner,
+    LLMPlanner,
+    Planner,
+    PlannerView,
+)
+from sqldim.core.query.dgm.nl.supervisor._schemas import (
+    DEFAULT_POLICY,
+    SupervisorPolicy,
+)
+from sqldim.core.query.dgm.nl.supervisor._tools import BaseTool, build_registry
 from sqldim.core.query.dgm.nl.supervisor._types import (
-    SupervisorPlan,
+    CallStatus,
+    CancelToken,
+    Outcome,
     SupervisorState,
     ToolCallRequest,
     ToolCallResult,
+    ToolContext,
+    ToolError,
+    ToolErrorKind,
 )
+from sqldim.core.query.dgm.nl.supervisor._validation import (
+    check_replan,
+    validate_plan,
+)
+from sqldim.core.query.dgm.planner._gate import ExecutionBudget
 
 SUPERVISOR_NODE_NAMES: list[str] = [
     "plan",
-    "reflect",
-    "select_tool",
+    "validate_plan",
+    "replan",
+    "select_step",
     "execute_tool",
+    "route_result",
     "synthesize",
     "respond",
 ]
 
-__all__ = ["SUPERVISOR_NODE_NAMES", "build_supervisor_graph"]
+__all__ = [
+    "SUPERVISOR_NODE_NAMES",
+    "SupervisorRuntime",
+    "build_supervisor_graph",
+    "make_runtime",
+    "run_supervisor",
+]
+
+_T = TypeVar("_T")
 
 
 # ---------------------------------------------------------------------------
-# Routing
+# Runtime context
 # ---------------------------------------------------------------------------
 
 
-def route_after_execution(state: SupervisorState) -> str:
-    """Route after tool execution: more steps or synthesize."""
-    if state.plan is None:
-        return "done"
-    if state.current_step >= len(state.plan.steps):
-        return "done"
-    return "more"
+@dataclass
+class SupervisorRuntime:
+    """Per-run dependencies; never checkpointed, never shown to a model."""
 
+    auth: AuthContext
+    budget: ExecutionBudget
+    registry: Mapping[str, BaseTool]
+    planner: Planner | None
+    data: DataAccess
+    deadline: datetime
+    cancel: CancelToken = field(default_factory=CancelToken)
+    kb: Any = None
+    demo: bool = False
+    policy: SupervisorPolicy = DEFAULT_POLICY
 
-_REFLECT_CONFIDENCE_THRESHOLD = 0.5
+    def __post_init__(self) -> None:
+        if self.planner is not None and self.planner.demo and not self.demo:
+            raise ValueError("the keyword planner runs only in demo mode (D47)")
+        demo_tools = [
+            name
+            for name, tool in self.registry.items()
+            if tool.capability_schema.version.endswith("+demo")
+        ]
+        if demo_tools and not self.demo:
+            raise ValueError(f"demo tools {demo_tools} run only in demo mode (D47)")
 
-
-def route_after_plan(state: SupervisorState) -> str:
-    """Route after planning: reflect on low-confidence plans, else proceed.
-
-    Questions whose ``plan.confidence`` is below the threshold are redirected
-    to the ``reflect`` node, which prepends orientation steps so the
-    synthesizer can produce a meaningful response even for vague inputs.
-    """
-    if state.plan and state.plan.confidence < _REFLECT_CONFIDENCE_THRESHOLD:
-        return "reflect"
-    return "skip"
-
-
-# ---------------------------------------------------------------------------
-# Stub node implementations (no LLM needed)
-# ---------------------------------------------------------------------------
-
-
-def _stub_plan(state: SupervisorState) -> dict[str, Any]:
-    """Stub planner: creates a single dgm_query step."""
-    plan = SupervisorPlan(
-        goal=state.utterance,
-        steps=[
-            ToolCallRequest(
-                tool_name="dgm_query",
-                arguments={"question": state.utterance},
-                budget_fraction=1.0,
-            ),
-        ],
-    )
-    return {"plan": plan, "current_step": 0}
-
-
-def _stub_select_tool(state: SupervisorState) -> dict[str, Any]:
-    """Select the next tool from the plan."""
-    return {}
-
-
-def _stub_execute_tool(state: SupervisorState) -> dict[str, Any]:
-    """Execute the current tool (stub: immediate success)."""
-    from sqldim.core.query.dgm.nl.supervisor._tools import TOOL_REGISTRY
-
-    if state.plan is None or state.current_step >= len(state.plan.steps):
-        return {}
-
-    step = state.plan.steps[state.current_step]
-    tool = TOOL_REGISTRY.get(step.tool_name)
-    if tool is not None:
-        result = tool.execute(step.arguments, context=None)
-    else:
-        result = ToolCallResult(
-            tool_name=step.tool_name,
-            success=False,
-            error=f"Unknown tool: {step.tool_name}",
+    def tool_context(self) -> ToolContext:
+        return ToolContext(
+            auth=self.auth,
+            budget=self.budget,
+            deadline=self.deadline,
+            cancel=self.cancel,
+            data=self.data,
+            kb=self.kb,
+            demo=self.demo,
         )
 
+    def available_tools(self) -> tuple[Any, ...]:
+        return tuple(
+            t.capability_schema
+            for _, t in sorted(self.registry.items())
+            if t.capability_schema.available
+        )
+
+
+def make_runtime(
+    auth: AuthContext,
+    opener: DatasetOpener,
+    budget: ExecutionBudget,
+    *,
+    model: Any = None,
+    demo: bool = False,
+    timeout: timedelta = timedelta(minutes=5),
+    policy: SupervisorPolicy = DEFAULT_POLICY,
+) -> SupervisorRuntime:
+    """Assemble a runtime.  ``demo`` must be the caller's explicit choice."""
+    # Demo mode always plans with the keyword heuristic; the model, if any,
+    # then only drives the demo dgm_query.  Outside demo mode a model is the
+    # only planner, and without one the run fails closed.
+    planner: Planner | None
+    if demo:
+        planner = KeywordDemoPlanner()
+    elif model is not None:
+        planner = LLMPlanner(model)
+    else:
+        planner = None
+    return SupervisorRuntime(
+        auth=auth,
+        budget=budget,
+        registry=build_registry(demo=demo, model=model),
+        planner=planner,
+        data=DataAccess(auth, opener),
+        deadline=datetime.now(timezone.utc) + timeout,
+        demo=demo,
+        policy=policy,
+    )
+
+
+def _run_sync(coro: Coroutine[Any, Any, _T]) -> _T:
+    """Run *coro* to completion from synchronous graph code."""
+    try:
+        asyncio.get_running_loop()
+    except RuntimeError:
+        return asyncio.run(coro)
+    with concurrent.futures.ThreadPoolExecutor(max_workers=1) as pool:
+        return pool.submit(asyncio.run, coro).result()
+
+
+# ---------------------------------------------------------------------------
+# Helpers
+# ---------------------------------------------------------------------------
+
+
+def _error(kind: ToolErrorKind, message: str, **context: Any) -> ToolError:
+    return ToolError(kind=kind, message=message, context=context)
+
+
+def _cost_total(cost: Any) -> int:
+    return int(cost.cpu_ops) + int(cost.io_ops)
+
+
+def _remaining_fraction(state: SupervisorState, runtime: SupervisorRuntime) -> float:
+    """``remaining / B.max_estimated_cost`` with nothing reserved (§12.5)."""
+    ceiling = _cost_total(runtime.budget.max_estimated_cost)
+    if ceiling <= 0:
+        return 0.0
+    spent = sum(_cost_total(r.cost_actual) for r in state.results.values())
+    return max(0.0, 1.0 - spent / ceiling)
+
+
+def _view(
+    state: SupervisorState,
+    runtime: SupervisorRuntime,
+    *,
+    plan_id: str,
+    version: int,
+) -> PlannerView:
+    return PlannerView(
+        goal=state.utterance,
+        plan_id=plan_id,
+        version=version,
+        datasets=tuple(runtime.auth.readable_datasets()),
+        tools=runtime.available_tools(),
+        history=tuple(state.conversation_history),
+        previous=state.plan if version > 1 else None,
+        results=tuple(state.results.values()),
+        violations=tuple(state.plan_violations),
+        rejection=state.rejection,
+        remaining_fraction=_remaining_fraction(state, runtime),
+    )
+
+
+def _propose(
+    state: SupervisorState,
+    runtime: SupervisorRuntime,
+    *,
+    plan_id: str,
+    version: int,
+) -> dict[str, Any]:
+    """Ask the planner; a planner failure ends the run FAILED, never re-routed."""
+    assert runtime.planner is not None
+    try:
+        proposed = runtime.planner.propose(
+            _view(state, runtime, plan_id=plan_id, version=version)
+        )
+    except Exception as exc:  # noqa: BLE001 — reported, never replaced
+        return {
+            "planning_error": _error(
+                ToolErrorKind.TOOL_FAILURE,
+                "the planner failed",
+                exception=type(exc).__name__,
+                detail=str(exc),
+            ),
+            "outcome": Outcome.FAILED,
+        }
+    plan = proposed.model_copy(update={"plan_id": plan_id, "version": version})
+    return {"plan": plan, "planning_error": None}
+
+
+# ---------------------------------------------------------------------------
+# Nodes
+# ---------------------------------------------------------------------------
+
+
+def _plan_node(
+    runtime: SupervisorRuntime,
+) -> Callable[[SupervisorState], dict[str, Any]]:
+    def plan(state: SupervisorState) -> dict[str, Any]:
+        base: dict[str, Any] = {"demo": runtime.demo}
+        if runtime.planner is None:
+            return {
+                **base,
+                "planning_error": _error(
+                    ToolErrorKind.NOT_IMPLEMENTED,
+                    "no planner is configured: pass a model, or select demo mode",
+                ),
+                "outcome": Outcome.FAILED,
+            }
+        if not runtime.available_tools():
+            return {
+                **base,
+                "planning_error": _error(
+                    ToolErrorKind.NOT_IMPLEMENTED,
+                    "no supervisor tool is available in this deployment",
+                    missing={
+                        n: getattr(t, "missing", None)
+                        for n, t in sorted(runtime.registry.items())
+                    },
+                ),
+                "outcome": Outcome.FAILED,
+            }
+        return {**base, **_propose(state, runtime, plan_id=uuid.uuid4().hex, version=1)}
+
+    return plan
+
+
+def _validate_node(
+    runtime: SupervisorRuntime,
+) -> Callable[[SupervisorState], dict[str, Any]]:
+    def validate(state: SupervisorState) -> dict[str, Any]:
+        assert state.plan is not None
+        check = validate_plan(state.plan, runtime.registry, runtime.auth)
+        violations = list(check.violations)
+        if state.executed_plan is not None:
+            violations += check_replan(
+                state.plan,
+                state.executed_plan,
+                state.results,
+                state.rejection,
+                _remaining_fraction(state, runtime),
+            )
+        if violations:
+            return {"plan": check.plan, "plan_violations": violations}
+        statuses = {
+            s.call_id: (
+                CallStatus.SUCCEEDED
+                if s.call_id in state.results
+                and state.results[s.call_id].status is CallStatus.SUCCEEDED
+                else CallStatus.PENDING
+            )
+            for s in check.plan.steps
+        }
+        kept = {
+            cid: r
+            for cid, r in state.results.items()
+            if cid in statuses and r.status is CallStatus.SUCCEEDED
+        }
+        return {
+            "plan": check.plan,
+            "executed_plan": check.plan,
+            "plan_violations": [],
+            "statuses": statuses,
+            "results": kept,
+            "rejection": None,
+        }
+
+    return validate
+
+
+def _route_after_validate(state: SupervisorState) -> str:
+    if not state.plan_violations:
+        return "valid"
+    return "invalid"
+
+
+def _replan_node(
+    runtime: SupervisorRuntime,
+) -> Callable[[SupervisorState], dict[str, Any]]:
+    def replan(state: SupervisorState) -> dict[str, Any]:
+        assert state.plan is not None and runtime.planner is not None
+        if state.replans >= runtime.policy.max_replans:
+            return {
+                "outcome": Outcome.ABORTED,
+                "abort_diagnostic": {
+                    "reason": "replan limit reached",
+                    "replans": state.replans,
+                    "violations": [
+                        v.model_dump(mode="json") for v in state.plan_violations
+                    ],
+                    "rejection": (
+                        state.rejection.model_dump(mode="json")
+                        if state.rejection
+                        else None
+                    ),
+                },
+            }
+        update = _propose(
+            state,
+            runtime,
+            plan_id=state.plan.plan_id,
+            version=state.plan.version + 1,
+        )
+        update["replans"] = state.replans + 1
+        return update
+
+    return replan
+
+
+def _route_after_replan(state: SupervisorState) -> str:
+    return "stop" if state.outcome is not None else "validate"
+
+
+def _route_after_plan(state: SupervisorState) -> str:
+    return "stop" if state.outcome is not None else "validate"
+
+
+def _select_node(
+    runtime: SupervisorRuntime,
+) -> Callable[[SupervisorState], dict[str, Any]]:
+    def select_step(state: SupervisorState) -> dict[str, Any]:
+        assert state.plan is not None
+        statuses = dict(state.statuses)
+        results = dict(state.results)
+        if runtime.cancel.cancelled:
+            for step in state.plan.steps:
+                if statuses[step.call_id] is CallStatus.PENDING:
+                    statuses[step.call_id] = CallStatus.CANCELLED
+                    results[step.call_id] = ToolCallResult.failure(
+                        step,
+                        CallStatus.CANCELLED,
+                        ToolErrorKind.CANCELLED,
+                        "the run was cancelled before this step started",
+                        attempts=0,
+                    )
+            return {
+                "statuses": statuses,
+                "results": results,
+                "next_call": None,
+                "outcome": Outcome.CANCELLED,
+            }
+        next_call: str | None = None
+        for step in state.plan.steps:
+            if statuses[step.call_id] is not CallStatus.PENDING:
+                continue
+            dep_states = [statuses[d] for d in step.depends_on]
+            if any(
+                s not in (CallStatus.SUCCEEDED, CallStatus.PENDING) for s in dep_states
+            ):
+                statuses[step.call_id] = CallStatus.SKIPPED
+                results[step.call_id] = ToolCallResult.failure(
+                    step,
+                    CallStatus.SKIPPED,
+                    ToolErrorKind.DEPENDENCY_NOT_MET,
+                    "a dependency did not succeed",
+                    context={
+                        "depends_on": {d: statuses[d].value for d in step.depends_on}
+                    },
+                )
+                continue
+            if next_call is None and all(s is CallStatus.SUCCEEDED for s in dep_states):
+                next_call = step.call_id
+        return {"statuses": statuses, "results": results, "next_call": next_call}
+
+    return select_step
+
+
+def _route_after_select(state: SupervisorState) -> str:
+    if state.outcome is Outcome.CANCELLED:
+        return "stop"
+    return "run" if state.next_call is not None else "done"
+
+
+def _execute_node(
+    runtime: SupervisorRuntime,
+) -> Callable[[SupervisorState], dict[str, Any]]:
+    def execute(state: SupervisorState) -> dict[str, Any]:
+        assert state.plan is not None and state.next_call is not None
+        step = state.plan.step(state.next_call)
+        attempt = state.attempts.get(step.call_id, 0) + 1
+        result = _run_sync(
+            execute_tool(
+                step, runtime.registry, runtime.tool_context(), attempt=attempt
+            )
+        )
+        return {
+            "attempts": {**state.attempts, step.call_id: attempt},
+            "results": {**state.results, step.call_id: result},
+            "statuses": {**state.statuses, step.call_id: result.status},
+        }
+
+    return execute
+
+
+def _route_node(
+    runtime: SupervisorRuntime,
+) -> Callable[[SupervisorState], dict[str, Any]]:
+    """Apply the §12.4 routing table, top to bottom."""
+
+    def route_result(state: SupervisorState) -> dict[str, Any]:
+        assert state.plan is not None and state.next_call is not None
+        result = state.results[state.next_call]
+        tool = runtime.registry.get(result.tool_name)
+        idempotent = bool(tool and tool.capability_schema.idempotent)
+        if result.status is CallStatus.SUCCEEDED:
+            return {"route": "continue"}
+        if (
+            result.status is CallStatus.FAILED
+            and result.error is not None
+            and result.error.retryable
+            and idempotent
+            and result.attempts < runtime.policy.max_attempts
+        ):
+            return {
+                "route": "retry",
+                "statuses": {**state.statuses, result.call_id: CallStatus.RUNNING},
+            }
+        if result.status is CallStatus.REJECTED:
+            if state.replans < runtime.policy.max_replans:
+                return {"route": "replan", "rejection": result}
+            return _abort(state, result)
+        if result.status is CallStatus.CANCELLED or runtime.cancel.cancelled:
+            return {**_abort(state, result), "outcome": Outcome.CANCELLED}
+        return {"route": "continue"}
+
+    return route_result
+
+
+def _abort(state: SupervisorState, result: ToolCallResult) -> dict[str, Any]:
+    assert state.plan is not None
+    step = state.plan.step(result.call_id)
     return {
-        "results": list(state.results) + [result],
-        "current_step": state.current_step + 1,
+        "route": "abort",
+        "outcome": Outcome.ABORTED,
+        "abort_diagnostic": {
+            "call_id": step.call_id,
+            "tool_name": step.tool_name,
+            "arguments": step.arguments,
+            "budget_fraction": step.budget_fraction,
+            "decision": result.decision.value if result.decision else None,
+            "error": result.error.model_dump(mode="json") if result.error else None,
+        },
     }
 
 
-def _result_data(r: ToolCallResult) -> dict[str, Any]:
-    return r.data if isinstance(r.data, dict) else {}
+def _route_after_result(state: SupervisorState) -> str:
+    return state.route or "continue"
 
 
-def _stub_fmt_what_can_i_answer(data: dict[str, Any], has_model: bool) -> str:
-    datasets = data.get("datasets", [])
-    questions = data.get("questions", [])
-    if len(datasets) == 1:
-        ds = datasets[0]
-        if questions:
-            q_list = "\n".join(f"  • {q}" for q in questions)
-            return f"Questions for '{ds}' ({len(questions)}):\n{q_list}"
-        if has_model:
-            return f"Dataset '{ds}' is available."
-        return (
-            f"Dataset '{ds}' is available "
-            "(pass --model-provider + --model "
-            "to generate suggested questions)."
-        )
-    if datasets:
-        ds_list = "\n".join(f"  • {d}" for d in sorted(datasets))
-        return f"Datasets I can see ({len(datasets)}):\n{ds_list}"
-    return "No datasets are currently available."
+def _missing_entry(state: SupervisorState, s: ToolCallRequest) -> dict[str, Any]:
+    r = state.results.get(s.call_id)
+    error = r.error if r is not None else None
+    return {
+        "call_id": s.call_id,
+        "tool_name": s.tool_name,
+        "status": (state.statuses.get(s.call_id) or CallStatus.PENDING).value,
+        "error": error.kind.value if error else None,
+        "message": error.message if error else None,
+    }
 
 
-def _stub_fmt_map_space(data: dict[str, Any]) -> str:
-    tools = data.get("tools", [])
-    if not tools:
-        return "No tools registered."
-    tl_list = "\n".join(
-        f"  \u2022 {t['name']} \u2014 {t['description']}" for t in tools
-    )
-    return f"Tools available ({len(tools)}):\n{tl_list}"
-
-
-def _stub_fmt_query_rows(dataset: str, query_result: dict[str, Any]) -> str:
-    count = query_result.get("count", 0)
-    cols = query_result.get("columns", [])
-    rows = query_result.get("rows", [])
-    if not rows:
-        return f"Query on '{dataset}' returned no rows."
-    rows_text = "\n".join(f"  {row}" for row in rows[:5])
-    suffix = f"\n  ... ({count - 5} more rows)" if count > 5 else ""
-    return (
-        f"Query on '{dataset}': {count} rows,"
-        f" columns: {', '.join(cols)}\n{rows_text}{suffix}"
-    )
-
-
-def _stub_fmt_query(data: dict[str, Any], has_model: bool) -> list[str]:
-    dataset = data.get("dataset") or "?"
-    question = data.get("question")
-    question_hint = f" for '{question}'" if question else ""
-    explanation = data.get("explanation")
-    query_result = data.get("query_result")
-    parts: list[str] = []
-    if explanation:
-        parts.append(explanation)
-    if query_result and isinstance(query_result, dict):
-        parts.append(_stub_fmt_query_rows(dataset, query_result))
-    elif not explanation:
-        if has_model:
-            parts.append(f"DGM query on '{dataset}'{question_hint} completed.")
-        else:
-            parts.append(
-                f"DGM query on '{dataset}'{question_hint} completed"
-                " (stub — pass --model-provider + --model for real results)."
-            )
-    return parts
-
-
-def _stub_fmt_result(r: ToolCallResult, has_model: bool) -> list[str]:
-    if not r.success:
-        return [f"\u26a0 {r.tool_name}: {r.error}"]
-    data = _result_data(r)
-    if r.tool_name == "dgm_what_can_i_answer":
-        return [_stub_fmt_what_can_i_answer(data, has_model)]
-    if r.tool_name == "dgm_map_analytical_space":
-        return [_stub_fmt_map_space(data)]
-    if r.tool_name == "dgm_query":
-        return _stub_fmt_query(data, has_model)
-    summary = ", ".join(f"{k}: {v}" for k, v in data.items() if k != "stub")
-    return [f"[{r.tool_name}]{': ' + summary if summary else ' completed.'}"]
-
-
-def _stub_synthesize(
-    state: SupervisorState, *, has_model: bool = False
-) -> dict[str, Any]:
-    """Combine all results into a natural-language response.
-
-    When *has_model* is ``True`` (an LLM is connected via ``context.model``),
-    stub messages omit the "no LLM connected" hint.
-    """
-    parts: list[str] = []
-    for r in state.results:
-        parts.extend(_stub_fmt_result(r, has_model))
-
-    body = "\n\n".join(parts) if parts else "No results produced."
-
-    # For vague / reflected inputs, wrap the orientation data in a helpful intro
-    if "reflect" in state.visited_nodes:
-        intro = (
-            "I'm the DGM Supervisor — I can run analytical queries across "
-            "your datasets using the tools listed below. "
-            "Ask me a question about any of these datasets and I'll "
-            "decompose it into the right tool calls.\n"
-        )
-        body = intro + "\n" + body
-
-    return {"synthesis": body}
-
-
-def _stub_respond(state: SupervisorState) -> dict[str, Any]:
-    """Format the final response."""
-    return {}
-
-
-def _llm_fmt_query(data: dict[str, Any]) -> list[str]:
-    ds = data.get("dataset", "?")
-    explanation = data.get("explanation") or ""
-    qr = data.get("query_result")
-    parts: list[str] = []
-    if explanation:
-        parts.append(f"[dgm_query / {ds}]\n{explanation}")
-    if qr and isinstance(qr, dict):
-        rows = qr.get("rows", [])
-        count = qr.get("count", len(rows))
-        cols = qr.get("columns", [])
-        if rows:
-            preview = "\n".join(str(row) for row in rows[:5])
-            parts.append(
-                f"Query result on '{ds}' ({count} rows,"
-                f" columns: {', '.join(cols)}):\n{preview}"
-            )
-        else:
-            parts.append(f"Query on '{ds}' returned no rows.")
-    elif not explanation:
-        parts.append(f"[dgm_query / {ds}] query completed (no data).")
-    return parts
-
-
-def _llm_fmt_what_can_i_answer(data: dict[str, Any]) -> list[str]:
-    datasets = data.get("datasets", [])
-    questions = data.get("questions", [])
-    parts: list[str] = []
-    if datasets:
-        parts.append(f"Available datasets ({len(datasets)}): {', '.join(datasets)}")
-    if questions:
-        parts.append(
-            "Sample questions:\n" + "\n".join(f"  \u2022 {q}" for q in questions[:5])
-        )
-    return parts
-
-
-def _llm_fmt_map_space(data: dict[str, Any]) -> list[str]:
-    tools = data.get("tools", [])
-    if not tools:
-        return []
-    tool_list = "\n".join(f"  \u2022 {t['name']}: {t['description']}" for t in tools)
-    return [f"Available tools ({len(tools)}):\n{tool_list}"]
-
-
-def _llm_fmt_result(r: ToolCallResult) -> list[str]:
-    if not r.success:
-        return [f"[{r.tool_name}] ERROR: {r.error}"]
-    data = _result_data(r)
-    if r.tool_name == "dgm_query":
-        return _llm_fmt_query(data)
-    if r.tool_name == "dgm_what_can_i_answer":
-        return _llm_fmt_what_can_i_answer(data)
-    if r.tool_name == "dgm_map_analytical_space":
-        return _llm_fmt_map_space(data)
-    summary = {k: v for k, v in data.items() if k != "stub" and v is not None}
-    return [f"[{r.tool_name}] {summary}"] if summary else []
-
-
-def _llm_prompt(state: SupervisorState, tool_context: str) -> str:
-    history_lines = [
-        f"{m.get('role', '').capitalize()}: {m.get('content', '')}"
-        for m in (state.conversation_history or [])
-        if m.get("role") and m.get("content")
-    ]
-    prompt_parts = [f"Question: {state.utterance}"]
-    if history_lines:
-        prompt_parts.append("Prior conversation:\n" + "\n".join(history_lines))
-    prompt_parts.append(f"Tool results:\n{tool_context}")
-    prompt_parts.append("Provide a concise, data-driven answer.")
-    return "\n\n".join(prompt_parts)
-
-
-def _llm_synthesize(state: SupervisorState, model: Any) -> dict[str, Any]:
-    """Use the LLM to synthesize tool results into a coherent answer."""
-    try:
-        from pydantic_ai import Agent  # lazy import
-
-        parts: list[str] = []
-        for r in state.results:
-            parts.extend(_llm_fmt_result(r))
-
-        if not parts:
-            return _stub_synthesize(state, has_model=True)
-
-        agent = Agent(
-            model=model,
-            system_prompt=(
-                "You are an expert data analyst. Given the tool execution results, "
-                "answer the user's question concisely and precisely. "
-                "Reference specific numbers and findings. "
-                "Keep the response under 200 words unless the data demands more detail."
-            ),
-        )
-        llm_result = agent.run_sync(
-            _llm_prompt(state, "\n\n".join(parts)),
-            model_settings={"timeout": 30.0},
-        )
-        return {"synthesis": llm_result.output}
-    except Exception:  # noqa: BLE001
-        return _stub_synthesize(state, has_model=True)
+def _synthesize_node(state: SupervisorState) -> dict[str, Any]:
+    """Coverage and outcome from SUCCEEDED results only (§12.11)."""
+    assert state.plan is not None
+    steps = state.plan.steps
+    done = [s for s in steps if state.statuses.get(s.call_id) is CallStatus.SUCCEEDED]
+    missing = [_missing_entry(state, s) for s in steps if s not in done]
+    if not done:
+        outcome = Outcome.FAILED
+    elif missing:
+        outcome = Outcome.PARTIAL
+    else:
+        outcome = Outcome.COMPLETE
+    coverage = len(done) / len(steps) if steps else 0.0
+    return {"outcome": outcome, "coverage": coverage, "missing": missing}
 
 
 # ---------------------------------------------------------------------------
-# Tracing wrapper (consistent with NL pipeline pattern)
+# Response rendering
+# ---------------------------------------------------------------------------
+
+
+def _render_rows(rows: list[dict[str, Any]], limit: int = 5) -> list[str]:
+    if not rows:
+        return ["  (no rows)"]
+    lines = [f"  {row}" for row in rows[:limit]]
+    if len(rows) > limit:
+        lines.append(f"  … {len(rows) - limit} more rows")
+    return lines
+
+
+def _render_result(step: ToolCallRequest, result: ToolCallResult) -> list[str]:
+    data = result.data if isinstance(result.data, dict) else {}
+    head = f"[{step.call_id}] {step.tool_name}"
+    if step.datasets:
+        head += f" on {', '.join(step.datasets)}"
+    lines = [head]
+    if data.get("explanation"):
+        lines.append(f"  {data['explanation']}")
+    if "rows" in data and data["rows"] is not None:
+        lines += _render_rows(list(data["rows"]))
+    return lines
+
+
+def _header_lines(state: SupervisorState, outcome: Outcome) -> list[str]:
+    lines: list[str] = []
+    if state.demo:
+        lines.append("[demo mode — heuristic output, not a contract result (D47)]")
+    lines.append(f"Outcome: {outcome.value}")
+    if state.planning_error is not None:
+        err = state.planning_error
+        lines.append(f"{err.kind.value}: {err.message}")
+    if state.plan is not None and state.plan.reasoning:
+        lines.append(state.plan.reasoning)
+    if state.abort_diagnostic is not None:
+        lines.append(f"Diagnostic: {state.abort_diagnostic}")
+    return lines
+
+
+def _result_lines(state: SupervisorState, outcome: Outcome) -> list[str]:
+    if outcome in (Outcome.ABORTED, Outcome.CANCELLED):
+        return [
+            f"  {cid} ({r.tool_name}): {r.status.value}"
+            + (f" {r.error.kind.value}" if r.error else "")
+            for cid, r in state.results.items()
+        ]
+    if state.plan is None or outcome not in (Outcome.COMPLETE, Outcome.PARTIAL):
+        return []
+    lines: list[str] = []
+    if outcome is Outcome.PARTIAL:
+        total = len(state.plan.steps)
+        lines.append(
+            f"Coverage {total - len(state.missing)}/{total}; "
+            "this is not a complete answer."
+        )
+    for step in state.plan.steps:
+        result = state.results.get(step.call_id)
+        if result is not None and result.status is CallStatus.SUCCEEDED:
+            lines += _render_result(step, result)
+    return lines
+
+
+def _missing_lines(state: SupervisorState) -> list[str]:
+    lines = []
+    for miss in state.missing:
+        reason = miss["error"] or miss["status"]
+        detail = f" — {miss['message']}" if miss.get("message") else ""
+        lines.append(
+            f"Not available: {miss['call_id']} ({miss['tool_name']}): {reason}{detail}"
+        )
+    return lines
+
+
+def _respond_node(state: SupervisorState) -> dict[str, Any]:
+    outcome = state.outcome or Outcome.FAILED
+    lines = (
+        _header_lines(state, outcome)
+        + _result_lines(state, outcome)
+        + _missing_lines(state)
+    )
+    response = "\n".join(lines)
+    history = list(state.conversation_history)
+    history.append({"role": "user", "content": state.utterance})
+    history.append({"role": "assistant", "content": response})
+    return {"outcome": outcome, "synthesis": response, "conversation_history": history}
+
+
+# ---------------------------------------------------------------------------
+# Tracing and assembly
 # ---------------------------------------------------------------------------
 
 
@@ -365,153 +653,75 @@ def _traced_node(
     return _wrapper
 
 
-# ---------------------------------------------------------------------------
-# Graph factory
-# ---------------------------------------------------------------------------
-
-
 def build_supervisor_graph(
+    runtime: SupervisorRuntime,
     checkpointer: Any = None,
-    *,
-    context: Any = None,
 ) -> Any:
-    """Construct and compile the six-node supervisor LangGraph (§12.2).
-
-    The LLM model (if any) is carried via ``context.model`` as a pydantic-ai
-    model instance.  When ``context.model`` is ``None`` the planner falls
-    back to keyword/phrase routing.
-    """
-    if checkpointer is None:
-        checkpointer = MemorySaver()
-
+    """Compile the §12.4 supervisor graph bound to *runtime*."""
     graph: Any = StateGraph(SupervisorState)
-
-    # Build context-bound node functions via closures so tools receive the
-    # runtime context (available datasets, budget, model) at call time.
-    def _plan_node(state: SupervisorState) -> dict[str, Any]:
-        from sqldim.core.query.dgm.nl.supervisor._planner import decompose_question
-
-        # Inject conversation history into planner context for follow-ups
-        history = state.conversation_history
-        if context is not None and history:
-            context.memory = list(history)
-
-        plan = decompose_question(state.utterance, context)
-        return {"plan": plan, "current_step": 0}
-
-    def _execute_node(state: SupervisorState) -> dict[str, Any]:
-        from sqldim.core.query.dgm.nl.supervisor._tools import (
-            TOOL_REGISTRY as _REGISTRY,
-        )
-
-        if state.plan is None or state.current_step >= len(
-            state.plan.steps
-        ):  # pragma: no cover
-            return {}  # pragma: no cover
-        step = state.plan.steps[state.current_step]
-        tool = _REGISTRY.get(step.tool_name)
-        if tool is not None:
-            result = tool.execute(step.arguments, context=context)
-        else:  # pragma: no cover  — keyword planner only generates registered tools
-            result = ToolCallResult(
-                tool_name=step.tool_name,
-                success=False,
-                error=f"Unknown tool: {step.tool_name}",
-            )
-        return {
-            "results": list(state.results) + [result],
-            "current_step": state.current_step + 1,
-        }
-
-    def _reflect_node(state: SupervisorState) -> dict[str, Any]:
-        """Prepend orientation steps to the plan when confidence is too low.
-
-        The reflect node rescales the original plan's budget fractions to
-        fit within the 0.5 budget remaining after two 0.25-fraction
-        orientation steps (dgm_what_can_i_answer + dgm_map_analytical_space).
-        The total budget fraction of the enriched plan stays at 1.0.
-        """
-        orientation_budget: float = 0.5  # shared by two 0.25 steps
-        original_steps = list(state.plan.steps) if state.plan else []
-        original_total = sum(s.budget_fraction for s in original_steps) or 1.0
-        scale = (1.0 - orientation_budget) / original_total
-        rescaled = [
-            s.model_copy(
-                update={"budget_fraction": round(s.budget_fraction * scale, 6)}
-            )
-            for s in original_steps
-        ]
-        orientation = [
-            ToolCallRequest(
-                tool_name="dgm_what_can_i_answer",
-                arguments={"dataset": "__all__"},
-                budget_fraction=0.25,
-            ),
-            ToolCallRequest(
-                tool_name="dgm_map_analytical_space",
-                arguments={"dataset": "__all__"},
-                budget_fraction=0.25,
-            ),
-        ]
-        new_plan = SupervisorPlan(
-            goal=state.plan.goal if state.plan else state.utterance,
-            steps=orientation + rescaled,
-            confidence=state.plan.confidence if state.plan else 0.0,
-        )
-        return {"plan": new_plan, "current_step": 0}
-
-    def _synthesize_node(state: SupervisorState) -> dict[str, Any]:
-        has_model = context is not None and getattr(context, "model", None) is not None
-        if has_model:
-            result = _llm_synthesize(state, context.model)
-        else:
-            result = _stub_synthesize(state, has_model=False)
-
-        # Append this exchange to conversation history for multi-turn memory
-        history = list(state.conversation_history)
-        history.append({"role": "user", "content": state.utterance})
-        if result.get("synthesis"):
-            history.append({"role": "assistant", "content": result["synthesis"]})
-        result["conversation_history"] = history
-        return result
-
-    # Register nodes (stub implementations; overridable via context/model)
-    node_impls: dict[str, Callable[..., dict[str, Any]]] = {
-        "plan": _plan_node,
-        "reflect": _reflect_node,
-        "select_tool": _stub_select_tool,
-        "execute_tool": _execute_node,
+    nodes: dict[str, Callable[[SupervisorState], dict[str, Any]]] = {
+        "plan": _plan_node(runtime),
+        "validate_plan": _validate_node(runtime),
+        "replan": _replan_node(runtime),
+        "select_step": _select_node(runtime),
+        "execute_tool": _execute_node(runtime),
+        "route_result": _route_node(runtime),
         "synthesize": _synthesize_node,
-        "respond": _stub_respond,
+        "respond": _respond_node,
     }
-
-    for name, fn in node_impls.items():
+    for name, fn in nodes.items():
         graph.add_node(name, _traced_node(name, fn))
 
-    # Edges
+    graph.set_entry_point("plan")
     graph.add_conditional_edges(
-        "plan",
-        route_after_plan,
+        "plan", _route_after_plan, {"validate": "validate_plan", "stop": "respond"}
+    )
+    graph.add_conditional_edges(
+        "validate_plan",
+        _route_after_validate,
+        {"valid": "select_step", "invalid": "replan"},
+    )
+    graph.add_conditional_edges(
+        "replan", _route_after_replan, {"validate": "validate_plan", "stop": "respond"}
+    )
+    graph.add_conditional_edges(
+        "select_step",
+        _route_after_select,
+        {"run": "execute_tool", "done": "synthesize", "stop": "respond"},
+    )
+    graph.add_edge("execute_tool", "route_result")
+    graph.add_conditional_edges(
+        "route_result",
+        _route_after_result,
         {
-            "reflect": "reflect",
-            "skip": "select_tool",
+            "continue": "select_step",
+            "retry": "execute_tool",
+            "replan": "replan",
+            "abort": "respond",
         },
     )
-    graph.add_edge("reflect", "select_tool")
-    graph.add_edge("select_tool", "execute_tool")
-
-    graph.add_conditional_edges(
-        "execute_tool",
-        route_after_execution,
-        {
-            "more": "select_tool",
-            "done": "synthesize",
-        },
-    )
-
     graph.add_edge("synthesize", "respond")
     graph.add_edge("respond", END)
+    return graph.compile(checkpointer=checkpointer or MemorySaver())
 
-    graph.set_entry_point("plan")
 
-    return graph.compile(checkpointer=checkpointer)
+def run_supervisor(
+    utterance: str,
+    runtime: SupervisorRuntime,
+    *,
+    thread_id: str = "supervisor",
+    history: list[dict[str, str]] | None = None,
+    checkpointer: Any = None,
+) -> SupervisorState:
+    """Run one supervisor turn; state is keyed by ``(tenant_id, thread_id)``."""
+    graph = build_supervisor_graph(runtime, checkpointer=checkpointer)
+    raw = graph.invoke(
+        SupervisorState(
+            utterance=utterance, conversation_history=list(history or [])
+        ).model_dump(),
+        config={
+            "configurable": {"thread_id": f"{runtime.auth.tenant_id}:{thread_id}"},
+            "recursion_limit": 200,
+        },
+    )
+    return SupervisorState.model_validate(raw)

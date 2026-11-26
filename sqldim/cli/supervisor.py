@@ -7,6 +7,7 @@ import argparse
 from sqldim.cli.ask import (
     _build_llm_model,
     _invoke_supervisor,
+    _outcome_exit_code,
     _print_verbose,
     _resolve_datasets,
 )
@@ -25,15 +26,12 @@ def cmd_supervisor(args: argparse.Namespace) -> int:
     model_provider: str | None = getattr(args, "model_provider", None)
     llm_model = _build_llm_model(model_provider, model_name, prefix)
 
-    result = _invoke_supervisor(available, llm_model, args.question)
-
-    synthesis = result.get("synthesis")
-    if synthesis:
-        print(synthesis)
-    else:  # pragma: no cover  — stub graph always produces synthesis
-        print("[sqldim supervisor] No synthesis produced.")
+    result = _invoke_supervisor(
+        available, llm_model, args.question, demo=bool(getattr(args, "demo", False))
+    )
+    print(result.synthesis or f"Outcome: {result.outcome}")
 
     if args.verbose:
         _print_verbose(result, prefix)
 
-    return 0
+    return _outcome_exit_code(result)

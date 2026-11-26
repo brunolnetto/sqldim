@@ -1,425 +1,309 @@
-"""DGM Supervisor Agent — 9 tool implementations (§12.1).
+"""DGM Supervisor — tool interface and registry (§12.2, §12.3).
 
-8 core tools operationalizing the DGM formal machinery:
-  1. dgm_query            — Run a full NL→SQL pipeline against a dataset
-  2. dgm_what_can_i_answer — List answerable questions from Q_valid(A,B)
-  3. dgm_correlate         — Cross-domain JOIN of two tool results
-  4. dgm_explore_from      — Navigate from a result to related questions
-  5. dgm_sensitivity_sweep — Parameter sweep analysis over P_Σ
-  6. dgm_validate_invariant — Check a formal invariant of the model
-  7. dgm_store_finding     — Persist a finding to the knowledge base
-  8. dgm_retrieve_related  — Lattice-adjacent retrieval from KB
-  9. dgm_map_analytical_space — Map full vocabulary decomposition
+No tool of §12.3 implements its D43 contract yet, so every tool is registered
+with ``available = False`` and names the missing component; dispatching one
+returns ``NOT_IMPLEMENTED`` without running anything (D42, ADR 0012).
 
-Each tool fulfils the 5-point contract:
-  capability_schema, cost_estimate, execute, compose, explain
+The explicit demo mode (D47, ADR 0013) adds one heuristic stand-in:
+``dgm_query`` answered by the current NL graph.  It is registered only by
+``build_registry(demo=True)``, which the caller must select for the run, and
+every result it produces carries ``demo = True``.
 """
 
 from __future__ import annotations
 
+import asyncio
 from abc import ABC, abstractmethod
+from collections.abc import Mapping
+from datetime import datetime, timezone
+from types import MappingProxyType
 from typing import Any
 
+from sqldim.core.query.dgm.nl.supervisor._auth import AccessDenied
+from sqldim.core.query.dgm.nl.supervisor._schemas import TOOL_SCHEMAS
 from sqldim.core.query.dgm.nl.supervisor._types import (
+    CallStatus,
+    ToolCallRequest,
     ToolCallResult,
     ToolCapabilitySchema,
+    ToolContext,
+    ToolErrorKind,
+    zero_cost,
 )
+from sqldim.core.query.dgm.planner._targets import CostEstimate
 
-__all__ = ["BaseTool", "TOOL_REGISTRY"]
+__all__ = [
+    "BaseTool",
+    "DemoQueryTool",
+    "TOOL_REGISTRY",
+    "ToolUnavailable",
+    "UnavailableTool",
+    "build_registry",
+]
+
+TOOL_VERSION = "0.1.0"
+
+# The component each tool still lacks (context of its NOT_IMPLEMENTED error).
+_MISSING: dict[str, str] = {
+    "dgm_query": "run_ask_from_source: the non-interactive NL turn of §11.10",
+    "dgm_what_can_i_answer": "bounded enumeration of Q_valid skeletons (§8.11)",
+    "dgm_correlate": "drill-across over conformed keys (§5.2.2, Rule 12)",
+    "dgm_explore_from": "structural moves from a question key (§8.16.6)",
+    "dgm_sensitivity_sweep": "execution of a question over Π(q) (§8.15)",
+    "dgm_validate_invariant": "invariant evaluators (§2.1, §3)",
+    "dgm_store_finding": "tenant-partitioned knowledge base (§12.7)",
+    "dgm_retrieve_related": "tenant-partitioned knowledge base (§12.7)",
+    "dgm_map_analytical_space": "vocabulary decomposition (§8.16)",
+}
+
+
+class ToolUnavailable(RuntimeError):
+    """Raised when an unavailable tool is asked for a cost estimate."""
+
+
+def _capability(name: str, *, available: bool, version: str) -> ToolCapabilitySchema:
+    spec = TOOL_SCHEMAS[name]
+    return ToolCapabilitySchema(
+        name=name,
+        version=version,
+        description=spec.description,
+        input_schema=spec.args.model_json_schema(),
+        output_schema=spec.output.model_json_schema(),
+        reads=spec.reads,
+        writes_kb=spec.writes_kb,
+        idempotent=spec.idempotent,
+        composable_with=spec.composable_with,
+        available=available,
+    )
 
 
 # ---------------------------------------------------------------------------
-# Base tool protocol
+# Interface
 # ---------------------------------------------------------------------------
 
 
 class BaseTool(ABC):
-    """Abstract base for all supervisor tools (5-point contract)."""
+    """The single normative tool interface (§12.2)."""
 
     @property
     @abstractmethod
     def capability_schema(self) -> ToolCapabilitySchema: ...
 
     @abstractmethod
-    def cost_estimate(self, arguments: dict[str, Any]) -> float: ...
+    def cost_estimate(
+        self, arguments: dict[str, Any], ctx: ToolContext
+    ) -> CostEstimate:
+        """Estimate from statistics only: reads no data, has no side effect."""
 
     @abstractmethod
-    def execute(
-        self, arguments: dict[str, Any], *, context: Any = None
-    ) -> ToolCallResult: ...
+    async def execute(
+        self, request: ToolCallRequest, ctx: ToolContext
+    ) -> ToolCallResult:
+        """Run the call; an expected failure is a result, never an exception."""
 
     def compose(self, left: ToolCallResult, right: ToolCallResult) -> ToolCallResult:
-        """Default composition: merge data dicts."""
-        merged = {}
-        if isinstance(left.data, dict):
-            merged.update(left.data)
-        if isinstance(right.data, dict):
-            merged.update(right.data)
-        return ToolCallResult(
-            tool_name=f"{left.tool_name}+{right.tool_name}",
-            success=left.success and right.success,
-            data=merged,
-            cost_actual=left.cost_actual + right.cost_actual,
+        """No tool defines composition yet: report it, never merge blindly."""
+        request = ToolCallRequest(
+            call_id=f"{left.call_id}+{right.call_id}",
+            tool_name=self.capability_schema.name,
+            budget_fraction=0.0,
+            datasets=sorted(set(left.datasets) | set(right.datasets)),
+        )
+        return ToolCallResult.failure(
+            request,
+            CallStatus.FAILED,
+            ToolErrorKind.COMPOSITION_FAILURE,
+            f"{self.capability_schema.name} does not define composition",
+            context={"left": left.call_id, "right": right.call_id},
         )
 
     def explain(self, arguments: dict[str, Any]) -> str:
-        """Default explanation: describe what the tool would do."""
         schema = self.capability_schema
-        return (
-            f"Tool '{schema.name}': {schema.description}\n"
-            f"Input: {arguments}\n"
-            f"Estimated cost: {self.cost_estimate(arguments)}"
+        return f"{schema.name}: {schema.description} — arguments {arguments}"
+
+
+class UnavailableTool(BaseTool):
+    """A §12.3 tool whose implementation is missing in this build."""
+
+    def __init__(self, name: str) -> None:
+        self._name = name
+        self._schema = _capability(name, available=False, version=TOOL_VERSION)
+
+    @property
+    def capability_schema(self) -> ToolCapabilitySchema:
+        return self._schema
+
+    @property
+    def missing(self) -> str:
+        return _MISSING[self._name]
+
+    def cost_estimate(
+        self, arguments: dict[str, Any], ctx: ToolContext
+    ) -> CostEstimate:
+        raise ToolUnavailable(f"{self._name} is not available: {self.missing}")
+
+    async def execute(
+        self, request: ToolCallRequest, ctx: ToolContext
+    ) -> ToolCallResult:
+        return ToolCallResult.failure(
+            request,
+            CallStatus.FAILED,
+            ToolErrorKind.NOT_IMPLEMENTED,
+            f"{self._name} is not implemented in this deployment",
+            context={"missing": self.missing},
         )
 
 
 # ---------------------------------------------------------------------------
-# Tool implementations (stubs — delegate to full pipeline when context available)
+# Demo mode (D47)
 # ---------------------------------------------------------------------------
 
 
-class DgmQueryTool(BaseTool):
-    """Run a DGM NL→SQL pipeline against a dataset (§12.1)."""
-
-    @property
-    def capability_schema(self) -> ToolCapabilitySchema:
-        return ToolCapabilitySchema(
-            name="dgm_query",
-            description="Execute a DGM NL query against a named dataset",
-            input_schema={"dataset": "str", "question": "str"},
-            output_schema={"query_result": "Any", "explanation": "str"},
-            composable_with=["dgm_correlate", "dgm_explore_from"],
-        )
-
-    def cost_estimate(self, arguments: dict[str, Any]) -> float:
-        return 1000.0
-
-    def execute(
-        self, arguments: dict[str, Any], *, context: Any = None
-    ) -> ToolCallResult:
-        dataset = arguments.get("dataset")
-        question = arguments.get("question", "")
-        model = getattr(context, "model", None) if context else None
-        available = list(getattr(context, "available_datasets", [])) if context else []
-
-        if not model or not dataset or dataset not in available:
-            return ToolCallResult(
-                tool_name="dgm_query",
-                success=True,
-                data={
-                    "dataset": dataset,
-                    "question": question,
-                    "explanation": None,
-                    "query_result": None,
-                    "stub": True,
-                },
-                cost_actual=0,
-            )
-
-        # Real execution: run the full NL pipeline against the named dataset.
-        graph_result: dict[str, Any] = {}
-        try:
-            from langgraph.checkpoint.memory import MemorySaver
-
-            from sqldim.application._pipeline_sources import DatasetPipelineSource
-            from sqldim.application.ask import (
-                build_registry_from_schema,
-                load_dataset,
-                make_default_budget,
-            )
-            from sqldim.core.query.dgm.nl._agent_types import (
-                DGMContext,
-                NLInterfaceState,
-            )
-            from sqldim.core.query.dgm.nl._graph import build_nl_graph
-
-            ds = load_dataset(dataset)
-            source = DatasetPipelineSource(ds)
-            source.setup()
-            try:
-                con = source.get_connection()
-                table_names = source.get_table_names()
-                registry = build_registry_from_schema(con, table_names)
-                budget = make_default_budget()
-                ctx = DGMContext(entity_registry=registry, budget=budget, con=con)
-                graph = build_nl_graph(
-                    checkpointer=MemorySaver(), context=ctx, model=model
-                )
-                initial = NLInterfaceState(utterance=question)
-                graph_result = graph.invoke(
-                    initial.model_dump(),
-                    config={
-                        "configurable": {"thread_id": f"dgm-query-{dataset}"},
-                        "recursion_limit": 25,
-                    },
-                )
-            finally:
-                source.teardown()
-        except Exception as exc:  # noqa: BLE001
-            return ToolCallResult(
-                tool_name="dgm_query",
-                success=False,
-                error=str(exc),
-                data={"dataset": dataset, "question": question},
-            )
-
-        return ToolCallResult(
-            tool_name="dgm_query",
-            success=True,
-            data={
-                "dataset": dataset,
-                "question": question,
-                "explanation": graph_result.get("explanation"),
-                "query_result": graph_result.get("result"),
-            },
-            cost_actual=500,
-        )
-
-
-class DgmWhatCanIAnswerTool(BaseTool):
-    """List answerable questions for a dataset from Q_valid(A,B) (§12.1)."""
-
-    @property
-    def capability_schema(self) -> ToolCapabilitySchema:
-        return ToolCapabilitySchema(
-            name="dgm_what_can_i_answer",
-            description="List answerable questions from the formal question space",
-            input_schema={"dataset": "str"},
-            output_schema={"questions": "list[str]"},
-            composable_with=["dgm_query"],
-        )
-
-    def cost_estimate(self, arguments: dict[str, Any]) -> float:
-        return 500.0
-
-    def execute(
-        self, arguments: dict[str, Any], *, context: Any = None
-    ) -> ToolCallResult:
-        all_datasets = (
-            list(context.available_datasets)
-            if context is not None and hasattr(context, "available_datasets")
-            else []
-        )
-        requested = arguments.get("dataset", "__all__")
-        if requested and requested != "__all__" and requested in all_datasets:
-            datasets = [requested]
+def _rows_as_dicts(result: dict[str, Any]) -> list[dict[str, Any]]:
+    columns = list(result.get("columns") or [])
+    rows: list[dict[str, Any]] = []
+    for row in result.get("rows") or []:
+        if isinstance(row, dict):
+            rows.append(dict(row))
         else:
-            datasets = all_datasets
-        return ToolCallResult(
-            tool_name="dgm_what_can_i_answer",
-            success=True,
-            data={"datasets": datasets, "questions": []},
-            cost_actual=0,
+            rows.append(dict(zip(columns, row)))
+    return rows
+
+
+class DemoQueryTool(BaseTool):
+    """``dgm_query`` answered by the heuristic NL graph — demo mode only.
+
+    The NL graph does not implement §11.10 (it has template and fallback
+    paths), so its output is never a contract result: every result carries
+    ``demo = True``.  A turn that produced no executed result is FAILED.
+    """
+
+    def __init__(self, model: Any = None) -> None:
+        self._model = model
+        self._schema = _capability(
+            "dgm_query", available=True, version=f"{TOOL_VERSION}+demo"
         )
-
-
-class DgmCorrelateTool(BaseTool):
-    """Cross-domain correlation of two DGM results (§12.3)."""
 
     @property
     def capability_schema(self) -> ToolCapabilitySchema:
-        return ToolCapabilitySchema(
-            name="dgm_correlate",
-            description="JOIN results from two different DGM analyses",
-            input_schema={"left": "ToolCallResult", "right": "ToolCallResult"},
-            output_schema={"correlation": "Any"},
-            composable_with=["dgm_query"],
-        )
+        return self._schema
 
-    def cost_estimate(self, arguments: dict[str, Any]) -> float:
-        return 200.0
+    def cost_estimate(
+        self, arguments: dict[str, Any], ctx: ToolContext
+    ) -> CostEstimate:
+        return CostEstimate(cpu_ops=0, io_ops=0, note="demo: not estimated")
 
-    def execute(
-        self, arguments: dict[str, Any], *, context: Any = None
+    async def execute(
+        self, request: ToolCallRequest, ctx: ToolContext
     ) -> ToolCallResult:
+        if not ctx.demo:
+            return ToolCallResult.failure(
+                request,
+                CallStatus.FAILED,
+                ToolErrorKind.NOT_IMPLEMENTED,
+                "the heuristic dgm_query runs only in demo mode",
+                context={"missing": _MISSING["dgm_query"]},
+            )
+        started = datetime.now(timezone.utc)
+        try:
+            turn = await asyncio.to_thread(self._run_turn, request, ctx)
+        except AccessDenied as exc:
+            return _demo_failure(request, ToolErrorKind.UNAUTHORIZED, str(exc))
+        except Exception as exc:  # noqa: BLE001 — reported, never swallowed
+            return _demo_failure(
+                request,
+                ToolErrorKind.TOOL_FAILURE,
+                "the demo NL turn failed",
+                {"exception": type(exc).__name__, "detail": str(exc)},
+            )
+        if turn is None:
+            return _demo_failure(
+                request,
+                ToolErrorKind.TOOL_FAILURE,
+                "the demo NL turn produced no executed result",
+            )
         return ToolCallResult(
-            tool_name="dgm_correlate",
-            success=True,
-            data={"correlation": None, "stub": True},
-            cost_actual=0,
+            call_id=request.call_id,
+            tool_name=request.tool_name,
+            status=CallStatus.SUCCEEDED,
+            data=turn,
+            decision=None,
+            datasets=list(request.datasets or []),
+            attempts=1,
+            cost_actual=zero_cost(),
+            started_at=started,
+            finished_at=datetime.now(timezone.utc),
+            demo=True,
         )
 
+    def _run_turn(
+        self, request: ToolCallRequest, ctx: ToolContext
+    ) -> dict[str, Any] | None:
+        from langgraph.checkpoint.memory import MemorySaver
 
-class DgmExploreFromTool(BaseTool):
-    """Navigate from a result to related questions via recommender (§12.4)."""
+        from sqldim.application.ask import build_registry_from_schema
+        from sqldim.core.query.dgm.nl._agent_types import DGMContext, NLInterfaceState
+        from sqldim.core.query.dgm.nl._graph import build_nl_graph
 
-    @property
-    def capability_schema(self) -> ToolCapabilitySchema:
-        return ToolCapabilitySchema(
-            name="dgm_explore_from",
-            description="Navigate from a result to related questions",
-            input_schema={"result": "ToolCallResult", "direction": "str"},
-            output_schema={"suggestions": "list[str]"},
-            composable_with=["dgm_query", "dgm_what_can_i_answer"],
-        )
-
-    def cost_estimate(self, arguments: dict[str, Any]) -> float:
-        return 300.0
-
-    def execute(
-        self, arguments: dict[str, Any], *, context: Any = None
-    ) -> ToolCallResult:
-        return ToolCallResult(
-            tool_name="dgm_explore_from",
-            success=True,
-            data={"suggestions": [], "stub": True},
-            cost_actual=0,
-        )
-
-
-class DgmSensitivitySweepTool(BaseTool):
-    """Parameter sweep analysis over P_Σ (§12.5)."""
-
-    @property
-    def capability_schema(self) -> ToolCapabilitySchema:
-        return ToolCapabilitySchema(
-            name="dgm_sensitivity_sweep",
-            description="Sweep parameter space to find sensitivity boundaries",
-            input_schema={"dataset": "str", "question": "str", "param": "str"},
-            output_schema={"sweep_results": "list[dict]"},
-            composable_with=["dgm_query"],
-        )
-
-    def cost_estimate(self, arguments: dict[str, Any]) -> float:
-        return 2000.0
-
-    def execute(
-        self, arguments: dict[str, Any], *, context: Any = None
-    ) -> ToolCallResult:
-        return ToolCallResult(
-            tool_name="dgm_sensitivity_sweep",
-            success=True,
-            data={"sweep_results": [], "stub": True},
-            cost_actual=0,
-        )
+        dataset = request.arguments["dataset"]
+        source = ctx.data.open(dataset)
+        source.setup()
+        try:
+            con = source.get_connection()
+            registry = build_registry_from_schema(con, source.get_table_names())
+            nl_ctx = DGMContext(entity_registry=registry, budget=ctx.budget, con=con)
+            graph = build_nl_graph(
+                checkpointer=MemorySaver(), context=nl_ctx, model=self._model
+            )
+            out = graph.invoke(
+                NLInterfaceState(utterance=request.arguments["utterance"]).model_dump(),
+                config={
+                    "configurable": {"thread_id": f"demo-{request.call_id}"},
+                    "recursion_limit": 25,
+                },
+            )
+        finally:
+            source.teardown()
+        result = out.get("result")
+        if not isinstance(result, dict):
+            return None
+        return {
+            "question_key": None,
+            "decision": "PROCEED",
+            "rows": _rows_as_dicts(result),
+            "job": None,
+            "explanation": out.get("explanation") or "",
+            "unresolved": [],
+        }
 
 
-class DgmValidateInvariantTool(BaseTool):
-    """Check a formal invariant of the DGM model (§12.6)."""
-
-    @property
-    def capability_schema(self) -> ToolCapabilitySchema:
-        return ToolCapabilitySchema(
-            name="dgm_validate_invariant",
-            description="Validate a formal invariant holds for the current model state",
-            input_schema={"invariant": "str", "dataset": "str"},
-            output_schema={"valid": "bool", "violations": "list[str]"},
-            composable_with=[],
-        )
-
-    def cost_estimate(self, arguments: dict[str, Any]) -> float:
-        return 100.0
-
-    def execute(
-        self, arguments: dict[str, Any], *, context: Any = None
-    ) -> ToolCallResult:
-        return ToolCallResult(
-            tool_name="dgm_validate_invariant",
-            success=True,
-            data={"valid": True, "violations": [], "stub": True},
-            cost_actual=0,
-        )
-
-
-class DgmStoreFindingTool(BaseTool):
-    """Persist a finding to the knowledge base (§12.7)."""
-
-    @property
-    def capability_schema(self) -> ToolCapabilitySchema:
-        return ToolCapabilitySchema(
-            name="dgm_store_finding",
-            description="Store an analytical finding for later retrieval",
-            input_schema={"finding": "str", "tags": "list[str]"},
-            output_schema={"stored": "bool", "finding_id": "str"},
-            composable_with=["dgm_retrieve_related"],
-        )
-
-    def cost_estimate(self, arguments: dict[str, Any]) -> float:
-        return 10.0
-
-    def execute(
-        self, arguments: dict[str, Any], *, context: Any = None
-    ) -> ToolCallResult:
-        return ToolCallResult(
-            tool_name="dgm_store_finding",
-            success=True,
-            data={"stored": True, "finding_id": "stub-0", "stub": True},
-            cost_actual=0,
-        )
-
-
-class DgmRetrieveRelatedTool(BaseTool):
-    """Lattice-adjacent retrieval from the knowledge base (§12.7)."""
-
-    @property
-    def capability_schema(self) -> ToolCapabilitySchema:
-        return ToolCapabilitySchema(
-            name="dgm_retrieve_related",
-            description="Retrieve related findings via lattice-adjacent search",
-            input_schema={"query": "str", "max_results": "int"},
-            output_schema={"findings": "list[dict]"},
-            composable_with=["dgm_store_finding", "dgm_query"],
-        )
-
-    def cost_estimate(self, arguments: dict[str, Any]) -> float:
-        return 50.0
-
-    def execute(
-        self, arguments: dict[str, Any], *, context: Any = None
-    ) -> ToolCallResult:
-        return ToolCallResult(
-            tool_name="dgm_retrieve_related",
-            success=True,
-            data={"findings": [], "stub": True},
-            cost_actual=0,
-        )
-
-
-class DgmMapAnalyticalSpaceTool(BaseTool):
-    """Map the full vocabulary decomposition of a dataset (§8.16 / §12.8)."""
-
-    @property
-    def capability_schema(self) -> ToolCapabilitySchema:
-        return ToolCapabilitySchema(
-            name="dgm_map_analytical_space",
-            description="Map the analytical space: vocabulary decomposition, effective size, semantic basis",
-            input_schema={"dataset": "str"},
-            output_schema={"vocabularies": "dict", "A_eff_estimate": "int"},
-            composable_with=["dgm_what_can_i_answer", "dgm_sensitivity_sweep"],
-        )
-
-    def cost_estimate(self, arguments: dict[str, Any]) -> float:
-        return 800.0
-
-    def execute(
-        self, arguments: dict[str, Any], *, context: Any = None
-    ) -> ToolCallResult:
-        tools_info = [
-            {
-                "name": t.capability_schema.name,
-                "description": t.capability_schema.description,
-            }
-            for t in TOOL_REGISTRY.values()
-        ]
-        return ToolCallResult(
-            tool_name="dgm_map_analytical_space",
-            success=True,
-            data={"tools": tools_info},
-            cost_actual=0,
-        )
+def _demo_failure(
+    request: ToolCallRequest,
+    kind: ToolErrorKind,
+    message: str,
+    context: dict[str, Any] | None = None,
+) -> ToolCallResult:
+    result = ToolCallResult.failure(
+        request, CallStatus.FAILED, kind, message, context=context
+    )
+    return result.model_copy(update={"demo": True})
 
 
 # ---------------------------------------------------------------------------
 # Registry
 # ---------------------------------------------------------------------------
 
-TOOL_REGISTRY: dict[str, BaseTool] = {
-    "dgm_query": DgmQueryTool(),
-    "dgm_what_can_i_answer": DgmWhatCanIAnswerTool(),
-    "dgm_correlate": DgmCorrelateTool(),
-    "dgm_explore_from": DgmExploreFromTool(),
-    "dgm_sensitivity_sweep": DgmSensitivitySweepTool(),
-    "dgm_validate_invariant": DgmValidateInvariantTool(),
-    "dgm_store_finding": DgmStoreFindingTool(),
-    "dgm_retrieve_related": DgmRetrieveRelatedTool(),
-    "dgm_map_analytical_space": DgmMapAnalyticalSpaceTool(),
-}
+
+def build_registry(*, demo: bool = False, model: Any = None) -> Mapping[str, BaseTool]:
+    """The immutable registry for one run (§12.2, *Registry*).
+
+    ``demo=True`` must come from the caller's explicit selection (D47); it is
+    never chosen because a component is missing.
+    """
+    tools: dict[str, BaseTool] = {name: UnavailableTool(name) for name in TOOL_SCHEMAS}
+    if demo:
+        tools["dgm_query"] = DemoQueryTool(model=model)
+    return MappingProxyType(tools)
+
+
+TOOL_REGISTRY: Mapping[str, BaseTool] = build_registry()

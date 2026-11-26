@@ -50,7 +50,8 @@ from sqldim.core.query.dgm.nl._graph import (  # noqa: F401
     build_nl_graph,
 )
 from sqldim.core.query.dgm.nl.supervisor import (  # noqa: F401
-    SupervisorContext,
+    AuthContext,
+    SupervisorRuntime,
     SupervisorPlan,
     SupervisorState,
     ToolCallRequest,

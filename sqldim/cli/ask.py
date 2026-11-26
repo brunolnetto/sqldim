@@ -113,33 +113,16 @@ def cmd_ask(args: argparse.Namespace) -> int:
     )
 
 
-_REQUIRED = object()
-
-
-def _hop_field(hop: Any, key: str, default: Any) -> Any:
-    """Read *key* from a tool-result hop that is either a dict or an object."""
-    if isinstance(hop, dict):
-        return hop.get(key)
-    if default is _REQUIRED:
-        return getattr(hop, key)
-    return getattr(hop, key, default)
-
-
 def _format_hop(hop: Any) -> str:
-    """Render one tool-result hop as ``[name] status details``."""
-    name = _hop_field(hop, "tool_name", "?")
-    ok = _hop_field(hop, "success", False)
-    data = _hop_field(hop, "data", _REQUIRED) or {}
-    err = _hop_field(hop, "error", None)
-    status = "\u2713" if ok else "\u2717"
-    if err:
-        return f"[{name}] {status} ERROR: {err}"
-    display = {
-        k: v
-        for k, v in (data if isinstance(data, dict) else {}).items()
-        if k != "stub" and v is not None
-    }
-    return f"[{name}] {status} {display}"
+    """Render one tool result as ``[call_id] tool STATUS details``."""
+    status = hop.status.value
+    mark = "\u2713" if status == "SUCCEEDED" else "\u2717"
+    head = f"[{hop.call_id}] {hop.tool_name} {mark} {status}"
+    if hop.demo:
+        head += " (demo)"
+    if hop.error is not None:
+        return f"{head} {hop.error.kind.value}: {hop.error.message}"
+    return head
 
 
 def _resolve_datasets(
@@ -171,37 +154,23 @@ def _build_llm_model(
         return None
 
 
-def _invoke_supervisor(available: list[str], llm_model: Any, question: str) -> Any:
-    """Build the supervisor graph and run it once on *question*."""
-    from sqldim.core.query.dgm.nl.supervisor._graph import build_supervisor_graph
-    from sqldim.core.query.dgm.nl.supervisor._types import (
-        SupervisorContext,
-        SupervisorState,
-    )
+def _invoke_supervisor(
+    available: list[str], llm_model: Any, question: str, *, demo: bool = False
+) -> Any:
+    """Run the supervisor once on *question* for the local principal."""
+    from sqldim.application.supervisor_host import local_supervisor_runtime
+    from sqldim.core.query.dgm.nl.supervisor._graph import run_supervisor
 
-    context = SupervisorContext(
-        available_datasets=available,
-        model=llm_model,
-    )
-    graph = build_supervisor_graph(context=context)
-    initial = SupervisorState(utterance=question)
-    return graph.invoke(
-        initial.model_dump(),
-        config={
-            "configurable": {"thread_id": "cli-supervisor"},
-            "recursion_limit": 25,
-        },
-    )
+    runtime = local_supervisor_runtime(available, model=llm_model, demo=demo)
+    return run_supervisor(question, runtime, thread_id="cli-supervisor")
 
 
 def _print_verbose(result: Any, prefix: str) -> None:
     """Print visited nodes, timings and per-tool hops of a supervisor run."""
-    visited = result.get("visited_nodes", [])
-    timings = result.get("node_timings", {})
-    print(f"\n[{prefix}] Nodes visited: {visited}")
-    for node, ms in timings.items():
+    print(f"\n[{prefix}] Nodes visited: {result.visited_nodes}")
+    for node, ms in result.node_timings.items():
         print(f"  {node}: {ms}ms")
-    for hop in result.get("results", []):
+    for hop in result.results.values():
         print(f"  {_format_hop(hop)}")
 
 
@@ -221,15 +190,18 @@ def _run_supervisor(args: argparse.Namespace) -> int:
     )
     llm_model = _build_llm_model(model_provider, model_name, prefix)
 
-    result = _invoke_supervisor(available, llm_model, args.question)
-
-    synthesis = result.get("synthesis")
-    if synthesis:
-        print(synthesis)
-    else:
-        print("[sqldim ask] No synthesis produced.")
+    result = _invoke_supervisor(
+        available, llm_model, args.question, demo=bool(getattr(args, "demo", False))
+    )
+    print(result.synthesis or f"Outcome: {result.outcome}")
 
     if getattr(args, "verbose", False):
         _print_verbose(result, prefix)
 
-    return 0
+    return _outcome_exit_code(result)
+
+
+def _outcome_exit_code(result: Any) -> int:
+    """0 only for COMPLETE; a partial or failed answer is not a success."""
+    outcome = result.outcome.value if result.outcome is not None else "FAILED"
+    return 0 if outcome == "COMPLETE" else 1

@@ -49,7 +49,9 @@ from sqldim.core.query.dgm.nl.supervisor._judge import (
     load_judge_cases,
     run_pipeline,
 )
-from sqldim.core.query.dgm.nl.supervisor._types import SupervisorContext
+from sqldim.core.query.dgm.nl.supervisor._auth import Action
+from sqldim.core.query.dgm.nl.supervisor._planner import KeywordDemoPlanner
+from tests.supervisor._fakes import FakeTool, auth, registry, runtime
 
 # ---------------------------------------------------------------------------
 # Gate: only the external LLM judge evaluations require explicit opt-in
@@ -80,11 +82,19 @@ _ALL_DATASETS = [
     "telemetry",
 ]
 
-_CTX = SupervisorContext(available_datasets=_ALL_DATASETS)
-
 _PASS_THRESHOLD = 0.6  # planning and execution
-_SYNTHESIS_THRESHOLD = 0.4  # stubs produce minimal synthesis by design
-_OVERALL_THRESHOLD = 0.5  # realistic target for a stub pipeline
+_SYNTHESIS_THRESHOLD = 0.4
+_OVERALL_THRESHOLD = 0.5
+
+
+def _scripted_demo_runtime():  # type: ignore[no-untyped-def]
+    """Demo mode (D47) with a scripted dgm_query: deterministic pre-checks."""
+    return runtime(
+        registry(FakeTool("dgm_query")),
+        KeywordDemoPlanner(),
+        the_auth=auth({d: {Action.READ} for d in _ALL_DATASETS}),
+        demo=True,
+    )
 
 
 # Provider → required env-var name for cloud APIs.
@@ -124,24 +134,35 @@ def judge() -> Any:
 
 @pytest.fixture(scope="module")
 def pipeline_outputs() -> dict[str, PipelineOutput]:
-    """Run the supervisor pipeline once per case and cache the outputs.
-
-    This avoids re-running the (deterministic, stub) pipeline for every
-    test class that needs the same output.
-    """
-    cache: dict[str, PipelineOutput] = {}
-    for case in _JUDGE_CASES:
-        cache[case.id] = run_pipeline(
+    """Run each case once through the scripted demo pipeline (deterministic)."""
+    return {
+        case.id: run_pipeline(
             case.utterance,
-            context=_CTX,
+            _scripted_demo_runtime(),
             thread_id=f"judge-{case.id}-{uuid.uuid4().hex[:8]}",
         )
-    return cache
+        for case in _JUDGE_CASES
+    }
+
+
+@pytest.fixture(scope="module")
+def live_outputs() -> dict[str, PipelineOutput]:
+    """The real demo pipeline (bundled datasets, heuristic NL graph)."""
+    from sqldim.application.supervisor_host import local_supervisor_runtime
+
+    return {
+        case.id: run_pipeline(
+            case.utterance,
+            local_supervisor_runtime(_ALL_DATASETS, demo=True),
+            thread_id=f"judge-live-{case.id}-{uuid.uuid4().hex[:8]}",
+        )
+        for case in _JUDGE_CASES
+    }
 
 
 @pytest.fixture(scope="module")
 def judge_verdicts(
-    judge: Any, pipeline_outputs: dict[str, PipelineOutput]
+    judge: Any, live_outputs: dict[str, PipelineOutput]
 ) -> dict[str, Any]:
     """Compute all LLM judge verdicts once per module, in parallel.
 
@@ -164,7 +185,7 @@ def judge_verdicts(
     cache: dict[str, JudgeVerdict] = {}
 
     def _run_one(case: Any) -> tuple[str, JudgeVerdict]:
-        return case.id, judge.judge(case, pipeline_outputs[case.id])
+        return case.id, judge.judge(case, live_outputs[case.id])
 
     with ThreadPoolExecutor(max_workers=10) as executor:
         futures = {executor.submit(_run_one, case): case for case in _JUDGE_CASES}
@@ -196,7 +217,7 @@ class TestDeterministicPreChecks:
         case: JudgeCase,
         pipeline_outputs: dict[str, PipelineOutput],
     ) -> None:
-        """Full pipeline (including reflect) selects the expected tools."""
+        """The demo planner selects the expected tools (possibly none)."""
         output = pipeline_outputs[case.id]
         assert output.plan_tools == case.planning.tools, (
             f"[{case.id}] Expected tools {case.planning.tools}, got {output.plan_tools}"
@@ -247,6 +268,20 @@ class TestDeterministicPreChecks:
             pytest.skip("case does not expect all_succeed")
         output = pipeline_outputs[case.id]
         assert output.all_succeeded, f"[{case.id}] Expected all tools to succeed"
+
+    @pytest.mark.parametrize("case", _JUDGE_CASES, ids=_case_id)
+    def test_outcome(
+        self,
+        case: JudgeCase,
+        pipeline_outputs: dict[str, PipelineOutput],
+    ) -> None:
+        output = pipeline_outputs[case.id]
+        assert output.demo is True
+        if case.execution.outcome is not None:
+            assert output.outcome == case.execution.outcome, (
+                f"[{case.id}] Expected outcome {case.execution.outcome}, "
+                f"got {output.outcome}"
+            )
 
     @pytest.mark.parametrize("case", _JUDGE_CASES, ids=_case_id)
     def test_synthesis_must_mention(

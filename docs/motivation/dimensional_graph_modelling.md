@@ -4380,7 +4380,7 @@ Version history of this specification. Earlier versions than v0.16 are not recor
 
 **v0.26** — §8.16 Vocabulary decomposition and analytical space characterisation — six vocabularies (`V_N`, `V_E`, `V_P`, `V_Pred`, `V_Op`, `V_Par`); factored size estimate via multiplicative decomposition; four-level hierarchy (see the superseded note at the end of this entry); semantic sparsity and effective analytical space `A_eff`; semantic basis as minimal generating set; polynomial neighbourhood bound; per-level navigation strategies for recommender and NL interface; worked example for BookClub `social_network` domain. *Superseded:* this entry originally described a hierarchy "term → phrase → sentence → paragraph" and gave a 14-element semantic basis and ~2.3 k effective questions; the body of v0.26 uses the Structure / Predicate / Parameter / Operator hierarchy of §8.16.3 and estimates ~6.0 × 10⁵ effective questions (§8.16.8), which are the figures in force. §8.11 cross-reference to §8.16.6–8.16.7 for size characterisation. §7.7 cross-reference to §8.16.5–8.16.6 for formal basis justification. §12 Supervisor Agent Architecture — six agent-safe properties; five-point tool contract (`BaseTool` ABC: `capability_schema`, `cost_estimate`, `execute`, `compose`, `explain`); nine core tools (`dgm_query`, `what_can_i_answer`, `correlate`, `explore_from`, `sensitivity_sweep`, `validate_invariant`, `store_finding`, `retrieve_related`, `map_analytical_space`); `TOOL_REGISTRY` dict; five-node LangGraph supervisor graph (plan → select_tool → execute_tool → synthesize → respond); budget propagation via `budget_fraction` on `ToolCallRequest`; six supervisor workflows (single-domain, cross-domain, hypothesis-driven, exhaustive-survey, validation, meta-analytical); knowledge base with lattice-adjacent retrieval keyed by `(A, B, q, π)`; meta-tool operationalising §8.11 question completeness; relationship to §7 recommender as supplier of `Q_valid`/lattice to supervisor navigation.
 
-**v0.27 (in progress)** — Revision of v0.26 in response to the review tracked in issues #21–#96. Decisions are recorded as D31–D39 (§10.4) and in `docs/adr/0001`–`0009`; each change is linked to its issue in the pull request that made it. The conformance audit tracked in issue #141 adds the fail-closed rules: gate substitutions are opt-in (D40), unversioned cache entries are opt-in (D41), and the supervisor and NL interface fail closed without a degrade route (D42); `docs/adr/0010`–`0012`. It also closes specification gaps found by the audit: per-tool contracts (D43), authorization at every entry point (D44), watermark reading (D45) and the PipelineArtifact execution protocol (D46), and confines the existing heuristic path to an explicit demo mode (D47).
+**v0.27 (in progress)** — Revision of v0.26 in response to the review tracked in issues #21–#96. Decisions are recorded as D31–D39 (§10.4) and in `docs/adr/0001`–`0009`; each change is linked to its issue in the pull request that made it. The conformance audit tracked in issue #141 adds the fail-closed rules: gate substitutions are opt-in (D40), unversioned cache entries are opt-in (D41), and the supervisor and NL interface fail closed without a degrade route (D42); `docs/adr/0010`–`0012`. It also closes specification gaps found by the audit: per-tool contracts (D43), authorization at every entry point (D44), watermark reading (D45) and the PipelineArtifact execution protocol (D46), and confines the existing heuristic path to an explicit demo mode (D47). Implementing the §12.2 contract clarified two definitions: an argument that holds a `call_id` reads the datasets of the referenced result (§12.2 `reads`, §12.3 *Reads*), and a step cancelled before dispatch has no attempt.
 
 ---
 
@@ -5258,7 +5258,8 @@ ToolCapabilitySchema(
   description:     str,
   input_schema:    JSONSchema,               -- arguments are validated against it
   output_schema:   JSONSchema,               -- ToolCallResult.data is validated against it
-  reads:           list[JSONPointer],        -- argument fields that name datasets the tool reads
+  reads:           list[JSONPointer],        -- argument fields that name datasets the tool reads;
+                                             -- an argument holding a call_id reads the datasets of that result
   writes_kb:       bool,                     -- stores findings (§12.7)
   idempotent:      bool,                     -- re-executing with the same arguments has no further effect
   composable_with: list[ToolName],           -- tools whose output this tool may take as input
@@ -5277,7 +5278,8 @@ ToolCallRequest(
   depends_on:       list[call_id],           -- results this call consumes; earlier steps only
   budget_fraction:  float ∈ [0, 1])
   -- derived by the supervisor, never by the planner model:
-  datasets:         list[DatasetId]          -- read from `arguments` at the `reads` pointers
+  datasets:         list[DatasetId]          -- read from `arguments` at the `reads` pointers, plus the datasets
+                                             -- of every step a call_id argument names (it must be in depends_on)
   idempotency_key:  str                      -- H(plan_id, call_id, tool_name, canonical(arguments))
 
 ToolCallResult(
@@ -5288,7 +5290,7 @@ ToolCallResult(
   decision:     BudgetDecisionKind | None,   -- kind returned by the child gate, if it was reached
   error:        ToolError | None,            -- present iff status ∉ {SUCCEEDED}
   datasets:     list[DatasetId],             -- provenance of `data`
-  attempts:     int,                         -- ≥ 1 unless SKIPPED
+  attempts:     int,                         -- ≥ 1 unless SKIPPED, or CANCELLED before dispatch
   cost_actual:  CostEstimate,
   started_at:   Timestamp | None,
   finished_at:  Timestamp | None)
@@ -5401,9 +5403,9 @@ Where the interactive interface would ask the user to confirm a candidate, the n
 |---|---|---|---|---|---|
 | `dgm_query` | One NL question against a dataset | `run_ask_from_source` (§12.2, §11.10) | `/dataset` | no | yes |
 | `dgm_what_can_i_answer` | List answerable questions from `Q_valid` | BDD enumeration (§8.3) | `/dataset` | no | yes |
-| `dgm_correlate` | Cross-domain JOIN of two results | `Q_algebra.JOIN` (§8.13) | `/left/dataset`, `/right/dataset` | no | yes |
-| `dgm_explore_from` | Navigate from a result to related questions | Recommender (§7) | `/dataset` | no | yes |
-| `dgm_sensitivity_sweep` | Parameter sweep over `Π(q)` | §8.15 + §8.16.7 Level 3 strategy | `/dataset` | no | yes |
+| `dgm_correlate` | Cross-domain JOIN of two results | `Q_algebra.JOIN` (§8.13) | datasets of `left` and `right` | no | yes |
+| `dgm_explore_from` | Navigate from a result to related questions | Recommender (§7) | datasets of `source` | no | yes |
+| `dgm_sensitivity_sweep` | Parameter sweep over `Π(q)` | §8.15 + §8.16.7 Level 3 strategy | datasets of `source` | no | yes |
 | `dgm_validate_invariant` | Check a formal model invariant | Schema validation (§2–§3) | `/dataset` | no | yes |
 | `dgm_store_finding` | Persist an analytical finding | Knowledge base (§12.7) | `/finding/datasets/*` | yes | yes, by `idempotency_key` |
 | `dgm_retrieve_related` | Retrieval from KB by move distance | **Not** vector similarity — `d_L` of §12.7 | `/dataset` | no | yes |

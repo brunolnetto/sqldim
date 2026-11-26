@@ -1,5 +1,5 @@
 {
-  "description": "LLM judge eval cases for the DGM supervisor pipeline (§12 evals).",
+  "description": "LLM judge eval cases for the DGM supervisor in explicit demo mode (§12, D47).",
   "pass_threshold": 0.6,
   "cases": [
     {
@@ -20,18 +20,18 @@
         },
         "execution": {
           "all_succeed": true,
-          "result_count": 1
+          "result_count": 1,
+          "outcome": "COMPLETE"
         },
         "synthesis": {
           "must_mention": [
-            "query",
-            "completed"
+            "demo mode",
+            "Outcome: COMPLETE"
           ],
           "must_not_mention": [
-            "error",
-            "failed"
+            "not available"
           ],
-          "semantic_criteria": "Should indicate a DGM query was run on a dataset"
+          "semantic_criteria": "States the outcome and reports the rows of the query that ran, marked as demo output"
         }
       }
     },
@@ -53,18 +53,18 @@
         },
         "execution": {
           "all_succeed": true,
-          "result_count": 1
+          "result_count": 1,
+          "outcome": "COMPLETE"
         },
         "synthesis": {
           "must_mention": [
-            "query",
-            "completed"
+            "demo mode",
+            "Outcome: COMPLETE"
           ],
           "must_not_mention": [
-            "error",
-            "failed"
+            "not available"
           ],
-          "semantic_criteria": "Should describe a query completion on a dataset"
+          "semantic_criteria": "States the outcome and reports the rows of the query that ran, marked as demo output"
         }
       }
     },
@@ -86,18 +86,18 @@
         },
         "execution": {
           "all_succeed": true,
-          "result_count": 1
+          "result_count": 1,
+          "outcome": "COMPLETE"
         },
         "synthesis": {
           "must_mention": [
-            "query",
-            "completed"
+            "demo mode",
+            "Outcome: COMPLETE"
           ],
           "must_not_mention": [
-            "error",
-            "failed"
+            "not available"
           ],
-          "semantic_criteria": "Should indicate a query was executed successfully"
+          "semantic_criteria": "States the outcome and reports the rows of the query that ran, marked as demo output"
         }
       }
     },
@@ -119,18 +119,18 @@
         },
         "execution": {
           "all_succeed": true,
-          "result_count": 1
+          "result_count": 1,
+          "outcome": "COMPLETE"
         },
         "synthesis": {
           "must_mention": [
-            "query",
-            "completed"
+            "demo mode",
+            "Outcome: COMPLETE"
           ],
           "must_not_mention": [
-            "error",
-            "failed"
+            "not available"
           ],
-          "semantic_criteria": "Should confirm an analytical query ran successfully"
+          "semantic_criteria": "States the outcome and reports the rows of the query that ran, marked as demo output"
         }
       }
     },
@@ -152,18 +152,18 @@
         },
         "execution": {
           "all_succeed": true,
-          "result_count": 1
+          "result_count": 1,
+          "outcome": "COMPLETE"
         },
         "synthesis": {
           "must_mention": [
-            "query",
-            "completed"
+            "demo mode",
+            "Outcome: COMPLETE"
           ],
           "must_not_mention": [
-            "error",
-            "failed"
+            "not available"
           ],
-          "semantic_criteria": "Should indicate a listing query was executed"
+          "semantic_criteria": "States the outcome and reports the rows of the query that ran, marked as demo output"
         }
       }
     },
@@ -185,18 +185,18 @@
         },
         "execution": {
           "all_succeed": true,
-          "result_count": 1
+          "result_count": 1,
+          "outcome": "COMPLETE"
         },
         "synthesis": {
           "must_mention": [
-            "query",
-            "completed"
+            "demo mode",
+            "Outcome: COMPLETE"
           ],
           "must_not_mention": [
-            "error",
-            "failed"
+            "not available"
           ],
-          "semantic_criteria": "Should describe a churn-related query completion"
+          "semantic_criteria": "States the outcome and reports the rows of the query that ran, marked as demo output"
         }
       }
     },
@@ -218,18 +218,18 @@
         },
         "execution": {
           "all_succeed": true,
-          "result_count": 1
+          "result_count": 1,
+          "outcome": "COMPLETE"
         },
         "synthesis": {
           "must_mention": [
-            "query",
-            "completed"
+            "demo mode",
+            "Outcome: COMPLETE"
           ],
           "must_not_mention": [
-            "error",
-            "failed"
+            "not available"
           ],
-          "semantic_criteria": "Should confirm an aggregation query executed"
+          "semantic_criteria": "States the outcome and reports the rows of the query that ran, marked as demo output"
         }
       }
     },
@@ -251,18 +251,18 @@
         },
         "execution": {
           "all_succeed": true,
-          "result_count": 1
+          "result_count": 1,
+          "outcome": "COMPLETE"
         },
         "synthesis": {
           "must_mention": [
-            "query",
-            "completed"
+            "demo mode",
+            "Outcome: COMPLETE"
           ],
           "must_not_mention": [
-            "error",
-            "failed"
+            "not available"
           ],
-          "semantic_criteria": "Should confirm a count query was executed"
+          "semantic_criteria": "States the outcome and reports the rows of the query that ran, marked as demo output"
         }
       }
     },
@@ -276,25 +276,24 @@
       ],
       "expected": {
         "planning": {
-          "tools": [
-            "dgm_what_can_i_answer"
-          ],
+          "tools": [],
           "dataset": null,
-          "confidence_min": 0.5
+          "confidence_min": 0.0
         },
         "execution": {
-          "all_succeed": true,
-          "result_count": 1
+          "all_succeed": false,
+          "result_count": 0,
+          "outcome": "FAILED"
         },
         "synthesis": {
           "must_mention": [
+            "Outcome: FAILED",
             "dataset"
           ],
           "must_not_mention": [
-            "error",
-            "failed"
+            "Outcome: COMPLETE"
           ],
-          "semantic_criteria": "Should list available datasets with their names"
+          "semantic_criteria": "States that no tool ran and why; does not present anything as an answer"
         }
       }
     },
@@ -308,25 +307,24 @@
       ],
       "expected": {
         "planning": {
-          "tools": [
-            "dgm_what_can_i_answer"
-          ],
+          "tools": [],
           "dataset": null,
-          "confidence_min": 0.5
+          "confidence_min": 0.0
         },
         "execution": {
-          "all_succeed": true,
-          "result_count": 1
+          "all_succeed": false,
+          "result_count": 0,
+          "outcome": "FAILED"
         },
         "synthesis": {
           "must_mention": [
+            "Outcome: FAILED",
             "dataset"
           ],
           "must_not_mention": [
-            "error",
-            "failed"
+            "Outcome: COMPLETE"
           ],
-          "semantic_criteria": "Should enumerate the datasets the system knows about"
+          "semantic_criteria": "States that no tool ran and why; does not present anything as an answer"
         }
       }
     },
@@ -340,25 +338,24 @@
       ],
       "expected": {
         "planning": {
-          "tools": [
-            "dgm_map_analytical_space"
-          ],
+          "tools": [],
           "dataset": null,
-          "confidence_min": 0.5
+          "confidence_min": 0.0
         },
         "execution": {
-          "all_succeed": true,
-          "result_count": 1
+          "all_succeed": false,
+          "result_count": 0,
+          "outcome": "FAILED"
         },
         "synthesis": {
           "must_mention": [
+            "Outcome: FAILED",
             "tool"
           ],
           "must_not_mention": [
-            "error",
-            "failed"
+            "Outcome: COMPLETE"
           ],
-          "semantic_criteria": "Should list the available analytical tools with descriptions"
+          "semantic_criteria": "States that no tool ran and why; does not present anything as an answer"
         }
       }
     },
@@ -372,25 +369,24 @@
       ],
       "expected": {
         "planning": {
-          "tools": [
-            "dgm_map_analytical_space"
-          ],
+          "tools": [],
           "dataset": null,
-          "confidence_min": 0.5
+          "confidence_min": 0.0
         },
         "execution": {
-          "all_succeed": true,
-          "result_count": 1
+          "all_succeed": false,
+          "result_count": 0,
+          "outcome": "FAILED"
         },
         "synthesis": {
           "must_mention": [
+            "Outcome: FAILED",
             "tool"
           ],
           "must_not_mention": [
-            "error",
-            "failed"
+            "Outcome: COMPLETE"
           ],
-          "semantic_criteria": "Should describe the system's analytical tool capabilities"
+          "semantic_criteria": "States that no tool ran and why; does not present anything as an answer"
         }
       }
     },
@@ -405,27 +401,25 @@
       ],
       "expected": {
         "planning": {
-          "tools": [
-            "dgm_what_can_i_answer",
-            "dgm_map_analytical_space"
-          ],
+          "tools": [],
           "dataset": null,
-          "confidence_min": 0.7
+          "confidence_min": 0.0
         },
         "execution": {
-          "all_succeed": true,
-          "result_count": 2
+          "all_succeed": false,
+          "result_count": 0,
+          "outcome": "FAILED"
         },
         "synthesis": {
           "must_mention": [
+            "Outcome: FAILED",
             "dataset",
             "tool"
           ],
           "must_not_mention": [
-            "error",
-            "failed"
+            "Outcome: COMPLETE"
           ],
-          "semantic_criteria": "Should list both available datasets and available tools"
+          "semantic_criteria": "States that no tool ran and why; does not present anything as an answer"
         }
       }
     },
@@ -440,27 +434,25 @@
       ],
       "expected": {
         "planning": {
-          "tools": [
-            "dgm_what_can_i_answer",
-            "dgm_map_analytical_space"
-          ],
+          "tools": [],
           "dataset": null,
-          "confidence_min": 0.7
+          "confidence_min": 0.0
         },
         "execution": {
-          "all_succeed": true,
-          "result_count": 2
+          "all_succeed": false,
+          "result_count": 0,
+          "outcome": "FAILED"
         },
         "synthesis": {
           "must_mention": [
+            "Outcome: FAILED",
             "dataset",
             "tool"
           ],
           "must_not_mention": [
-            "error",
-            "failed"
+            "Outcome: COMPLETE"
           ],
-          "semantic_criteria": "Should present both data availability and tool capability information"
+          "semantic_criteria": "States that no tool ran and why; does not present anything as an answer"
         }
       }
     },
@@ -474,25 +466,24 @@
       ],
       "expected": {
         "planning": {
-          "tools": [
-            "dgm_what_can_i_answer"
-          ],
-          "dataset": "commerce",
-          "confidence_min": 0.5
+          "tools": [],
+          "dataset": null,
+          "confidence_min": 0.0
         },
         "execution": {
-          "all_succeed": true,
-          "result_count": 1
+          "all_succeed": false,
+          "result_count": 0,
+          "outcome": "FAILED"
         },
         "synthesis": {
           "must_mention": [
+            "Outcome: FAILED",
             "commerce"
           ],
           "must_not_mention": [
-            "error",
-            "failed"
+            "Outcome: COMPLETE"
           ],
-          "semantic_criteria": "Should identify the canonical commerce dataset for the legacy ecommerce term."
+          "semantic_criteria": "States that no tool ran and why; does not present anything as an answer"
         }
       }
     },
@@ -506,25 +497,24 @@
       ],
       "expected": {
         "planning": {
-          "tools": [
-            "dgm_what_can_i_answer"
-          ],
-          "dataset": "entertainment",
-          "confidence_min": 0.5
+          "tools": [],
+          "dataset": null,
+          "confidence_min": 0.0
         },
         "execution": {
-          "all_succeed": true,
-          "result_count": 1
+          "all_succeed": false,
+          "result_count": 0,
+          "outcome": "FAILED"
         },
         "synthesis": {
           "must_mention": [
+            "Outcome: FAILED",
             "entertainment"
           ],
           "must_not_mention": [
-            "error",
-            "failed"
+            "Outcome: COMPLETE"
           ],
-          "semantic_criteria": "Should specifically reference the entertainment dataset"
+          "semantic_criteria": "States that no tool ran and why; does not present anything as an answer"
         }
       }
     },
@@ -538,25 +528,24 @@
       ],
       "expected": {
         "planning": {
-          "tools": [
-            "dgm_what_can_i_answer"
-          ],
-          "dataset": "commerce",
-          "confidence_min": 0.5
+          "tools": [],
+          "dataset": null,
+          "confidence_min": 0.0
         },
         "execution": {
-          "all_succeed": true,
-          "result_count": 1
+          "all_succeed": false,
+          "result_count": 0,
+          "outcome": "FAILED"
         },
         "synthesis": {
           "must_mention": [
+            "Outcome: FAILED",
             "commerce"
           ],
           "must_not_mention": [
-            "error",
-            "failed"
+            "Outcome: COMPLETE"
           ],
-          "semantic_criteria": "Should identify the canonical commerce dataset for the legacy retail term."
+          "semantic_criteria": "States that no tool ran and why; does not present anything as an answer"
         }
       }
     },
@@ -570,27 +559,23 @@
       ],
       "expected": {
         "planning": {
-          "tools": [
-            "dgm_what_can_i_answer",
-            "dgm_map_analytical_space"
-          ],
+          "tools": [],
           "dataset": null,
-          "confidence_min": 0.3
+          "confidence_min": 0.0
         },
         "execution": {
-          "all_succeed": true,
-          "result_count": 2
+          "all_succeed": false,
+          "result_count": 0,
+          "outcome": "FAILED"
         },
         "synthesis": {
           "must_mention": [
-            "dataset",
-            "tool"
+            "Outcome: FAILED"
           ],
           "must_not_mention": [
-            "error",
-            "failed"
+            "Outcome: COMPLETE"
           ],
-          "semantic_criteria": "Should produce a welcoming orientation listing datasets and tools after reflect"
+          "semantic_criteria": "States that no tool ran and why; does not present anything as an answer"
         }
       }
     },
@@ -604,27 +589,23 @@
       ],
       "expected": {
         "planning": {
-          "tools": [
-            "dgm_what_can_i_answer",
-            "dgm_map_analytical_space"
-          ],
+          "tools": [],
           "dataset": null,
-          "confidence_min": 0.3
+          "confidence_min": 0.0
         },
         "execution": {
-          "all_succeed": true,
-          "result_count": 2
+          "all_succeed": false,
+          "result_count": 0,
+          "outcome": "FAILED"
         },
         "synthesis": {
           "must_mention": [
-            "dataset",
-            "tool"
+            "Outcome: FAILED"
           ],
           "must_not_mention": [
-            "error",
-            "failed"
+            "Outcome: COMPLETE"
           ],
-          "semantic_criteria": "Should provide orientation help listing available datasets and tools"
+          "semantic_criteria": "States that no tool ran and why; does not present anything as an answer"
         }
       }
     },
@@ -638,27 +619,23 @@
       ],
       "expected": {
         "planning": {
-          "tools": [
-            "dgm_what_can_i_answer",
-            "dgm_map_analytical_space"
-          ],
+          "tools": [],
           "dataset": null,
-          "confidence_min": 0.3
+          "confidence_min": 0.0
         },
         "execution": {
-          "all_succeed": true,
-          "result_count": 2
+          "all_succeed": false,
+          "result_count": 0,
+          "outcome": "FAILED"
         },
         "synthesis": {
           "must_mention": [
-            "dataset",
-            "tool"
+            "Outcome: FAILED"
           ],
           "must_not_mention": [
-            "error",
-            "failed"
+            "Outcome: COMPLETE"
           ],
-          "semantic_criteria": "Should provide helpful orientation since no analytical intent was detected"
+          "semantic_criteria": "States that no tool ran and why; does not present anything as an answer"
         }
       }
     },
@@ -672,27 +649,23 @@
       ],
       "expected": {
         "planning": {
-          "tools": [
-            "dgm_what_can_i_answer",
-            "dgm_map_analytical_space"
-          ],
+          "tools": [],
           "dataset": null,
-          "confidence_min": 0.05
+          "confidence_min": 0.0
         },
         "execution": {
-          "all_succeed": true,
-          "result_count": 2
+          "all_succeed": false,
+          "result_count": 0,
+          "outcome": "FAILED"
         },
         "synthesis": {
           "must_mention": [
-            "dataset",
-            "tool"
+            "Outcome: FAILED"
           ],
           "must_not_mention": [
-            "error",
-            "failed"
+            "Outcome: COMPLETE"
           ],
-          "semantic_criteria": "Should produce a full orientation response listing available datasets and tools. This IS the correct and complete answer for an empty utterance; score synthesis 0.9 or 1.0 if datasets and tools are listed."
+          "semantic_criteria": "States that no tool ran and why; does not present anything as an answer"
         }
       }
     },
@@ -705,26 +678,23 @@
       ],
       "expected": {
         "planning": {
-          "tools": [
-            "dgm_what_can_i_answer",
-            "dgm_map_analytical_space"
-          ],
+          "tools": [],
           "dataset": null,
-          "confidence_min": 0.3
+          "confidence_min": 0.0
         },
         "execution": {
-          "all_succeed": true,
-          "result_count": 2
+          "all_succeed": false,
+          "result_count": 0,
+          "outcome": "FAILED"
         },
         "synthesis": {
           "must_mention": [
-            "dataset"
+            "Outcome: FAILED"
           ],
           "must_not_mention": [
-            "error",
-            "failed"
+            "Outcome: COMPLETE"
           ],
-          "semantic_criteria": "Should provide orientation when a vague analytical term is given without context"
+          "semantic_criteria": "States that no tool ran and why; does not present anything as an answer"
         }
       }
     },
@@ -746,18 +716,18 @@
         },
         "execution": {
           "all_succeed": true,
-          "result_count": 1
+          "result_count": 1,
+          "outcome": "COMPLETE"
         },
         "synthesis": {
           "must_mention": [
-            "query",
-            "completed"
+            "demo mode",
+            "Outcome: COMPLETE"
           ],
           "must_not_mention": [
-            "error",
-            "failed"
+            "not available"
           ],
-          "semantic_criteria": "Should indicate a comparison query was attempted"
+          "semantic_criteria": "States the outcome and reports the rows of the query that ran, marked as demo output"
         }
       }
     },
@@ -779,18 +749,18 @@
         },
         "execution": {
           "all_succeed": true,
-          "result_count": 1
+          "result_count": 1,
+          "outcome": "COMPLETE"
         },
         "synthesis": {
           "must_mention": [
-            "query",
-            "completed"
+            "demo mode",
+            "Outcome: COMPLETE"
           ],
           "must_not_mention": [
-            "error",
-            "failed"
+            "not available"
           ],
-          "semantic_criteria": "Should confirm a trend analysis query executed"
+          "semantic_criteria": "States the outcome and reports the rows of the query that ran, marked as demo output"
         }
       }
     },
@@ -812,17 +782,18 @@
         },
         "execution": {
           "all_succeed": true,
-          "result_count": 1
+          "result_count": 1,
+          "outcome": "COMPLETE"
         },
         "synthesis": {
           "must_mention": [
-            "query",
-            "completed"
+            "demo mode",
+            "Outcome: COMPLETE"
           ],
           "must_not_mention": [
-            "failed"
+            "not available"
           ],
-          "semantic_criteria": "Should confirm a count-based query was run"
+          "semantic_criteria": "States the outcome and reports the rows of the query that ran, marked as demo output"
         }
       }
     },
@@ -844,18 +815,18 @@
         },
         "execution": {
           "all_succeed": true,
-          "result_count": 1
+          "result_count": 1,
+          "outcome": "COMPLETE"
         },
         "synthesis": {
           "must_mention": [
-            "query",
-            "completed"
+            "demo mode",
+            "Outcome: COMPLETE"
           ],
           "must_not_mention": [
-            "error",
-            "failed"
+            "not available"
           ],
-          "semantic_criteria": "Should describe an engagement metric query completion"
+          "semantic_criteria": "States the outcome and reports the rows of the query that ran, marked as demo output"
         }
       }
     },
@@ -869,25 +840,24 @@
       ],
       "expected": {
         "planning": {
-          "tools": [
-            "dgm_what_can_i_answer"
-          ],
-          "dataset": "devops",
-          "confidence_min": 0.5
+          "tools": [],
+          "dataset": null,
+          "confidence_min": 0.0
         },
         "execution": {
-          "all_succeed": true,
-          "result_count": 1
+          "all_succeed": false,
+          "result_count": 0,
+          "outcome": "FAILED"
         },
         "synthesis": {
           "must_mention": [
+            "Outcome: FAILED",
             "devops"
           ],
           "must_not_mention": [
-            "error",
-            "failed"
+            "Outcome: COMPLETE"
           ],
-          "semantic_criteria": "Should specifically describe what the devops dataset offers"
+          "semantic_criteria": "States that no tool ran and why; does not present anything as an answer"
         }
       }
     },
@@ -909,18 +879,18 @@
         },
         "execution": {
           "all_succeed": true,
-          "result_count": 1
+          "result_count": 1,
+          "outcome": "COMPLETE"
         },
         "synthesis": {
           "must_mention": [
-            "query",
-            "completed"
+            "demo mode",
+            "Outcome: COMPLETE"
           ],
           "must_not_mention": [
-            "error",
-            "failed"
+            "not available"
           ],
-          "semantic_criteria": "Should confirm a ranking query was executed on nba_analytics"
+          "semantic_criteria": "States the outcome and reports the rows of the query that ran, marked as demo output"
         }
       }
     },
@@ -934,27 +904,24 @@
       ],
       "expected": {
         "planning": {
-          "tools": [
-            "dgm_what_can_i_answer",
-            "dgm_map_analytical_space"
-          ],
+          "tools": [],
           "dataset": null,
-          "confidence_min": 0.3
+          "confidence_min": 0.0
         },
         "execution": {
-          "all_succeed": true,
-          "result_count": 2
+          "all_succeed": false,
+          "result_count": 0,
+          "outcome": "FAILED"
         },
         "synthesis": {
           "must_mention": [
-            "datasets",
-            "tools"
+            "Outcome: FAILED",
+            "datasets"
           ],
           "must_not_mention": [
-            "error",
-            "failed"
+            "Outcome: COMPLETE"
           ],
-          "semantic_criteria": "Should provide orientation by listing available datasets and tools rather than executing a query against an ambiguous domain."
+          "semantic_criteria": "States that no tool ran and why; does not present anything as an answer"
         }
       }
     },
@@ -967,26 +934,23 @@
       ],
       "expected": {
         "planning": {
-          "tools": [
-            "dgm_what_can_i_answer",
-            "dgm_map_analytical_space"
-          ],
+          "tools": [],
           "dataset": null,
-          "confidence_min": 0.3
+          "confidence_min": 0.0
         },
         "execution": {
-          "all_succeed": true,
-          "result_count": 2
+          "all_succeed": false,
+          "result_count": 0,
+          "outcome": "FAILED"
         },
         "synthesis": {
           "must_mention": [
-            "dataset"
+            "Outcome: FAILED"
           ],
           "must_not_mention": [
-            "error",
-            "failed"
+            "Outcome: COMPLETE"
           ],
-          "semantic_criteria": "Should provide orientation for ambiguous input with no analytical intent"
+          "semantic_criteria": "States that no tool ran and why; does not present anything as an answer"
         }
       }
     }

@@ -1,341 +1,338 @@
-"""Tests for the supervisor LangGraph graph."""
+"""§12.4 supervisor graph: routing, recovery, outcomes and isolation."""
 
 from __future__ import annotations
 
+import json
 
-class TestSupervisorGraphStructure:
-    """The supervisor graph must compile and have expected nodes."""
+import pytest
 
-    def test_graph_compiles(self) -> None:
-        from sqldim.core.query.dgm.nl.supervisor._graph import build_supervisor_graph
+from sqldim.core.query.dgm.nl.supervisor._auth import Action
+from sqldim.core.query.dgm.nl.supervisor._graph import (
+    SUPERVISOR_NODE_NAMES,
+    build_supervisor_graph,
+    run_supervisor,
+)
+from sqldim.core.query.dgm.nl.supervisor._planner import (
+    KeywordDemoPlanner,
+    PlannerView,
+)
+from sqldim.core.query.dgm.nl.supervisor._tools import TOOL_REGISTRY, DemoQueryTool
+from sqldim.core.query.dgm.nl.supervisor._types import (
+    CallStatus,
+    Outcome,
+    SupervisorPlan,
+    ToolErrorKind,
+)
+from tests.supervisor._fakes import (
+    FakeTool,
+    RaisingPlanner,
+    ScriptedPlanner,
+    auth,
+    fail,
+    plan,
+    query_turn,
+    registry,
+    runtime,
+    step,
+    succeed,
+)
 
-        graph = build_supervisor_graph()
-        assert graph is not None
-
-    def test_graph_has_expected_nodes(self) -> None:
-        from sqldim.core.query.dgm.nl.supervisor._graph import SUPERVISOR_NODE_NAMES
-
-        expected = {
-            "plan",
-            "reflect",
-            "select_tool",
-            "execute_tool",
-            "synthesize",
-            "respond",
-        }
-        assert expected == set(SUPERVISOR_NODE_NAMES)
+CORRELATE_ARGS = {"left": "a", "right": "b", "keys": ["region"]}
 
 
-class TestSupervisorGraphStubExecution:
-    """The graph runs end-to-end in stub mode (no LLM)."""
+def _plan_from(view: PlannerView, *steps) -> SupervisorPlan:  # type: ignore[no-untyped-def]
+    return plan(*steps, plan_id=view.plan_id, version=view.version)
 
-    def test_stub_invoke_returns_state(self) -> None:
-        from sqldim.core.query.dgm.nl.supervisor._graph import build_supervisor_graph
-        from sqldim.core.query.dgm.nl.supervisor._types import SupervisorState
 
-        graph = build_supervisor_graph()
-        initial = SupervisorState(utterance="Compare ecommerce and social_network")
-        result = graph.invoke(
-            initial.model_dump(),
-            config={
-                "configurable": {"thread_id": "test-supervisor"},
-                "recursion_limit": 25,
-            },
+class TestStructure:
+    def test_nodes_match_spec(self) -> None:
+        rt = runtime(registry(FakeTool("dgm_query")), ScriptedPlanner(plan()))
+        graph = build_supervisor_graph(rt)
+        assert set(SUPERVISOR_NODE_NAMES) <= set(graph.get_graph().nodes)
+        assert "reflect" not in graph.get_graph().nodes
+
+
+class TestFailClosedEntry:
+    def test_no_planner_fails_without_running_anything(self) -> None:
+        state = run_supervisor("q", runtime(registry(FakeTool("dgm_query")), None))
+        assert state.outcome is Outcome.FAILED
+        assert state.planning_error.kind is ToolErrorKind.NOT_IMPLEMENTED
+        assert state.visited_nodes == ["plan", "respond"]
+        assert "Outcome: FAILED" in state.synthesis
+
+    def test_no_available_tool_fails_before_planning(self) -> None:
+        planner = ScriptedPlanner(plan(step("a")))
+        state = run_supervisor("q", runtime(TOOL_REGISTRY, planner))
+        assert state.outcome is Outcome.FAILED
+        assert state.planning_error.kind is ToolErrorKind.NOT_IMPLEMENTED
+        assert planner.views == []
+        assert set(state.planning_error.context["missing"]) == set(TOOL_REGISTRY)
+
+    def test_planner_failure_is_reported_not_replaced(self) -> None:
+        state = run_supervisor(
+            "how many orders?",
+            runtime(registry(FakeTool("dgm_query")), RaisingPlanner()),
         )
-        assert "utterance" in result
-        assert "visited_nodes" in result
+        assert state.outcome is Outcome.FAILED
+        assert state.planning_error.kind is ToolErrorKind.TOOL_FAILURE
+        assert state.planning_error.context["exception"] == "RuntimeError"
+        assert state.plan is None
+        assert state.results == {}
 
-    def test_stub_visits_all_nodes(self) -> None:
-        from sqldim.core.query.dgm.nl.supervisor._graph import build_supervisor_graph
-        from sqldim.core.query.dgm.nl.supervisor._types import SupervisorState
+    def test_keyword_planner_requires_demo_mode(self) -> None:
+        with pytest.raises(ValueError, match="demo mode"):
+            runtime(registry(FakeTool("dgm_query")), KeywordDemoPlanner())
 
-        graph = build_supervisor_graph()
-        initial = SupervisorState(utterance="test question")
-        result = graph.invoke(
-            initial.model_dump(),
-            config={
-                "configurable": {"thread_id": "test-supervisor-nodes"},
-                "recursion_limit": 25,
-            },
+    def test_demo_tool_requires_demo_mode(self) -> None:
+        with pytest.raises(ValueError, match="demo mode"):
+            runtime(registry(DemoQueryTool()), ScriptedPlanner(plan()))
+
+
+class TestHappyPath:
+    def test_complete(self) -> None:
+        tool = FakeTool("dgm_query")
+        state = run_supervisor(
+            "q",
+            runtime(
+                registry(tool), ScriptedPlanner(lambda v: _plan_from(v, step("a")))
+            ),
         )
-        visited = result.get("visited_nodes", [])
-        assert "plan" in visited
-        assert "respond" in visited
+        assert state.outcome is Outcome.COMPLETE
+        assert state.coverage == 1.0
+        assert state.results["a"].status is CallStatus.SUCCEEDED
+        assert "Outcome: COMPLETE" in state.synthesis
+        assert "counted" in state.synthesis
+        assert len(tool.calls) == 1
+        assert tool.calls[0].datasets == ["sales"]
+        assert tool.calls[0].idempotency_key
 
-
-class TestRouteAfterExecution:
-    """route_after_execution defensive branches."""
-
-    def test_returns_done_when_plan_is_none(self) -> None:
-        from sqldim.core.query.dgm.nl.supervisor._graph import route_after_execution
-        from sqldim.core.query.dgm.nl.supervisor._types import SupervisorState
-
-        state = SupervisorState(utterance="test")  # plan is None
-        assert route_after_execution(state) == "done"
-
-
-class TestStubPlan:
-    """_stub_plan produces a single dgm_query step."""
-
-    def test_stub_plan_creates_dgm_query_step(self) -> None:
-        from sqldim.core.query.dgm.nl.supervisor._graph import _stub_plan
-        from sqldim.core.query.dgm.nl.supervisor._types import SupervisorState
-
-        state = SupervisorState(utterance="top products")
-        out = _stub_plan(state)
-        plan = out["plan"]
-        assert out["current_step"] == 0
-        assert plan.steps[0].tool_name == "dgm_query"
-        assert plan.steps[0].arguments["question"] == "top products"
-
-
-class TestStubExecuteTool:
-    """_stub_execute_tool covers known-tool, no-plan, and unknown-tool branches."""
-
-    def test_no_plan_returns_empty_dict(self) -> None:
-        from sqldim.core.query.dgm.nl.supervisor._graph import _stub_execute_tool
-        from sqldim.core.query.dgm.nl.supervisor._types import SupervisorState
-
-        state = SupervisorState(utterance="test")  # plan is None
-        assert _stub_execute_tool(state) == {}
-
-    def test_known_tool_succeeds(self) -> None:
-        from sqldim.core.query.dgm.nl.supervisor._graph import _stub_execute_tool
-        from sqldim.core.query.dgm.nl.supervisor._types import (
-            SupervisorPlan,
-            SupervisorState,
-            ToolCallRequest,
+    def test_planner_sees_only_readable_datasets_and_available_tools(self) -> None:
+        planner = ScriptedPlanner(lambda v: _plan_from(v))
+        grants = {"sales": {Action.READ}, "kb_only": {Action.WRITE_KB}}
+        run_supervisor(
+            "q",
+            runtime(registry(FakeTool("dgm_query")), planner, the_auth=auth(grants)),
         )
+        view = planner.views[0]
+        assert view.datasets == ("sales",)
+        assert [t.name for t in view.tools] == ["dgm_query"]
 
-        plan = SupervisorPlan(
-            goal="test",
-            steps=[
-                ToolCallRequest(
-                    tool_name="dgm_what_can_i_answer",
-                    arguments={"dataset": "__all__"},
-                    budget_fraction=1.0,
-                )
-            ],
+    def test_empty_plan_is_failed_with_reason(self) -> None:
+        empty = SupervisorPlan(
+            plan_id="x", version=1, goal="g", confidence=0.4, reasoning="nothing to do"
         )
-        state = SupervisorState(utterance="test", plan=plan)
-        out = _stub_execute_tool(state)
-        assert len(out["results"]) == 1
-        assert out["results"][0].success is True
-
-    def test_unknown_tool_returns_failure(self) -> None:
-        from sqldim.core.query.dgm.nl.supervisor._graph import _stub_execute_tool
-        from sqldim.core.query.dgm.nl.supervisor._types import (
-            SupervisorPlan,
-            SupervisorState,
-            ToolCallRequest,
+        state = run_supervisor(
+            "q", runtime(registry(FakeTool("dgm_query")), ScriptedPlanner(empty))
         )
+        assert state.outcome is Outcome.FAILED
+        assert "nothing to do" in state.synthesis
 
-        plan = SupervisorPlan(
-            goal="test",
-            steps=[
-                ToolCallRequest(
-                    tool_name="dgm_nonexistent_tool",
-                    arguments={},
-                    budget_fraction=1.0,
-                )
-            ],
+    def test_results_synthesized_in_plan_order(self) -> None:
+        tool = FakeTool(
+            "dgm_query",
+            succeed(query_turn([{"first": 1}])),
+            succeed(query_turn([{"second": 2}])),
         )
-        state = SupervisorState(utterance="test", plan=plan)
-        out = _stub_execute_tool(state)
-        assert len(out["results"]) == 1
-        assert out["results"][0].success is False
+        planner = ScriptedPlanner(lambda v: _plan_from(v, step("a"), step("b")))
+        state = run_supervisor("q", runtime(registry(tool), planner))
+        text = state.synthesis
+        assert text.index("[a]") < text.index("[b]")
 
 
-class TestStubSynthesize:
-    """_stub_synthesize covers all render branches."""
-
-    def test_failed_result_renders_warning(self) -> None:
-        from sqldim.core.query.dgm.nl.supervisor._graph import _stub_synthesize
-        from sqldim.core.query.dgm.nl.supervisor._types import (
-            SupervisorState,
-            ToolCallResult,
+class TestFailuresAndRouting:
+    def test_failed_step_skips_dependents_and_is_partial(self) -> None:
+        query = FakeTool(
+            "dgm_query",
+            succeed(query_turn()),
+            fail(ToolErrorKind.UNSUPPORTED),
         )
-
-        state = SupervisorState(
-            utterance="test",
-            results=[
-                ToolCallResult(tool_name="dgm_query", success=False, error="timeout")
-            ],
+        correlate = FakeTool("dgm_correlate")
+        planner = ScriptedPlanner(
+            lambda v: _plan_from(
+                v,
+                step("a", fraction=0.3),
+                step("b", fraction=0.3),
+                step(
+                    "c",
+                    "dgm_correlate",
+                    CORRELATE_ARGS,
+                    depends_on=["a", "b"],
+                    fraction=0.3,
+                ),
+            )
         )
-        out = _stub_synthesize(state)
-        assert "timeout" in out["synthesis"]
-
-    def test_single_dataset_with_questions(self) -> None:
-        from sqldim.core.query.dgm.nl.supervisor._graph import _stub_synthesize
-        from sqldim.core.query.dgm.nl.supervisor._types import (
-            SupervisorState,
-            ToolCallResult,
+        grants = auth({"sales": {Action.READ, Action.CORRELATE}})
+        state = run_supervisor(
+            "q", runtime(registry(query, correlate), planner, the_auth=grants)
         )
+        assert state.outcome is Outcome.PARTIAL
+        assert state.coverage == pytest.approx(1 / 3)
+        assert state.statuses["c"] is CallStatus.SKIPPED
+        assert state.results["c"].error.kind is ToolErrorKind.DEPENDENCY_NOT_MET
+        assert state.results["c"].attempts == 0
+        assert correlate.calls == []
+        assert "Coverage 1/3" in state.synthesis
+        assert "not a complete answer" in state.synthesis
 
-        state = SupervisorState(
-            utterance="test",
-            results=[
-                ToolCallResult(
-                    tool_name="dgm_what_can_i_answer",
-                    success=True,
-                    data={
-                        "datasets": ["ecommerce"],
-                        "questions": ["top products", "revenue?"],
-                    },
-                )
-            ],
+    def test_all_failed_is_failed(self) -> None:
+        tool = FakeTool("dgm_query", fail(ToolErrorKind.UNSUPPORTED))
+        planner = ScriptedPlanner(lambda v: _plan_from(v, step("a")))
+        state = run_supervisor("q", runtime(registry(tool), planner))
+        assert state.outcome is Outcome.FAILED
+        assert "UNSUPPORTED" in state.synthesis
+
+    def test_retryable_failure_is_retried_with_same_key(self) -> None:
+        tool = FakeTool(
+            "dgm_query",
+            fail(ToolErrorKind.TIMEOUT, retryable=True),
+            succeed(query_turn()),
         )
-        out = _stub_synthesize(state)
-        assert "Questions for 'ecommerce'" in out["synthesis"]
-        assert "top products" in out["synthesis"]
+        planner = ScriptedPlanner(lambda v: _plan_from(v, step("a")))
+        state = run_supervisor("q", runtime(registry(tool), planner))
+        assert state.outcome is Outcome.COMPLETE
+        assert state.results["a"].attempts == 2
+        assert len({c.idempotency_key for c in tool.calls}) == 1
 
-    def test_single_dataset_no_questions_with_model(self) -> None:
-        from sqldim.core.query.dgm.nl.supervisor._graph import _stub_synthesize
-        from sqldim.core.query.dgm.nl.supervisor._types import (
-            SupervisorState,
-            ToolCallResult,
+    def test_retries_bounded_by_max_attempts(self) -> None:
+        tool = FakeTool("dgm_query", fail(ToolErrorKind.TIMEOUT, retryable=True))
+        planner = ScriptedPlanner(lambda v: _plan_from(v, step("a")))
+        state = run_supervisor("q", runtime(registry(tool), planner))
+        assert len(tool.calls) == 2  # DEFAULT_POLICY.max_attempts
+        assert state.outcome is Outcome.FAILED
+
+    def test_non_idempotent_tool_is_not_retried(self) -> None:
+        tool = FakeTool(
+            "dgm_query", fail(ToolErrorKind.TIMEOUT, retryable=True), idempotent=False
         )
+        planner = ScriptedPlanner(lambda v: _plan_from(v, step("a")))
+        run_supervisor("q", runtime(registry(tool), planner))
+        assert len(tool.calls) == 1
 
-        state = SupervisorState(
-            utterance="test",
-            results=[
-                ToolCallResult(
-                    tool_name="dgm_what_can_i_answer",
-                    success=True,
-                    data={"datasets": ["ecommerce"], "questions": []},
-                )
-            ],
+    def test_unauthorized_is_not_retried_or_replanned(self) -> None:
+        tool = FakeTool("dgm_query", fail(ToolErrorKind.UNAUTHORIZED))
+        planner = ScriptedPlanner(lambda v: _plan_from(v, step("a")))
+        state = run_supervisor("q", runtime(registry(tool), planner))
+        assert len(tool.calls) == 1
+        assert len(planner.views) == 1
+        assert state.outcome is Outcome.FAILED
+
+    def test_rejection_replans_with_new_version(self) -> None:
+        tool = FakeTool(
+            "dgm_query",
+            fail(ToolErrorKind.BUDGET_REJECTED, status=CallStatus.REJECTED),
+            succeed(query_turn()),
         )
-        out = _stub_synthesize(state, has_model=True)
-        assert "Dataset 'ecommerce' is available." in out["synthesis"]
-        assert "--model" not in out["synthesis"]
-
-    def test_empty_tool_list_registered(self) -> None:
-        from sqldim.core.query.dgm.nl.supervisor._graph import _stub_synthesize
-        from sqldim.core.query.dgm.nl.supervisor._types import (
-            SupervisorState,
-            ToolCallResult,
+        smaller = step("a2", arguments={"dataset": "sales", "utterance": "narrower"})
+        planner = ScriptedPlanner(
+            lambda v: _plan_from(v, step("a")),
+            lambda v: _plan_from(v, smaller),
         )
+        state = run_supervisor("q", runtime(registry(tool), planner))
+        assert state.outcome is Outcome.COMPLETE
+        assert state.plan.version == 2
+        assert state.replans == 1
+        replan_view = planner.views[1]
+        assert replan_view.rejection.call_id == "a"
+        assert replan_view.previous.version == 1
+        assert [c.call_id for c in tool.calls] == ["a", "a2"]
 
-        state = SupervisorState(
-            utterance="test",
-            results=[
-                ToolCallResult(
-                    tool_name="dgm_map_analytical_space",
-                    success=True,
-                    data={"tools": []},
-                )
-            ],
+    def test_rejected_call_repeated_unchanged_is_invalid(self) -> None:
+        tool = FakeTool(
+            "dgm_query", fail(ToolErrorKind.BUDGET_REJECTED, status=CallStatus.REJECTED)
         )
-        out = _stub_synthesize(state)
-        assert "No tools registered." in out["synthesis"]
+        planner = ScriptedPlanner(lambda v: _plan_from(v, step("a")))
+        state = run_supervisor("q", runtime(registry(tool), planner))
+        assert state.outcome is Outcome.ABORTED
+        assert len(tool.calls) == 1  # the repeated call never ran
+        assert state.abort_diagnostic["reason"] == "replan limit reached"
 
-    def test_dgm_query_with_model_omits_stub_hint(self) -> None:
-        from sqldim.core.query.dgm.nl.supervisor._graph import _stub_synthesize
-        from sqldim.core.query.dgm.nl.supervisor._types import (
-            SupervisorState,
-            ToolCallResult,
+    def test_rejection_after_replan_limit_aborts_with_diagnostic(self) -> None:
+        from sqldim.core.query.dgm.nl.supervisor._schemas import SupervisorPolicy
+
+        tool = FakeTool(
+            "dgm_query", fail(ToolErrorKind.BUDGET_REJECTED, status=CallStatus.REJECTED)
         )
+        planner = ScriptedPlanner(lambda v: _plan_from(v, step("a")))
+        rt = runtime(registry(tool), planner, policy=SupervisorPolicy(max_replans=0))
+        state = run_supervisor("q", rt)
+        assert state.outcome is Outcome.ABORTED
+        diag = state.abort_diagnostic
+        assert diag["call_id"] == "a"
+        assert diag["error"]["kind"] == "BUDGET_REJECTED"
+        assert "Outcome: ABORTED" in state.synthesis
 
-        state = SupervisorState(
-            utterance="top products",
-            results=[
-                ToolCallResult(
-                    tool_name="dgm_query",
-                    success=True,
-                    data={"dataset": "ecommerce", "question": "top products"},
-                )
-            ],
+    def test_invalid_plan_never_runs_and_is_replanned(self) -> None:
+        tool = FakeTool("dgm_query")
+        planner = ScriptedPlanner(
+            lambda v: _plan_from(v, step("a", tool="dgm_magic")),
+            lambda v: _plan_from(v, step("a")),
         )
-        out = _stub_synthesize(state, has_model=True)
-        assert "completed." in out["synthesis"]
-        assert "stub" not in out["synthesis"]
+        state = run_supervisor("q", runtime(registry(tool), planner))
+        assert state.outcome is Outcome.COMPLETE
+        assert planner.views[1].violations[0].kind is ToolErrorKind.UNKNOWN_TOOL
+        assert len(tool.calls) == 1
 
-
-class TestRunPipelineDefaultContext:
-    """run_pipeline auto-discovers context when none is passed."""
-
-    def test_run_without_context_uses_known_datasets(self) -> None:
-        from sqldim.core.query.dgm.nl.supervisor._judge import run_pipeline
-
-        output = run_pipeline("help")  # no context → triggers KNOWN_DATASETS discovery
-        assert output.utterance == "help"
-        assert len(output.visited_nodes) > 0
-
-
-class TestConversationHistory:
-    """The graph threads conversation history through turns."""
-
-    def test_synthesize_appends_to_history(self) -> None:
-        from sqldim.core.query.dgm.nl.supervisor._graph import build_supervisor_graph
-        from sqldim.core.query.dgm.nl.supervisor._types import SupervisorState
-
-        graph = build_supervisor_graph()
-        initial = SupervisorState(utterance="What datasets do you have?")
-        result = graph.invoke(
-            initial.model_dump(),
-            config={
-                "configurable": {"thread_id": "test-history-1"},
-                "recursion_limit": 25,
-            },
+    def test_persistently_invalid_plan_aborts(self) -> None:
+        tool = FakeTool("dgm_query")
+        planner = ScriptedPlanner(
+            lambda v: _plan_from(
+                v, step("a", arguments={"dataset": "secret", "utterance": "x"})
+            )
         )
-        history = result.get("conversation_history", [])
-        assert len(history) >= 2
-        assert history[0]["role"] == "user"
-        assert history[1]["role"] == "assistant"
+        state = run_supervisor("q", runtime(registry(tool), planner))
+        assert state.outcome is Outcome.ABORTED
+        assert tool.calls == []
+        kinds = {v["kind"] for v in state.abort_diagnostic["violations"]}
+        assert kinds == {"UNAUTHORIZED"}
 
-    def test_history_carries_across_invocations(self) -> None:
-        from sqldim.core.query.dgm.nl.supervisor._graph import build_supervisor_graph
-        from sqldim.core.query.dgm.nl.supervisor._types import SupervisorState
+    def test_cancelled_run_marks_pending_steps(self) -> None:
+        tool = FakeTool("dgm_query")
+        planner = ScriptedPlanner(lambda v: _plan_from(v, step("a"), step("b")))
+        rt = runtime(registry(tool), planner)
+        rt.cancel.cancel()
+        state = run_supervisor("q", rt)
+        assert state.outcome is Outcome.CANCELLED
+        assert {s.value for s in state.statuses.values()} == {"CANCELLED"}
+        assert tool.calls == []
 
-        graph = build_supervisor_graph()
 
-        # First turn
-        result1 = graph.invoke(
-            SupervisorState(utterance="first question").model_dump(),
-            config={
-                "configurable": {"thread_id": "test-history-2a"},
-                "recursion_limit": 25,
-            },
+class TestIsolation:
+    def test_checkpointed_state_holds_no_identity(self) -> None:
+        planner = ScriptedPlanner(lambda v: _plan_from(v, step("a")))
+        rt = runtime(registry(FakeTool("dgm_query")), planner)
+        state = run_supervisor("q", rt)
+        dumped = json.dumps(state.model_dump(mode="json"))
+        assert "alice" not in dumped
+        assert "grants" not in dumped
+
+    def test_threads_are_keyed_by_tenant(self) -> None:
+        from langgraph.checkpoint.memory import MemorySaver
+
+        saver = MemorySaver()
+        for tenant in ("t1", "t2"):
+            planner = ScriptedPlanner(lambda v: _plan_from(v, step("a")))
+            rt = runtime(
+                registry(FakeTool("dgm_query")),
+                planner,
+                the_auth=auth({"sales": {Action.READ}}, tenant=tenant),
+            )
+            run_supervisor("q", rt, thread_id="same", checkpointer=saver)
+        threads = {c.config["configurable"]["thread_id"] for c in saver.list(None)}
+        assert {"t1:same", "t2:same"} <= threads
+
+
+class TestDemoMode:
+    def test_demo_runs_are_marked(self) -> None:
+        tool = FakeTool("dgm_query")
+        planner = KeywordDemoPlanner()
+        state = run_supervisor(
+            "how many orders were placed?",
+            runtime(
+                registry(tool),
+                planner,
+                the_auth=auth({"commerce": {Action.READ}}),
+                demo=True,
+            ),
         )
-        history1 = result1.get("conversation_history", [])
-
-        # Second turn — carry forward history
-        result2 = graph.invoke(
-            SupervisorState(
-                utterance="follow-up",
-                conversation_history=list(history1),
-            ).model_dump(),
-            config={
-                "configurable": {"thread_id": "test-history-2b"},
-                "recursion_limit": 25,
-            },
-        )
-        history2 = result2.get("conversation_history", [])
-        # Should have entries from both turns
-        assert len(history2) >= 4
-        user_entries = [h for h in history2 if h["role"] == "user"]
-        assert len(user_entries) >= 2
-
-    def test_context_memory_updated_by_plan_node(self) -> None:
-        from sqldim.core.query.dgm.nl.supervisor._graph import build_supervisor_graph
-        from sqldim.core.query.dgm.nl.supervisor._types import (
-            SupervisorContext,
-            SupervisorState,
-        )
-
-        context = SupervisorContext(available_datasets=["ecommerce"])
-        graph = build_supervisor_graph(context=context)
-        previous = [{"role": "user", "content": "earlier"}]
-        graph.invoke(
-            SupervisorState(
-                utterance="test",
-                conversation_history=previous,
-            ).model_dump(),
-            config={
-                "configurable": {"thread_id": "test-ctx-mem"},
-                "recursion_limit": 25,
-            },
-        )
-        # Context memory should have been populated by plan node
-        assert context.memory == previous
+        assert state.demo is True
+        assert state.synthesis.startswith("[demo mode")
