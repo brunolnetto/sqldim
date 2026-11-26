@@ -158,6 +158,13 @@ class TestCmdChatValidation:
         assert calls  # _run_repl was invoked despite the model failure
 
 
+def _demo_runtime():  # type: ignore[no-untyped-def]
+    """Runtime factory for REPL turns: explicit demo mode (D47)."""
+    from sqldim.application.supervisor_host import local_supervisor_runtime
+
+    return local_supervisor_runtime(["commerce"], demo=True)
+
+
 class TestRunRepl:
     """_run_repl handles slash commands and supervisor turns (demo runtime)."""
 
@@ -175,9 +182,8 @@ class TestRunRepl:
     def test_quit_command_exits(self) -> None:
         """The REPL exits cleanly on /quit."""
         from sqldim.cli.chat import _run_repl
-        from sqldim.application.supervisor_host import local_supervisor_runtime
 
-        graph = lambda: local_supervisor_runtime(["commerce"], demo=True)
+        graph = _demo_runtime
         rc = _run_repl(
             graph, ["commerce"], _session_factory=self._make_session(["/quit"])
         )
@@ -186,22 +192,20 @@ class TestRunRepl:
     def test_eof_exits(self) -> None:
         """The REPL exits cleanly on Ctrl-D (EOFError)."""
         from sqldim.cli.chat import _run_repl
-        from sqldim.application.supervisor_host import local_supervisor_runtime
 
         class EofSession:
             def prompt(self, prompt_text):
                 raise EOFError
 
-        graph = lambda: local_supervisor_runtime(["commerce"], demo=True)
+        graph = _demo_runtime
         rc = _run_repl(graph, ["commerce"], _session_factory=EofSession)
         assert rc == 0
 
     def test_help_command(self) -> None:
         """The /help command prints help text."""
         from sqldim.cli.chat import _run_repl
-        from sqldim.application.supervisor_host import local_supervisor_runtime
 
-        graph = lambda: local_supervisor_runtime(["commerce"], demo=True)
+        graph = _demo_runtime
         rc = _run_repl(
             graph,
             ["commerce"],
@@ -212,9 +216,8 @@ class TestRunRepl:
     def test_datasets_command(self) -> None:
         """The /datasets command lists active datasets."""
         from sqldim.cli.chat import _run_repl
-        from sqldim.application.supervisor_host import local_supervisor_runtime
 
-        graph = lambda: local_supervisor_runtime(["commerce"], demo=True)
+        graph = _demo_runtime
         rc = _run_repl(
             graph,
             ["commerce", "fintech"],
@@ -225,9 +228,8 @@ class TestRunRepl:
     def test_history_command_empty(self) -> None:
         """The /history command shows 'no history' when empty."""
         from sqldim.cli.chat import _run_repl
-        from sqldim.application.supervisor_host import local_supervisor_runtime
 
-        graph = lambda: local_supervisor_runtime(["commerce"], demo=True)
+        graph = _demo_runtime
         rc = _run_repl(
             graph,
             ["commerce"],
@@ -238,9 +240,8 @@ class TestRunRepl:
     def test_clear_command(self) -> None:
         """The /clear command resets conversation history."""
         from sqldim.cli.chat import _run_repl
-        from sqldim.application.supervisor_host import local_supervisor_runtime
 
-        graph = lambda: local_supervisor_runtime(["commerce"], demo=True)
+        graph = _demo_runtime
         rc = _run_repl(
             graph,
             ["commerce"],
@@ -251,9 +252,8 @@ class TestRunRepl:
     def test_unknown_command(self) -> None:
         """Unknown slash commands print an error."""
         from sqldim.cli.chat import _run_repl
-        from sqldim.application.supervisor_host import local_supervisor_runtime
 
-        graph = lambda: local_supervisor_runtime(["commerce"], demo=True)
+        graph = _demo_runtime
         rc = _run_repl(
             graph,
             ["commerce"],
@@ -264,9 +264,8 @@ class TestRunRepl:
     def test_question_invokes_graph(self) -> None:
         """A regular question invokes the supervisor graph."""
         from sqldim.cli.chat import _run_repl
-        from sqldim.application.supervisor_host import local_supervisor_runtime
 
-        graph = lambda: local_supervisor_runtime(["commerce"], demo=True)
+        graph = _demo_runtime
         rc = _run_repl(
             graph,
             ["commerce"],
@@ -279,9 +278,8 @@ class TestRunRepl:
     def test_verbose_prints_timings(self) -> None:
         """Verbose mode prints node traversal info."""
         from sqldim.cli.chat import _run_repl
-        from sqldim.application.supervisor_host import local_supervisor_runtime
 
-        graph = lambda: local_supervisor_runtime(["commerce"], demo=True)
+        graph = _demo_runtime
         rc = _run_repl(
             graph,
             ["commerce"],
@@ -293,9 +291,8 @@ class TestRunRepl:
     def test_empty_input_ignored(self) -> None:
         """Empty input lines are skipped."""
         from sqldim.cli.chat import _run_repl
-        from sqldim.application.supervisor_host import local_supervisor_runtime
 
-        graph = lambda: local_supervisor_runtime(["commerce"], demo=True)
+        graph = _demo_runtime
         rc = _run_repl(
             graph,
             ["commerce"],
@@ -306,9 +303,8 @@ class TestRunRepl:
     def test_history_after_question(self) -> None:
         """The /history command shows entries after a question."""
         from sqldim.cli.chat import _run_repl
-        from sqldim.application.supervisor_host import local_supervisor_runtime
 
-        graph = lambda: local_supervisor_runtime(["commerce"], demo=True)
+        graph = _demo_runtime
         rc = _run_repl(
             graph,
             ["commerce"],
@@ -321,10 +317,9 @@ class TestRunRepl:
     def test_exit_aliases(self) -> None:
         """Both /exit and /q work as quit aliases."""
         from sqldim.cli.chat import _run_repl
-        from sqldim.application.supervisor_host import local_supervisor_runtime
 
         for cmd in ["/exit", "/q"]:
-            graph = lambda: local_supervisor_runtime(["commerce"], demo=True)
+            graph = _demo_runtime
             rc = _run_repl(
                 graph,
                 ["commerce"],
