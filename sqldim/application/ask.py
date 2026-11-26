@@ -50,6 +50,7 @@ from sqldim.core.query.dgm.nl._agent_types import DGMContext, NLInterfaceState
 from sqldim.core.query.dgm.nl._agents import make_model, make_ollama_model
 from sqldim.core.query.dgm.nl._graph import build_nl_graph
 from sqldim.core.query.dgm.nl._types import EntityRegistry
+from sqldim.core.query.dgm.nl.supervisor._auth import AccessDenied, DataAccess
 from sqldim.core.query.dgm.planner._gate import ExecutionBudget
 from sqldim.core.query.dgm.planner._targets import CostEstimate
 
@@ -290,11 +291,12 @@ def run_ask_from_source(
     verbose: bool = False,
     model: Any = None,
 ) -> int:
-    """Process *utterance* against any :class:`PipelineSource`.
+    """Process *utterance* against an already-open :class:`PipelineSource`.
 
-    This is the canonical implementation of the NL-graph pipeline.
-    :func:`run_ask` delegates here after wrapping the requested dataset in a
-    :class:`DatasetPipelineSource`.
+    This is the canonical implementation of the NL-graph pipeline.  It opens
+    nothing by identifier: the source is the authority, and authorization
+    belongs to whoever opened it (D44, §12.10).  Hosts open sources through
+    :class:`DataAccess` — see :func:`run_ask`.
 
     Parameters
     ----------
@@ -360,33 +362,43 @@ def run_ask(
     utterance: str,
     dataset_name: str,
     *,
+    data: DataAccess | None,
     verbose: bool = False,
     model: Any = None,
 ) -> int:
-    """Load *dataset_name*, build the NL graph, and process *utterance*.
+    """Open *dataset_name* through *data*, build the NL graph, and answer.
+
+    This is the NL interface of §11 used directly, so it is an entry point
+    under D44 (§12.10): the host supplies a :class:`DataAccess` bound to the
+    caller's :class:`AuthContext`.  Without one, or without a ``READ`` grant
+    on the dataset, nothing is opened and the call is refused with the same
+    message whether or not the dataset exists.
 
     Parameters
     ----------
     utterance:
         Natural-language question from the user.
     dataset_name:
-        Key from :data:`KNOWN_DATASETS`.
+        Identifier of the dataset to open through *data*.
+    data:
+        Authorized data access from the host (required; there is no default
+        context).
     verbose:
         When ``True`` print entity vocabulary details before invoking the graph.
     model:
         A pre-built pydantic-ai model instance (e.g. from :func:`make_model`).
-        When ``None`` (default) the Ollama default is attempted.
 
     Returns
     -------
     int
-        ``0`` on success, ``1`` when *dataset_name* is not registered.
+        ``0`` on success, ``1`` when the call is not authorized.
     """
-    try:
-        dataset = load_dataset(dataset_name)
-    except KeyError as exc:
-        print(f"[sqldim ask] {exc}")
+    if data is None:
+        print("[sqldim ask] UNAUTHORIZED: no authorization context")
         return 1
-
-    source = DatasetPipelineSource(dataset)
+    try:
+        source = data.scoped([dataset_name]).open(dataset_name)
+    except AccessDenied as exc:
+        print(f"[sqldim ask] UNAUTHORIZED: {exc}")
+        return 1
     return run_ask_from_source(utterance, source, verbose=verbose, model=model)

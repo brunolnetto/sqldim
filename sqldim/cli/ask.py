@@ -7,16 +7,19 @@ from typing import Any
 
 
 def _make_dataset_source(args: argparse.Namespace) -> Any:
-    """Build a ``DatasetPipelineSource`` from CLI args.  Prints an error and returns
-    ``None`` when the dataset name is not registered."""
-    from sqldim.application.ask import DatasetPipelineSource, load_dataset
+    """Open the bundled dataset named by ``--dataset`` through the local host.
+
+    Prints the refusal and returns ``None`` when the dataset is not granted —
+    the local host grants exactly the bundled datasets (§12.10, D44).
+    """
+    from sqldim.application.supervisor_host import open_local_dataset
+    from sqldim.core.query.dgm.nl.supervisor._auth import AccessDenied
 
     try:
-        dataset = load_dataset(args.dataset)
-    except KeyError as exc:
-        print(f"[sqldim ask] {exc}")
+        return open_local_dataset(args.dataset)
+    except AccessDenied as exc:
+        print(f"[sqldim ask] UNAUTHORIZED: {exc} ({args.dataset!r})")
         return None
-    return DatasetPipelineSource(dataset)
 
 
 def _make_medallion_source(args: argparse.Namespace) -> Any:

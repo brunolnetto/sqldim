@@ -30,11 +30,11 @@ from datetime import datetime, timezone
 from typing import Any
 
 from sqldim.application.ask import (
-    DatasetPipelineSource,
     build_registry_from_schema,
-    load_dataset,
     make_default_budget,
 )
+from sqldim.application.supervisor_host import open_local_dataset
+from sqldim.core.query.dgm.nl.supervisor._auth import AccessDenied
 from sqldim.core.query.dgm.nl._agent_types import DGMContext, NLInterfaceState
 from sqldim.core.query.dgm.nl._agents import make_model
 from sqldim.core.query.dgm.nl._graph import build_nl_graph
@@ -359,7 +359,7 @@ def _logfire_not_configured_warning() -> type | None:
         return None
 
 
-def _dataset_load_error(case: EvalCase, exc: KeyError) -> EvalResult:
+def _dataset_load_error(case: EvalCase, exc: Exception) -> EvalResult:
     return EvalResult(
         case_id=case.id,
         dataset=case.dataset,
@@ -373,7 +373,7 @@ def _dataset_load_error(case: EvalCase, exc: KeyError) -> EvalResult:
         columns=[],
         sql_generated=None,
         explanation=None,
-        check_details={"dataset_load": f"KeyError: {exc}"},
+        check_details={"dataset_load": f"{type(exc).__name__}: {exc}"},
         error=str(exc),
         tags=list(case.tags),
         check_passed={"dataset_load": False},
@@ -479,14 +479,13 @@ class EvalRunner:
         else:
             if case.dataset not in source_cache:
                 try:
-                    dataset = load_dataset(case.dataset)
-                except KeyError as exc:
+                    source = open_local_dataset(case.dataset)
+                except AccessDenied as exc:
                     err_result = _dataset_load_error(case, exc)
                     report.results.append(err_result)
                     if self.verbose:
                         self._log_case_result(err_result)
                     return
-                source = DatasetPipelineSource(dataset)
                 source.setup()
                 source_cache[case.dataset] = source
 
@@ -685,8 +684,8 @@ class EvalRunner:
             source = case.pipeline_source_factory()
         else:
             try:
-                dataset = load_dataset(case.dataset)
-            except KeyError as exc:
+                source = open_local_dataset(case.dataset)
+            except AccessDenied as exc:
                 return EvalResult(
                     case_id=case.id,
                     dataset=case.dataset,
@@ -700,12 +699,11 @@ class EvalRunner:
                     columns=[],
                     sql_generated=None,
                     explanation=None,
-                    check_details={"dataset_load": f"KeyError: {exc}"},
+                    check_details={"dataset_load": f"{type(exc).__name__}: {exc}"},
                     error=str(exc),
                     tags=list(case.tags),
                     check_passed={"dataset_load": False},
                 )
-            source = DatasetPipelineSource(dataset)
         source.setup()
         try:
             con = source.get_connection()

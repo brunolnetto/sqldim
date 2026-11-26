@@ -57,7 +57,7 @@ class EvalCase:
     """Canonical ground-truth SQL executed against the dataset for result comparison."""
     pipeline_source_factory: Any = field(default=None, hash=False, compare=False)
     """Optional factory ``() -> PipelineSource``.  When set, bypasses
-    ``DatasetPipelineSource(load_dataset(...))`` so the case can supply its
+    ``open_local_dataset(dataset)`` (the local host, §12.10) so the case can supply its
     own medallion pipeline source (e.g. :class:`RetailMedallionPipelineSource`).
     The ``dataset`` field is still used for reporting and filtering."""
 
