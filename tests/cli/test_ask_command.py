@@ -22,6 +22,7 @@ from sqldim.application.ask import (
     make_default_budget,
     run_ask,
 )
+from sqldim.application.supervisor_host import local_data_access
 from sqldim.cli import build_parser, main
 
 pytestmark = pytest.mark.filterwarnings(
@@ -338,6 +339,11 @@ class TestMakeDefaultBudget:
 # ---------------------------------------------------------------------------
 
 
+def _granted(name: str):
+    """The local host's access: READ on *name* if it is a bundled dataset."""
+    return local_data_access([name] if name in KNOWN_DATASETS else [])
+
+
 class TestRunAsk:
     @pytest.fixture(autouse=True)
     def _no_ollama(self, monkeypatch):
@@ -347,31 +353,37 @@ class TestRunAsk:
         monkeypatch.setattr("sqldim.application.ask.make_ollama_model", _raise)
 
     def test_valid_dataset_returns_zero(self, capsys):
-        rc = run_ask("show me customers", "commerce")
+        rc = run_ask("show me customers", "commerce", data=_granted("commerce"))
         assert rc == 0
 
     def test_unknown_dataset_returns_one(self, capsys):
-        rc = run_ask("show me customers", "no_such_dataset")
+        rc = run_ask(
+            "show me customers", "no_such_dataset", data=_granted("no_such_dataset")
+        )
         assert rc == 1
 
     def test_unknown_dataset_prints_error(self, capsys):
-        run_ask("test", "no_such_dataset")
+        run_ask("test", "no_such_dataset", data=_granted("no_such_dataset"))
         out = capsys.readouterr().out
-        assert "Unknown dataset" in out
+        assert "UNAUTHORIZED: not authorized or not found" in out
 
     def test_valid_run_prints_info(self, capsys):
-        run_ask("show me customers", "commerce")
+        run_ask("show me customers", "commerce", data=_granted("commerce"))
         out = capsys.readouterr().out
         assert len(out) > 0
 
     def test_verbose_prints_table_names(self, capsys):
-        run_ask("show me customers", "commerce", verbose=True)
+        run_ask(
+            "show me customers", "commerce", data=_granted("commerce"), verbose=True
+        )
         out = capsys.readouterr().out
         assert "Tables" in out
         assert "customers" in out
 
     def test_verbose_prints_prop_count(self, capsys):
-        run_ask("show me customers", "commerce", verbose=True)
+        run_ask(
+            "show me customers", "commerce", data=_granted("commerce"), verbose=True
+        )
         out = capsys.readouterr().out
         assert "PropTerms" in out
 
@@ -385,7 +397,7 @@ class TestRunAsk:
         monkeypatch.setattr(
             "sqldim.application.ask.build_nl_graph", lambda **kw: mock_graph
         )
-        rc = run_ask("show me customers", "commerce")
+        rc = run_ask("show me customers", "commerce", data=_granted("commerce"))
         assert rc == 0
 
     def test_run_ask_prints_explanation(self, monkeypatch, capsys):
@@ -400,7 +412,7 @@ class TestRunAsk:
         monkeypatch.setattr(
             "sqldim.application.ask.build_nl_graph", lambda **kw: mock_graph
         )
-        rc = run_ask("show me customers", "commerce")
+        rc = run_ask("show me customers", "commerce", data=_granted("commerce"))
         assert rc == 0
         out = capsys.readouterr().out
         assert "Here are your top customers." in out
@@ -418,7 +430,7 @@ class TestRunAsk:
         monkeypatch.setattr(
             "sqldim.application.ask.build_nl_graph", lambda **kw: mock_graph
         )
-        rc = run_ask("show me customers", "commerce")
+        rc = run_ask("show me customers", "commerce", data=_granted("commerce"))
         assert rc == 0
         out = capsys.readouterr().out
         assert "7 row(s)" in out

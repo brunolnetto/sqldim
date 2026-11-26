@@ -76,9 +76,9 @@ def _make_pipeline_source_factory(domain: str):
         return CommerceMedallionPipelineSource
 
     def _factory(d=domain):
-        from sqldim.application.ask import DatasetPipelineSource, load_dataset
+        from sqldim.application.supervisor_host import open_local_dataset
 
-        return DatasetPipelineSource(load_dataset(d))
+        return open_local_dataset(d)
 
     return _factory
 

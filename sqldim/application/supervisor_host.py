@@ -1,8 +1,9 @@
-"""Local host for the DGM supervisor (§12.10).
+"""Local host for the DGM entry points (§12.10, D44).
 
-The supervisor never builds an :class:`AuthContext` itself: the host does,
-from its own notion of who is calling.  This module is the host used by the
-command-line tools.  Its policy is deliberately narrow:
+No entry point builds an :class:`AuthContext` itself: the host does, from its
+own notion of who is calling.  This module is the host used by the
+command-line tools and the eval harness, for the supervisor and for the NL
+interface used directly.  Its policy is deliberately narrow:
 
 * the principal is the local operating-system user, in the tenant ``local``;
 * it is granted ``READ`` — and nothing else — on exactly the bundled example
@@ -22,6 +23,7 @@ from typing import Any
 from sqldim.core.query.dgm.nl.supervisor._auth import (
     Action,
     AuthContext,
+    DataAccess,
     grants_for,
 )
 from sqldim.core.query.dgm.nl.supervisor._graph import (
@@ -29,7 +31,13 @@ from sqldim.core.query.dgm.nl.supervisor._graph import (
     make_runtime,
 )
 
-__all__ = ["LOCAL_TENANT", "local_auth_context", "local_supervisor_runtime"]
+__all__ = [
+    "LOCAL_TENANT",
+    "local_auth_context",
+    "local_data_access",
+    "open_local_dataset",
+    "local_supervisor_runtime",
+]
 
 LOCAL_TENANT = "local"
 
@@ -54,6 +62,23 @@ def _open_bundled(dataset_id: str) -> Any:
     from sqldim.application.ask import load_dataset
 
     return DatasetPipelineSource(load_dataset(dataset_id))
+
+
+def local_data_access(datasets: Iterable[str]) -> DataAccess:
+    """Authorized access to the selected bundled datasets, and nothing else."""
+    return DataAccess(local_auth_context(datasets), _open_bundled)
+
+
+def open_local_dataset(dataset_id: str) -> Any:
+    """Open one bundled dataset for the local user, through :class:`DataAccess`.
+
+    An unknown identifier gets no grant, so it is refused exactly like an
+    ungranted one (:class:`AccessDenied`, "not authorized or not found").
+    """
+    from sqldim.application.ask import KNOWN_DATASETS
+
+    granted = [dataset_id] if dataset_id in KNOWN_DATASETS else []
+    return local_data_access(granted).scoped([dataset_id]).open(dataset_id)
 
 
 def local_supervisor_runtime(

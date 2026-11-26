@@ -131,6 +131,11 @@ class DataAccess:
     def scope(self) -> frozenset[str] | None:
         return self._scope
 
+    @property
+    def auth(self) -> AuthContext:
+        """The identity and grants this access enforces (read-only)."""
+        return self._auth
+
     def scoped(self, datasets: Iterable[str]) -> "DataAccess":
         """A view that may open only *datasets* (a subset of the current scope)."""
         requested = frozenset(datasets)
