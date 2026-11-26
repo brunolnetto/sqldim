@@ -732,7 +732,8 @@ class EvalRunner:
         budget = make_default_budget()
         ctx = DGMContext(entity_registry=registry, budget=budget, con=con)
 
-        graph = build_nl_graph(context=ctx, model=model)
+        # The eval suite exercises the heuristic NL graph: demo tests (D47).
+        graph = build_nl_graph(context=ctx, model=model, demo=True)
 
         tid = f"eval-{case.id}{thread_id_suffix}"
         t0 = time.perf_counter()

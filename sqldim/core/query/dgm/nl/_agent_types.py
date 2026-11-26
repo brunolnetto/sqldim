@@ -277,5 +277,7 @@ class NLInterfaceState(BaseModel):
     explanation: str | None = None
     visited_nodes: list[str] = []  # ordered list of graph hops for evals
     node_timings: dict[str, float] = {}  # wall-clock ms per node, keyed by node name
+    demo: bool = False  # set by the explicit demo graph (D47); never a contract result
+    error: dict[str, Any] | None = None  # typed failure {kind, message}; ends the turn
 
     model_config = {"arbitrary_types_allowed": True}

@@ -5,9 +5,11 @@ graph (§11.10 table).  Each factory accepts a model name or model instance,
 creates a fresh pydantic-ai ``Agent`` with the appropriate result-type schema
 and system prompt, and registers the tools the agent is allowed to call.
 
-Tools are designed for graceful degradation: when ``DGMContext.graph`` is
-``None`` (schema-only mode, e.g. ``sqldim ask``), tools fall back to the
-closed vocabulary carried in ``EntityRegistry``.
+Every factory requires an explicit model: none falls back to a default
+backend (D42).  These agents serve the heuristic demo graph (D47).  When
+``DGMContext.graph`` is ``None`` (schema-only mode), the vocabulary tools
+read the closed vocabulary carried in ``EntityRegistry``; tools whose
+backing component is absent say so instead of returning an empty answer.
 
 Public interface
 ----------------
@@ -167,6 +169,16 @@ def make_model(
     return factory(name, base_url, api_key)
 
 
+def _require_model(model: Any) -> Any:
+    """A model must be given explicitly; no backend is chosen implicitly (D42)."""
+    if model is None:
+        raise ValueError(
+            "a model is required: pass one built by make_model(provider); "
+            "no LLM backend is chosen on the caller's behalf"
+        )
+    return model
+
+
 def make_ollama_model() -> Any:
     """Return an OpenAIChatModel wired to the local Ollama server.
 
@@ -185,10 +197,10 @@ def make_entity_agent(model: Any = None) -> Any:
     """Create the entity resolution specialist (§11.10 Agent 1).
 
     Maps natural-language terms to PropRef values grounded in the closed
-    vocabulary of the ``EntityRegistry``.  When the live DGM graph is
-    unavailable, falls back to ``prop_terms`` derived from the DuckDB schema.
+    vocabulary of the ``EntityRegistry`` (in the demo graph, the
+    ``prop_terms`` introspected from the DuckDB schema).
     """
-    _model = model if model is not None else make_ollama_model()
+    _model = _require_model(model)
     agent: Any = Agent(
         model=_model,
         deps_type=DGMContext,
@@ -242,7 +254,7 @@ def make_sql_agent(model: Any = None) -> Any:
     intent-fulfilling DuckDB SQL query with proper aggregations, filters,
     and computed-column aliases.
     """
-    _model = model if model is not None else make_ollama_model()
+    _model = _require_model(model)
     agent: Any = Agent(
         model=_model,
         deps_type=DGMContext,
@@ -288,7 +300,7 @@ def make_temporal_agent(model: Any = None) -> Any:
     Classifies NL temporal expressions into the ``TemporalIntent`` closed
     vocabulary.  Returns ``confidence = 0.0`` when no temporal signal exists.
     """
-    _model = model if model is not None else make_ollama_model()
+    _model = _require_model(model)
     return Agent(
         model=_model,
         deps_type=DGMContext,  # type: ignore[arg-type]
@@ -316,7 +328,7 @@ def make_compositional_agent(model: Any = None) -> Any:
     multi-question utterances.  JOIN must supply a valid ``join_key`` PropRef;
     the validator in ``CompositionalDetectionResult`` enforces this.
     """
-    _model = model if model is not None else make_ollama_model()
+    _model = _require_model(model)
     return Agent(
         model=_model,
         deps_type=DGMContext,  # type: ignore[arg-type]
@@ -342,7 +354,7 @@ def make_ranking_agent(model: Any = None) -> Any:
     linguistic proximity.  The LLM never adds candidates — only reorders the
     provided list and assigns confidence scores.
     """
-    _model = model if model is not None else make_ollama_model()
+    _model = _require_model(model)
     return Agent(
         model=_model,
         deps_type=DGMContext,  # type: ignore[arg-type]
@@ -366,9 +378,10 @@ def make_explanation_agent(model: Any = None) -> Any:
 
     Renders the query DAG decomposition in natural language.  Only calls
     ``dag_decomposition`` and ``get_next_suggestions`` — never produces SQL
-    directly.  Both tools gracefully degrade when ``query_dag`` is ``None``.
+    directly.  Both tools report a missing ``query_dag`` or ``recommender``
+    instead of answering empty.
     """
-    _model = model if model is not None else make_ollama_model()
+    _model = _require_model(model)
     agent: Any = Agent(
         model=_model,
         deps_type=DGMContext,
@@ -385,19 +398,20 @@ def make_explanation_agent(model: Any = None) -> Any:
     def dag_decomposition(ctx: RunContext[DGMContext], dag_node_id: int) -> dict:  # type: ignore[type-arg]
         """Return a structured decomposition of the given DAG node.
 
-        Falls back to an empty dict when no ``query_dag`` is available.
+        Reports ``unavailable`` when the context has no ``query_dag``;
+        a lookup failure is reported, not turned into an empty answer.
         """
         if ctx.deps.query_dag is None:
-            return {}
+            return {"unavailable": "no query DAG in this context"}
         try:
             node = ctx.deps.query_dag.get_node(dag_node_id)
-            return {
-                "id": dag_node_id,
-                "description": getattr(node, "description", ""),
-                "bands": getattr(node, "bands", []),
-            }
-        except Exception:  # noqa: BLE001
-            return {}
+        except Exception as exc:  # noqa: BLE001 — reported to the model
+            return {"error": f"{type(exc).__name__}: {exc}"}
+        return {
+            "id": dag_node_id,
+            "description": getattr(node, "description", ""),
+            "bands": getattr(node, "bands", []),
+        }
 
     @agent.tool
     def get_next_suggestions(
@@ -405,14 +419,12 @@ def make_explanation_agent(model: Any = None) -> Any:
     ) -> list[str]:
         """Return up to k follow-up query suggestions from the recommender.
 
-        Falls back to an empty list when no ``recommender`` is available.
+        Raises when the context has no ``recommender`` or the lookup fails,
+        so the model sees a tool error rather than "no suggestions".
         """
         if ctx.deps.recommender is None:
-            return []
-        try:
-            candidates = ctx.deps.recommender.clarification_options(dag_node_id, k)
-            return [getattr(c, "description", str(c)) for c in candidates]
-        except Exception:  # noqa: BLE001
-            return []
+            raise RuntimeError("no recommender in this context")
+        candidates = ctx.deps.recommender.clarification_options(dag_node_id, k)
+        return [getattr(c, "description", str(c)) for c in candidates]
 
     return agent

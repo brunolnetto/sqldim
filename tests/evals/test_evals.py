@@ -406,7 +406,7 @@ class TestHopTracing:
         budget = make_default_budget()
         ctx = DGMContext(entity_registry=registry, budget=budget, con=con)
 
-        graph = build_nl_graph(context=ctx, model=None)
+        graph = build_nl_graph(context=ctx, model=None, demo=True)
         initial = NLInterfaceState(utterance="show me items")
         state = graph.invoke(
             initial.model_dump(),
@@ -436,7 +436,7 @@ class TestHopTracing:
         budget = make_default_budget()
         ctx = DGMContext(entity_registry=registry, budget=budget, con=con)
 
-        graph = build_nl_graph(context=ctx, model=None)
+        graph = build_nl_graph(context=ctx, model=None, demo=True)
         state = graph.invoke(
             NLInterfaceState(utterance="show me sales").model_dump(),
             config={
@@ -479,7 +479,7 @@ class TestHopTracing:
             entity_registry=registry, budget=make_default_budget(), con=con
         )
 
-        graph = build_nl_graph(context=ctx, model=None)
+        graph = build_nl_graph(context=ctx, model=None, demo=True)
         state = graph.invoke(
             NLInterfaceState(utterance="show me events").model_dump(),
             config={"configurable": {"thread_id": "test-count"}, "recursion_limit": 25},
@@ -488,8 +488,8 @@ class TestHopTracing:
         visited = state.get("visited_nodes", [])
         assert len(visited) == state.get("visited_nodes", []).__len__()
 
-    def test_dag_construction_no_candidates_uses_placeholder(self):
-        """Cover line 372: sql = 'SELECT 1 AS placeholder' when no candidates."""
+    def test_dag_construction_no_candidates_is_an_error(self):
+        """No candidate table: NEEDS_CLARIFICATION, no placeholder SQL."""
         import duckdb
         from sqldim.core.query.dgm.nl._agent_types import DGMContext, NLInterfaceState
         from sqldim.core.query.dgm.nl._node_impls import make_operational_nodes
@@ -512,8 +512,9 @@ class TestHopTracing:
         # Call with empty state (no candidates, no ranking_result)
         empty_state = NLInterfaceState(utterance="show me something")
         result = dag_fn(empty_state)
-        # With no candidates, should use placeholder SQL
-        assert result.get("q_current") == "SELECT 1 AS placeholder"
+        # No table resolved: a typed error, never a placeholder query.
+        assert result.get("q_current") is None
+        assert result["error"]["kind"] == "NEEDS_CLARIFICATION"
 
     def test_dag_construction_with_candidates_generates_select(self):
         """Cover lines 378-388: template SQL with table from candidate description."""
@@ -1520,17 +1521,34 @@ class TestNodeImplsBranchCoverage:
         con.execute("CREATE TABLE sales (id INTEGER)")
         ctx = self._make_ctx(con)
 
-        nodes = make_llm_nodes(ctx, model=None)
+        from pydantic_ai.models.test import TestModel
+
+        nodes = make_llm_nodes(ctx, model=TestModel())
         fn = nodes["explanation_rendering"]
 
-        # result is None (triggers line 176); q_current is set (triggers line 177)
+        # Nothing was executed (result None): never "no results".
         state = NLInterfaceState(
             utterance="list sales", q_current="SELECT id FROM sales", result=None
         )
-        result = fn(state)
-        explanation = result.get("explanation", "")
-        assert "no results" in explanation.lower()
+        explanation = fn(state).get("explanation", "")
+        assert explanation.startswith("No query was executed")
+        assert "no results" not in explanation.lower()
         assert "SQL:" in explanation
+
+        # A genuine empty result after execution is reported as such.
+        empty = NLInterfaceState(
+            utterance="list sales",
+            q_current="SELECT id FROM sales",
+            result={"columns": ["id"], "rows": [], "count": 0},
+        )
+        assert "no results" in fn(empty)["explanation"].lower()
+
+        # A failed turn explains the failure.
+        failed = NLInterfaceState(
+            utterance="list sales",
+            error={"kind": "TOOL_FAILURE", "message": "boom"},
+        )
+        assert fn(failed)["explanation"] == "TOOL_FAILURE: boom"
 
     def test_build_schema_str_emits_join_hints(self):
         """Cover _node_impls.py lines 291-293, 313-314: join_hints populated."""

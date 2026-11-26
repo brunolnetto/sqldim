@@ -302,23 +302,22 @@ class TestObservatoryPipelineSource:
 class TestRunAskFromSource:
     @pytest.fixture(autouse=True)
     def _no_ollama(self, monkeypatch):
-        def _raise():
-            raise RuntimeError("no Ollama in tests")
-
-        monkeypatch.setattr("sqldim.application.ask.make_ollama_model", _raise)
         monkeypatch.setattr("sqldim.application.ask.make_model", lambda *a, **kw: None)
 
     def test_dataset_source_returns_zero(self, capsys):
         ds = load_dataset("commerce")
         src = DatasetPipelineSource(ds)
-        rc = run_ask_from_source("show me customers", src)
+        rc = run_ask_from_source("show me customers", src, demo=True)
         assert rc == 0
 
-    def test_medallion_source_returns_zero(self, capsys):
+    def test_medallion_sum_without_numeric_column_is_not_guessed(self, capsys):
+        """The template used to emit SUM(*), fail in DuckDB and report rc 0."""
         con = _make_medallion_con()
         src = MedallionPipelineSource(con)
-        rc = run_ask_from_source("show me revenue by customer", src)
-        assert rc == 0
+        rc = run_ask_from_source("show me revenue by customer", src, demo=True)
+        assert rc == 1
+        out = capsys.readouterr().out
+        assert "NEEDS_CLARIFICATION: no numeric column" in out
 
     def test_observatory_source_returns_zero(self, capsys):
         from sqldim.observability.drift import DriftObservatory
@@ -326,21 +325,21 @@ class TestRunAskFromSource:
         obs = DriftObservatory(_make_obs_con())
         src = ObservatoryPipelineSource(obs)
         rc = run_ask_from_source(
-            "which datasets have the highest breaking-change rate?", src
+            "which datasets have the highest breaking-change rate?", src, demo=True
         )
         assert rc == 0
 
     def test_verbose_prints_source_label(self, capsys):
         con = _make_medallion_con()
         src = MedallionPipelineSource(con, layer="gold")
-        run_ask_from_source("test", src, verbose=True)
+        run_ask_from_source("test", src, verbose=True, demo=True)
         out = capsys.readouterr().out
         assert "medallion:gold" in out
 
     def test_verbose_prints_prop_count(self, capsys):
         ds = load_dataset("commerce")
         src = DatasetPipelineSource(ds)
-        run_ask_from_source("test", src, verbose=True)
+        run_ask_from_source("test", src, verbose=True, demo=True)
         out = capsys.readouterr().out
         assert "PropTerms" in out
 
@@ -348,7 +347,7 @@ class TestRunAskFromSource:
         """DatasetPipelineSource connection should be None after the call."""
         ds = load_dataset("commerce")
         src = DatasetPipelineSource(ds)
-        run_ask_from_source("test", src)
+        run_ask_from_source("test", src, demo=True)
         # After teardown the internal connection should be gone
         assert src._con is None
 
@@ -474,10 +473,6 @@ class TestAskParserNewFlags:
 class TestMainAskWithSource:
     @pytest.fixture(autouse=True)
     def _no_ollama(self, monkeypatch):
-        def _raise():
-            raise RuntimeError("no Ollama in tests")
-
-        monkeypatch.setattr("sqldim.application.ask.make_ollama_model", _raise)
         monkeypatch.setattr("sqldim.application.ask.make_model", lambda *a, **kw: None)
 
     def test_main_ask_dataset_source_returns_zero(self, capsys):
@@ -485,6 +480,7 @@ class TestMainAskWithSource:
             [
                 "nl",
                 "ask",
+                "--demo",
                 "show me customers",
                 "--dataset",
                 "commerce",
@@ -496,7 +492,16 @@ class TestMainAskWithSource:
 
     def test_main_ask_unknown_dataset_returns_one(self, capsys):
         rc = main(
-            ["nl", "ask", "test", "--dataset", "unknown_ds", "--source", "dataset"]
+            [
+                "nl",
+                "ask",
+                "--demo",
+                "test",
+                "--dataset",
+                "unknown_ds",
+                "--source",
+                "dataset",
+            ]
         )
         assert rc == 1
 
@@ -513,6 +518,7 @@ class TestMainAskWithSource:
                 [
                     "nl",
                     "ask",
+                    "--demo",
                     "test",
                     "--dataset",
                     "commerce",
@@ -524,12 +530,13 @@ class TestMainAskWithSource:
         out = capsys.readouterr().out
         assert "Could not create model" in out
 
-    def test_main_ask_medallion_source_returns_zero(self, capsys):
-        """--source medallion builds MedallionPipelineSource from :memory: db."""
+    def test_main_ask_medallion_empty_db_is_an_error(self, capsys):
+        """An empty :memory: medallion db has no table: no placeholder query."""
         rc = main(
             [
                 "nl",
                 "ask",
+                "--demo",
                 "show revenue",
                 "--dataset",
                 "commerce",
@@ -537,7 +544,8 @@ class TestMainAskWithSource:
                 "medallion",
             ]
         )
-        assert rc == 0
+        assert rc == 1
+        assert "no table of the dataset was resolved" in capsys.readouterr().out
 
     def test_main_ask_observatory_source_returns_zero(self, capsys):
         """--source observatory builds DriftObservatory from :memory: db."""
@@ -545,6 +553,7 @@ class TestMainAskWithSource:
             [
                 "nl",
                 "ask",
+                "--demo",
                 "show datasets",
                 "--dataset",
                 "commerce",

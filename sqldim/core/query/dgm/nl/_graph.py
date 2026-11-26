@@ -13,7 +13,17 @@ Routing functions:
   route_budget_decision    — maps BudgetDecisionKind to graph edge labels
 
 Public factory:
-  build_nl_graph() → compiled LangGraph (checkpointed, resumable)
+  build_nl_graph(demo=True) → compiled LangGraph (checkpointed, resumable)
+
+Fail closed (ADR 0012, ADR 0013, D47).  This graph is the heuristic path:
+template or LLM-authored SQL instead of DGM synthesis (D26), six of the nine
+deterministic nodes of §11.10, auto-confirmation instead of the HITL loop and
+passthrough stubs when no model is given.  It is built only when the caller
+selects demo mode explicitly; otherwise :func:`build_nl_graph` raises
+:class:`NLPipelineUnavailable` (``NOT_IMPLEMENTED``) naming what is missing.
+Every state it produces carries ``demo = True``.  A node that cannot do its
+work sets ``error`` and the turn goes straight to explanation — no
+placeholder query, no "no results" for a failed execution.
 
 Observability:
   Every node is wrapped with a Logfire span that records the node name,
@@ -62,15 +72,51 @@ _DECISION_KIND_MAP: dict[type, str] = {
 }
 
 __all__ = [
+    "NLPipelineUnavailable",
+    "CONTRACT_PIPELINE_MISSING",
     "route_after_confirmation",
     "route_budget_decision",
     "build_nl_graph",
 ]
 
 
+CONTRACT_PIPELINE_MISSING: tuple[str, ...] = (
+    "dag_construction by DGM synthesis over the question lattice (D26; "
+    "the current node writes template or LLM-authored SQL)",
+    "the three §11.10 deterministic nodes absent from this graph (#143)",
+    "human confirmation in confirmation_loop and clarification "
+    "(the current nodes auto-confirm)",
+    "gate cost estimates from the planner (§6.3; the current gate uses "
+    "the SQL text length)",
+)
+
+
+class NLPipelineUnavailable(RuntimeError):
+    """The §11.10 contract pipeline is not available (``NOT_IMPLEMENTED``).
+
+    Raised at build time, before anything runs (ADR 0012).  ``missing``
+    names each absent component.
+    """
+
+    kind = "NOT_IMPLEMENTED"
+
+    def __init__(self, missing: tuple[str, ...] = CONTRACT_PIPELINE_MISSING) -> None:
+        self.missing = missing
+        super().__init__(
+            "the §11.10 NL pipeline is not implemented; missing: "
+            + "; ".join(missing)
+            + ". Select demo mode explicitly to run the heuristic path (D47)."
+        )
+
+
 # ---------------------------------------------------------------------------
 # Routing functions
 # ---------------------------------------------------------------------------
+
+
+def route_after_dag(state: NLInterfaceState) -> str:
+    """A node that failed ends the turn at explanation; nothing is gated."""
+    return "failed" if state.error is not None else "built"
 
 
 def route_after_confirmation(state: NLInterfaceState) -> str:
@@ -117,6 +163,8 @@ def _state_diff(before: NLInterfaceState, after: dict[str, Any]) -> dict[str, An
 def _traced_node(
     name: str,
     fn: Callable[[NLInterfaceState], dict[str, Any]],
+    *,
+    demo: bool = True,
 ) -> Callable[[NLInterfaceState], dict[str, Any]]:
     """Wrap a node function with a Logfire span that records state changes."""
 
@@ -141,6 +189,7 @@ def _traced_node(
         # Record this hop + timing for eval tracing (always appends, never replaces).
         result["visited_nodes"] = list(state.visited_nodes) + [name]
         result["node_timings"] = {**state.node_timings, name: elapsed_ms}
+        result["demo"] = demo
         return result
 
     _wrapper.__name__ = name
@@ -153,7 +202,7 @@ def _traced_node(
 
 
 def _noop(state: NLInterfaceState) -> dict[str, Any]:
-    """Passthrough stub used for non-LLM nodes not yet wired to DGM machinery."""
+    """Passthrough stub of the demo graph (D47); never built outside demo mode."""
     return {}
 
 
@@ -167,15 +216,17 @@ def build_nl_graph(
     *,
     context: Any = None,
     model: Any = None,
+    demo: bool = False,
 ) -> Any:
-    """Construct and compile the eleven-node NL interface LangGraph (§11.10).
+    """Construct and compile the eleven-node heuristic NL graph (demo, D47).
 
-    The returned graph is a compiled ``CompiledStateGraph``.
+    Raises :class:`NLPipelineUnavailable` unless ``demo=True``: the §11.10
+    contract pipeline is not implemented yet (#143), and nothing selects
+    the heuristic path on the caller's behalf.
 
-    When *both* ``context`` and ``model`` are provided the five LLM nodes
-    invoke real Pydantic-AI specialist agents.  When either is ``None`` the
-    LLM nodes fall back to passthrough stubs so the graph can still be
-    invoked safely in tests and schema-introspection mode.
+    In demo mode, when *both* ``context`` and ``model`` are provided the
+    five LLM nodes invoke Pydantic-AI agents; otherwise they are
+    passthrough stubs.  Every resulting state carries ``demo = True``.
 
     Every node is wrapped with a Logfire span.  Call ``logfire.configure()``
     before invoking the graph to enable trace export.
@@ -192,7 +243,11 @@ def build_nl_graph(
     model:
         Pydantic-AI model name or model instance to pass to specialist
         agent factories.  ``None`` disables LLM nodes (stubs only).
+    demo:
+        The caller's explicit selection of the heuristic path.
     """
+    if not demo:
+        raise NLPipelineUnavailable()
     if checkpointer is None:
         checkpointer = MemorySaver()
 
@@ -237,7 +292,11 @@ def build_nl_graph(
         },
     )
 
-    graph.add_edge("dag_construction", "budget_gate")
+    graph.add_conditional_edges(
+        "dag_construction",
+        route_after_dag,
+        {"built": "budget_gate", "failed": "explanation_rendering"},
+    )
 
     # ── Conditional: budget gate (8-way branch) ───────────────────────────
     graph.add_conditional_edges(
@@ -255,7 +314,7 @@ def build_nl_graph(
         },
     )
 
-    graph.add_edge("execution", "explanation_rendering")
+    graph.add_edge("execution", "explanation_rendering")  # errors included
     graph.add_edge("explanation_rendering", END)
     graph.add_edge("clarification", "confirmation_loop")  # cycle
 

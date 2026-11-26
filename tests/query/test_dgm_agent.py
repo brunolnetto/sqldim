@@ -37,6 +37,7 @@ from sqldim.core.query.dgm.nl._agent_types import (
     QueryCandidate,
     TemporalClassificationResult,
 )
+from sqldim.core.query.dgm.nl._node_impls import make_operational_nodes
 from sqldim.core.query.dgm.nl._graph import (
     _state_diff,
     _traced_node,
@@ -514,39 +515,39 @@ class TestRouteBudgetDecision:
 
 class TestBuildNLGraph:
     def test_returns_compiled_graph(self):
-        graph = build_nl_graph()
+        graph = build_nl_graph(demo=True)
         assert graph is not None
 
     def test_has_entity_resolution_node(self):
-        graph = build_nl_graph()
+        graph = build_nl_graph(demo=True)
         assert "entity_resolution" in graph.get_graph().nodes
 
     def test_has_confirmation_loop_node(self):
-        graph = build_nl_graph()
+        graph = build_nl_graph(demo=True)
         assert "confirmation_loop" in graph.get_graph().nodes
 
     def test_has_budget_gate_node(self):
-        graph = build_nl_graph()
+        graph = build_nl_graph(demo=True)
         assert "budget_gate" in graph.get_graph().nodes
 
     def test_has_execution_node(self):
-        graph = build_nl_graph()
+        graph = build_nl_graph(demo=True)
         assert "execution" in graph.get_graph().nodes
 
     def test_has_explanation_rendering_node(self):
-        graph = build_nl_graph()
+        graph = build_nl_graph(demo=True)
         assert "explanation_rendering" in graph.get_graph().nodes
 
     def test_has_clarification_node(self):
-        graph = build_nl_graph()
+        graph = build_nl_graph(demo=True)
         assert "clarification" in graph.get_graph().nodes
 
     def test_has_dag_construction_node(self):
-        graph = build_nl_graph()
+        graph = build_nl_graph(demo=True)
         assert "dag_construction" in graph.get_graph().nodes
 
     def test_all_eleven_nodes_present(self):
-        graph = build_nl_graph()
+        graph = build_nl_graph(demo=True)
         nodes = set(graph.get_graph().nodes)
         expected = {
             "entity_resolution",
@@ -908,8 +909,8 @@ class TestExplanationAgentToolsWithDeps:
         assert result["description"] == "SELECT orders"
         assert result["bands"] == ["B1"]
 
-    def test_dag_decomposition_exception_returns_empty(self):
-        """Cover dag_decomposition except-branch when get_node raises."""
+    def test_dag_decomposition_exception_is_reported(self):
+        """A failing lookup is reported to the model, never an empty answer."""
         from unittest.mock import MagicMock
         from sqldim.core.query.dgm.nl._agents import make_explanation_agent
         from pydantic_ai.models.test import TestModel
@@ -923,7 +924,7 @@ class TestExplanationAgentToolsWithDeps:
         rc = self._make_run_ctx(ctx)
         tool_fn = agent._function_toolset.tools["dag_decomposition"].function
         result = tool_fn(rc, 99)
-        assert result == {}
+        assert result == {"error": "RuntimeError: no such node"}
 
     def test_get_next_suggestions_with_recommender(self):
         """Cover get_next_suggestions try-block (lines 364-368) when recommender is set."""
@@ -944,8 +945,8 @@ class TestExplanationAgentToolsWithDeps:
         result = tool_fn(rc, 1, 3)
         assert result == ["revenue by month"]
 
-    def test_get_next_suggestions_exception_returns_empty(self):
-        """Cover get_next_suggestions except-branch when clarification_options raises."""
+    def test_get_next_suggestions_exception_is_raised(self):
+        """A failing recommender raises; it is not read as "no suggestions"."""
         from unittest.mock import MagicMock
         from sqldim.core.query.dgm.nl._agents import make_explanation_agent
         from pydantic_ai.models.test import TestModel
@@ -958,8 +959,8 @@ class TestExplanationAgentToolsWithDeps:
         agent = make_explanation_agent(TestModel())
         rc = self._make_run_ctx(ctx)
         tool_fn = agent._function_toolset.tools["get_next_suggestions"].function
-        result = tool_fn(rc, 1, 3)
-        assert result == []
+        with pytest.raises(RuntimeError, match="fail"):
+            tool_fn(rc, 1, 3)
 
 
 # ---------------------------------------------------------------------------
@@ -970,7 +971,7 @@ class TestExplanationAgentToolsWithDeps:
 class TestBuildNLGraphWithModel:
     def test_build_without_model_uses_stub_nodes(self):
         """Without model, graph compiles and runs (stubs return empty dicts)."""
-        graph = build_nl_graph()
+        graph = build_nl_graph(demo=True)
         # Low recursion limit keeps the stub-loop test fast (stub nodes cycle
         # without a model; default limit of 25 iterations takes ~80 seconds).
         config = {"configurable": {"thread_id": "test-no-model"}, "recursion_limit": 5}
@@ -1048,7 +1049,7 @@ class TestAgentToolBodies:
         rc = self._make_run_ctx(ctx)
         tool_fn = agent._function_toolset.tools["dag_decomposition"].function
         result = tool_fn(rc, 1)
-        assert result == {}
+        assert result == {"unavailable": "no query DAG in this context"}
 
     def test_explanation_agent_get_next_suggestions_no_recommender(self):
         """Cover _agents.py get_next_suggestions branch: ctx.deps.recommender is None."""
@@ -1060,103 +1061,43 @@ class TestAgentToolBodies:
         agent = make_explanation_agent(TestModel())
         rc = self._make_run_ctx(ctx)
         tool_fn = agent._function_toolset.tools["get_next_suggestions"].function
-        result = tool_fn(rc, 1, 3)
-        assert result == []
+        with pytest.raises(RuntimeError, match="no recommender"):
+            tool_fn(rc, 1, 3)
 
-    def test_make_entity_agent_model_none_calls_ollama(
-        self, monkeypatch: pytest.MonkeyPatch
-    ):
-        """Cover _agents.py line 174: model=None path calls make_ollama_model."""
+    def test_make_entity_agent_requires_a_model(self) -> None:
+        """No backend is chosen implicitly when no model is given (D42)."""
         import sqldim.core.query.dgm.nl._agents as _agents_mod
-        from pydantic_ai.models.test import TestModel
 
-        stub_model = TestModel()
-        called: list[int] = []
+        with pytest.raises(ValueError, match="a model is required"):
+            _agents_mod.make_entity_agent(None)
 
-        def fake_make_ollama_model() -> object:
-            called.append(1)
-            return stub_model
-
-        monkeypatch.setattr(_agents_mod, "make_ollama_model", fake_make_ollama_model)
-        agent = _agents_mod.make_entity_agent(None)
-        assert len(called) == 1
-        assert agent is not None
-
-    def test_make_temporal_agent_model_none_calls_ollama(
-        self, monkeypatch: pytest.MonkeyPatch
-    ):
-        """Cover make_temporal_agent model=None path."""
+    def test_make_temporal_agent_requires_a_model(self) -> None:
+        """No backend is chosen implicitly when no model is given (D42)."""
         import sqldim.core.query.dgm.nl._agents as _agents_mod
-        from pydantic_ai.models.test import TestModel
 
-        stub_model = TestModel()
-        called: list[int] = []
+        with pytest.raises(ValueError, match="a model is required"):
+            _agents_mod.make_temporal_agent(None)
 
-        def fake_make_ollama_model() -> object:
-            called.append(1)
-            return stub_model
-
-        monkeypatch.setattr(_agents_mod, "make_ollama_model", fake_make_ollama_model)
-        agent = _agents_mod.make_temporal_agent(None)
-        assert len(called) == 1
-        assert agent is not None
-
-    def test_make_compositional_agent_model_none_calls_ollama(
-        self, monkeypatch: pytest.MonkeyPatch
-    ):
-        """Cover make_compositional_agent model=None path."""
+    def test_make_compositional_agent_requires_a_model(self) -> None:
+        """No backend is chosen implicitly when no model is given (D42)."""
         import sqldim.core.query.dgm.nl._agents as _agents_mod
-        from pydantic_ai.models.test import TestModel
 
-        stub_model = TestModel()
-        called: list[int] = []
+        with pytest.raises(ValueError, match="a model is required"):
+            _agents_mod.make_compositional_agent(None)
 
-        def fake_make_ollama_model() -> object:
-            called.append(1)
-            return stub_model
-
-        monkeypatch.setattr(_agents_mod, "make_ollama_model", fake_make_ollama_model)
-        agent = _agents_mod.make_compositional_agent(None)
-        assert len(called) == 1
-        assert agent is not None
-
-    def test_make_ranking_agent_model_none_calls_ollama(
-        self, monkeypatch: pytest.MonkeyPatch
-    ):
-        """Cover make_ranking_agent model=None path."""
+    def test_make_ranking_agent_requires_a_model(self) -> None:
+        """No backend is chosen implicitly when no model is given (D42)."""
         import sqldim.core.query.dgm.nl._agents as _agents_mod
-        from pydantic_ai.models.test import TestModel
 
-        stub_model = TestModel()
-        called: list[int] = []
+        with pytest.raises(ValueError, match="a model is required"):
+            _agents_mod.make_ranking_agent(None)
 
-        def fake_make_ollama_model() -> object:
-            called.append(1)
-            return stub_model
-
-        monkeypatch.setattr(_agents_mod, "make_ollama_model", fake_make_ollama_model)
-        agent = _agents_mod.make_ranking_agent(None)
-        assert len(called) == 1
-        assert agent is not None
-
-    def test_make_explanation_agent_model_none_calls_ollama(
-        self, monkeypatch: pytest.MonkeyPatch
-    ):
-        """Cover make_explanation_agent model=None path."""
+    def test_make_explanation_agent_requires_a_model(self) -> None:
+        """No backend is chosen implicitly when no model is given (D42)."""
         import sqldim.core.query.dgm.nl._agents as _agents_mod
-        from pydantic_ai.models.test import TestModel
 
-        stub_model = TestModel()
-        called: list[int] = []
-
-        def fake_make_ollama_model() -> object:
-            called.append(1)
-            return stub_model
-
-        monkeypatch.setattr(_agents_mod, "make_ollama_model", fake_make_ollama_model)
-        agent = _agents_mod.make_explanation_agent(None)
-        assert len(called) == 1
-        assert agent is not None
+        with pytest.raises(ValueError, match="a model is required"):
+            _agents_mod.make_explanation_agent(None)
 
 
 # ---------------------------------------------------------------------------
@@ -1186,7 +1127,7 @@ class TestBuildNLGraphWithContext:
         candidate_generation, confirmation_loop, dag_construction, budget_gate,
         execution, and clarification nodes.  Covers lines 278-458."""
         ctx = self._make_context_with_db()
-        graph = build_nl_graph(context=ctx)
+        graph = build_nl_graph(context=ctx, demo=True)
         config = {
             "configurable": {"thread_id": "test-ctx-no-model"},
             "recursion_limit": 25,
@@ -1211,7 +1152,7 @@ class TestBuildNLGraphWithContext:
 
         ctx = self._make_context_with_db()
         model = TestModel()
-        graph = build_nl_graph(context=ctx, model=model)
+        graph = build_nl_graph(context=ctx, model=model, demo=True)
         config = {
             "configurable": {"thread_id": "test-ctx-with-model"},
             "recursion_limit": 25,
@@ -1236,7 +1177,7 @@ class TestBuildNLGraphWithContext:
 
         ctx = self._make_context_with_db()
         model = TestModel()
-        graph = build_nl_graph(context=ctx, model=model)
+        graph = build_nl_graph(context=ctx, model=model, demo=True)
         config = {
             "configurable": {"thread_id": "test-entity-resolved"},
             "recursion_limit": 25,
@@ -1262,7 +1203,7 @@ class TestBuildNLGraphWithContext:
         """Seed ranking_result so confirmation_loop takes the ranked branch
         (lines 316, 318, 321 in _graph.py)."""
         ctx = self._make_context_with_db()
-        graph = build_nl_graph(context=ctx)
+        graph = build_nl_graph(context=ctx, demo=True)
         config = {
             "configurable": {"thread_id": "test-confirmation-ranked"},
             "recursion_limit": 25,
@@ -1294,7 +1235,7 @@ class TestBuildNLGraphWithContext:
         """Verify execution node executes SQL and populates result dict
         (lines 414, 438-444 in _graph.py)."""
         ctx = self._make_context_with_db()
-        graph = build_nl_graph(context=ctx)
+        graph = build_nl_graph(context=ctx, demo=True)
         config = {
             "configurable": {"thread_id": "test-execution"},
             "recursion_limit": 25,
@@ -1339,7 +1280,7 @@ class TestBuildNLGraphWithContext:
         reg = EntityRegistry()
         reg.register_node("t", "t")
         ctx = DGMContext(entity_registry=reg, budget=_budget(), con=con)
-        graph = build_nl_graph(context=ctx)
+        graph = build_nl_graph(context=ctx, demo=True)
         config = {
             "configurable": {"thread_id": "test-no-sql"},
             "recursion_limit": 25,
@@ -1373,7 +1314,7 @@ class TestBuildNLGraphWithContext:
         # model=None: LLM nodes are noops, but non-LLM context nodes still run.
         # _candidate_generation_node will create a ghost_table candidate,
         # _dag_construction_node will build real SQL, execution will fail on DuckDB.
-        graph = build_nl_graph(context=ctx)
+        graph = build_nl_graph(context=ctx, demo=True)
         config = {
             "configurable": {"thread_id": "test-sql-exception"},
             "recursion_limit": 25,
@@ -1395,7 +1336,7 @@ class TestBuildNLGraphWithContext:
         """Cover line 321: confirmation_loop -> confirmed:True when no candidates."""
         reg = EntityRegistry()  # empty — no nodes registered
         ctx = DGMContext(entity_registry=reg, budget=_budget())
-        graph = build_nl_graph(context=ctx)
+        graph = build_nl_graph(context=ctx, demo=True)
         config = {
             "configurable": {"thread_id": "test-empty-candidates"},
             "recursion_limit": 25,
@@ -1422,7 +1363,7 @@ class TestBuildNLGraphWithContext:
         # Register a table but give it no columns (no props registered)
         reg.register_node("empty_tbl", "empty_tbl")
         ctx = DGMContext(entity_registry=reg, budget=_budget(), con=con)
-        graph = build_nl_graph(context=ctx)
+        graph = build_nl_graph(context=ctx, demo=True)
         config = {
             "configurable": {"thread_id": "test-no-props"},
             "recursion_limit": 25,
@@ -1457,7 +1398,7 @@ class TestBuildNLGraphWithContext:
 
         ctx = self._make_context_with_db()
         model = TestModel()
-        graph = build_nl_graph(context=ctx, model=model)
+        graph = build_nl_graph(context=ctx, model=model, demo=True)
         config = {
             "configurable": {"thread_id": "test-entity-exception"},
             "recursion_limit": 25,
@@ -1485,7 +1426,7 @@ class TestBuildNLGraphWithContext:
         reg = EntityRegistry()  # empty → candidate_generation returns []
         ctx = DGMContext(entity_registry=reg, budget=_budget(), con=con)
         model = TestModel()  # must be non-None to use real _ranking_node
-        graph = build_nl_graph(context=ctx, model=model)
+        graph = build_nl_graph(context=ctx, model=model, demo=True)
         config = {
             "configurable": {"thread_id": "test-ranking-empty-registry"},
             "recursion_limit": 25,
@@ -1515,7 +1456,7 @@ class TestBuildNLGraphWithContext:
         ctx = DGMContext(entity_registry=reg, budget=_budget(), con=con)
         # Use TestModel so the real _dag_construction_node closure is built
         model = TestModel()
-        graph = build_nl_graph(context=ctx, model=model)
+        graph = build_nl_graph(context=ctx, model=model, demo=True)
         config = {
             "configurable": {"thread_id": "test-no-props-star"},
             "recursion_limit": 25,
@@ -1542,7 +1483,7 @@ class TestBuildNLGraphWithContext:
         ctx = DGMContext(entity_registry=reg, budget=_budget(), con=con)
         # Use TestModel so real _confirmation_loop_node closure is built
         model = TestModel()
-        graph = build_nl_graph(context=ctx, model=model)
+        graph = build_nl_graph(context=ctx, model=model, demo=True)
         config = {
             "configurable": {"thread_id": "test-no-candidates-no-ranking"},
             "recursion_limit": 25,
@@ -1573,7 +1514,7 @@ class TestBuildNLGraphWithContext:
         reg.register_prop("order amount", "orders.amount")
         ctx = DGMContext(entity_registry=reg, budget=_budget(), con=con)
         # model=None: entity_node is noop -> entity_result stays as pre-seeded
-        graph = build_nl_graph(context=ctx)
+        graph = build_nl_graph(context=ctx, demo=True)
         config = {
             "configurable": {"thread_id": "test-entity-resolved"},
             "recursion_limit": 25,
@@ -1615,7 +1556,7 @@ class TestBuildNLGraphWithContext:
         reg.register_prop("item id", "items.id")
         ctx = DGMContext(entity_registry=reg, budget=_budget(), con=con)
         # model=None: LLM nodes are noops, won't overwrite pre-seeded state
-        graph = build_nl_graph(context=ctx)
+        graph = build_nl_graph(context=ctx, demo=True)
         config = {
             "configurable": {"thread_id": "test-oob-selection"},
             "recursion_limit": 25,
@@ -1665,7 +1606,7 @@ class TestBuildNLGraphWithContext:
         reg.register_node("users", "users")
         reg.register_prop("user id", "users.id")
         ctx = DGMContext(entity_registry=reg, budget=_budget(), con=con)
-        graph = build_nl_graph(context=ctx)
+        graph = build_nl_graph(context=ctx, demo=True)
         config = {
             "configurable": {"thread_id": "test-clarify-branch"},
             "recursion_limit": 25,
@@ -1702,44 +1643,25 @@ class TestBuildNLGraphWithContext:
         assert "clarification" in visited
 
     def test_clarification_node_without_candidates(self):
-        """Cover _graph.py line 444: _clarification_node when no candidates
-        (returns just confirmed=True without user_selection).
-        Mock ExecutionGate.gate to return ClarifyDecision."""
-        from unittest.mock import patch
+        """The demo clarification node auto-confirms (HITL is #143).
+
+        Through the graph an empty registry no longer reaches the gate: no
+        table is resolved, so dag_construction ends the turn with a typed
+        error instead of gating a placeholder query.
+        """
         import duckdb
-        from sqldim.core.query.dgm.planner._gate import (
-            ClarifyDecision,
-            ExecutionGate,
-        )
-        from sqldim.core.query.dgm.planner._targets import ExportPlan, QueryTarget
 
         con = duckdb.connect()
-        reg = EntityRegistry()  # empty - no tables
-        ctx = DGMContext(entity_registry=reg, budget=_budget(), con=con)
-        graph = build_nl_graph(context=ctx)
-        config = {
-            "configurable": {"thread_id": "test-clarify-no-candidates"},
-            "recursion_limit": 25,
-        }
-        clarify_decision = ClarifyDecision(
-            options=[
-                ExportPlan(query_target=QueryTarget.SQL_DUCKDB, query_text="SELECT 1")
-            ],
-            cost_per_option=[],
-        )
-        with patch.object(ExecutionGate, "gate", return_value=clarify_decision):
-            state: dict = {
-                "utterance": "query something",
-                "confirmed": True,
-                "candidates": [],
-            }
-            try:
-                result = graph.invoke(state, config=config)
-            except Exception as exc:  # noqa: BLE001
-                from langgraph.errors import GraphRecursionError
+        ctx = DGMContext(entity_registry=EntityRegistry(), budget=_budget(), con=con)
+        nodes = make_operational_nodes(ctx)
+        out = nodes["clarification"](NLInterfaceState(utterance="query something"))
+        assert out == {"confirmed": True, "want_more_options": False}
 
-                if isinstance(exc, GraphRecursionError):
-                    return  # clarification cycles back -> recursion limit expected
-                raise
-        visited = result.get("visited_nodes", [])
-        assert "clarification" in visited
+        graph = build_nl_graph(context=ctx, demo=True)
+        state = graph.invoke(
+            {"utterance": "query something"},
+            config={"configurable": {"thread_id": "t-empty"}, "recursion_limit": 25},
+        )
+        assert state["error"]["kind"] == "NEEDS_CLARIFICATION"
+        assert "budget_gate" not in state["visited_nodes"]
+        assert state["demo"] is True
