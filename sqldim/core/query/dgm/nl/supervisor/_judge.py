@@ -17,10 +17,12 @@ Usage::
         SupervisorJudge, load_judge_cases, run_pipeline,
     )
     from sqldim.core.query.dgm.nl._agents import make_model
+    from sqldim.application.supervisor_host import local_supervisor_runtime
 
     judge = SupervisorJudge(make_model("openai", "gpt-4o-mini"))
     cases = load_judge_cases()
-    output = run_pipeline(cases[0].utterance)
+    runtime = local_supervisor_runtime(datasets, demo=True)  # explicit (D47)
+    output = run_pipeline(cases[0].utterance, runtime)
     verdict = judge.judge(cases[0], output)
     print(verdict.overall_score, verdict.reasoning)
 """
@@ -35,11 +37,11 @@ from typing import Any
 
 from pydantic import BaseModel, field_validator
 
-from sqldim.core.query.dgm.nl.supervisor._graph import build_supervisor_graph
-from sqldim.core.query.dgm.nl.supervisor._types import (
-    SupervisorContext,
-    SupervisorState,
+from sqldim.core.query.dgm.nl.supervisor._graph import (
+    SupervisorRuntime,
+    run_supervisor,
 )
+from sqldim.core.query.dgm.nl.supervisor._types import CallStatus, SupervisorPlan
 
 __all__ = [
     "JudgeCase",
@@ -78,6 +80,7 @@ class _PlanningExpectation:
 class _ExecutionExpectation:
     all_succeed: bool
     result_count: int
+    outcome: str | None = None
 
 
 @dataclass(frozen=True)
@@ -110,6 +113,8 @@ class PipelineOutput:
     plan_budget_total: float
     results: list[dict[str, Any]]
     all_succeeded: bool
+    outcome: str
+    demo: bool
     synthesis: str
     visited_nodes: list[str]
     node_timings: dict[str, float]
@@ -155,6 +160,7 @@ def _parse_case(d: dict[str, Any]) -> JudgeCase:
         execution=_ExecutionExpectation(
             all_succeed=e["all_succeed"],
             result_count=e["result_count"],
+            outcome=e.get("outcome"),
         ),
         synthesis=_SynthesisExpectation(
             must_mention=s.get("must_mention", []),
@@ -181,78 +187,48 @@ def load_judge_cases(path: Path | None = None) -> list[JudgeCase]:
 # ---------------------------------------------------------------------------
 
 
-def _first_concrete_dataset(steps: list[dict[str, Any]]) -> str | None:
-    for s in steps:
-        ds = s.get("arguments", {}).get("dataset")
-        if ds and ds != "__all__":
-            return ds
-    return None
-
-
-def _plan_summary(plan: Any) -> tuple[list[str], str | None, float, float]:
-    """Extract plan details — LangGraph may return either a Pydantic model
-    or a serialised dict depending on the graph configuration."""
-    if plan is None:  # pragma: no cover  — graph always produces a plan
+def _plan_summary(
+    plan: SupervisorPlan | None,
+) -> tuple[list[str], str | None, float, float]:
+    if plan is None:
         return [], None, 0.0, 0.0
-    # Normalise to dict if it's a Pydantic model
-    plan_d: dict[str, Any] = plan if isinstance(plan, dict) else plan.model_dump()
-    steps = plan_d.get("steps", [])
+    first_ds = next((s.datasets[0] for s in plan.steps if s.datasets), None)
     return (
-        [s["tool_name"] for s in steps],
-        _first_concrete_dataset(steps),
-        plan_d.get("confidence", 0.0),
-        sum(s.get("budget_fraction", 0) for s in steps),
+        [s.tool_name for s in plan.steps],
+        first_ds,
+        plan.confidence,
+        plan.total_budget_fraction,
     )
-
-
-def _normalise_results(raw_results: list[Any]) -> tuple[list[dict[str, Any]], bool]:
-    """Normalise Pydantic result models to dicts and compute overall success."""
-    results = []
-    all_ok = True
-    for r in raw_results:
-        rd = r if isinstance(r, dict) else r.model_dump()
-        results.append(rd)
-        if not rd.get("success", False):  # pragma: no cover  — all stubs succeed
-            all_ok = False
-    return results, all_ok
 
 
 def run_pipeline(
     utterance: str,
-    context: SupervisorContext | None = None,
+    runtime: SupervisorRuntime,
     *,
     thread_id: str = "judge",
-    recursion_limit: int = 25,
 ) -> PipelineOutput:
-    """Run the full supervisor graph and capture structured output."""
-    if context is None:
-        from sqldim.application.ask import KNOWN_DATASETS
+    """Run the supervisor once and capture what the judge needs.
 
-        context = SupervisorContext(available_datasets=sorted(KNOWN_DATASETS.keys()))
-
-    graph = build_supervisor_graph(context=context)
-    raw = graph.invoke(
-        SupervisorState(utterance=utterance).model_dump(),
-        config={
-            "configurable": {"thread_id": thread_id},
-            "recursion_limit": recursion_limit,
-        },
-    )
-
-    plan_tools, first_ds, plan_confidence, plan_budget = _plan_summary(raw.get("plan"))
-    results, all_ok = _normalise_results(raw.get("results", []))
-
+    The caller supplies the runtime, so demo mode is always its explicit
+    choice (D47); demo runs are reported as such.
+    """
+    state = run_supervisor(utterance, runtime, thread_id=thread_id)
+    tools, first_ds, confidence, budget = _plan_summary(state.plan)
+    results = [r.model_dump(mode="json") for r in state.results.values()]
     return PipelineOutput(
         utterance=utterance,
-        plan_tools=plan_tools,
+        plan_tools=tools,
         plan_dataset=first_ds,
-        plan_confidence=plan_confidence,
-        plan_budget_total=plan_budget,
+        plan_confidence=confidence,
+        plan_budget_total=budget,
         results=results,
-        all_succeeded=all_ok,
-        synthesis=raw.get("synthesis", "") or "",
-        visited_nodes=raw.get("visited_nodes", []),
-        node_timings=raw.get("node_timings", {}),
+        all_succeeded=bool(results)
+        and all(r.status is CallStatus.SUCCEEDED for r in state.results.values()),
+        outcome=(state.outcome.value if state.outcome else "FAILED"),
+        demo=state.demo,
+        synthesis=state.synthesis or "",
+        visited_nodes=state.visited_nodes,
+        node_timings=state.node_timings,
     )
 
 
@@ -267,24 +243,11 @@ You will be given:
   2. The pipeline output (plan, tool results, synthesis)
   3. Expected criteria for planning, execution, and synthesis
 
-IMPORTANT: This is a STUB pipeline used in development/testing.  Tool
-executions produce minimal stub output.  Synthesis text of the form
-  'DGM query on \'X\' for \'<utterance>\' completed (stub — pass …)'
-is the EXPECTED output for a successful stub run — do NOT penalise it.
-The embedded utterance text within synthesis counts toward satisfying
-semantic criteria and must_mention keyword checks.
-
-SPECIAL CASE — Orientation/Reflection responses:
-When the utterance is empty or a single vague word (like "", "help", "?",
-"analyze", "interesting") the pipeline correctly invokes the reflect node
-and produces orientation content listing available datasets and tools.
-If the synthesis:
-  • contains a list of datasets (any of: 'Dataset', 'dataset', 'Datasets'),
-  • contains a list of tools (any of: 'Tool', 'tool', 'Tools'),
-  • and avoids forbidden terms,
-that IS the correct and complete answer — score synthesis 0.9 or 1.0.
-Do NOT score orientation synthesis as 0.3 just because the utterance was
-short or empty.
+IMPORTANT: Judge what was executed, never what was intended.  A step that
+did not run (NOT_IMPLEMENTED, UNAUTHORIZED, SKIPPED, …) is a failure of that
+step, not a success, and a response that presents missing results as an
+answer is wrong.  When "Demo mode" is true the output is heuristic (D47):
+score it, but it is never evidence of a contract result.
 
 Score each dimension on a 0.0–1.0 scale:
 
@@ -302,17 +265,12 @@ Score each dimension on a 0.0–1.0 scale:
 - 0.0: All tools failed or no results when expected
 
 ## Synthesis Score
-For stub pipelines the synthesis is intentionally brief.  Apply these rules:
-- 1.0: Mentions all required keywords directly and satisfies semantic criteria
-- 0.9: Orientation response listing datasets and tools (see SPECIAL CASE above)
-- 0.7: All must_mention keywords present (directly or via embedded utterance),
-  semantic criteria largely met even if output is brief
-- 0.5: Synthesis confirms the correct tool ran and the embedded utterance
-  provides enough context to satisfy the semantic criterion; stub indicator
-  present but not penalised
-- 0.3: Required keywords absent AND semantic criterion not inferable from
-  either the synthesis text or the embedded utterance
-- 0.0: Irrelevant, empty, or contains a forbidden term
+- 1.0: States the outcome, answers from SUCCEEDED results only, mentions the
+  required keywords and satisfies the semantic criteria
+- 0.7: Correct outcome and content, minor omissions
+- 0.3: Required keywords absent or semantic criterion not met
+- 0.0: Irrelevant, empty, contains a forbidden term, or presents a step that
+  did not succeed as if it had
 
 ## Overall Score
 Weighted average: planning=0.3, execution=0.3, synthesis=0.4
@@ -354,13 +312,16 @@ class SupervisorJudge:
         results_summary = []
         for r in output.results:
             name = r.get("tool_name", "?")
-            ok = r.get("success", False)
+            status = r.get("status", "?")
+            error = (r.get("error") or {}).get("kind")
             data_keys = (
                 list(r.get("data", {}).keys())
                 if isinstance(r.get("data"), dict)
                 else []
             )
-            results_summary.append(f"  - {name}: success={ok}, data_keys={data_keys}")
+            results_summary.append(
+                f"  - {name}: status={status}, error={error}, data_keys={data_keys}"
+            )
 
         results_text = (
             "\n".join(results_summary) if results_summary else "  (no results)"
@@ -381,6 +342,8 @@ Tool Results ({len(output.results)} total):
 {results_text}
 
 All tools succeeded: {output.all_succeeded}
+Outcome: {output.outcome}
+Demo mode: {output.demo}
 
 Synthesis:
 {output.synthesis}
@@ -395,6 +358,7 @@ Minimum confidence: {case.planning.confidence_min}
 ### Execution
 Expect all succeed: {case.execution.all_succeed}
 Expected result count: {case.execution.result_count}
+Expected outcome: {case.execution.outcome}
 
 ### Synthesis
 Must mention: {case.synthesis.must_mention}

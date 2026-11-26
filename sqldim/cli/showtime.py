@@ -97,12 +97,10 @@ def _print_showtime_verbose(result: Any, console: Any) -> None:
     """Print nodes, timings and per-tool hops of one showtime step."""
     from sqldim.cli.ask import _format_hop
 
-    visited = result.get("visited_nodes", [])
-    timings = result.get("node_timings", {})
-    console.print(f"[dim]Nodes: {' → '.join(visited)}[/dim]")
-    timing_parts = [f"{n}: {ms}ms" for n, ms in timings.items()]
+    console.print(f"[dim]Nodes: {' → '.join(result.visited_nodes)}[/dim]")
+    timing_parts = [f"{n}: {ms}ms" for n, ms in result.node_timings.items()]
     console.print(f"[dim]Timings: {', '.join(timing_parts)}[/dim]")
-    for hop in result.get("results", []):
+    for hop in result.results.values():
         console.print(f"[dim]  {_format_hop(hop)}[/dim]")
 
 
@@ -110,17 +108,14 @@ def _run_showtime_step(
     i: int,
     scenario: dict[str, str],
     total: int,
-    context: Any,
+    new_runtime: Any,
     console: Any,
     conversation_history: list[dict[str, str]],
 ) -> Any:
     """Run one scenario through a fresh supervisor graph and render it."""
     from rich.markdown import Markdown
     from rich.panel import Panel
-    from langgraph.checkpoint.memory import MemorySaver
-
-    from sqldim.core.query.dgm.nl.supervisor._graph import build_supervisor_graph
-    from sqldim.core.query.dgm.nl.supervisor._types import SupervisorState
+    from sqldim.core.query.dgm.nl.supervisor._graph import run_supervisor
 
     title = scenario["title"]
     question = scenario["question"]
@@ -132,27 +127,15 @@ def _run_showtime_step(
         )
     )
 
-    initial = SupervisorState(
-        utterance=question,
-        conversation_history=list(conversation_history),
-    )
-
-    # Fresh checkpointer per step avoids deserialization warnings
-    graph = build_supervisor_graph(
-        checkpointer=MemorySaver(),
-        context=context,
-    )
-
     with console.status("[bold cyan]Running...[/bold cyan]", spinner="dots"):
-        result = graph.invoke(
-            initial.model_dump(),
-            config={
-                "configurable": {"thread_id": f"showtime-{i}"},
-                "recursion_limit": 25,
-            },
+        result = run_supervisor(
+            question,
+            new_runtime(),
+            thread_id=f"showtime-{i}",
+            history=list(conversation_history),
         )
 
-    synthesis = result.get("synthesis", "")
+    synthesis = result.synthesis or ""
     if synthesis:
         console.print(Panel(Markdown(synthesis), border_style="green"))
         conversation_history.append({"role": "user", "content": question})
@@ -185,7 +168,7 @@ def cmd_showtime(args: argparse.Namespace) -> int:
         return 1
 
     from sqldim.application.ask import KNOWN_DATASETS
-    from sqldim.core.query.dgm.nl.supervisor._types import SupervisorContext
+    from sqldim.application.supervisor_host import local_supervisor_runtime
 
     console = Console()
     all_datasets = sorted(KNOWN_DATASETS.keys())
@@ -200,10 +183,11 @@ def cmd_showtime(args: argparse.Namespace) -> int:
     # Build model
     llm_model = _build_showtime_model(args, console)
 
-    context = SupervisorContext(
-        available_datasets=datasets,
-        model=llm_model,
-    )
+    # Showtime is the demo walkthrough: choosing the command selects demo
+    # mode explicitly for every scenario (D47).
+    def new_runtime() -> Any:
+        return local_supervisor_runtime(datasets, model=llm_model, demo=True)
+
     scenarios = _build_scenario_list(datasets)
 
     if not scenarios:
@@ -214,6 +198,7 @@ def cmd_showtime(args: argparse.Namespace) -> int:
     console.print(
         Panel.fit(
             "[bold magenta]sqldim showtime[/bold magenta] — Guided Demo\n"
+            "[dim]Demo mode: heuristic output, not contract results (D47)[/dim]\n"
             f"[dim]Datasets: {', '.join(datasets)}[/dim]\n"
             f"[dim]{len(scenarios)} scenario(s) queued[/dim]",
             border_style="magenta",
@@ -225,7 +210,7 @@ def cmd_showtime(args: argparse.Namespace) -> int:
 
     for i, scenario in enumerate(scenarios, 1):
         result = _run_showtime_step(
-            i, scenario, len(scenarios), context, console, conversation_history
+            i, scenario, len(scenarios), new_runtime, console, conversation_history
         )
 
         if getattr(args, "verbose", False):

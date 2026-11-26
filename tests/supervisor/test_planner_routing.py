@@ -1,27 +1,22 @@
-"""Keyword-planner routing tests — one test per intent route.
+"""Keyword demo planner (D47) — routing and dataset binding.
 
-Covers all 9 tool targets plus:
-- Fallback (reflect) path
-- Budget-aware downgrade
-- Two-step composition
-- `reasoning` field population
-- Short / empty utterance confidence penalties
+The keyword planner is the heuristic of the explicit demo mode.  It plans only
+tools that are available in the view, never substitutes one tool for another,
+and never invents a dataset.
 """
 
 from __future__ import annotations
 
-
 import pytest
 
-from sqldim.core.query.dgm.nl.supervisor._planner import decompose_question
-from sqldim.core.query.dgm.nl.supervisor._types import (
-    SupervisorContext,
-    SupervisorPlan,
+from sqldim.core.query.dgm.nl.supervisor._planner import (
+    KeywordDemoPlanner,
+    PlannerView,
 )
+from sqldim.core.query.dgm.nl.supervisor._tools import build_registry
+from sqldim.core.query.dgm.nl.supervisor._types import SupervisorPlan
 
-# ── Shared fixtures ───────────────────────────────────────────────────────
-
-_DATASETS = [
+_DATASETS = (
     "commerce",
     "data_models",
     "devops",
@@ -30,182 +25,118 @@ _DATASETS = [
     "growth",
     "nba_analytics",
     "telemetry",
-]
-
-_CTX = SupervisorContext(available_datasets=_DATASETS)
-_CTX_EMPTY = SupervisorContext(available_datasets=[])
-
-
-def _plan(utterance: str, ctx: SupervisorContext = _CTX) -> SupervisorPlan:
-    return decompose_question(utterance, ctx)
-
-
-def _tools(plan: SupervisorPlan) -> list[str]:
-    return [s.tool_name for s in plan.steps]
-
-
-# ── Parametrized happy-path intent routing ────────────────────────────────
-
-
-@pytest.mark.parametrize(
-    "utterance,expected_tool",
-    [
-        ("what datasets can you see?", "dgm_what_can_i_answer"),
-        ("which datasets are available?", "dgm_what_can_i_answer"),
-        ("what can you answer for the dataset?", "dgm_what_can_i_answer"),
-        ("what tools do you have?", "dgm_map_analytical_space"),
-        ("list your capabilities", "dgm_map_analytical_space"),
-        ("how many orders were placed last week?", "dgm_query"),
-        ("show total revenue by country", "dgm_query"),
-        ("validate that revenue is always positive", "dgm_validate_invariant"),
-        ("check that no null values exist in orders", "dgm_validate_invariant"),
-        ("sensitivity sweep of days_window for orders", "dgm_sensitivity_sweep"),
-        ("how sensitive is the churn model to the parameter?", "dgm_sensitivity_sweep"),
-        ("correlate ecommerce with retail trends", "dgm_correlate"),
-        ("what is the relationship between churn and revenue?", "dgm_correlate"),
-        ("what else can I explore from this result?", "dgm_explore_from"),
-        ("navigate to related questions", "dgm_explore_from"),
-        ("store this finding about the revenue drop", "dgm_store_finding"),
-        ("save the result about churn", "dgm_store_finding"),
-        ("retrieve previous findings about churn", "dgm_retrieve_related"),
-        ("what do we know from the knowledge base?", "dgm_retrieve_related"),
-    ],
 )
-class TestIntentRouting:
-    """Each utterance routes to the expected tool via the keyword planner."""
 
-    def test_first_step(self, utterance: str, expected_tool: str) -> None:
+_DEMO_TOOLS = tuple(
+    t.capability_schema
+    for t in build_registry(demo=True).values()
+    if t.capability_schema.available
+)
+
+
+def _view(utterance: str, datasets: tuple[str, ...] = _DATASETS) -> PlannerView:
+    return PlannerView(
+        goal=utterance,
+        plan_id="p",
+        version=1,
+        datasets=datasets,
+        tools=_DEMO_TOOLS,
+    )
+
+
+def _plan(utterance: str, datasets: tuple[str, ...] = _DATASETS) -> SupervisorPlan:
+    return KeywordDemoPlanner().propose(_view(utterance, datasets))
+
+
+def test_demo_registry_exposes_only_dgm_query() -> None:
+    assert [t.name for t in _DEMO_TOOLS] == ["dgm_query"]
+
+
+class TestAnalyticalRouting:
+    @pytest.mark.parametrize(
+        "utterance",
+        ["how many orders were placed last week?", "show total revenue by country"],
+    )
+    def test_analytical_question_plans_one_query(self, utterance: str) -> None:
         plan = _plan(utterance)
-        tools = _tools(plan)
-        assert tools, f"Expected step with {expected_tool!r}, got empty plan"
-        assert tools[0] == expected_tool, (
-            f"{utterance!r} → {tools} (expected {expected_tool!r})"
-        )
+        assert [s.tool_name for s in plan.steps] == ["dgm_query"]
+        step = plan.steps[0]
+        assert step.call_id == "q1"
+        assert step.arguments == {"dataset": "commerce", "utterance": utterance}
+        assert step.depends_on == []
+        assert step.budget_fraction == 1.0
+        assert plan.confidence >= 0.5
 
-    def test_confidence_acceptable(self, utterance: str, expected_tool: str) -> None:
+    def test_planner_does_not_set_datasets_or_keys(self) -> None:
+        step = _plan("how many orders were placed?").steps[0]
+        assert step.datasets is None
+        assert step.idempotency_key is None
+
+
+class TestUnavailableCapabilities:
+    """Intents whose tool is not implemented are reported, never substituted."""
+
+    @pytest.mark.parametrize(
+        "utterance,tool",
+        [
+            ("validate that revenue is always positive", "dgm_validate_invariant"),
+            ("sensitivity sweep of days_window for orders", "dgm_sensitivity_sweep"),
+            ("correlate ecommerce with retail trends", "dgm_correlate"),
+            ("what is the relationship between churn and revenue?", "dgm_correlate"),
+            ("what else can I explore from this result?", "dgm_explore_from"),
+            ("store this finding about the revenue drop", "dgm_store_finding"),
+            ("retrieve previous findings about churn", "dgm_retrieve_related"),
+            ("count orders then explore related questions", "dgm_explore_from"),
+        ],
+    )
+    def test_no_step_and_reason_names_the_tool(self, utterance: str, tool: str) -> None:
         plan = _plan(utterance)
-        assert plan.confidence >= 0.5, (
-            f"{expected_tool!r}: confidence {plan.confidence} below 0.5"
-        )
-
-    def test_reasoning_populated(self, utterance: str, expected_tool: str) -> None:
-        plan = _plan(utterance)
-        assert plan.reasoning, (
-            f"{expected_tool!r}: reasoning is empty for {utterance!r}"
-        )
-
-
-# ── Dual-intent: datasets + tools ────────────────────────────────────────
-
-
-class TestDualIntent:
-    def test_both_tools_present(self) -> None:
-        plan = _plan("what datasets and tools do you have?")
-        tools = _tools(plan)
-        assert "dgm_what_can_i_answer" in tools
-        assert "dgm_map_analytical_space" in tools
-
-    def test_high_confidence(self) -> None:
-        plan = _plan("which data and capabilities are available?")
-        assert plan.confidence >= 0.85
-
-
-# ── Reflect / fallback path ───────────────────────────────────────────────
-
-
-class TestReflectFallback:
-    def test_empty_utterance_returns_empty_steps(self) -> None:
-        plan = _plan("", _CTX)
         assert plan.steps == []
+        assert "not available" in plan.reasoning
+        assert tool in plan.reasoning
 
-    def test_empty_utterance_very_low_confidence(self) -> None:
-        plan = _plan("", _CTX)
-        assert plan.confidence <= 0.15
+    def test_no_fallback_to_query(self) -> None:
+        plan = _plan("validate that orders are non-negative in commerce")
+        assert all(s.tool_name != "dgm_query" for s in plan.steps)
 
-    def test_vague_utterance_routes_to_reflect(self) -> None:
-        plan = _plan("blah", _CTX)
-        # short → confidence ≤ 0.3, no steps
-        assert plan.confidence <= 0.3
 
-    def test_unknown_intent_empty_steps(self) -> None:
-        plan = _plan("xyzzy frobnicate frobble", _CTX)
+class TestDiscovery:
+    def test_dataset_discovery_lists_view_datasets_without_tools(self) -> None:
+        plan = _plan("which datasets are available?", ("commerce", "growth"))
         assert plan.steps == []
-        assert plan.confidence < 0.5
+        assert "commerce, growth" in plan.reasoning
+
+    def test_dataset_discovery_never_mentions_ungranted_datasets(self) -> None:
+        plan = _plan("which datasets are available?", ("growth",))
+        assert "commerce" not in plan.reasoning
+
+    def test_tool_discovery_lists_available_tools_only(self) -> None:
+        plan = _plan("what tools do you have?")
+        assert plan.steps == []
+        assert "dgm_query" in plan.reasoning
+        assert "dgm_correlate" not in plan.reasoning
 
 
-# ── Short-utterance confidence penalty ────────────────────────────────────
+class TestShortAndVague:
+    def test_empty_utterance(self) -> None:
+        plan = _plan("")
+        assert plan.steps == []
+        assert plan.confidence <= 0.1
 
-
-class TestShortUtterance:
     def test_short_utterance_low_confidence(self) -> None:
-        plan = _plan("hi", _CTX)
+        plan = _plan("hi")
+        assert plan.steps == []
         assert plan.confidence <= 0.3
+        assert "short" in plan.reasoning.lower()
 
-    def test_reasoning_explains_short(self) -> None:
-        plan = _plan("hi", _CTX)
-        assert "short" in plan.reasoning.lower() or "char" in plan.reasoning.lower()
-
-
-# ── Budget-aware downgrade ────────────────────────────────────────────────
-
-
-class _TightBudget:
-    """Minimal budget object: forces `_budget_allows` to return False."""
-
-    max_cost: float = 0.0  # blocks all real tools
-
-
-class TestBudgetDowngrade:
-    def test_exhausted_budget_degrades_analytical_query(self) -> None:
-        ctx = SupervisorContext(
-            available_datasets=["commerce"],
-            budget=_TightBudget(),
-        )
-        plan = decompose_question("how many orders are open?", ctx)
-        # Should degrade from dgm_query → dgm_what_can_i_answer
-        tools = _tools(plan)
-        assert tools == ["dgm_what_can_i_answer"], (
-            f"Expected discovery fallback, got {tools}"
-        )
-
-    def test_budget_degradation_reasoning(self) -> None:
-        ctx = SupervisorContext(
-            available_datasets=["commerce"],
-            budget=_TightBudget(),
-        )
-        plan = decompose_question("what is the total revenue?", ctx)
-        assert "budget" in plan.reasoning.lower() or "degrad" in plan.reasoning.lower()
-
-
-# ── Composition routing ───────────────────────────────────────────────────
-
-
-class TestCompositionRouting:
-    def test_composition_produces_two_steps(self) -> None:
-        plan = _plan("show orders and then explore related questions")
-        # At minimum expect 2 steps
-        assert len(plan.steps) >= 2, (
-            f"Expected 2+ steps for composition, got {len(plan.steps)}: {_tools(plan)}"
-        )
-
-    def test_composition_first_step_is_query(self) -> None:
-        plan = _plan("count revenue and then dig deeper")
-        tools = _tools(plan)
-        assert tools[0] == "dgm_query"
-
-    def test_composition_second_step_explores(self) -> None:
-        plan = _plan("list top products then explore from results")
-        tools = _tools(plan)
-        assert "dgm_explore_from" in tools
-
-
-# ── Dataset-mention binding ───────────────────────────────────────────────
+    def test_no_analytical_intent_plans_nothing(self) -> None:
+        plan = _plan("the weather is nice today")
+        assert plan.steps == []
 
 
 class TestDatasetBinding:
     def test_legacy_dataset_alias_resolves_to_canonical_domain(self) -> None:
         plan = _plan("how many returns in ecommerce last month?")
-        assert plan.steps
         assert plan.steps[0].arguments["dataset"] == "commerce"
 
     @pytest.mark.parametrize(
@@ -226,82 +157,50 @@ class TestDatasetBinding:
     def test_topic_inference_selects_canonical_domain(
         self, utterance: str, expected: str
     ) -> None:
+        assert _plan(utterance).steps[0].arguments["dataset"] == expected
+
+    @pytest.mark.parametrize(
+        "utterance",
+        [
+            "what is the trend?",
+            "what is the revenue trend for churn?",
+            "How many teams exist in the enterprise hierarchy?",
+        ],
+    )
+    def test_ambiguous_question_plans_nothing(self, utterance: str) -> None:
         plan = _plan(utterance)
-        assert plan.steps
-        assert plan.steps[0].arguments["dataset"] == expected
-
-    def test_generic_query_does_not_select_first_dataset(self) -> None:
-        plan = _plan("what is the trend?", _CTX)
         assert plan.steps == []
         assert plan.confidence < 0.5
 
-    def test_generic_query_is_independent_of_dataset_order(self) -> None:
-        first = SupervisorContext(
-            available_datasets=["commerce", "growth", "telemetry"]
-        )
-        second = SupervisorContext(
-            available_datasets=["telemetry", "growth", "commerce"]
-        )
-
-        plan_a = _plan("what is the trend?", first)
-        plan_b = _plan("what is the trend?", second)
-
-        assert plan_a.steps == plan_b.steps == []
-        assert plan_a.confidence == plan_b.confidence
-
-    def test_conflicting_topics_do_not_select_arbitrary_domain(self) -> None:
-        plan = _plan("what is the revenue trend for churn?", _CTX)
-        assert plan.steps == []
-        assert plan.confidence < 0.5
+    def test_independent_of_dataset_order(self) -> None:
+        a = _plan("what is the trend?", ("commerce", "growth", "telemetry"))
+        b = _plan("what is the trend?", ("telemetry", "growth", "commerce"))
+        assert a.steps == b.steps == []
+        assert a.confidence == b.confidence
 
     def test_unavailable_topic_does_not_select_an_unrelated_domain(self) -> None:
-        ctx = SupervisorContext(available_datasets=["growth"])
-        plan = _plan("how many orders were placed?", ctx)
-
-        assert plan.steps == []
-        assert plan.confidence < 0.5
-
-    def test_conflicting_legacy_aliases_route_to_reflect(self) -> None:
-        plan = _plan(
-            "How many teams exist in the enterprise hierarchy?",
-            _CTX,
-        )
-        assert plan.steps == []
-        assert plan.confidence < 0.5
+        assert _plan("how many orders were placed?", ("growth",)).steps == []
 
     def test_no_datasets_does_not_fabricate_identifier(self) -> None:
-        plan = _plan("what is the trend?", _CTX_EMPTY)
-        assert plan.steps == []
-        assert plan.confidence < 0.5
+        assert _plan("how many orders were placed?", ()).steps == []
+
+    def test_single_dataset_is_an_explicit_constraint(self) -> None:
+        plan = _plan("how many rows are there in total?", ("growth",))
+        assert plan.steps[0].arguments["dataset"] == "growth"
 
 
-# ── SupervisorPlan schema ─────────────────────────────────────────────────
-
-
-class TestPlanSchema:
-    def test_all_plans_return_supervisor_plan(self) -> None:
-        utterances = [
-            "validate data",
-            "correlate",
-            "store result",
-            "explore",
-            "retrieve findings",
-            "sweep parameter",
-        ]
-        for utt in utterances:
-            plan = _plan(utt)
-            assert isinstance(plan, SupervisorPlan), (
-                f"{utt!r} did not return SupervisorPlan"
-            )
+class TestPlanShape:
+    def test_plan_id_and_version_come_from_the_view(self) -> None:
+        plan = _plan("how many orders were placed?")
+        assert (plan.plan_id, plan.version) == ("p", 1)
 
     def test_goal_matches_utterance(self) -> None:
         utt = "how many orders exceeded quota?"
-        plan = _plan(utt)
-        assert plan.goal == utt
+        assert _plan(utt).goal == utt
 
-    def test_confidence_in_range(self) -> None:
-        for utt in ["validate X", "correlate A and B", "retrieve old findings", ""]:
-            plan = _plan(utt)
-            assert 0.0 <= plan.confidence <= 1.0, (
-                f"{utt!r}: confidence {plan.confidence} out of range"
-            )
+    @pytest.mark.parametrize("utt", ["validate X", "correlate A and B", "", "orders"])
+    def test_confidence_in_range(self, utt: str) -> None:
+        assert 0.0 <= _plan(utt).confidence <= 1.0
+
+    def test_planner_is_marked_demo(self) -> None:
+        assert KeywordDemoPlanner.demo is True

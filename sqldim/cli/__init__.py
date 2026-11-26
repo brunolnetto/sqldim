@@ -415,6 +415,15 @@ def build_parser() -> argparse.ArgumentParser:
         default=False,
         help="Print entity vocabulary details before invoking the graph",
     )
+    ask.add_argument(
+        "--demo",
+        action="store_true",
+        default=False,
+        help=(
+            "Run the heuristic demo path (keyword planner, demo dgm_query). "
+            "Its results are marked demo and are not contract results (D47)."
+        ),
+    )
     ask.set_defaults(func=cmd_ask)
 
     # nl chat
@@ -458,12 +467,24 @@ def build_parser() -> argparse.ArgumentParser:
         default=False,
         help="Print node traversal details after each response",
     )
+    chat.add_argument(
+        "--demo",
+        action="store_true",
+        default=False,
+        help=(
+            "Run the heuristic demo path (keyword planner, demo dgm_query). "
+            "Its results are marked demo and are not contract results (D47)."
+        ),
+    )
     chat.set_defaults(func=cmd_chat)
 
     # nl showtime
     showtime = nl_sub.add_parser(
         "showtime",
-        help="Guided demo walkthrough showcasing DGM Supervisor capabilities",
+        help=(
+            "Guided demo walkthrough of the DGM Supervisor; always runs in "
+            "demo mode (D47)"
+        ),
     )
     showtime.add_argument(
         "--datasets",

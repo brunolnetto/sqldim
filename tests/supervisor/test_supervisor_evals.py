@@ -1,21 +1,9 @@
-"""End-to-end supervisor eval suite driven by per-domain ``evals.json`` cases.
+"""Domain eval utterances through the supervisor (demo mode, D47).
 
-This test module loads the 61+ real-world utterances from the project's
-canonical eval registry (``sqldim.application.evals.cases.EVAL_SUITE``) and
-verifies that the supervisor planner and graph handle each one correctly.
-
-Test classes
-------------
-* TestPlannerDomainRouting      — every domain utterance routes to dgm_query
-* TestPlannerDatasetSelection   — keyword planner picks correct dataset when
-                                  the utterance mentions a dataset name
-* TestPlannerDomainConfidence   — well-formed domain questions always clear
-                                  the reflect threshold (≥ 0.5)
-* TestPlannerDomainBudget       — budget invariant holds for all domain cases
-* TestGraphDomainExecution      — full graph invocation completes and
-                                  produces meaningful synthesis per dataset
-* TestGraphDatasetSpecificQuery — querying "for dataset X" produces targeted
-                                  synthesis mentioning the correct dataset
+The canonical eval registry (``EVAL_SUITE``) drives the keyword demo planner
+and the §12.4 graph.  Graph-level cases use a scripted ``dgm_query`` so that
+they test routing and reporting, not the heuristic NL graph; one integration
+case runs the real demo tool end to end.
 """
 
 from __future__ import annotations
@@ -23,232 +11,106 @@ from __future__ import annotations
 import pytest
 
 from sqldim.application.evals.cases import EVAL_SUITE, EvalCase
-from sqldim.core.query.dgm.nl.supervisor._graph import build_supervisor_graph
-from sqldim.core.query.dgm.nl.supervisor._planner import decompose_question
-from sqldim.core.query.dgm.nl.supervisor._types import (
-    SupervisorContext,
-    SupervisorState,
+from sqldim.core.query.dgm.nl.supervisor._auth import Action
+from sqldim.core.query.dgm.nl.supervisor._graph import run_supervisor
+from sqldim.core.query.dgm.nl.supervisor._planner import (
+    KeywordDemoPlanner,
+    PlannerView,
 )
-
-# ---------------------------------------------------------------------------
-# Fixtures derived from the canonical eval registry
-# ---------------------------------------------------------------------------
+from sqldim.core.query.dgm.nl.supervisor._tools import build_registry
+from sqldim.core.query.dgm.nl.supervisor._types import CallStatus, Outcome
+from tests.supervisor._fakes import FakeTool, auth, registry, runtime
 
 _ALL_DATASETS = sorted({c.dataset for c in EVAL_SUITE})
-
-_CTX = SupervisorContext(available_datasets=_ALL_DATASETS)
-
-_RECURSION_LIMIT = 25
+_DEMO_TOOLS = tuple(
+    t.capability_schema
+    for t in build_registry(demo=True).values()
+    if t.capability_schema.available
+)
 
 
 def _case_id(c: EvalCase) -> str:
     return c.id
 
 
-def _context_for_case(case: EvalCase) -> SupervisorContext:
-    """Restrict a domain evaluation to the domain it is evaluating."""
-    return SupervisorContext(available_datasets=[case.dataset])
-
-
-def _invoke(
-    utterance: str,
-    thread_id: str,
-    *,
-    dataset: str | None = None,
-) -> dict:
-    context = (
-        SupervisorContext(available_datasets=[dataset]) if dataset is not None else _CTX
+def _plan(case: EvalCase):  # type: ignore[no-untyped-def]
+    view = PlannerView(
+        goal=case.utterance,
+        plan_id="p",
+        version=1,
+        datasets=(case.dataset,),
+        tools=_DEMO_TOOLS,
     )
-    graph = build_supervisor_graph(context=context)
-    initial = SupervisorState(utterance=utterance)
-    return graph.invoke(
-        initial.model_dump(),
-        config={
-            "configurable": {"thread_id": thread_id},
-            "recursion_limit": _RECURSION_LIMIT,
-        },
-    )
+    return KeywordDemoPlanner().propose(view)
 
 
-# ---------------------------------------------------------------------------
-# Planner routing: every domain utterance → dgm_query
-# ---------------------------------------------------------------------------
+def _first_per_dataset() -> list[EvalCase]:
+    seen: set[str] = set()
+    out: list[EvalCase] = []
+    for c in EVAL_SUITE:
+        if c.dataset not in seen:
+            seen.add(c.dataset)
+            out.append(c)
+    return out
 
 
-class TestPlannerDomainRouting:
-    """All domain eval utterances are analytical questions → dgm_query."""
+class TestPlannerOnDomainCases:
+    @pytest.mark.parametrize("case", EVAL_SUITE, ids=_case_id)
+    def test_routes_to_dgm_query_on_its_dataset(self, case: EvalCase) -> None:
+        plan = _plan(case)
+        assert [s.tool_name for s in plan.steps] == ["dgm_query"], plan.reasoning
+        assert plan.steps[0].arguments["dataset"] == case.dataset
 
     @pytest.mark.parametrize("case", EVAL_SUITE, ids=_case_id)
-    def test_routes_to_dgm_query(self, case: EvalCase) -> None:
-        plan = decompose_question(case.utterance, _context_for_case(case))
-        tool_names = [s.tool_name for s in plan.steps]
-        assert "dgm_query" in tool_names, (
-            f"[{case.id}] '{case.utterance}' routed to {tool_names}, expected dgm_query"
+    def test_confidence_and_budget(self, case: EvalCase) -> None:
+        plan = _plan(case)
+        assert plan.confidence >= 0.5
+        assert plan.total_budget_fraction <= 1.0
+
+
+class TestGraphOnDomainCases:
+    @pytest.mark.parametrize("case", _first_per_dataset(), ids=_case_id)
+    def test_complete_and_marked_demo(self, case: EvalCase) -> None:
+        tool = FakeTool("dgm_query")
+        rt = runtime(
+            registry(tool),
+            KeywordDemoPlanner(),
+            the_auth=auth({case.dataset: {Action.READ}}),
+            demo=True,
         )
-
-
-# ---------------------------------------------------------------------------
-# Dataset selection: when utterance mentions a dataset name, planner picks it
-# ---------------------------------------------------------------------------
-
-
-class TestPlannerDatasetSelection:
-    """When a domain eval utterance mentions its dataset name explicitly, the
-    keyword planner should select that dataset — not the first alphabetically."""
-
-    @pytest.fixture
-    def cases_mentioning_dataset(self) -> list[EvalCase]:
-        return [c for c in EVAL_SUITE if c.dataset.lower() in c.utterance.lower()]
-
-    def test_at_least_one_case_mentions_dataset(
-        self, cases_mentioning_dataset: list[EvalCase]
-    ) -> None:
-        """Sanity-check: the eval suite should have some utterances that
-        explicitly name a dataset."""
-        # This may be 0 for the current suite — that's informational, not fatal
-        pass
-
-    def test_explicit_dataset_is_selected(
-        self, cases_mentioning_dataset: list[EvalCase]
-    ) -> None:
-        for case in cases_mentioning_dataset:
-            plan = decompose_question(case.utterance, _context_for_case(case))
-            query_steps = [s for s in plan.steps if s.tool_name == "dgm_query"]
-            if query_steps:
-                selected = query_steps[0].arguments.get("dataset")
-                assert selected == case.dataset, (
-                    f"[{case.id}] dataset '{selected}' != expected '{case.dataset}'"
-                )
-
-
-# ---------------------------------------------------------------------------
-# Confidence: all well-formed domain questions clear the reflect threshold
-# ---------------------------------------------------------------------------
-
-
-class TestPlannerDomainConfidence:
-    """Every eval-suite utterance is a well-formed analytical question and
-    must produce confidence ≥ 0.5 (no unnecessary reflect detour)."""
-
-    @pytest.mark.parametrize("case", EVAL_SUITE, ids=_case_id)
-    def test_confidence_above_reflect_threshold(self, case: EvalCase) -> None:
-        plan = decompose_question(case.utterance, _context_for_case(case))
-        assert plan.confidence >= 0.5, (
-            f"[{case.id}] '{case.utterance}' confidence={plan.confidence:.2f} "
-            f"< 0.5 reflect threshold — well-formed questions shouldn't trigger reflect"
-        )
-
-
-# ---------------------------------------------------------------------------
-# Budget invariant
-# ---------------------------------------------------------------------------
-
-
-class TestPlannerDomainBudget:
-    """Budget fractions sum to ≤ 1.0 for every domain utterance."""
-
-    @pytest.mark.parametrize("case", EVAL_SUITE, ids=_case_id)
-    def test_budget_at_most_one(self, case: EvalCase) -> None:
-        plan = decompose_question(case.utterance, _context_for_case(case))
-        total = sum(s.budget_fraction for s in plan.steps)
-        assert total <= 1.0 + 1e-9, f"[{case.id}] budget sum={total:.6f} > 1.0"
-
-
-# ---------------------------------------------------------------------------
-# End-to-end graph execution: completes with synthesis
-# ---------------------------------------------------------------------------
-
-
-class TestGraphDomainExecution:
-    """Full graph invocation on a representative subset of domain utterances.
-
-    We pick the first case per dataset to avoid O(61) graph invocations while
-    still covering every domain.
-    """
-
-    @staticmethod
-    def _first_per_dataset() -> list[EvalCase]:
-        seen: set[str] = set()
-        result: list[EvalCase] = []
-        for c in EVAL_SUITE:
-            if c.dataset not in seen:
-                seen.add(c.dataset)
-                result.append(c)
-        return result
-
-    @pytest.fixture(params=None)
-    def representative_cases(self) -> list[EvalCase]:
-        return self._first_per_dataset()
-
-    @pytest.mark.parametrize(
-        "case",
-        _first_per_dataset.__func__(),  # type: ignore[attr-defined]
-        ids=lambda c: c.id,
-    )
-    def test_graph_produces_synthesis(self, case: EvalCase) -> None:
-        result = _invoke(case.utterance, f"domain-{case.id}", dataset=case.dataset)
-        synthesis = result.get("synthesis", "") or ""
-        assert len(synthesis) > 0, f"[{case.id}] Empty synthesis for '{case.utterance}'"
-
-    @pytest.mark.parametrize(
-        "case",
-        _first_per_dataset.__func__(),  # type: ignore[attr-defined]
-        ids=lambda c: c.id,
-    )
-    def test_graph_skips_reflect_for_domain_queries(self, case: EvalCase) -> None:
-        result = _invoke(case.utterance, f"noreflect-{case.id}", dataset=case.dataset)
-        visited = result.get("visited_nodes", [])
-        assert "reflect" not in visited, (
-            f"[{case.id}] Unexpected reflect for well-formed '{case.utterance}', "
-            f"visited={visited}"
-        )
-
-    @pytest.mark.parametrize(
-        "case",
-        _first_per_dataset.__func__(),  # type: ignore[attr-defined]
-        ids=lambda c: c.id,
-    )
-    def test_graph_mentions_dataset_in_synthesis(self, case: EvalCase) -> None:
-        """The synthesis should mention the dataset that was queried."""
-        result = _invoke(case.utterance, f"ds-{case.id}", dataset=case.dataset)
-        synthesis = (result.get("synthesis", "") or "").lower()
-        # The stub synthesizer at minimum includes the dataset name from
-        # dgm_query's result data; check for it.
-        assert any(
-            keyword in synthesis
-            for keyword in (case.dataset.lower(), "query", "completed")
-        ), (
-            f"[{case.id}] Synthesis doesn't mention dataset '{case.dataset}': "
-            f"{synthesis!r}"
-        )
-
-
-# ---------------------------------------------------------------------------
-# Dataset-specific question routing (synthetic cases)
-# ---------------------------------------------------------------------------
-
-
-class TestGraphDatasetSpecificQuery:
-    """Synthetic 'which questions for dataset X' queries per domain."""
+        state = run_supervisor(case.utterance, rt, thread_id=case.id)
+        assert state.outcome is Outcome.COMPLETE
+        assert state.synthesis.startswith("[demo mode")
+        assert case.dataset in state.synthesis
+        assert tool.calls[0].datasets == [case.dataset]
 
     @pytest.mark.parametrize("dataset", _ALL_DATASETS)
-    def test_dataset_question_routes_correctly(self, dataset: str) -> None:
-        utterance = f"Which questions can you answer for {dataset}?"
-        plan = decompose_question(utterance, _CTX)
-        assert plan.steps, f"Empty plan for '{utterance}'"
-        assert plan.steps[0].tool_name == "dgm_what_can_i_answer", (
-            f"Expected dgm_what_can_i_answer for '{utterance}', "
-            f"got {plan.steps[0].tool_name}"
+    def test_ungranted_dataset_is_never_queried(self, dataset: str) -> None:
+        others = [d for d in _ALL_DATASETS if d != dataset]
+        tool = FakeTool("dgm_query")
+        rt = runtime(
+            registry(tool),
+            KeywordDemoPlanner(),
+            the_auth=auth({d: {Action.READ} for d in others}),
+            demo=True,
         )
-        assert plan.steps[0].arguments.get("dataset") == dataset, (
-            f"Expected dataset='{dataset}' in arguments, got {plan.steps[0].arguments}"
-        )
+        case = next(c for c in EVAL_SUITE if c.dataset == dataset)
+        state = run_supervisor(case.utterance, rt, thread_id=f"deny-{dataset}")
+        assert all(dataset not in (c.datasets or []) for c in tool.calls)
+        assert state.outcome in (Outcome.FAILED, Outcome.COMPLETE)
 
-    @pytest.mark.parametrize("dataset", _ALL_DATASETS)
-    def test_dataset_question_synthesis_is_targeted(self, dataset: str) -> None:
-        utterance = f"Which questions can you answer for {dataset}?"
-        result = _invoke(utterance, f"dsq-{dataset}")
-        synthesis = (result.get("synthesis", "") or "").lower()
-        assert dataset.lower() in synthesis, (
-            f"Synthesis for '{utterance}' doesn't mention '{dataset}': {synthesis!r}"
-        )
+
+def test_real_demo_query_end_to_end() -> None:
+    """The real demo dgm_query on a bundled dataset: demo-marked, never contract."""
+    from sqldim.application.supervisor_host import local_supervisor_runtime
+
+    rt = local_supervisor_runtime(["commerce"], demo=True)
+    state = run_supervisor("how many orders are there", rt, thread_id="e2e")
+    result = state.results["q1"]
+    assert result.demo is True
+    assert not result.is_contract_success
+    if result.status is CallStatus.SUCCEEDED:
+        assert state.outcome is Outcome.COMPLETE
+        assert result.data["rows"] is not None
+    else:
+        assert result.error is not None

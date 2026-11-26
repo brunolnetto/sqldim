@@ -1,165 +1,127 @@
-"""Tests for the supervisor CLI command."""
+"""The supervisor CLI: fail closed by default, demo only on request."""
 
 from __future__ import annotations
 
+import argparse
 
-class TestSupervisorCommandDiscovery:
-    """The supervisor mode must be available via CLI parser."""
+import pytest
 
-    def test_supervisor_mode_exists(self) -> None:
+
+def _args(**kw: object) -> argparse.Namespace:
+    base: dict[str, object] = {
+        "question": "how many orders were placed?",
+        "model": None,
+        "model_provider": None,
+        "datasets": ["commerce"],
+        "verbose": False,
+        "demo": False,
+    }
+    return argparse.Namespace(**{**base, **kw})
+
+
+class TestParser:
+    def test_supervisor_mode_and_demo_flag(self) -> None:
         from sqldim.cli import build_parser
 
-        parser = build_parser()
-        # Parse a minimal supervisor invocation via ask --mode supervisor
-        args = parser.parse_args(["nl", "ask", "test question", "--mode", "supervisor"])
-        assert args.func is not None
-        assert args.question == "test question"
+        args = build_parser().parse_args(
+            ["nl", "ask", "q", "--mode", "supervisor", "--demo", "--datasets", "a", "b"]
+        )
         assert args.mode == "supervisor"
+        assert args.demo is True
+        assert args.datasets == ["a", "b"]
 
-    def test_supervisor_lists_datasets(self) -> None:
-        from sqldim.application.ask import KNOWN_DATASETS
+    def test_demo_is_off_by_default(self) -> None:
+        from sqldim.cli import build_parser
 
-        # Canonical domain names exposed by the consolidated registry
-        assert "entertainment" in KNOWN_DATASETS
-        assert "commerce" in KNOWN_DATASETS
+        for argv in (["nl", "ask", "q"], ["nl", "chat"]):
+            assert build_parser().parse_args(argv).demo is False
 
 
-class TestCmdSupervisorExecution:
-    """cmd_supervisor runs the complete stub graph pipeline."""
-
-    def test_basic_invocation_returns_zero(self, capsys) -> None:
-        import argparse
+class TestCmdSupervisor:
+    def test_without_planner_fails_closed(
+        self, capsys: pytest.CaptureFixture[str]
+    ) -> None:
         from sqldim.cli.supervisor import cmd_supervisor
 
-        args = argparse.Namespace(
-            question="Which datasets are available?",
-            model=None,
-            model_provider=None,
-            datasets=None,
-            verbose=False,
-        )
-        rc = cmd_supervisor(args)
-        assert rc == 0
+        rc = cmd_supervisor(_args())
         out = capsys.readouterr().out
-        assert out.strip()  # synthesis was printed
+        assert rc == 1
+        assert "Outcome: FAILED" in out
+        assert "NOT_IMPLEMENTED" in out
+        assert "demo" not in out.split("\n")[0]
 
-    def test_verbose_mode_prints_node_info(self, capsys) -> None:
-        import argparse
+    def test_invalid_provider_warns_and_still_fails_closed(
+        self, capsys: pytest.CaptureFixture[str]
+    ) -> None:
         from sqldim.cli.supervisor import cmd_supervisor
 
-        args = argparse.Namespace(
-            question="What tools do you have?",
-            model=None,
-            model_provider=None,
-            datasets=None,
-            verbose=True,
-        )
-        rc = cmd_supervisor(args)
-        assert rc == 0
+        rc = cmd_supervisor(_args(model_provider="invalid_provider"))
         out = capsys.readouterr().out
+        assert rc == 1
+        assert "Warning" in out
+        assert "Outcome: FAILED" in out
+
+    def test_unknown_dataset_returns_1(
+        self, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        from sqldim.cli.supervisor import cmd_supervisor
+
+        assert cmd_supervisor(_args(datasets=["nonexistent_xyz"])) == 1
+        assert "Unknown" in capsys.readouterr().out
+
+    def test_demo_discovery_is_answered_from_grants(
+        self, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        from sqldim.cli.supervisor import cmd_supervisor
+
+        rc = cmd_supervisor(
+            _args(question="which datasets are available?", demo=True, verbose=True)
+        )
+        out = capsys.readouterr().out
+        assert rc == 1  # no tool ran: FAILED, not a fictitious success
+        assert out.startswith("[demo mode")
+        assert "commerce" in out
         assert "Nodes visited" in out
 
-    def test_invalid_model_provider_prints_warning(self, capsys) -> None:
-        import argparse
+    def test_demo_unavailable_capability_is_reported(
+        self, capsys: pytest.CaptureFixture[str]
+    ) -> None:
         from sqldim.cli.supervisor import cmd_supervisor
 
-        args = argparse.Namespace(
-            question="test",
-            model=None,
-            model_provider="invalid_provider",
-            datasets=None,
-            verbose=False,
+        cmd_supervisor(_args(question="validate that orders are positive", demo=True))
+        assert "not available: dgm_validate_invariant" in capsys.readouterr().out
+
+
+class TestHopFormatting:
+    def test_failed_hop_shows_kind(self) -> None:
+        from sqldim.cli.ask import _format_hop
+        from sqldim.core.query.dgm.nl.supervisor._types import (
+            CallStatus,
+            ToolCallResult,
+            ToolErrorKind,
         )
-        rc = cmd_supervisor(args)
-        assert rc == 0
-        out = capsys.readouterr().out
-        assert "Warning" in out
+        from tests.supervisor._fakes import step
 
-    def test_datasets_flag_restricts_available(self, capsys) -> None:
-        import argparse
-        from sqldim.cli.supervisor import cmd_supervisor
-
-        args = argparse.Namespace(
-            question="What can I ask?",
-            model=None,
-            model_provider=None,
-            datasets=["commerce"],
-            verbose=False,
+        hop = ToolCallResult.failure(
+            step("a"), CallStatus.FAILED, ToolErrorKind.NOT_IMPLEMENTED, "missing"
         )
-        rc = cmd_supervisor(args)
-        assert rc == 0
+        text = _format_hop(hop)
+        assert "[a] dgm_query" in text
+        assert "FAILED NOT_IMPLEMENTED: missing" in text
 
-    def test_unknown_dataset_returns_1(self, capsys) -> None:
-        import argparse
-        from sqldim.cli.supervisor import cmd_supervisor
-
-        args = argparse.Namespace(
-            question="test",
-            model=None,
-            model_provider=None,
-            datasets=["nonexistent_xyz"],
-            verbose=False,
-        )
-        rc = cmd_supervisor(args)
-        assert rc == 1
-        out = capsys.readouterr().out
-        assert "Unknown" in out
-
-    def test_datasets_flag_in_parser(self) -> None:
-        from sqldim.cli import build_parser
-
-        parser = build_parser()
-        args = parser.parse_args(
-            [
-                "nl",
-                "ask",
-                "question",
-                "--mode",
-                "supervisor",
-                "--datasets",
-                "ecommerce",
-                "fintech",
-            ]
-        )
-        assert args.datasets == ["ecommerce", "fintech"]
-
-    def test_verbose_with_error_hop_prints_error(self, capsys, monkeypatch) -> None:
-        """Verbose mode with a failed tool hop covers supervisor.py line 71."""
-        import argparse
-        from sqldim.cli.supervisor import cmd_supervisor
-
-        def _fake_build(*a, **kw):
-            class _G:
-                def invoke(self, state, config=None):
-                    return {
-                        "synthesis": "partial",
-                        "visited_nodes": ["plan"],
-                        "node_timings": {"plan": 5},
-                        "results": [
-                            {
-                                "tool_name": "bad_tool",
-                                "success": False,
-                                "data": {},
-                                "error": "oops",
-                            }
-                        ],
-                    }
-
-            return _G()
-
-        monkeypatch.setattr(
-            "sqldim.core.query.dgm.nl.supervisor._graph.build_supervisor_graph",
-            _fake_build,
+    def test_demo_hop_is_marked(self) -> None:
+        from sqldim.cli.ask import _format_hop
+        from sqldim.core.query.dgm.nl.supervisor._types import (
+            CallStatus,
+            ToolCallResult,
         )
 
-        args = argparse.Namespace(
-            question="test",
-            model=None,
-            model_provider=None,
-            datasets=None,
-            verbose=True,
+        hop = ToolCallResult(
+            call_id="a",
+            tool_name="dgm_query",
+            status=CallStatus.SUCCEEDED,
+            data={},
+            attempts=1,
+            demo=True,
         )
-        rc = cmd_supervisor(args)
-        assert rc == 0
-        out = capsys.readouterr().out
-        assert "ERROR" in out and "oops" in out
+        assert "(demo)" in _format_hop(hop)

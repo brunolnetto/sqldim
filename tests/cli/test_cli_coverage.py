@@ -182,37 +182,62 @@ class TestRunToolEvals:
 # ---------------------------------------------------------------------------
 
 
+def _fake_state(
+    outcome: str = "COMPLETE",
+    synthesis: str = "Outcome: COMPLETE",
+    failed: bool = False,
+):
+    """A SupervisorState as run_supervisor would return it."""
+    from sqldim.core.query.dgm.nl.supervisor._types import (
+        CallStatus,
+        Outcome,
+        SupervisorState,
+        ToolCallResult,
+        ToolErrorKind,
+    )
+    from tests.supervisor._fakes import query_turn, step
+
+    if failed:
+        result = ToolCallResult.failure(
+            step("q1"),
+            CallStatus.FAILED,
+            ToolErrorKind.TOOL_FAILURE,
+            "connection refused",
+        )
+    else:
+        result = ToolCallResult(
+            call_id="q1",
+            tool_name="dgm_query",
+            status=CallStatus.SUCCEEDED,
+            data=query_turn(),
+            attempts=1,
+        )
+    return SupervisorState(
+        utterance="q",
+        outcome=Outcome(outcome),
+        synthesis=synthesis,
+        results={"q1": result},
+        visited_nodes=["plan", "execute_tool"],
+        node_timings={"plan": 1.0, "execute_tool": 2.0},
+    )
+
+
 class TestCLIAskCoverage:
     @pytest.fixture(autouse=True)
     def _stub_model(self, monkeypatch) -> None:
         monkeypatch.setattr("sqldim.application.ask.make_model", lambda *a, **kw: None)
 
     @pytest.fixture(autouse=True)
-    def _stub_supervisor_graph(self, monkeypatch) -> None:
-        """Replace build_supervisor_graph with a fast stub for all tests."""
+    def _stub_run_supervisor(self, monkeypatch) -> None:
+        """Replace run_supervisor with a fast scripted run for all tests."""
+        self.calls: list[dict] = []
 
-        def _fake_build(*a, **kw):
-            class _G:
-                def invoke(self, state, config=None):
-                    return {
-                        "synthesis": "stub synthesis",
-                        "visited_nodes": ["plan", "execute"],
-                        "node_timings": {"plan": 1, "execute": 2},
-                        "results": [
-                            {
-                                "tool_name": "dgm_query",
-                                "success": True,
-                                "data": {"rows": [1, 2], "count": 2},
-                                "error": None,
-                            }
-                        ],
-                    }
-
-            return _G()
+        def _fake_run(utterance, runtime, **kw):
+            self.calls.append({"utterance": utterance, "runtime": runtime, **kw})
+            return _fake_state()
 
         monkeypatch.setattr(
-            "sqldim.core.query.dgm.nl.supervisor._graph.build_supervisor_graph",
-            _fake_build,
+            "sqldim.core.query.dgm.nl.supervisor._graph.run_supervisor", _fake_run
         )
 
     def test_unknown_source_type_returns_1(self, capsys) -> None:
@@ -226,11 +251,49 @@ class TestCLIAskCoverage:
         out = capsys.readouterr().out
         assert "Unknown source type" in out
 
-    def test_supervisor_mode_returns_zero(self, capsys) -> None:
+    def test_supervisor_mode_complete_returns_zero(self, capsys) -> None:
         from sqldim.cli import main
 
         rc = main(["nl", "ask", "show me revenue", "--mode", "supervisor"])
         assert rc == 0
+        assert "Outcome: COMPLETE" in capsys.readouterr().out
+        assert self.calls[0]["runtime"].demo is False
+
+    def test_supervisor_mode_demo_flag_reaches_runtime(self) -> None:
+        from sqldim.cli import main
+
+        main(["nl", "ask", "show me revenue", "--mode", "supervisor", "--demo"])
+        runtime = self.calls[0]["runtime"]
+        assert runtime.demo is True
+        assert runtime.planner.demo is True
+
+    def test_supervisor_mode_runtime_grants_only_selected(self) -> None:
+        from sqldim.cli import main
+
+        main(
+            [
+                "nl",
+                "ask",
+                "test",
+                "--mode",
+                "supervisor",
+                "--datasets",
+                "commerce",
+                "fintech",
+            ]
+        )
+        auth = self.calls[0]["runtime"].auth
+        assert auth.readable_datasets() == ["commerce", "fintech"]
+        assert auth.tenant_id == "local"
+
+    def test_supervisor_mode_partial_returns_one(self, capsys, monkeypatch) -> None:
+        monkeypatch.setattr(
+            "sqldim.core.query.dgm.nl.supervisor._graph.run_supervisor",
+            lambda *a, **kw: _fake_state("PARTIAL", "Outcome: PARTIAL"),
+        )
+        from sqldim.cli import main
+
+        assert main(["nl", "ask", "q", "--mode", "supervisor"]) == 1
 
     def test_supervisor_mode_unknown_datasets_returns_1(self, capsys) -> None:
         from sqldim.cli import main
@@ -257,62 +320,24 @@ class TestCLIAskCoverage:
         assert rc == 0
         out = capsys.readouterr().out
         assert "Nodes visited" in out
+        assert "[q1] dgm_query" in out
 
     def test_supervisor_mode_verbose_with_error_hop(self, capsys, monkeypatch) -> None:
-        """Verbose display covers the error branch (line 179 of ask.py)."""
-
-        def _fake_build_err(*a, **kw):
-            class _G:
-                def invoke(self, state, config=None):
-                    return {
-                        "synthesis": "partial",
-                        "visited_nodes": ["plan"],
-                        "node_timings": {},
-                        "results": [
-                            {
-                                "tool_name": "bad_tool",
-                                "success": False,
-                                "data": {},
-                                "error": "connection refused",
-                            }
-                        ],
-                    }
-
-            return _G()
-
         monkeypatch.setattr(
-            "sqldim.core.query.dgm.nl.supervisor._graph.build_supervisor_graph",
-            _fake_build_err,
+            "sqldim.core.query.dgm.nl.supervisor._graph.run_supervisor",
+            lambda *a, **kw: _fake_state("FAILED", "Outcome: FAILED", failed=True),
         )
         from sqldim.cli import main
 
         rc = main(["nl", "ask", "test", "--mode", "supervisor", "--verbose"])
-        assert rc == 0
+        assert rc == 1
         out = capsys.readouterr().out
-        assert "ERROR" in out
-
-    def test_supervisor_mode_datasets_filter_reduces_available(self, capsys) -> None:
-        """--datasets with valid names sets available = sorted(selected) (line 129)."""
-        from sqldim.cli import main
-
-        rc = main(
-            [
-                "nl",
-                "ask",
-                "test",
-                "--mode",
-                "supervisor",
-                "--datasets",
-                "commerce",
-                "fintech",
-            ]
-        )
-        assert rc == 0
+        assert "TOOL_FAILURE: connection refused" in out
 
     def test_supervisor_mode_model_provider_error_continues(
         self, capsys, monkeypatch
     ) -> None:
-        """make_model raising logs warning and continues (lines 140-141 of ask.py)."""
+        """make_model raising logs a warning; the run then has no planner."""
 
         def _bad_model(*a, **kw):
             raise RuntimeError("bad key")
@@ -323,38 +348,12 @@ class TestCLIAskCoverage:
         )
         from sqldim.cli import main
 
-        rc = main(
+        main(
             ["nl", "ask", "test", "--mode", "supervisor", "--model-provider", "openai"]
         )
-        assert rc == 0
         out = capsys.readouterr().out
         assert "Warning" in out or "could not build" in out
-
-    def test_supervisor_mode_no_synthesis_message(self, capsys, monkeypatch) -> None:
-        """When synthesis is empty, 'No synthesis produced' is printed."""
-
-        def _fake_build(*a, **kw):
-            class G:
-                def invoke(self, state, config=None):
-                    return {
-                        "synthesis": "",
-                        "visited_nodes": [],
-                        "node_timings": {},
-                        "results": [],
-                        "conversation_history": [],
-                    }
-
-            return G()
-
-        monkeypatch.setattr(
-            "sqldim.core.query.dgm.nl.supervisor._graph.build_supervisor_graph",
-            _fake_build,
-        )
-        from sqldim.cli import main
-
-        main(["nl", "ask", "show revenue", "--mode", "supervisor"])
-        out = capsys.readouterr().out
-        assert "No synthesis" in out
+        assert self.calls[0]["runtime"].planner is None
 
 
 # ---------------------------------------------------------------------------
@@ -421,13 +420,6 @@ class TestCmdChatDatasetPaths:
     def _stub_repl(self, monkeypatch) -> None:
         """Replace _run_repl so we never enter the interactive loop."""
         monkeypatch.setattr("sqldim.cli.chat._run_repl", lambda *a, **kw: 0)
-
-    @pytest.fixture(autouse=True)
-    def _stub_graph(self, monkeypatch) -> None:
-        monkeypatch.setattr(
-            "sqldim.core.query.dgm.nl.supervisor._graph.build_supervisor_graph",
-            lambda *a, **kw: object(),
-        )
 
     def test_unknown_datasets_returns_1(self, capsys) -> None:
         """Lines 240-242: unknown --datasets → print error + return 1."""
@@ -499,17 +491,8 @@ class TestRunReplNoSessionFactory:
 
         from sqldim.cli.chat import _run_repl
 
-        class FakeGraph:
-            def invoke(self, state, config=None):
-                return {
-                    "synthesis": "ok",
-                    "visited_nodes": [],
-                    "node_timings": {},
-                    "results": [],
-                }
-
-        # _session_factory=None → imports prompt_toolkit (lines 105-107)
-        rc = _run_repl(FakeGraph(), ["commerce"], _session_factory=None)
+        # _session_factory=None → imports prompt_toolkit
+        rc = _run_repl(lambda: None, ["commerce"], _session_factory=None)
         assert rc == 0
 
 
@@ -602,19 +585,16 @@ class TestSelectDatasetsInteractiveEdgeCases:
 class TestRunReplSlashCommands:
     """_run_repl slash commands branch coverage."""
 
+    @pytest.fixture(autouse=True)
+    def _stub_run_supervisor(self, monkeypatch) -> None:
+        monkeypatch.setattr(
+            "sqldim.core.query.dgm.nl.supervisor._graph.run_supervisor",
+            lambda *a, **kw: _fake_state(synthesis="stub result"),
+        )
+
     def _make_graph_stub(self):
-        """Return a graph-like object that always returns a stub synthesis."""
-
-        class FakeGraph:
-            def invoke(self, state, config=None):
-                return {
-                    "synthesis": "stub result",
-                    "visited_nodes": ["plan", "respond"],
-                    "node_timings": {"plan": 1.0, "respond": 2.0},
-                    "results": [],
-                }
-
-        return FakeGraph()
+        """A runtime factory; run_supervisor is stubbed by the fixture."""
+        return lambda: None
 
     def _make_session(self, responses):
         """Return a session-like object yielding preset prompts."""
@@ -727,21 +707,16 @@ class TestRunReplSlashCommands:
         )
         assert rc == 0
 
-    def test_repl_no_synthesis_prints_warning(self, capsys) -> None:
-        """Graph returning empty synthesis → 'No synthesis produced'."""
+    def test_repl_no_synthesis_prints_warning(self, capsys, monkeypatch) -> None:
+        """A run without a response text → 'No synthesis produced'."""
         from sqldim.cli.chat import _run_repl
 
-        class NoSynthGraph:
-            def invoke(self, state, config=None):
-                return {
-                    "synthesis": "",
-                    "visited_nodes": [],
-                    "node_timings": {},
-                    "results": [],
-                }
-
+        monkeypatch.setattr(
+            "sqldim.core.query.dgm.nl.supervisor._graph.run_supervisor",
+            lambda *a, **kw: _fake_state(synthesis=""),
+        )
         session = self._make_session(["something", "/quit"])
-        _run_repl(NoSynthGraph(), ["commerce"], _session_factory=lambda: session)
+        _run_repl(lambda: None, ["commerce"], _session_factory=lambda: session)
         out = capsys.readouterr().out
         assert "No synthesis" in out
 
@@ -867,28 +842,14 @@ class TestCmdShowtime:
         """showtime.py line 187: error hop displayed when verbose=True."""
         from sqldim.cli import showtime as st
 
-        def _fake_build(*a, **kw):
-            class _G:
-                def invoke(self, state, config=None):
-                    return {
-                        "synthesis": "Done.",
-                        "visited_nodes": ["plan", "execute", "synthesize"],
-                        "node_timings": {"plan": 1, "execute": 2, "synthesize": 3},
-                        "results": [
-                            {
-                                "tool_name": "dgm_query",
-                                "success": False,
-                                "data": {},
-                                "error": "DB timeout",
-                            }
-                        ],
-                    }
+        calls: list = []
 
-            return _G()
+        def _fake_run(utterance, runtime, **kw):
+            calls.append(runtime)
+            return _fake_state("FAILED", "Outcome: FAILED", failed=True)
 
         monkeypatch.setattr(
-            "sqldim.core.query.dgm.nl.supervisor._graph.build_supervisor_graph",
-            _fake_build,
+            "sqldim.core.query.dgm.nl.supervisor._graph.run_supervisor", _fake_run
         )
         monkeypatch.setattr(
             st,
@@ -903,6 +864,8 @@ class TestCmdShowtime:
         )
         rc = st.cmd_showtime(args)
         assert rc == 0
+        assert calls and all(rt.demo for rt in calls)  # showtime is demo mode
+        assert "TOOL_FAILURE" in capsys.readouterr().out
 
 
 # ---------------------------------------------------------------------------
@@ -911,35 +874,15 @@ class TestCmdShowtime:
 
 
 class TestCLISupervisor:
-    def test_supervisor_verbose_prints_timings(self, capsys, monkeypatch) -> None:
-        """supervisor.py line 71: error hop displayed via print."""
-
-        def _fake_build(*a, **kw):
-            class _G:
-                def invoke(self, state, config=None):
-                    return {
-                        "synthesis": "ok",
-                        "visited_nodes": ["plan"],
-                        "node_timings": {"plan": 10},
-                        "results": [
-                            {
-                                "tool_name": "tool_x",
-                                "success": False,
-                                "data": {},
-                                "error": "timeout",
-                            }
-                        ],
-                    }
-
-            return _G()
-
+    def test_supervisor_verbose_prints_error_hop(self, capsys, monkeypatch) -> None:
         monkeypatch.setattr(
-            "sqldim.core.query.dgm.nl.supervisor._graph.build_supervisor_graph",
-            _fake_build,
+            "sqldim.core.query.dgm.nl.supervisor._graph.run_supervisor",
+            lambda *a, **kw: _fake_state("FAILED", "Outcome: FAILED", failed=True),
         )
         from sqldim.cli import main
 
         rc = main(["nl", "ask", "show revenue", "--mode", "supervisor", "--verbose"])
-        assert isinstance(rc, int)
+        assert rc == 1
         out = capsys.readouterr().out
-        assert len(out) > 0
+        assert "Outcome: FAILED" in out
+        assert "TOOL_FAILURE" in out

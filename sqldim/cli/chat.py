@@ -105,7 +105,7 @@ def _parse_dataset_choice(
 
 
 def _run_repl(
-    graph: Any,
+    new_runtime: Callable[[], Any],
     datasets: list[str],
     *,
     verbose: bool = False,
@@ -115,7 +115,7 @@ def _run_repl(
     from rich.console import Console
     from rich.panel import Panel
 
-    from sqldim.core.query.dgm.nl.supervisor._types import SupervisorState
+    from sqldim.core.query.dgm.nl.supervisor._graph import run_supervisor
 
     console = Console()
 
@@ -160,20 +160,14 @@ def _run_repl(
                 return 0
             continue
 
-        # Invoke the supervisor graph
-        initial = SupervisorState(
-            utterance=utterance,
-            conversation_history=list(conversation_history),
-        )
-
+        # One supervisor turn; a fresh runtime gives each turn its own deadline
         with console.status("[bold cyan]Thinking...[/bold cyan]", spinner="dots"):
             turn_counter += 1
-            result = graph.invoke(
-                initial.model_dump(),
-                config={
-                    "configurable": {"thread_id": f"{thread_id_base}-{turn_counter}"},
-                    "recursion_limit": 25,
-                },
+            result = run_supervisor(
+                utterance,
+                new_runtime(),
+                thread_id=f"{thread_id_base}-{turn_counter}",
+                history=list(conversation_history),
             )
 
         _render_turn(result, utterance, console, conversation_history, verbose)
@@ -247,7 +241,7 @@ def _render_turn(
     from rich.markdown import Markdown
     from rich.panel import Panel
 
-    synthesis = result.get("synthesis", "")
+    synthesis = result.synthesis or ""
     if synthesis:
         console.print()
         console.print(Panel(Markdown(synthesis), border_style="green"))
@@ -259,8 +253,8 @@ def _render_turn(
         console.print("[yellow]No synthesis produced.[/yellow]")
 
     if verbose:
-        visited = result.get("visited_nodes", [])
-        timings = result.get("node_timings", {})
+        visited = result.visited_nodes
+        timings = result.node_timings
         console.print(f"\n[dim]Nodes: {' → '.join(visited)}[/dim]")
         timing_parts = [f"{n}: {ms}ms" for n, ms in timings.items()]
         console.print(f"[dim]Timings: {', '.join(timing_parts)}[/dim]")
@@ -275,8 +269,7 @@ def cmd_chat(args: argparse.Namespace) -> int:
 
     from sqldim.application.ask import KNOWN_DATASETS
     from sqldim.core.query.dgm.nl._agents import make_model
-    from sqldim.core.query.dgm.nl.supervisor._graph import build_supervisor_graph
-    from sqldim.core.query.dgm.nl.supervisor._types import SupervisorContext
+    from sqldim.application.supervisor_host import local_supervisor_runtime
 
     all_datasets = sorted(KNOWN_DATASETS.keys())
     if not all_datasets:
@@ -306,10 +299,9 @@ def cmd_chat(args: argparse.Namespace) -> int:
         except Exception as exc:
             print(f"[sqldim chat] Warning: could not build LLM model: {exc}")
 
-    context = SupervisorContext(
-        available_datasets=datasets,
-        model=llm_model,
-    )
-    graph = build_supervisor_graph(context=context)
+    demo = bool(getattr(args, "demo", False))
 
-    return _run_repl(graph, datasets, verbose=getattr(args, "verbose", False))
+    def new_runtime() -> Any:
+        return local_supervisor_runtime(datasets, model=llm_model, demo=demo)
+
+    return _run_repl(new_runtime, datasets, verbose=getattr(args, "verbose", False))
