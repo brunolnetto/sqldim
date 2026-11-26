@@ -176,8 +176,7 @@ class TestEvalsRunCommand:
         def stub_run_one(self, case, model):
             return make_stub_result(case)
 
-        monkeypatch.setattr(runner_module, "load_dataset", lambda name: name)
-        monkeypatch.setattr(runner_module, "DatasetPipelineSource", StubSource)
+        monkeypatch.setattr(runner_module, "open_local_dataset", StubSource)
         monkeypatch.setattr(EvalRunner, "_run_on_connection", stub_run_on_connection)
         monkeypatch.setattr(EvalRunner, "_run_one", stub_run_one)
 
