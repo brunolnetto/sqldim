@@ -105,6 +105,16 @@ class TestToolCallResultInvariants:
         )
         assert r.attempts == 0
 
+    def test_budget_rejected_before_dispatch_may_have_no_attempt(self) -> None:
+        r = ToolCallResult.failure(
+            step("a"),
+            CallStatus.REJECTED,
+            ToolErrorKind.BUDGET_REJECTED,
+            "reservation does not fit",
+            attempts=0,
+        )
+        assert r.attempts == 0
+
     def test_demo_success_is_not_a_contract_success(self) -> None:
         r = ToolCallResult(
             call_id="a",
