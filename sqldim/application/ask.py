@@ -47,8 +47,8 @@ from sqldim.application._pipeline_sources import (
 )
 from sqldim.application.datasets.dataset import Dataset
 from sqldim.core.query.dgm.nl._agent_types import DGMContext, NLInterfaceState
-from sqldim.core.query.dgm.nl._agents import make_model, make_ollama_model
-from sqldim.core.query.dgm.nl._graph import build_nl_graph
+from sqldim.core.query.dgm.nl._agents import make_model
+from sqldim.core.query.dgm.nl._graph import NLPipelineUnavailable, build_nl_graph
 from sqldim.core.query.dgm.nl._types import EntityRegistry
 from sqldim.core.query.dgm.nl.supervisor._auth import AccessDenied, DataAccess
 from sqldim.core.query.dgm.planner._gate import ExecutionBudget
@@ -215,19 +215,6 @@ def make_default_budget() -> ExecutionBudget:
 # ---------------------------------------------------------------------------
 
 
-def _resolve_model(model: Any) -> Any:
-    """Return *model* unchanged, or attempt to build the default Ollama model.
-
-    Falls back silently to ``None`` (stub mode) when Ollama is unreachable.
-    """
-    if model is not None:
-        return model
-    try:
-        return make_ollama_model()
-    except Exception:  # noqa: BLE001
-        return None
-
-
 def _print_ask_verbose(
     source: "PipelineSource",
     table_names: list,  # type: ignore[type-arg]
@@ -280,7 +267,7 @@ def _print_ask_result(
             f"across {len(table_names)} tables."
         )
         if model is None:
-            print("[sqldim ask] (Ollama not available — LLM nodes running as stubs.)")
+            print("[sqldim ask] (no model given — LLM nodes are demo stubs.)")
     _print_query_result_block(query_result)
 
 
@@ -290,67 +277,73 @@ def run_ask_from_source(
     *,
     verbose: bool = False,
     model: Any = None,
+    demo: bool = False,
 ) -> int:
     """Process *utterance* against an already-open :class:`PipelineSource`.
 
-    This is the canonical implementation of the NL-graph pipeline.  It opens
-    nothing by identifier: the source is the authority, and authorization
-    belongs to whoever opened it (D44, §12.10).  Hosts open sources through
-    :class:`DataAccess` — see :func:`run_ask`.
+    It opens nothing by identifier: the source is the authority, and
+    authorization belongs to whoever opened it (D44, §12.10).  Hosts open
+    sources through :class:`DataAccess` — see :func:`run_ask`.
 
-    Parameters
-    ----------
-    utterance:
-        Natural-language question from the user.
-    source:
-        A :class:`PipelineSource` that provides the DuckDB connection and
-        table vocabulary.
-    verbose:
-        When ``True`` print entity vocabulary details before invoking the graph.
-    model:
-        A pre-built pydantic-ai model instance (e.g. from :func:`make_model`).
-        When ``None`` (default) the function attempts to create an Ollama model
-        and silently falls back to stub-only mode when Ollama is unreachable.
+    Fail closed (ADR 0012, D47).  The NL graph available today is the
+    heuristic demo path, so without ``demo=True`` nothing runs and
+    ``NOT_IMPLEMENTED`` is reported with what is missing.  No model is
+    chosen on the caller's behalf: ``model=None`` means the LLM nodes are
+    demo stubs, never "try Ollama".
 
     Returns
     -------
     int
-        ``0`` on success, non-zero on failure.
+        ``0`` when the turn produced a result, ``1`` when it failed, ``2``
+        when the pipeline is not available.
     """
+    if not demo:
+        print(f"[sqldim ask] NOT_IMPLEMENTED: {NLPipelineUnavailable()}")
+        print("[sqldim ask] Pass --demo to run the heuristic demonstration.")
+        return 2
+    print("[sqldim ask] [demo mode — heuristic output, not a contract result (D47)]")
     source.setup()
     try:
         con = source.get_connection()
         table_names = source.get_table_names()
         registry = build_registry_from_schema(con, table_names)
-        budget = make_default_budget()
-        model = _resolve_model(model)
-        ctx = DGMContext(entity_registry=registry, budget=budget, con=con)
-
+        ctx = DGMContext(
+            entity_registry=registry, budget=make_default_budget(), con=con
+        )
         if verbose:
             _print_ask_verbose(source, table_names, registry, model)
-
-        graph = build_nl_graph(context=ctx, model=model)
-        initial = NLInterfaceState(utterance=utterance)
-        try:
-            result: dict[str, Any] = graph.invoke(
-                initial.model_dump(),
-                config={
-                    "configurable": {"thread_id": "cli-ask"},
-                    "recursion_limit": 25,
-                },
-            )
-            explanation: str | None = result.get("explanation")
-            query_result: Any = result.get("result")
-        except GraphRecursionError:
-            explanation = None
-            query_result = None
-
+        result = _invoke_demo_graph(utterance, ctx, model)
+        if result is None:
+            print("[sqldim ask] TOOL_FAILURE: the NL graph did not converge")
+            return 1
+        error = result.get("error")
+        if error:
+            print(f"[sqldim ask] {error['kind']}: {error['message']}")
+            return 1
         _print_ask_result(
-            utterance, registry, table_names, model, explanation, query_result
+            utterance,
+            registry,
+            table_names,
+            model,
+            result.get("explanation"),
+            result.get("result"),
         )
         return 0
     finally:
         source.teardown()
+
+
+def _invoke_demo_graph(utterance: str, ctx: Any, model: Any) -> dict[str, Any] | None:
+    """One turn of the demo graph; ``None`` when it does not converge."""
+    graph = build_nl_graph(context=ctx, model=model, demo=True)
+    try:
+        out: dict[str, Any] = graph.invoke(
+            NLInterfaceState(utterance=utterance).model_dump(),
+            config={"configurable": {"thread_id": "cli-ask"}, "recursion_limit": 25},
+        )
+    except GraphRecursionError:
+        return None
+    return out
 
 
 # ---------------------------------------------------------------------------
@@ -365,6 +358,7 @@ def run_ask(
     data: DataAccess | None,
     verbose: bool = False,
     model: Any = None,
+    demo: bool = False,
 ) -> int:
     """Open *dataset_name* through *data*, build the NL graph, and answer.
 
@@ -388,10 +382,15 @@ def run_ask(
     model:
         A pre-built pydantic-ai model instance (e.g. from :func:`make_model`).
 
+    demo:
+        Explicit selection of the heuristic path (D47); see
+        :func:`run_ask_from_source`.
+
     Returns
     -------
     int
-        ``0`` on success, ``1`` when the call is not authorized.
+        ``1`` when the call is not authorized; otherwise the code of
+        :func:`run_ask_from_source`.
     """
     if data is None:
         print("[sqldim ask] UNAUTHORIZED: no authorization context")
@@ -401,4 +400,6 @@ def run_ask(
     except AccessDenied as exc:
         print(f"[sqldim ask] UNAUTHORIZED: {exc}")
         return 1
-    return run_ask_from_source(utterance, source, verbose=verbose, model=model)
+    return run_ask_from_source(
+        utterance, source, verbose=verbose, model=model, demo=demo
+    )

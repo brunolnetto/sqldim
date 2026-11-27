@@ -98,7 +98,8 @@ def cmd_ask(args: argparse.Namespace) -> int:
 
     from sqldim.application.ask import make_model, run_ask_from_source
 
-    # Build the LLM model (None → run_ask_from_source falls back to Ollama)
+    # Build the LLM model only when a provider is named; nothing is chosen
+    # on the user's behalf (D42).
     llm_model = None
     if args.model_provider:
         try:
@@ -112,7 +113,11 @@ def cmd_ask(args: argparse.Namespace) -> int:
         return 1
 
     return run_ask_from_source(
-        args.question, source, verbose=args.verbose, model=llm_model
+        args.question,
+        source,
+        verbose=args.verbose,
+        model=llm_model,
+        demo=bool(getattr(args, "demo", False)),
     )
 
 

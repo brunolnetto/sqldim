@@ -420,8 +420,10 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         default=False,
         help=(
-            "Run the heuristic demo path (keyword planner, demo dgm_query). "
-            "Its results are marked demo and are not contract results (D47)."
+            "Run the heuristic demo path: in --mode ask the heuristic NL graph, "
+            "in --mode supervisor the keyword planner and demo dgm_query. "
+            "Without it the NL pipeline reports NOT_IMPLEMENTED. Its results "
+            "are marked demo and are not contract results (D47)."
         ),
     )
     ask.set_defaults(func=cmd_ask)
@@ -472,8 +474,10 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         default=False,
         help=(
-            "Run the heuristic demo path (keyword planner, demo dgm_query). "
-            "Its results are marked demo and are not contract results (D47)."
+            "Run the heuristic demo path: in --mode ask the heuristic NL graph, "
+            "in --mode supervisor the keyword planner and demo dgm_query. "
+            "Without it the NL pipeline reports NOT_IMPLEMENTED. Its results "
+            "are marked demo and are not contract results (D47)."
         ),
     )
     chat.set_defaults(func=cmd_chat)

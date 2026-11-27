@@ -345,36 +345,38 @@ def _granted(name: str):
 
 
 class TestRunAsk:
-    @pytest.fixture(autouse=True)
-    def _no_ollama(self, monkeypatch):
-        def _raise():
-            raise RuntimeError("Ollama not available in tests")
-
-        monkeypatch.setattr("sqldim.application.ask.make_ollama_model", _raise)
-
     def test_valid_dataset_returns_zero(self, capsys):
-        rc = run_ask("show me customers", "commerce", data=_granted("commerce"))
+        rc = run_ask(
+            "show me customers", "commerce", data=_granted("commerce"), demo=True
+        )
         assert rc == 0
 
     def test_unknown_dataset_returns_one(self, capsys):
         rc = run_ask(
-            "show me customers", "no_such_dataset", data=_granted("no_such_dataset")
+            "show me customers",
+            "no_such_dataset",
+            data=_granted("no_such_dataset"),
+            demo=True,
         )
         assert rc == 1
 
     def test_unknown_dataset_prints_error(self, capsys):
-        run_ask("test", "no_such_dataset", data=_granted("no_such_dataset"))
+        run_ask("test", "no_such_dataset", data=_granted("no_such_dataset"), demo=True)
         out = capsys.readouterr().out
         assert "UNAUTHORIZED: not authorized or not found" in out
 
     def test_valid_run_prints_info(self, capsys):
-        run_ask("show me customers", "commerce", data=_granted("commerce"))
+        run_ask("show me customers", "commerce", data=_granted("commerce"), demo=True)
         out = capsys.readouterr().out
         assert len(out) > 0
 
     def test_verbose_prints_table_names(self, capsys):
         run_ask(
-            "show me customers", "commerce", data=_granted("commerce"), verbose=True
+            "show me customers",
+            "commerce",
+            data=_granted("commerce"),
+            verbose=True,
+            demo=True,
         )
         out = capsys.readouterr().out
         assert "Tables" in out
@@ -382,13 +384,17 @@ class TestRunAsk:
 
     def test_verbose_prints_prop_count(self, capsys):
         run_ask(
-            "show me customers", "commerce", data=_granted("commerce"), verbose=True
+            "show me customers",
+            "commerce",
+            data=_granted("commerce"),
+            verbose=True,
+            demo=True,
         )
         out = capsys.readouterr().out
         assert "PropTerms" in out
 
     def test_run_ask_handles_graph_recursion_error(self, monkeypatch):
-        """GraphRecursionError inside run_ask_from_source is caught gracefully."""
+        """GraphRecursionError is reported as TOOL_FAILURE, not success."""
         from unittest.mock import MagicMock
         from langgraph.errors import GraphRecursionError
 
@@ -397,8 +403,10 @@ class TestRunAsk:
         monkeypatch.setattr(
             "sqldim.application.ask.build_nl_graph", lambda **kw: mock_graph
         )
-        rc = run_ask("show me customers", "commerce", data=_granted("commerce"))
-        assert rc == 0
+        rc = run_ask(
+            "show me customers", "commerce", data=_granted("commerce"), demo=True
+        )
+        assert rc == 1  # a turn that does not converge is a failure
 
     def test_run_ask_prints_explanation(self, monkeypatch, capsys):
         """When explanation is returned, it is printed to stdout."""
@@ -412,7 +420,9 @@ class TestRunAsk:
         monkeypatch.setattr(
             "sqldim.application.ask.build_nl_graph", lambda **kw: mock_graph
         )
-        rc = run_ask("show me customers", "commerce", data=_granted("commerce"))
+        rc = run_ask(
+            "show me customers", "commerce", data=_granted("commerce"), demo=True
+        )
         assert rc == 0
         out = capsys.readouterr().out
         assert "Here are your top customers." in out
@@ -430,7 +440,9 @@ class TestRunAsk:
         monkeypatch.setattr(
             "sqldim.application.ask.build_nl_graph", lambda **kw: mock_graph
         )
-        rc = run_ask("show me customers", "commerce", data=_granted("commerce"))
+        rc = run_ask(
+            "show me customers", "commerce", data=_granted("commerce"), demo=True
+        )
         assert rc == 0
         out = capsys.readouterr().out
         assert "7 row(s)" in out
@@ -496,22 +508,18 @@ class TestAskParser:
 class TestMainAsk:
     @pytest.fixture(autouse=True)
     def _no_ollama(self, monkeypatch):
-        def _raise():
-            raise RuntimeError("Ollama not available in tests")
-
-        monkeypatch.setattr("sqldim.application.ask.make_ollama_model", _raise)
         monkeypatch.setattr("sqldim.application.ask.make_model", lambda *a, **kw: None)
 
     def test_main_ask_valid_returns_zero(self, capsys):
-        rc = main(["nl", "ask", "show me customers", "--dataset", "commerce"])
+        rc = main(["nl", "ask", "--demo", "show me customers", "--dataset", "commerce"])
         assert rc == 0
 
     def test_main_ask_unknown_dataset_returns_one(self, capsys):
-        rc = main(["nl", "ask", "test", "--dataset", "unknown_ds"])
+        rc = main(["nl", "ask", "--demo", "test", "--dataset", "unknown_ds"])
         assert rc == 1
 
     def test_main_ask_missing_dataset_returns_one(self, capsys):
-        rc = main(["nl", "ask", "test"])
+        rc = main(["nl", "ask", "--demo", "test"])
         assert rc == 1
         out = capsys.readouterr().out
         assert "--dataset is required" in out
@@ -539,7 +547,6 @@ class TestBuildPipelineSource:
 
     def test_cmd_ask_with_unknown_source_returns_one(self, monkeypatch, capsys):
         """cmd_ask pipeline returns 1 when the source factory is unknown."""
-        monkeypatch.setattr("sqldim.application.ask.make_ollama_model", lambda: None)
         monkeypatch.setattr("sqldim.application.ask.make_model", lambda *a, **kw: None)
         # Invoke cmd_ask via main with a custom source type not in the registry
         # The CLI parser uses --source to distinguish source types; default is "dataset"
@@ -553,15 +560,50 @@ class TestBuildPipelineSource:
 
 
 # ---------------------------------------------------------------------------
-# _resolve_model
+# Fail closed without demo mode (ADR 0012, D47)
 # ---------------------------------------------------------------------------
 
 
-class TestResolveModel:
-    def test_resolve_model_returns_non_none_model_unchanged(self):
-        """_resolve_model returns the model as-is when it is not None (line 399)."""
-        from sqldim.application.ask import _resolve_model
+class TestFailClosedWithoutDemo:
+    def test_run_ask_without_demo_is_not_implemented_and_opens_nothing(
+        self, monkeypatch, capsys
+    ):
+        from sqldim.core.query.dgm.nl.supervisor._auth import Action, DataAccess
+        from tests.supervisor._fakes import Opener, auth
 
-        sentinel = object()
-        result = _resolve_model(sentinel)
-        assert result is sentinel
+        class Source:
+            def setup(self):
+                raise AssertionError("nothing may run without demo mode")
+
+        opener = Opener()
+        data = DataAccess(auth({"commerce": {Action.READ}}), lambda d: Source())
+        rc = run_ask("show me customers", "commerce", data=data)
+        assert rc == 2
+        out = capsys.readouterr().out
+        assert "NOT_IMPLEMENTED" in out and "--demo" in out
+        assert opener.opened == []
+
+    def test_cli_without_demo_is_not_implemented(self, monkeypatch, capsys):
+        monkeypatch.setattr("sqldim.application.ask.make_model", lambda *a, **kw: None)
+        rc = main(["nl", "ask", "show me customers", "--dataset", "commerce"])
+        assert rc == 2
+        assert "NOT_IMPLEMENTED" in capsys.readouterr().out
+
+    def test_graph_without_demo_names_what_is_missing(self):
+        from sqldim.core.query.dgm.nl._graph import (
+            CONTRACT_PIPELINE_MISSING,
+            NLPipelineUnavailable,
+            build_nl_graph,
+        )
+
+        with pytest.raises(NLPipelineUnavailable) as exc:
+            build_nl_graph()
+        assert exc.value.kind == "NOT_IMPLEMENTED"
+        assert exc.value.missing == CONTRACT_PIPELINE_MISSING
+        assert "D26" in str(exc.value)
+
+    def test_demo_run_is_announced(self, monkeypatch, capsys):
+        monkeypatch.setattr("sqldim.application.ask.make_model", lambda *a, **kw: None)
+        rc = main(["nl", "ask", "--demo", "show me customers", "--dataset", "commerce"])
+        assert rc == 0
+        assert "[demo mode" in capsys.readouterr().out

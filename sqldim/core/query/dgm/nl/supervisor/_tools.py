@@ -209,6 +209,8 @@ class DemoQueryTool(BaseTool):
             turn = await asyncio.to_thread(self._run_turn, request, ctx)
         except AccessDenied as exc:
             return _demo_failure(request, ToolErrorKind.UNAUTHORIZED, str(exc))
+        except _DemoTurnFailed as exc:
+            return _demo_failure(request, exc.kind, exc.message)
         except Exception as exc:  # noqa: BLE001 — reported, never swallowed
             return _demo_failure(
                 request,
@@ -253,7 +255,10 @@ class DemoQueryTool(BaseTool):
             registry = build_registry_from_schema(con, source.get_table_names())
             nl_ctx = DGMContext(entity_registry=registry, budget=ctx.budget, con=con)
             graph = build_nl_graph(
-                checkpointer=MemorySaver(), context=nl_ctx, model=self._model
+                checkpointer=MemorySaver(),
+                context=nl_ctx,
+                model=self._model,
+                demo=True,
             )
             out = graph.invoke(
                 NLInterfaceState(utterance=request.arguments["utterance"]).model_dump(),
@@ -264,6 +269,8 @@ class DemoQueryTool(BaseTool):
             )
         finally:
             source.teardown()
+        if out.get("error"):
+            raise _DemoTurnFailed(out["error"])
         result = out.get("result")
         if not isinstance(result, dict):
             return None
@@ -275,6 +282,18 @@ class DemoQueryTool(BaseTool):
             "explanation": out.get("explanation") or "",
             "unresolved": [],
         }
+
+
+class _DemoTurnFailed(Exception):
+    """The demo NL turn ended with a typed error in its state."""
+
+    def __init__(self, error: dict[str, Any]) -> None:
+        try:
+            self.kind = ToolErrorKind(error.get("kind"))
+        except ValueError:
+            self.kind = ToolErrorKind.TOOL_FAILURE
+        self.message = str(error.get("message"))
+        super().__init__(self.message)
 
 
 def _demo_failure(

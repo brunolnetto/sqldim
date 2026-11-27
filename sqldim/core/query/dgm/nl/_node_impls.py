@@ -118,6 +118,27 @@ def _has_compositional_signal(utterance: str) -> bool:
     return any(kw in lower for kw in _COMPOSITIONAL_KEYWORDS)
 
 
+class _AgentFailed:
+    """An LLM agent call that raised; reported as a typed error."""
+
+    def __init__(self, key: str, exc: Exception) -> None:
+        self.key = key
+        self.exc = exc
+
+
+def _agent_error(failure: _AgentFailed) -> dict[str, Any]:
+    exc = failure.exc
+    return {
+        "kind": "TOOL_FAILURE",
+        "message": f"the {failure.key} agent failed: {type(exc).__name__}: {exc}",
+    }
+
+
+def _failure_text(error: dict[str, Any]) -> str:
+    """The explanation of a failed turn: the failure, never "no results"."""
+    return f"{error.get('kind')}: {error.get('message')}"
+
+
 def make_llm_nodes(context: Any, model: Any) -> dict[str, _NodeFn]:
     """Build the five LLM specialist node functions.
 
@@ -144,8 +165,8 @@ def make_llm_nodes(context: Any, model: Any) -> dict[str, _NodeFn]:
                     model_settings={"timeout": 30.0},
                 )
                 return key, r.output
-            except Exception:  # noqa: BLE001
-                return key, None
+            except Exception as exc:  # noqa: BLE001 — becomes a typed error
+                return key, _AgentFailed(key, exc)
 
         needs_temporal = _has_temporal_signal(utterance)
         needs_compositional = _has_compositional_signal(utterance)
@@ -158,10 +179,17 @@ def make_llm_nodes(context: Any, model: Any) -> dict[str, _NodeFn]:
             if needs_compositional:  # pragma: no cover
                 futs.append(pool.submit(_call, _compositional_agent, "compositional"))
 
+            failures: list[_AgentFailed] = []
             for fut in concurrent.futures.as_completed(futs):
                 key, val = fut.result()
-                if val is not None:
+                if isinstance(val, _AgentFailed):
+                    failures.append(val)
+                elif val is not None:
                     out[key] = val
+        if failures:
+            # A failed agent ends the turn; it is never read as "no entities",
+            # which would widen the candidates to every table.
+            return {"error": _agent_error(sorted(failures, key=lambda f: f.key)[0])}
 
         # Set null defaults so downstream nodes skip their LLM calls
         if not needs_temporal:
@@ -187,8 +215,8 @@ def make_llm_nodes(context: Any, model: Any) -> dict[str, _NodeFn]:
                 model_settings={"timeout": 30.0},
             )
             return {"temporal_result": r.output}
-        except Exception:  # noqa: BLE001
-            return {}
+        except Exception as exc:  # noqa: BLE001
+            return {"error": _agent_error(_AgentFailed("temporal_result", exc))}
 
     def _compositional_node(
         state: NLInterfaceState,
@@ -203,8 +231,8 @@ def make_llm_nodes(context: Any, model: Any) -> dict[str, _NodeFn]:
                 model_settings={"timeout": 30.0},
             )
             return {"compositional": r.output}
-        except Exception:  # noqa: BLE001
-            return {}
+        except Exception as exc:  # noqa: BLE001
+            return {"error": _agent_error(_AgentFailed("compositional", exc))}
 
     def _ranking_node(state: NLInterfaceState) -> dict[str, Any]:  # pragma: no cover
         if not state.candidates:
@@ -219,18 +247,30 @@ def make_llm_nodes(context: Any, model: Any) -> dict[str, _NodeFn]:
                 model_settings={"timeout": 30.0},
             )
             return {"ranking_result": r.output}
-        except Exception:  # noqa: BLE001
-            return {}
+        except Exception as exc:  # noqa: BLE001
+            return {"error": _agent_error(_AgentFailed("ranking_result", exc))}
 
     def _explanation_node(state: NLInterfaceState) -> dict[str, Any]:
+        if state.error is not None:
+            return {"explanation": _failure_text(state.error)}
         try:
             result = state.result
             result_count = result.get("count", 0) if isinstance(result, dict) else 0
 
             # Skip LLM call when there is no data to explain
-            if result is None or result_count == 0:
-                sql_preview = f" SQL: {state.q_current}" if state.q_current else ""
-                return {"explanation": (f"The query returned no results.{sql_preview}")}
+            sql_preview = f" SQL: {state.q_current}" if state.q_current else ""
+            if result is None:
+                # Nothing ran (e.g. REJECT or ASYNC): never "no results".
+                decision = (
+                    type(state.budget_decision).__name__
+                    if state.budget_decision is not None
+                    else "no gate decision"
+                )
+                return {
+                    "explanation": f"No query was executed ({decision}).{sql_preview}"
+                }
+            if result_count == 0:
+                return {"explanation": f"The query returned no results.{sql_preview}"}
 
             prompt_parts = [f"Question: {state.utterance}"]
             if state.q_current:
@@ -373,6 +413,8 @@ def make_operational_nodes(context: Any, model: Any = None) -> dict[str, _NodeFn
         return "\n".join(lines)
 
     def _candidate_generation_node(state: NLInterfaceState) -> dict[str, Any]:
+        if state.error is not None:
+            return {}
         registry = context.entity_registry  # type: ignore[union-attr]
 
         tables: set[str] = set()
@@ -419,6 +461,9 @@ def make_operational_nodes(context: Any, model: Any = None) -> dict[str, _NodeFn
     def _dag_construction_node(state: NLInterfaceState) -> dict[str, Any]:
         from sqldim.core.query.dgm.planner._targets import ExportPlan, QueryTarget
 
+        if state.error is not None:
+            return {}
+
         # ── LLM-based SQL (intent-aware) ──────────────────────────────────
         import logging as _logging
 
@@ -453,16 +498,21 @@ def make_operational_nodes(context: Any, model: Any = None) -> dict[str, _NodeFn
                     )
                     context.q_current = plan  # type: ignore[union-attr]
                     return {"q_current": sql_raw}
-                else:
-                    _dag_log.warning(
-                        "SQL agent output did not start with SELECT: %s",
-                        sql_raw[:200],
-                    )
-            except Exception as exc:  # noqa: BLE001
-                _dag_log.warning("SQL agent failed: %s: %s", type(exc).__name__, exc)
-                # fall through to template
+                return {
+                    "q_current": None,
+                    "error": {
+                        "kind": "INVALID_OUTPUT",
+                        "message": "the SQL agent did not return a SELECT: "
+                        + sql_raw[:200],
+                    },
+                }
+            except Exception as exc:  # noqa: BLE001 — no switch to the template
+                return {
+                    "q_current": None,
+                    "error": _agent_error(_AgentFailed("sql", exc)),
+                }
 
-        # ── Template fallback (keyword-driven heuristic SQL) ─────────────
+        # ── Template SQL (keyword-driven heuristic; only without a model) ──
         registry = context.entity_registry  # type: ignore[union-attr]
         utterance_lower = state.utterance.lower()
 
@@ -496,13 +546,14 @@ def make_operational_nodes(context: Any, model: Any = None) -> dict[str, _NodeFn
                 table = rest.split()[0].rstrip(" (")
 
         if table is None or table not in registry.node_terms.values():
-            sql = "SELECT 1 AS placeholder"
-            plan = ExportPlan(
-                query_target=QueryTarget.SQL_DUCKDB,
-                query_text=sql,
-            )
-            context.q_current = plan  # type: ignore[union-attr]
-            return {"q_current": sql}
+            # No placeholder query: an unresolved table is a typed failure.
+            return {
+                "q_current": None,
+                "error": {
+                    "kind": "NEEDS_CLARIFICATION",
+                    "message": "no table of the dataset was resolved from the question",
+                },
+            }
 
         # Gather columns for the selected table
         props = [
@@ -783,6 +834,20 @@ def make_operational_nodes(context: Any, model: Any = None) -> dict[str, _NodeFn
                 # Fall through to single-table logic
                 uses_composition = False
 
+        if (
+            not uses_composition
+            and agg_fn not in (None, "COUNT")
+            and numeric_col is None
+        ):
+            # SUM(*) / AVG(*) is not a query: ask instead of guessing.
+            return {
+                "q_current": None,
+                "error": {
+                    "kind": "NEEDS_CLARIFICATION",
+                    "message": f"no numeric column of {table} to compute {agg_fn} over",
+                },
+            }
+
         if not uses_composition:
             from_clause = f"{table}{join_sql}"
             where_prefix = f" WHERE {where_sql}" if where_sql else ""
@@ -877,7 +942,9 @@ def make_operational_nodes(context: Any, model: Any = None) -> dict[str, _NodeFn
             QueryTarget,
         )
 
-        sql = state.q_current or "SELECT 1"
+        sql = state.q_current
+        if not sql:
+            raise ValueError("budget_gate needs a built query (q_current)")
         cpu_ops = max(100, len(sql) * 10)
         plan = ExportPlan(
             query_target=QueryTarget.SQL_DUCKDB,
@@ -892,7 +959,14 @@ def make_operational_nodes(context: Any, model: Any = None) -> dict[str, _NodeFn
         sql = state.q_current
         con = context.con  # type: ignore[union-attr]
         if not sql or con is None:
-            return {"result": None}
+            missing = "a built query" if not sql else "a connection"
+            return {
+                "result": None,
+                "error": {
+                    "kind": "TOOL_FAILURE",
+                    "message": f"execution needs {missing}",
+                },
+            }
         try:
             cursor = con.execute(sql)
             columns = (
@@ -906,8 +980,14 @@ def make_operational_nodes(context: Any, model: Any = None) -> dict[str, _NodeFn
                     "count": len(rows),
                 }
             }
-        except Exception:  # noqa: BLE001
-            return {"result": None}
+        except Exception as exc:  # noqa: BLE001 — reported, never shown as empty
+            return {
+                "result": None,
+                "error": {
+                    "kind": "TOOL_FAILURE",
+                    "message": f"query execution failed: {type(exc).__name__}: {exc}",
+                },
+            }
 
     def _clarification_node(state: NLInterfaceState) -> dict[str, Any]:
         if state.candidates:
