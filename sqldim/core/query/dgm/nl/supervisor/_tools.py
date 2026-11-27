@@ -1,8 +1,10 @@
 """DGM Supervisor — tool interface and registry (§12.2, §12.3).
 
-No tool of §12.3 implements its D43 contract yet, so every tool is registered
-with ``available = False`` and names the missing component; dispatching one
-returns ``NOT_IMPLEMENTED`` without running anything (D42, ADR 0012).
+A tool without an implementation of its D43 contract is registered with
+``available = False`` and names the missing component; dispatching one
+returns ``NOT_IMPLEMENTED`` without running anything (D42, ADR 0012).  The
+knowledge-base tools (``_tools_kb``) are available only when the deployment
+configures a knowledge base (and, for retrieval, a move graph).
 
 The explicit demo mode (D47, ADR 0013) adds one heuristic stand-in:
 ``dgm_query`` answered by the current NL graph.  It is registered only by
@@ -53,7 +55,10 @@ _MISSING: dict[str, str] = {
     "dgm_sensitivity_sweep": "execution of a question over Π(q) (§8.15)",
     "dgm_validate_invariant": "invariant evaluators (§2.1, §3)",
     "dgm_store_finding": "tenant-partitioned knowledge base (§12.7)",
-    "dgm_retrieve_related": "tenant-partitioned knowledge base (§12.7)",
+    "dgm_retrieve_related": (
+        "tenant-partitioned knowledge base (§12.7) and the structural move "
+        "graph of §8.16.6 (ADR 0007)"
+    ),
     "dgm_map_analytical_space": "vocabulary decomposition (§8.16)",
 }
 
@@ -126,8 +131,9 @@ class BaseTool(ABC):
 class UnavailableTool(BaseTool):
     """A §12.3 tool whose implementation is missing in this build."""
 
-    def __init__(self, name: str) -> None:
+    def __init__(self, name: str, *, missing: str | None = None) -> None:
         self._name = name
+        self._missing = missing
         self._schema = _capability(name, available=False, version=TOOL_VERSION)
 
     @property
@@ -136,7 +142,7 @@ class UnavailableTool(BaseTool):
 
     @property
     def missing(self) -> str:
-        return _MISSING[self._name]
+        return self._missing or _MISSING[self._name]
 
     def cost_estimate(
         self, arguments: dict[str, Any], ctx: ToolContext
@@ -320,15 +326,23 @@ def _demo_failure(
 # ---------------------------------------------------------------------------
 
 
-def build_registry(*, demo: bool = False, model: Any = None) -> Mapping[str, BaseTool]:
+def build_registry(
+    *, demo: bool = False, model: Any = None, kb: Any = None, moves: Any = None
+) -> Mapping[str, BaseTool]:
     """The immutable registry for one run (§12.2, *Registry*).
 
     ``demo=True`` must come from the caller's explicit selection (D47); it is
-    never chosen because a component is missing.
+    never chosen because a component is missing.  The KB tools are available
+    only with a configured knowledge base *kb*; retrieval also needs the move
+    graph *moves* of ADR 0007.
     """
     tools: dict[str, BaseTool] = {name: UnavailableTool(name) for name in TOOL_SCHEMAS}
     if demo:
         tools["dgm_query"] = DemoQueryTool(model=model)
+    if kb is not None:
+        from sqldim.core.query.dgm.nl.supervisor._tools_kb import kb_tools
+
+        tools.update(kb_tools(moves))
     return MappingProxyType(tools)
 
 

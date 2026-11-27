@@ -53,6 +53,7 @@ from sqldim.core.query.dgm.nl.supervisor._schemas import (
     DEFAULT_POLICY,
     SupervisorPolicy,
 )
+from sqldim.core.query.dgm.nl.supervisor._kb import tenant_handle
 from sqldim.core.query.dgm.nl.supervisor._tools import BaseTool, build_registry
 from sqldim.core.query.dgm.nl.supervisor._types import (
     CallStatus,
@@ -131,7 +132,7 @@ class SupervisorRuntime:
             deadline=self.deadline,
             cancel=self.cancel,
             data=self.data,
-            kb=self.kb,
+            kb=tenant_handle(self.kb, self.auth.tenant_id),
             demo=self.demo,
         )
 
@@ -152,8 +153,14 @@ def make_runtime(
     demo: bool = False,
     timeout: timedelta = timedelta(minutes=5),
     policy: SupervisorPolicy = DEFAULT_POLICY,
+    kb: Any = None,
+    moves: Any = None,
 ) -> SupervisorRuntime:
-    """Assemble a runtime.  ``demo`` must be the caller's explicit choice."""
+    """Assemble a runtime.  ``demo`` must be the caller's explicit choice.
+
+    *kb* is the deployment's knowledge base (``_kb.KnowledgeBase``) and
+    *moves* the move graph of ADR 0007; without them the KB tools are
+    unavailable."""
     # Demo mode always plans with the keyword heuristic; the model, if any,
     # then only drives the demo dgm_query.  Outside demo mode a model is the
     # only planner, and without one the run fails closed.
@@ -167,10 +174,11 @@ def make_runtime(
     return SupervisorRuntime(
         auth=auth,
         budget=budget,
-        registry=build_registry(demo=demo, model=model),
+        registry=build_registry(demo=demo, model=model, kb=kb, moves=moves),
         planner=planner,
         data=DataAccess(auth, opener),
         deadline=datetime.now(timezone.utc) + timeout,
+        kb=kb,
         demo=demo,
         policy=policy,
     )
