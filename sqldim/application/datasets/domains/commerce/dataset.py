@@ -45,6 +45,7 @@ Usage::
 """
 
 from sqldim.application.datasets.dataset import Dataset
+from sqldim.application.datasets.domains.commerce.model import build_model
 from sqldim.application.datasets.domains.commerce.sources import (
     CatalogProductsSource,
     DimCustomerSource,
@@ -77,6 +78,7 @@ commerce_dataset = Dataset(
         (SKUsSource(), "skus"),
         (ReceiptsSource(), "receipts"),
     ],
+    model=build_model,
 )
 
 DATASET_METADATA = {

@@ -107,6 +107,7 @@ class MoviesSource(BaseSource):
         for movie in self._movies:
             size = random.randint(2, min(4, len(actor_ids)))
             chosen = random.sample(actor_ids, size)
+            released_at = f"2023-{random.randint(1, 12):02d}-01"  # one per film
             for actor_id in chosen:
                 cast.append(
                     {
@@ -114,7 +115,7 @@ class MoviesSource(BaseSource):
                         "actor_name": self._actor_name(actor_id),
                         "movie_id": movie["id"],
                         "title": movie["title"],
-                        "released_at": f"2023-{random.randint(1, 12):02d}-01",
+                        "released_at": released_at,
                     }
                 )
         return cast
@@ -233,7 +234,8 @@ class MoviesSource(BaseSource):
             f"SELECT {r['actor_id']} AS actor_id,"
             f" '{_esc(r['actor_name'])}' AS actor_name,"
             f" {r['movie_id']} AS movie_id,"
-            f" '{_esc(r['title'])}' AS title"
+            f" '{_esc(r['title'])}' AS title,"
+            f" DATE '{r['released_at']}' AS released_at"
             for r in rows
         )
 

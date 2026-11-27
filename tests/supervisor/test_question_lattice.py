@@ -26,7 +26,11 @@ from sqldim.core.query.dgm.model import (
     PropType,
 )
 from sqldim.core.query.dgm.annotations import (
+    TIME,
+    Additivity,
+    AdditivityKind,
     Conformed,
+    Degenerate,
     FactlessFact,
     Grain,
     GrainKind,
@@ -35,6 +39,7 @@ from sqldim.core.query.dgm.annotations import (
 )
 from sqldim.core.query.dgm.lattice import (
     InvalidAnchors,
+    LatticeUnsupported,
     QuestionLattice,
     Skeleton,
     first,
@@ -81,8 +86,10 @@ TOOL = "dgm_what_can_i_answer"
 RW = {Action.READ, Action.WRITE_KB}
 KINDS = frozenset(
     {
+        "Additivity",
         "BridgeSemantics",
         "Conformed",
+        "Degenerate",
         "FactlessFact",
         "Grain",
         "MedallionLayer",
@@ -90,7 +97,7 @@ KINDS = frozenset(
     }
 )
 """Σ kinds the enumeration reads, stated completely by the fixtures."""
-S, REAL = PropType("String"), PropType("Real")
+S, REAL, INT = PropType("String"), PropType("Real"), PropType("Integer")
 DIM, FACT, VERB = NodeKind.DIM, NodeKind.FACT, EdgeKind.VERB
 
 
@@ -98,12 +105,17 @@ def model(nodes: Any, edges: Any, sigma: Any = (), kinds: Any = KINDS) -> DGMSch
     return DGMModel(node_types=nodes, edge_types=edges, sigma=sigma, sigma_kinds=kinds)
 
 
-def shop(*sigma: Any, kinds: Any = KINDS) -> DGMSchema:
-    """Customer → Sale ← Product; Region is isolated."""
+def shop(*sigma: Any, kinds: Any = KINDS, sale: Any = None) -> DGMSchema:
+    """Customer → Sale ← Product; Region is isolated.
+
+    ``Grain(Sale, EVENT)`` unless *sigma* states a Grain or the kind is withheld.
+    """
+    if "Grain" in kinds and not any(isinstance(a, Grain) for a in sigma):
+        sigma = (*sigma, Grain("Sale", GrainKind.EVENT))
     return model(
         (
             NodeType("Customer", DIM, {"country": S, "region": S, "segment": S}),
-            NodeType("Sale", FACT, {"revenue": REAL}),
+            NodeType("Sale", FACT, sale or {"revenue": REAL}),
             NodeType("Product", DIM, {"category": S}),
             NodeType("Region", DIM, {"code": S}),
         ),
@@ -284,6 +296,40 @@ class TestTyping:
         assert ("agg", "SUM", ("prop", "a2", "revenue")) not in factless
         assert ("agg", "COUNT", ("prop", "a2", "revenue")) in factless
 
+    def test_aggregates_follow_additivity(self) -> None:
+        """AD1–AD4 (§2.4): SUM and AVG only over an ADDITIVE measure."""
+        sale = {"revenue": REAL, "unit_price": REAL, "order_no": INT}
+        schema = shop(
+            Additivity("Sale", "unit_price", AdditivityKind.NON_ADDITIVE),
+            Degenerate("order_no", fact="Sale"),
+            sale=sale,
+        )
+        aggs = set(self._ctx(schema).agg_terms)
+
+        def fns(key: str) -> set[str]:
+            return {a[1] for a in aggs if a[2] == ("prop", "a2", key)}
+
+        assert fns("revenue") == {"SUM", "COUNT", "AVG", "MIN", "MAX", "PROD"}
+        assert fns("unit_price") == {"COUNT", "MIN", "MAX"}  # AD3
+        assert fns("order_no") == {"COUNT"}  # a Degenerate attribute
+        # The default of Grain(EVENT) is ADDITIVE; the windows follow the same rule.
+        windows = self._ctx(schema).window_terms(self._ctx(schema).prop_refs, 2)
+        heads = {w[1] for w in windows}
+        assert ("running", "SUM", ("prop", "a2", "unit_price")) not in heads
+        assert ("running", "SUM", ("prop", "a2", "revenue")) in heads
+        assert ("stat", "PERCENTILE_CONT", ("prop", "a2", "order_no")) not in heads
+
+    def test_semi_additive_and_missing_grain_are_unsupported(self) -> None:
+        semi = shop(Additivity("Sale", "revenue", AdditivityKind.SEMI_ADDITIVE, {TIME}))
+        with pytest.raises(LatticeUnsupported, match="SEMI_ADDITIVE"):
+            lattice(semi).space(["Customer", "Sale"], max_hops=1)
+        no_grain = model(
+            (NodeType("Customer", DIM, {}), NodeType("Sale", FACT, {"q": REAL})),
+            (EdgeType("Customer", "Sale", "placed", VERB),),
+        )
+        with pytest.raises(LatticeUnsupported, match="no Grain"):
+            lattice(no_grain).space(["Customer", "Sale"], max_hops=1)
+
     def test_bronze_types_are_not_group_keys(self) -> None:
         bronze = MedallionLayer("Customer", MedallionLayerKind.BRONZE)
         keys = self._ctx(shop(bronze)).group_keys
@@ -292,7 +338,12 @@ class TestTyping:
 
 class TestDrillAcross:
     def schema(self, conformed: bool) -> DGMSchema:
-        sigma = (Conformed("Customer", {"Sale", "Return"}),) if conformed else ()
+        sigma: tuple = (
+            Grain("Sale", GrainKind.EVENT),
+            Grain("Return", GrainKind.EVENT),
+        )
+        if conformed:
+            sigma += (Conformed("Customer", {"Sale", "Return"}),)
         return model(
             (
                 NodeType("Customer", DIM, {"region": S}),
@@ -400,6 +451,11 @@ class TestWhatCanIAnswer:
         result, _ = _run(_args(), {"sales": Source(period)})
         assert result.error.kind is ToolErrorKind.UNSUPPORTED
         assert "AD2" in result.error.message
+        for kind in ("Additivity", "Degenerate"):
+            withheld = shop(kinds=KINDS - {kind})
+            result, _ = _run(_args(), {"sales": Source(withheld)})
+            assert result.error.kind is ToolErrorKind.UNSUPPORTED
+            assert kind in result.error.message
 
     def test_policy_bound_is_enforced(self) -> None:
         tool = WhatCanIAnswerTool(SupervisorPolicy(max_enum_questions=5))
@@ -625,7 +681,8 @@ class TestRetrievalThroughTheLattice:
 
 
 class TestBundledDatasets:
-    def test_nba_analytics_needs_grain_it_does_not_declare(self) -> None:
+    def test_nba_analytics_declares_grain_and_enumerates(self) -> None:
+        """#165: Grain is declared, so (Game, Team) is no longer UNSUPPORTED."""
         from sqldim.application.supervisor_host import local_supervisor_runtime
 
         rt = local_supervisor_runtime(["nba_analytics"])
@@ -638,8 +695,8 @@ class TestBundledDatasets:
         bound, _ = bind_plan(plan(step("w", TOOL, args, fraction=1.0)))
         ctx = rt.tool_context()
         r = asyncio.run(execute_tool(bound.steps[0], rt.registry, ctx))
-        assert r.error.kind is ToolErrorKind.UNSUPPORTED
-        assert "Grain" in r.error.message
+        assert r.status is CallStatus.SUCCEEDED, r.error
+        assert len(r.data["questions"]) == 5
 
     def test_growth_enumerates_stores_and_retrieves(self, kb: Any) -> None:
         from sqldim.application.supervisor_host import _open_bundled

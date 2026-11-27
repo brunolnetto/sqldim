@@ -109,6 +109,8 @@ from sqldim.core.query.dgm.annotations import (  # noqa: F401
     Grain,
     SCDType,
     Degenerate,
+    Additivity,
+    AdditivityKind,
     RolePlaying,
     ProjectsFrom,
     FactlessFact,

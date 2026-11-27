@@ -176,6 +176,7 @@ def _patch_dataset_pipeline_source(_dataset_pipeline_cache):
     from sqldim.application._pipeline_sources import DatasetPipelineSource
 
     cache = _dataset_pipeline_cache
+    real_setup = DatasetPipelineSource.setup
 
     def _fast_setup(self: DatasetPipelineSource) -> None:
         # Identify dataset by class name prefix to find cache key
@@ -190,23 +191,8 @@ def _patch_dataset_pipeline_source(_dataset_pipeline_cache):
                 break
 
         if matched_key is None:
-            # Not cached — fall back to real setup
-            self._con = duckdb.connect(":memory:")
-            self._dataset.setup(self._con)
-            for src, table in self._dataset.sources:
-                try:
-                    already_loaded = (
-                        self._con.execute(f"SELECT COUNT(*) FROM {table}").fetchone()[0]
-                        > 0
-                    )
-                    if already_loaded:
-                        continue
-                    snap_sql = src.snapshot().as_sql(self._con)
-                    self._con.execute(
-                        f"INSERT INTO {table} BY NAME SELECT * FROM ({snap_sql})"
-                    )
-                except NotImplementedError:
-                    pass
+            # Not cached — fall back to the real setup
+            real_setup(self)
             return
 
         db_path = cache[matched_key]

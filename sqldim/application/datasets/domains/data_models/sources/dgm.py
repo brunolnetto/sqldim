@@ -60,6 +60,10 @@ CREATE TABLE IF NOT EXISTS {prefix}_prod_seg (
 """
 
 
+_SUFFIXES = ("customer", "product", "segment", "sale", "prod_seg")
+"""Table suffixes in creation (FK) order."""
+
+
 # ---------------------------------------------------------------------------
 # Static fixture data
 # ---------------------------------------------------------------------------
@@ -183,8 +187,12 @@ class DGMShowcaseSource(BaseSource):
         table: str = "dgm_showcase",
     ) -> None:
         """Drop all five showcase tables (reverse FK order)."""
-        for suffix in ("_prod_seg", "_sale", "_segment", "_product", "_customer"):
-            con.execute(f"DROP TABLE IF EXISTS {table}{suffix}")
+        for name in reversed(self.tables(table)):
+            con.execute(f"DROP TABLE IF EXISTS {name}")
+
+    def tables(self, table: str = "dgm_showcase") -> list[str]:
+        """The five tables :meth:`setup` creates; *table* is their prefix."""
+        return [f"{table}_{suffix}" for suffix in _SUFFIXES]
 
     def snapshot(self):
         raise NotImplementedError(

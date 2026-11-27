@@ -54,7 +54,17 @@ class TestDataModelsDataset:
             data_models_dataset,
         )
 
-        assert data_models_dataset.table_names() == ["dgm_showcase", "org_dim"]
+        # The tables setup() creates, not the registration names (#165).
+        assert data_models_dataset.table_names() == [
+            "dgm_showcase_customer",
+            "dgm_showcase_product",
+            "dgm_showcase_segment",
+            "dgm_showcase_sale",
+            "dgm_showcase_prod_seg",
+            "org_dim",
+            "sales_fact",
+            "org_dim_closure",
+        ]
 
     def test_setup_teardown(self):
         from sqldim.application.datasets.domains.data_models.dataset import (
@@ -287,10 +297,17 @@ class TestEntertainmentDataset:
             entertainment_dataset,
         )
 
+        # The tables setup() creates, not the registration names (#165).
         assert set(entertainment_dataset.table_names()) == {
             "actors",
             "movies",
-            "social_network",
+            "pessoa",
+            "livro",
+            "genero",
+            "leitura",
+            "conexao_social",
+            "livro_genero",
+            "pessoa_preferencia",
         }
 
     def test_setup_teardown(self):

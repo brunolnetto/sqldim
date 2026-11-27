@@ -34,8 +34,12 @@ from typing import Any, Protocol, TypeVar, runtime_checkable
 
 from sqldim.core.query.dgm.annotations import (
     ANNOTATION_KINDS,
+    TIME,
+    Additivity,
+    AdditivityKind,
     BridgeSemantics,
     Conformed,
+    Degenerate,
     DerivedFact,
     FactlessFact,
     Grain,
@@ -124,6 +128,7 @@ VERSIONED_SCD = frozenset({SCDKind.SCD2, SCDKind.SCD6})
 """SCD types whose NodeTable holds one row per version (§2.6, M2)."""
 
 _BASE_TYPES = frozenset({"String", "Integer", "Real", "Boolean", "Date", "Timestamp"})
+_NUMERIC_TYPES = frozenset({"Integer", "Real"})
 
 
 def _require(ok: bool, message: str) -> None:
@@ -334,6 +339,10 @@ _Ref = tuple[str, str]  # (required kind: dim | fact | node | bridge, name)
 
 _SIGMA_REFS: dict[type, Callable[[Any], list[_Ref]]] = {
     Conformed: lambda a: [("dim", a.dim)] + [("fact", f) for f in a.fact_types],
+    Additivity: lambda a: (
+        [("fact", a.fact)] + [("dim", d) for d in sorted(a.over) if d != TIME]
+    ),
+    Degenerate: lambda a: [("fact", a.fact or "")],
     Grain: lambda a: [("fact", a.fact)],
     SCDType: lambda a: [("dim", a.dim)],
     RolePlaying: lambda a: [("dim", a.dim)],
@@ -420,6 +429,41 @@ class DGMModel:
                 tag = (type(ann), unique(ann))
                 _require(tag not in once, f"Σ: {kind} declared twice for {tag[1]!r}")
                 once.add(tag)
+        self._check_measures()
+
+    def _check_measures(self) -> None:
+        """Additivity and Degenerate name a property of their fact (§2.4).
+
+        An Additivity key is numeric, and ``over`` is non-empty exactly for
+        SEMI_ADDITIVE; a property has at most one of the two annotations.
+        """
+        seen: set[tuple[str, str]] = set()
+        for ann in self.sigma:
+            if not isinstance(ann, (Additivity, Degenerate)):
+                continue
+            kind = annotation_kind(ann)
+            node = self.node(ann.fact or "")
+            _require(node is not None, f"Σ: {kind}({ann.key}) names no fact type")
+            assert node is not None
+            type_ = node.properties.get(ann.key)
+            _require(
+                type_ is not None,
+                f"Σ: {kind} names {ann.fact}.{ann.key}, which is not a property",
+            )
+            tag = (node.name, ann.key)
+            _require(tag not in seen, f"Σ: {node.name}.{ann.key} is annotated twice")
+            seen.add(tag)
+            if isinstance(ann, Additivity):
+                _require(
+                    type_ is not None and type_.name in _NUMERIC_TYPES,
+                    f"Σ: Additivity names {node.name}.{ann.key}, which is not numeric",
+                )
+                semi = ann.kind is AdditivityKind.SEMI_ADDITIVE
+                _require(
+                    semi == bool(ann.over),
+                    f"Σ: Additivity({node.name}, {ann.key}): over is non-empty "
+                    "exactly for SEMI_ADDITIVE",
+                )
 
     def _is(self, required: str, name: str) -> bool:
         if required == "bridge":

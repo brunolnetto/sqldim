@@ -123,8 +123,13 @@ class Dataset:
         )
 
     def table_names(self) -> list[str]:
-        """Return table names in dependency order."""
-        return [tname for _, tname in self.sources]
+        """Return the tables ``setup()`` creates, in dependency order.
+
+        A source registered under one name may create several tables
+        (``BaseSource.tables``); each of them is listed, and the registration
+        name only when it is itself a table.
+        """
+        return [t for src, tname in self.sources for t in src.tables(tname)]
 
     # ------------------------------------------------------------------
     # Lifecycle

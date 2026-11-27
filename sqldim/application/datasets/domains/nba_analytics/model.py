@@ -14,12 +14,25 @@ Written from ``sources/``:
   property;
 * ``player_seasons`` is one fact row per player per season, with no foreign
   key.
+
+Grain (§2.4): a game and a player's line in a game are events; a player
+season is one row per player per season, PERIOD.  ``Team`` holds verb edge
+types into ``Game`` and ``GameDetail``, the same teams for both, so it is
+Conformed for the two.  A detail row belongs to its game with no order in
+time between them, so ``in_game`` is STRUCTURAL (§2.3).
+
+Additivity (§2.4): points, rebounds, assists, the shot and foul counts,
+``home_team_wins``, ``plus_minus`` and games played are ADDITIVE; shooting
+percentages are NON_ADDITIVE, and so are the per-game averages and ratings of
+a player season.  ``season``, ``player_id``, ``age`` and ``weight`` are
+dimensional attributes or identifiers carried by the fact, Degenerate.
 """
 
 from __future__ import annotations
 
 from sqldim.application.datasets.model_decl import (
     ASSESSED_KINDS,
+    measures,
     DATE,
     INTEGER,
     REAL,
@@ -28,7 +41,15 @@ from sqldim.application.datasets.model_decl import (
     table_node,
     verb_fk,
 )
-from sqldim.core.query.dgm.annotations import RolePlaying
+from sqldim.core.query.dgm.annotations import (
+    SchemaAnnotation,
+    BridgeSemantics,
+    BridgeSemanticsKind,
+    Conformed,
+    Grain,
+    GrainKind,
+    RolePlaying,
+)
 from sqldim.core.query.dgm.model import DGMModel, NodeKind, NodeType, PropType
 
 __all__ = ["build_model"]
@@ -147,6 +168,55 @@ def _player_season() -> NodeType:
     )
 
 
+_PCTS = ("fg_pct", "ft_pct", "fg3_pct")
+
+
+def _measures() -> tuple[SchemaAnnotation, ...]:
+    sides = ("home", "away")
+    game_add = ("home_team_wins",) + tuple(
+        f"{s}_{side}" for s in ("pts", "ast", "reb") for side in sides
+    )
+    game_non = tuple(f"{p}_{side}" for p in _PCTS for side in sides)
+    counts: tuple[str, ...] = (
+        "fgm",
+        "fga",
+        "fg3m",
+        "fg3a",
+        "ftm",
+        "fta",
+        "oreb",
+        "dreb",
+        "reb",
+    )
+    counts += ("ast", "stl", "blk", "to_", "pf", "pts", "plus_minus")
+    season_non: tuple[str, ...] = (
+        "pts",
+        "reb",
+        "ast",
+        "netrtg",
+        "oreb_pct",
+        "dreb_pct",
+    )
+    season_non += ("usg_pct", "ts_pct", "ast_pct")
+    return (
+        *measures(
+            "Game", additive=game_add, non_additive=game_non, degenerate=("season",)
+        ),
+        *measures(
+            "GameDetail",
+            additive=counts,
+            non_additive=_PCTS,
+            degenerate=("player_id",),
+        ),
+        *measures(
+            "PlayerSeason",
+            additive=("gp",),
+            non_additive=season_non,
+            degenerate=("season", "age", "weight"),
+        ),
+    )
+
+
 def build_model() -> DGMModel:
     return DGMModel(
         node_types=(_team(), _game(), _game_detail(), _player_season()),
@@ -156,6 +226,14 @@ def build_model() -> DGMModel:
             verb_fk("Team", "GameDetail", "played_for", "team_id"),
             bridge_fk("GameDetail", "Game", "in_game", "game_id"),
         ),
-        sigma=(RolePlaying("Team", ["home", "visitor"]),),
+        sigma=(
+            RolePlaying("Team", ["home", "visitor"]),
+            Conformed("Team", {"Game", "GameDetail"}),
+            Grain("Game", GrainKind.EVENT),
+            Grain("GameDetail", GrainKind.EVENT),
+            Grain("PlayerSeason", GrainKind.PERIOD),
+            BridgeSemantics("in_game", BridgeSemanticsKind.STRUCTURAL),
+            *_measures(),
+        ),
         sigma_kinds=ASSESSED_KINDS,
     )

@@ -22,6 +22,9 @@ from sqldim.application.datasets.schema import (
 
 # ── AccountsSource ────────────────────────────────────────────────────────────
 
+INITIAL_SNAPSHOT_DATE = "2024-01-01"
+"""The date of the balances :meth:`AccountsSource.snapshot` returns."""
+
 _ACCOUNTS_SPEC = DatasetSpec(
     "accounts",
     {
@@ -107,22 +110,32 @@ class AccountsSource(BaseSource):
         ]
 
     def snapshot(self):
-        """Initial balance snapshot (today's extract)."""
-        return self.snapshot_for_date("2024-01-01")
+        """Initial rows of the snapshot fact (``DIM_DDL``): the T0 balances.
+
+        One row per account dated :data:`INITIAL_SNAPSHOT_DATE`, with the
+        ``snapshot_date`` column filled as ``LazySnapshotLoader`` fills it.
+        """
+        return self._extract(INITIAL_SNAPSHOT_DATE, "snapshot_date")
 
     def snapshot_for_date(self, snapshot_date: str):
         """
         OLTP daily balance extract for a given date.
 
         Each call adds a small random ±3 % drift to simulate realistic
-        daily balance movement.
+        daily balance movement.  The rows carry no date column:
+        ``LazySnapshotLoader`` injects ``snapshot_date`` when it loads them.
         """
+        return self._extract(snapshot_date, None)
+
+    def _extract(self, snapshot_date: str, date_column: str | None):
         from sqldim.sources import SQLSource
 
+        dated = f", DATE '{snapshot_date}' AS {date_column}" if date_column else ""
         rows = " UNION ALL ".join(
             f"SELECT {a['account_id']} AS account_id,"
             f" '{a['account_type']}' AS account_type,"
             f" {round(a['balance'] * random.uniform(0.97, 1.03), 2)} AS balance"
+            f"{dated}"
             for a in self._accounts
         )
         return SQLSource(rows)

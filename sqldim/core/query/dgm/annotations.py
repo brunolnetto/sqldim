@@ -18,6 +18,8 @@ from typing import Iterator, Sequence, Type, TypeVar
 __all__ = [
     # Enum types
     "GrainKind",
+    "AdditivityKind",
+    "TIME",
     "SCDKind",
     "WeightConstraintKind",
     "BridgeSemanticsKind",
@@ -33,6 +35,7 @@ __all__ = [
     "Grain",
     "SCDType",
     "Degenerate",
+    "Additivity",
     "RolePlaying",
     "ProjectsFrom",
     "FactlessFact",
@@ -59,6 +62,18 @@ class GrainKind(Enum):
     EVENT = "EVENT"
     PERIOD = "PERIOD"
     ACCUMULATING = "ACCUMULATING"
+
+
+class AdditivityKind(Enum):
+    """Along which axes a measure may be summed (spec §2.4 Additivity)."""
+
+    ADDITIVE = "ADDITIVE"
+    SEMI_ADDITIVE = "SEMI_ADDITIVE"
+    NON_ADDITIVE = "NON_ADDITIVE"
+
+
+TIME = "TIME"
+"""The time axis of ``SEMI_ADDITIVE(over)`` (§2.4 ``Axis ::= TIME | D_S``)."""
 
 
 class SCDKind(Enum):
@@ -240,10 +255,47 @@ class SCDType(SchemaAnnotation):
 class Degenerate(SchemaAnnotation):
     """Declares a dimension as degenerate (stored on the fact, no dimension table).
 
+    §2.4 writes it ``Degenerate(f, key)``: ``dim`` is the property ``key`` and
+    ``fact`` the fact type ``f`` that carries it.  A declared model
+    (``DGMModel``) requires ``fact``; the planner and recommender read ``dim``
+    alone.  A degenerate attribute is not a measure: it carries no
+    ``Additivity`` and is not the argument of an aggregate (§2.4).
+
     GroupBy planning excludes degenerate dims unless explicitly requested.
     """
 
     dim: str
+    fact: str | None = None
+
+    @property
+    def key(self) -> str:
+        return self.dim
+
+
+@dataclass(frozen=True, eq=True)
+class Additivity(SchemaAnnotation):
+    """``Additivity(f, key, kind)`` of §2.4: how the measure ``f.key`` sums.
+
+    ``over`` is the axis set of ``SEMI_ADDITIVE`` — :data:`TIME` or dimension
+    type names — and is empty for the other kinds.
+    """
+
+    fact: str
+    key: str
+    kind: AdditivityKind
+    over: frozenset[str] = field(default_factory=frozenset)
+
+    def __init__(
+        self,
+        fact: str,
+        key: str,
+        kind: AdditivityKind,
+        over: set[str] | frozenset[str] = frozenset(),
+    ) -> None:
+        object.__setattr__(self, "fact", fact)
+        object.__setattr__(self, "key", key)
+        object.__setattr__(self, "kind", kind)
+        object.__setattr__(self, "over", frozenset(over))
 
 
 @dataclass(eq=True)
@@ -431,6 +483,7 @@ _KIND_MAP: dict[type, str] = {
     Grain: "Grain",
     SCDType: "SCDType",
     Degenerate: "Degenerate",
+    Additivity: "Additivity",
     RolePlaying: "RolePlaying",
     ProjectsFrom: "ProjectsFrom",
     FactlessFact: "FactlessFact",

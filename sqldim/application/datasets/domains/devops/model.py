@@ -2,7 +2,8 @@
 
 Written from ``sources/github_issues.py``: the dataset holds one table,
 ``github_issues``, one row per issue and no foreign key, so ``G_S`` is a
-single dimension type with no edge type.
+single dimension type with no edge type.  With no fact type and no bridge
+edge type, Grain, Conformed and BridgeSemantics hold no annotation.
 """
 
 from __future__ import annotations

@@ -16,6 +16,7 @@ Instantiate and use with a DuckDB connection:
 
 from sqldim.application.datasets.base import BaseSource
 from sqldim.application.datasets.dataset import Dataset
+from sqldim.application.datasets.domains.entertainment.model import build_model
 from sqldim.application.datasets.domains.entertainment.sources import (
     MoviesSource,
     SocialNetworkSource,
@@ -59,6 +60,7 @@ entertainment_dataset = Dataset(
         (_CastSource(), "movies"),
         (SocialNetworkSource(), "social_network"),
     ],
+    model=build_model,
 )
 
 DATASET_METADATA = {
