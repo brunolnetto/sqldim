@@ -391,7 +391,8 @@ class _Branches:
         t = self._ctx.alias_type
         space = self._ctx.space
         return (
-            space.kind(t[cur]) == "dim"
+            prev != nxt  # a pass relates two fact aliases, not one and itself
+            and space.kind(t[cur]) == "dim"
             and space.kind(t[prev]) == "fact"
             and space.kind(t[nxt]) == "fact"
             and space.conformed_for(t[cur], {t[prev], t[nxt]})
