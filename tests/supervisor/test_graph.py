@@ -16,7 +16,7 @@ from sqldim.core.query.dgm.nl.supervisor._planner import (
     KeywordDemoPlanner,
     PlannerView,
 )
-from sqldim.core.query.dgm.nl.supervisor._tools import TOOL_REGISTRY, DemoQueryTool
+from sqldim.core.query.dgm.nl.supervisor._tools import DemoQueryTool
 from sqldim.core.query.dgm.nl.supervisor._types import (
     CallStatus,
     Outcome,
@@ -62,11 +62,11 @@ class TestFailClosedEntry:
 
     def test_no_available_tool_fails_before_planning(self) -> None:
         planner = ScriptedPlanner(plan(step("a")))
-        state = run_supervisor("q", runtime(TOOL_REGISTRY, planner))
+        state = run_supervisor("q", runtime(registry(), planner))
         assert state.outcome is Outcome.FAILED
         assert state.planning_error.kind is ToolErrorKind.NOT_IMPLEMENTED
         assert planner.views == []
-        assert set(state.planning_error.context["missing"]) == set(TOOL_REGISTRY)
+        assert set(state.planning_error.context["missing"]) == set(registry())
 
     def test_planner_failure_is_reported_not_replaced(self) -> None:
         state = run_supervisor(

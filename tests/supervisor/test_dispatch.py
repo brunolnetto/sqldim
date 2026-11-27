@@ -38,6 +38,10 @@ from tests.supervisor._fakes import (
 )
 
 
+# Tools whose D43 contract is implemented; every other tool fails closed.
+_IMPLEMENTED = {"dgm_validate_invariant"}
+
+
 def _bound(*steps: ToolCallRequest) -> list[ToolCallRequest]:
     bound, errors = bind_plan(plan(*steps))
     assert errors == []
@@ -81,9 +85,14 @@ class TestRefusals:
         assert r.data is None
         assert opener.opened == []
 
-    @pytest.mark.parametrize("name", sorted(TOOL_REGISTRY))
-    def test_every_default_tool_is_unavailable(self, name: str) -> None:
+    @pytest.mark.parametrize("name", sorted(set(TOOL_REGISTRY) - _IMPLEMENTED))
+    def test_every_unimplemented_tool_is_unavailable(self, name: str) -> None:
         assert TOOL_REGISTRY[name].capability_schema.available is False
+
+    @pytest.mark.parametrize("name", sorted(_IMPLEMENTED))
+    def test_implemented_tools_are_contract_tools(self, name: str) -> None:
+        schema = TOOL_REGISTRY[name].capability_schema
+        assert schema.available is True and "+demo" not in schema.version
 
     def test_invalid_arguments_rechecked_at_execution(self) -> None:
         tool = FakeTool("dgm_query")
@@ -255,7 +264,11 @@ class TestChildBudget:
 class TestDemoRegistry:
     def test_demo_registry_adds_only_demo_query(self) -> None:
         demo = build_registry(demo=True)
-        available = [n for n, t in demo.items() if t.capability_schema.available]
+        available = [
+            n
+            for n, t in demo.items()
+            if t.capability_schema.available and n not in _IMPLEMENTED
+        ]
         assert available == ["dgm_query"]
         assert isinstance(demo["dgm_query"], DemoQueryTool)
         assert demo["dgm_query"].capability_schema.version.endswith("+demo")

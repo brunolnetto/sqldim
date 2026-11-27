@@ -49,7 +49,8 @@ def _plan(utterance: str, datasets: tuple[str, ...] = _DATASETS) -> SupervisorPl
 
 
 def test_demo_registry_exposes_only_dgm_query() -> None:
-    assert [t.name for t in _DEMO_TOOLS] == ["dgm_query"]
+    demo = [t.name for t in _DEMO_TOOLS if t.version.endswith("+demo")]
+    assert demo == ["dgm_query"]
 
 
 class TestAnalyticalRouting:
