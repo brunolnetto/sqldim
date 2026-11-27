@@ -441,10 +441,10 @@ class TestParquetSinkCurrentStateSql:
         assert "read_parquet(" in sql
         assert "dim_product" in sql
 
-    def test_includes_hive_partitioning(self):
+    def test_reads_partition_columns_from_the_files(self):
         sink = ParquetSink("/data/dim")
         sql = sink.current_state_sql("dim_product")
-        assert "hive_partitioning=true" in sql
+        assert "hive_partitioning=false" in sql
 
     def test_base_path_in_sql(self):
         sink = ParquetSink("/my/warehouse")

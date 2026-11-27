@@ -25,6 +25,7 @@ from sqldim.core.query.dgm.annotations import AnnotationSigma
 from sqldim.core.query.dgm.planner import (
     ArtifactTarget,
     DGMPlanner,
+    IcebergCatalog,
     QueryTarget,
     SinkTarget,
 )
@@ -77,7 +78,9 @@ NOW = datetime(2024, 1, 2, 1)
 TARGET = ArtifactTarget("daily", "ts")
 
 
-def planner(sink: SinkTarget | None = SinkTarget.DUCKDB) -> DGMPlanner:
+def planner(
+    sink: SinkTarget | None = SinkTarget.DUCKDB, catalog: IcebergCatalog | None = None
+) -> DGMPlanner:
     return DGMPlanner(
         cost_model=None,
         statistics=GraphStatistics(node_count=1, edge_count=0),
@@ -85,6 +88,7 @@ def planner(sink: SinkTarget | None = SinkTarget.DUCKDB) -> DGMPlanner:
         rules=None,
         query_target=QueryTarget.SQL_DUCKDB,
         sink_target=sink,
+        iceberg_catalog=catalog,
     )
 
 
@@ -114,8 +118,9 @@ def rule10(
     sink: SinkTarget | None = SinkTarget.DUCKDB,
     now: datetime = NOW,
     window: tuple[datetime, datetime] | None = (W0, W1),
+    catalog: IcebergCatalog | None = None,
 ) -> ArtifactPlan | ExpiryPlan:
-    return planner(sink).apply_rule_10(
+    return planner(sink, catalog).apply_rule_10(
         a or artifact(),
         s or snap(),
         now=now,
@@ -191,6 +196,32 @@ class TestWriteMode:
     def test_append_into_delta_is_planned(self) -> None:
         p = rule10(sink=SinkTarget.DELTA)
         assert isinstance(p, ArtifactPlan) and p.write.sink is SinkTarget.DELTA
+
+    def test_iceberg_without_catalog_is_unsupported(self) -> None:
+        with pytest.raises(UnsupportedArtifactPlan, match="REST catalog"):
+            rule10(sink=SinkTarget.ICEBERG)
+
+    def test_append_into_iceberg_on_any_version(self) -> None:
+        p = rule10(sink=SinkTarget.ICEBERG, catalog=IcebergCatalog("ice", "1.5.0"))
+        assert isinstance(p, ArtifactPlan) and p.write.sink is SinkTarget.ICEBERG
+
+    @pytest.mark.parametrize(
+        ("version", "mor", "match"),
+        [("1.5.0", True, "capability table"), ("2.0", False, "merge-on-read")],
+    )
+    def test_merge_into_iceberg_is_checked(
+        self, version: str, mor: bool, match: str
+    ) -> None:
+        s = snap(ArtifactState.STALE, window=(W0, W1), last="t", at=W1, reached=True)
+        with pytest.raises(UnsupportedArtifactPlan, match=match):
+            rule10(artifact(WriteModeKind.REFRESH), s, sink=SinkTarget.ICEBERG,
+                   catalog=IcebergCatalog("ice", version, mor))  # fmt: skip
+
+    def test_merge_into_iceberg_is_planned_when_documented(self) -> None:
+        s = snap(ArtifactState.STALE, window=(W0, W1), last="t", at=W1, reached=True)
+        p = rule10(artifact(WriteModeKind.REFRESH), s, sink=SinkTarget.ICEBERG,
+                   catalog=IcebergCatalog("ice", "2.0.1", True))  # fmt: skip
+        assert isinstance(p, ArtifactPlan) and p.write.operation.name == "MERGE"
 
     def test_in_flight_is_not_eligible(self) -> None:
         s = snap(ArtifactState.IN_FLIGHT, window=(W0, W1), last="t", at=W1)

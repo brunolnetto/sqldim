@@ -432,7 +432,8 @@ class TestEmission:
             None, None, None, None, QueryTarget.SQL_DUCKDB, SinkTarget.PARQUET
         )  # type: ignore[arg-type]
         plan = p.plan_query(q_anchor(), table_name="out")
-        assert plan.write_plan == "COPY TO (FORMAT PARQUET)"
+        assert plan.write_plan is not None
+        assert plan.write_plan.describe() == "COPY TO (FORMAT PARQUET)"
         assert plan.sink_target is SinkTarget.PARQUET
 
 

@@ -22,6 +22,7 @@ from sqldim.core.query.dgm.planner._steps import (
 if TYPE_CHECKING:
     from sqldim.core.query.dgm.planner._deps import Dependency, RelationCatalog
     from sqldim.core.query.dgm.planner._ir import PlanIR
+    from sqldim.core.query.dgm.planner._rule8 import SinkWritePlan
 
 __all__ = [
     "QueryTarget",
@@ -110,7 +111,7 @@ class ExportPlan:
     sink_target:
         Optional write sink.
     write_plan:
-        Optional write-plan string (CREATE TABLE AS, COPY TO, …).
+        Optional typed Rule 8 write plan (:class:`SinkWritePlan`, §6.2).
     cost_estimate:
         Optional mechanical cost estimate.
     alternatives:
@@ -131,7 +132,7 @@ class ExportPlan:
     query_text: str
     pre_compute: list[PreComputation] = field(default_factory=list)
     sink_target: SinkTarget | None = None
-    write_plan: str | None = None
+    write_plan: "SinkWritePlan | None" = None
     cost_estimate: CostEstimate | None = None
     alternatives: list[tuple[ExportPlan, CostEstimate]] = field(default_factory=list)
     cone_containment_applied: bool = False
@@ -250,31 +251,3 @@ def _r6_degenerate(ann: Any, _c: "set[str]") -> list[str]:
         f"Degenerate({key}): no join — the key is read from the fact row; "
         "GroupBy and Where on it are valid"
     ]
-
-
-# ---------------------------------------------------------------------------
-# Rule 8 static helpers (sink-aware write planning)
-# ---------------------------------------------------------------------------
-
-
-def _r8_partition_flag(
-    plan: str, sink_target: SinkTarget, has_temporal_agg: bool
-) -> str:
-    _file_sinks = (SinkTarget.PARQUET, SinkTarget.DELTA, SinkTarget.ICEBERG)
-    if has_temporal_agg and sink_target in _file_sinks:
-        plan += "; PARTITION_BY timestamp_unit"
-    return plan
-
-
-def _r8_delta_append_flag(plan: str, sink_target: SinkTarget, has_q_delta: bool) -> str:
-    if has_q_delta and sink_target is SinkTarget.DELTA:
-        plan += "; APPEND mode"
-    return plan
-
-
-def _r8_grain_append_flag(
-    plan: str, sink_target: SinkTarget, grain_kind: object, GrainKind: Any
-) -> str:
-    if grain_kind is GrainKind.ACCUMULATING and sink_target is SinkTarget.DELTA:
-        plan += "; APPEND mode"
-    return plan

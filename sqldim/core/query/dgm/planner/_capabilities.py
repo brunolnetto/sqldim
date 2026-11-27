@@ -16,13 +16,18 @@ every declaration is the per-backend matrix (``tests/conformance``,
 
 from __future__ import annotations
 
-from collections.abc import Mapping
+import re
+from collections.abc import Iterator, Mapping
 from dataclasses import dataclass, field
 from enum import Enum
 from types import MappingProxyType
+from typing import TYPE_CHECKING
 
-from sqldim.core.query.dgm.planner._ir import UnsupportedConstruct
+from sqldim.core.query.dgm.planner._ir import BandQuery, Compose, UnsupportedConstruct
 from sqldim.core.query.dgm.planner._targets import QueryTarget, SinkTarget
+
+if TYPE_CHECKING:
+    from sqldim.core.query.dgm.planner._ir import PlanIR, PlanNode
 
 __all__ = [
     "Capability",
@@ -35,7 +40,9 @@ __all__ = [
     "DGMQUERY_TO_SQL",
     "POSTGRESQL_VIA_DUCKDB",
     "query_profile",
+    "require_ir",
     "sink_profile",
+    "window_capability",
 ]
 
 
@@ -53,6 +60,7 @@ class Capability(Enum):
     AGGREGATION = "aggregation"
     CTE = "cte"
     WINDOW = "window"
+    WINDOW_AGGREGATE = "window_aggregate"
     PATHPRED = "pathpred"
     # sinks
     APPEND = "append"
@@ -67,6 +75,7 @@ QUERY_CAPABILITIES = (
     Capability.AGGREGATION,
     Capability.CTE,
     Capability.WINDOW,
+    Capability.WINDOW_AGGREGATE,
     Capability.PATHPRED,
 )
 SINK_CAPABILITIES = (Capability.APPEND, Capability.SCD2_CLOSE, Capability.MERGE)
@@ -143,7 +152,12 @@ _DUCKDB_SQL: dict[Capability, Declared] = {
     Capability.CTE: Declared(
         P, "Repeat in WALK mode with 1 ≤ min; SIMPLE, TRAIL and min = 0 are refused"
     ),
-    Capability.WINDOW: Declared(S, "window functions with QUALIFY (band B3)"),
+    Capability.WINDOW: Declared(
+        S, "ranking window functions (ROW_NUMBER, RANK, DENSE_RANK) with QUALIFY"
+    ),
+    Capability.WINDOW_AGGREGATE: Declared(
+        S, "aggregate and other window functions (SUM, AVG, LAG, …) with QUALIFY"
+    ),
     Capability.PATHPRED: Declared(
         P,
         "EXISTS / FORALL, strategy ALL; EVENTUALLY, GLOBALLY, NEXT and UNTIL "
@@ -234,12 +248,57 @@ POSTGRESQL_VIA_DUCKDB = Profile(
     {
         **_DUCKDB_SQL,
         Capability.WINDOW: Declared(
-            P,
-            "ROW_NUMBER with QUALIFY works; a SUM window over a PostgreSQL scan "
-            "raises NotImplementedException in DuckDB 1.5.0's postgres extension",
+            P, "ROW_NUMBER with QUALIFY is verified; RANK and DENSE_RANK are not"
+        ),
+        Capability.WINDOW_AGGREGATE: Declared(
+            U,
+            "a SUM window over a PostgreSQL scan raises NotImplementedException "
+            "(PostgresScanSerialize) in DuckDB 1.5.0's postgres extension; "
+            "DGMPlanner(execution_profile=POSTGRESQL_VIA_DUCKDB) refuses it "
+            "before execution",
         ),
     },
 )
+
+#: Ranking functions: Capability.WINDOW.  Any other window function —
+#: an aggregate, a value function or one not recognised — is
+#: Capability.WINDOW_AGGREGATE (fail-closed).
+_RANKING = frozenset({"ROW_NUMBER", "RANK", "DENSE_RANK"})
+_FN = re.compile(r"^\s*([A-Za-z_][A-Za-z0-9_]*)\s*\(")
+
+
+def window_capability(sql: str) -> Capability:
+    """The capability a window expression needs, by its function name."""
+    m = _FN.match(sql)
+    if m and m.group(1).upper() in _RANKING:
+        return Capability.WINDOW
+    return Capability.WINDOW_AGGREGATE
+
+
+def _leaves(node: "PlanNode") -> Iterator[BandQuery]:
+    if isinstance(node, BandQuery):
+        yield node
+    elif isinstance(node, Compose):
+        yield from _leaves(node.left)
+        yield from _leaves(node.right)
+
+
+def require_ir(ir: "PlanIR", profile: Profile) -> None:
+    """Refuse *ir* when *profile* does not support one of its window functions.
+
+    Raised while planning, so the engine never receives a query it would
+    fail on (:class:`UnsupportedCapability`).
+    """
+    nodes = [ir.root, *(c.node for c in ir.ctes)]
+    for leaf in (leaf for n in nodes for leaf in _leaves(n)):
+        for name, frag in leaf.windows:
+            cap = window_capability(frag.sql)
+            if profile.declared(cap).support is Support.UNSUPPORTED:
+                raise UnsupportedCapability(
+                    f"{profile.name} does not support {cap.value} "
+                    f"({name} = {frag.sql}): {profile.declared(cap).note}"
+                )
+
 
 _MERGE_RULE10 = "Rule 10 plans a MERGE WritePlan"
 
@@ -281,12 +340,16 @@ SINK_PROFILES: Mapping[SinkTarget, Profile] = MappingProxyType(
             "DuckDB 1.5.0",
             {
                 Capability.APPEND: Declared(
-                    P,
-                    "COPY TO with OVERWRITE_OR_IGNORE: a later write replaces "
-                    "the partitions it writes; is_current reads back as VARCHAR",
+                    S,
+                    "COPY TO … APPEND adds new files; partition columns are "
+                    "written into the files and read back with their type",
                 ),
                 Capability.SCD2_CLOSE: Declared(
-                    P, "rewrites the current rows only; historical versions are lost"
+                    P,
+                    "the whole table is rewritten into a staging directory that "
+                    "replaces it, keeping every version; local filesystem only "
+                    "(a remote URI raises SinkUnsupported), and not atomic for "
+                    "a concurrent reader",
                 ),
                 Capability.MERGE: Declared(P, _MERGE_RULE10),
             },
@@ -298,12 +361,13 @@ SINK_PROFILES: Mapping[SinkTarget, Profile] = MappingProxyType(
             {
                 Capability.APPEND: Declared(
                     P,
-                    "§6.2: APPEND only, by INSERT INTO an attached Delta table; "
-                    "Rule 8 plans INSERT INTO delta_scan and DeltaLakeSink.write "
-                    "sends a Spark MERGE INTO",
+                    "§6.2: APPEND only, by ATTACH … (TYPE delta) and INSERT INTO "
+                    "the attached table; DuckDB 1.5.0 cannot create the table",
                 ),
                 Capability.SCD2_CLOSE: Declared(
-                    P, "DeltaLakeSink.close_versions is a no-op"
+                    U,
+                    "§6.2: the delta extension rejects UPDATE; "
+                    "DeltaLakeSink.close_versions raises SinkUnsupported",
                 ),
                 Capability.MERGE: Declared(
                     U, "§6.2 Delta writes: MERGE is rejected (Rule 10)"
@@ -317,13 +381,15 @@ SINK_PROFILES: Mapping[SinkTarget, Profile] = MappingProxyType(
             {
                 Capability.APPEND: Declared(
                     P,
-                    "§6.2: INSERT INTO catalog.schema.table on an attached REST "
-                    "catalog; Rule 8 plans INSERT INTO iceberg_scan and "
-                    "SinkTarget.ICEBERG names no catalog",
+                    "§6.2: INSERT INTO catalog.schema.table on the attached REST "
+                    "catalog declared with IcebergCatalog; without one Rule 8 "
+                    "rejects the plan",
                 ),
                 Capability.SCD2_CLOSE: Declared(P, "partition overwrite via PyIceberg"),
                 Capability.MERGE: Declared(
-                    P, "§6.2: merge-on-read tables only, DuckDB 2.0 documented"
+                    P,
+                    "§6.2: Rule 10 plans it only for a merge-on-read table on a "
+                    "documented engine version (DuckDB 2.0, 2.0.1)",
                 ),
             },
         ),

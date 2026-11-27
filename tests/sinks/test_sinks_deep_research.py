@@ -261,13 +261,14 @@ class TestDeltaLakeSinkDeepResearch:
         # Deep research says write() should be honest about limitations
         assert doc.strip()  # has some documentation
 
-    def test_close_versions_returns_zero(self):
-        from sqldim.sinks import DeltaLakeSink
+    def test_close_versions_is_refused(self):
+        from sqldim.sinks import DeltaLakeSink, SinkUnsupported
 
         con = MagicMock()
         sink = DeltaLakeSink("/tmp/delta_test", "id")
-        result = sink.close_versions(con, "dim_t", "id", "nk_view", "2099-12-31")
-        assert result == 0
+        with pytest.raises(SinkUnsupported):
+            sink.close_versions(con, "dim_t", "id", "nk_view", "2099-12-31")
+        con.execute.assert_not_called()
 
 
 # ===========================================================================

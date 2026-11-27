@@ -62,7 +62,7 @@ implement the area.
 | §2.1 Structural invariants (V_S ⊆ D_S × F_S) | `MOD-08`, `MOD-09`, `MOD-10`, `MOD-11` | — | — | — | — | 4 pass | — | — | — | — | — | — | — | — | — |
 | §2.4 Additivity AD1–AD4 and grain defaults | `ADD-01` … `ADD-13` (13) | — | — | — | — | — | 9 pass, 4 refused | — | — | — | — | — | — | — | — |
 | §2.5 SCD resolution: as-was and as-is | `SCD-01` … `SCD-05` (5) | 5 pass | 5 pass | — | — | — | — | 5 pass | 5 refused | — | — | — | — | — | — |
-| §2.5 SCD2 versions; §2.6 M2 (a closed version has valid_to set) | `SINK-CL-01`, `SINK-CL-02`, `SINK-CL-03`, `SINK-CL-04` | — | — | — | — | — | — | — | — | — | 4 pass | 4 **non-conf.** | 4 pass | — | — |
+| §2.5 SCD2 versions; §2.6 M2 (a closed version has valid_to set) | `SINK-CL-01`, `SINK-CL-02`, `SINK-CL-03`, `SINK-CL-04` | — | — | — | — | — | — | — | — | — | 4 pass | 4 pass | 4 pass | — | 4 refused |
 | §2.6 Declared model (well-formedness at construction); §2.4 argument kinds | `MOD-01` … `MOD-07` (7) | — | — | — | — | 7 pass | — | — | — | — | — | — | — | — | — |
 | §2.6 Declared model: §2.1 invariants are not construction checks | `MOD-12` | — | — | — | — | 1 pass | — | — | — | — | — | — | — | — | — |
 | §2.6 Version and validity at an instant (half-open windows) | `SCD-V-01` … `SCD-E-06` (13) | 11 pass, 2 refused | 11 pass, 2 refused | — | — | — | — | 11 pass, 2 refused | 13 refused | — | — | — | — | — | — |
@@ -78,7 +78,7 @@ implement the area.
 | §3.5 Evaluation contexts (Refs in C ∪ L) | `PP-ALIAS-01`, `PP-ALIAS-02`, `PP-ALIAS-03` | 3 pass | 3 pass | — | — | — | — | 3 pass | 3 refused | — | — | — | — | — | — |
 | §3.5 L-promotion | `PP-PROM-01` | 1 pass | 1 pass | — | — | — | — | 1 pass | 1 n/e | — | — | — | — | — | — |
 | §4.1 AF and AG are distinct; FORALL elimination | `CTL-G1-AF` … `CTL-G2-NOT-EF` (8) | 8 n/e | 8 n/e | — | — | — | — | 8 n/e | 8 n/e | — | — | — | — | — | — |
-| §4.1 Band table (B3: window, QUALIFY); §4.1 NULL rules | `WIN-01`, `WIN-02`, `WIN-03` | 3 pass | 3 pass | — | — | — | — | 1 pass, 2 **non-conf.** | 3 refused | — | — | — | — | — | — |
+| §4.1 Band table (B3: window, QUALIFY); §4.1 NULL rules | `WIN-01`, `WIN-02`, `WIN-03` | 3 pass | 3 pass | — | — | — | — | 1 pass, 2 refused | 3 refused | — | — | — | — | — | — |
 | §4.1 Band table; §5.2 cross-band Ref rules | `CON-B-01` … `CON-B-10` (10) | 10 pass | 10 pass | — | — | — | — | — | — | — | — | — | — | — | — |
 | §4.1 Empty domain; ADR 0001 Empty-domain policy | `PP-EX-02`, `PP-FA-02`, `PP-FA-03`, `PP-NOT-03` | 3 pass, 1 n/e | 3 pass, 1 n/e | — | — | — | — | 3 pass, 1 n/e | 3 refused, 1 n/e | — | — | — | — | — | — |
 | §4.1 FORALL elimination (CTL duality, NotTrue, REQUIRE_WITNESS guard) | `BDD-F-01`, `BDD-F-02`, `BDD-F-03` | — | — | — | 3 pass | — | — | — | — | — | — | — | — | — | — |
@@ -94,10 +94,10 @@ implement the area.
 | §6.1 Order theory of atoms (Δ_ord, O1–O6) | `BDD-O-01` … `BDD-O-08` (8) | — | — | — | 8 pass | — | — | — | — | — | — | — | — | — | — |
 | §6.1 Three-valued logic (T⁺/T⁻ encoding, Δ_excl, Δ_null) | `BDD-K-01` … `BDD-K-08` (8) | — | — | — | 8 pass | — | — | — | — | — | — | — | — | — | — |
 | §6.1 Variables (canonical form of atoms) | `BDD-C-01`, `BDD-C-02`, `BDD-C-03` | — | — | — | 3 pass | — | — | — | — | — | — | — | — | — | — |
-| §6.2 Rule 10 with Delta and Iceberg writes (MERGE) | `WP-DELTA-merge`, `WP-ICEBERG-merge` | — | — | — | — | — | — | — | — | 1 pass, 1 **non-conf.** | — | — | — | — | — |
-| §6.2 Rule 8 APPEND (INSERT INTO); §2.4 write_mode | `SINK-RT-01`, `SINK-RT-02`, `SINK-RT-03` | — | — | — | — | — | — | — | — | — | 3 pass | 3 **non-conf.** | 3 pass | — | — |
-| §6.2 Rule 8 sink-aware write planning; Delta and Iceberg writes | `WP-DUCKDB-target` … `WP-ICEBERG-catalog` (14) | — | — | — | — | — | — | — | — | 11 pass, 3 **non-conf.** | — | — | — | — | — |
-| §6.2 Rule 8, §6.4 sink write semantics: statements executed by DuckDB | `SINK-SQL-W`, `SINK-SQL-C` | — | — | — | — | — | — | — | — | — | 2 pass | 2 pass | 2 pass | 2 pass | 2 **non-conf.** |
+| §6.2 Rule 10 with Delta and Iceberg writes (MERGE) | `WP-DELTA-merge`, `WP-ICEBERG-merge` | — | — | — | — | — | — | — | — | 2 pass | — | — | — | — | — |
+| §6.2 Rule 8 APPEND (INSERT INTO); §2.4 write_mode | `SINK-RT-01`, `SINK-RT-02`, `SINK-RT-03` | — | — | — | — | — | — | — | — | — | 3 pass | 3 pass | 3 pass | — | 3 pass |
+| §6.2 Rule 8 sink-aware write planning; Delta and Iceberg writes | `WP-DUCKDB-target` … `WP-ICEBERG-catalog` (14) | — | — | — | — | — | — | — | — | 14 pass | — | — | — | — | — |
+| §6.2 Rule 8, §6.4 sink write semantics: statements executed by DuckDB | `SINK-SQL-W`, `SINK-SQL-C` | — | — | — | — | — | — | — | — | — | 2 pass | 2 pass | 2 pass | 2 pass | 1 pass, 1 refused |
 | §8.2 Propositional completeness (proof by minterm construction) | `THM-PC-0000` … `THM-PC-1111` (16) | — | — | — | 16 pass | — | — | — | — | — | — | — | — | — | — |
 | §8.3 A BDD's paths to TRUE are disjoint cubes covering its minterms | `THM-CUBE-00` … `THM-CUBE-07` (8) | — | — | — | 8 pass | — | — | — | — | — | — | — | — | — | — |
 | §8.7 Cone intersection theorem (G_A* ∩ G_*B = G_AB) | `CONE-03` … `CONE-09` (5) | — | — | — | — | — | — | — | — | — | — | — | — | — | — |
@@ -108,21 +108,6 @@ implement the area.
 
 | Case | Backend | Observed vs. specified |
 |---|---|---|
-| `SINK-RT-01` | `sink-parquet` | is_current, ParquetSink's default hive partition column, is read back as VARCHAR ('true'/'false'), not as the BOOLEAN written |
-| `SINK-RT-02` | `sink-parquet` | is_current, ParquetSink's default hive partition column, is read back as VARCHAR ('true'/'false'), not as the BOOLEAN written; and a second write() replaces the files of every partition it writes (COPY … OVERWRITE_OR_IGNORE), so the first write's rows there are lost |
-| `SINK-RT-03` | `sink-parquet` | is_current, ParquetSink's default hive partition column, is read back as VARCHAR ('true'/'false'), not as the BOOLEAN written |
-| `SINK-CL-01` | `sink-parquet` | is_current, ParquetSink's default hive partition column, is read back as VARCHAR ('true'/'false'), not as the BOOLEAN written; and close_versions() rewrites only the current rows into the partitions, overwriting the historical versions, which are lost |
-| `SINK-CL-02` | `sink-parquet` | is_current, ParquetSink's default hive partition column, is read back as VARCHAR ('true'/'false'), not as the BOOLEAN written; and close_versions() rewrites only the current rows into the partitions, overwriting the historical versions, which are lost |
-| `SINK-CL-03` | `sink-parquet` | is_current, ParquetSink's default hive partition column, is read back as VARCHAR ('true'/'false'), not as the BOOLEAN written; and when every current row is closed nothing is written to is_current=true, so the old files stay and each key is read back both open and closed |
-| `SINK-CL-04` | `sink-parquet` | is_current, ParquetSink's default hive partition column, is read back as VARCHAR ('true'/'false'), not as the BOOLEAN written |
-| `SINK-SQL-W` | `sink-delta` | DeltaLakeSink.write() sends `MERGE INTO delta.`<path>``, Spark SQL that DuckDB's parser rejects (and §6.2 allows a Delta write to APPEND only) |
-| `SINK-SQL-C` | `sink-delta` | DeltaLakeSink.close_versions() is a no-op: it sends no statement and returns 0, so no version is closed |
-| `WP-DELTA-target` | `dgm-write-plan` | Rule 8 plans `INSERT INTO delta_scan`; §6.2 Delta writes: delta_scan is read-only, the write goes to a Delta table attached with TYPE delta |
-| `WP-ICEBERG-target` | `dgm-write-plan` | Rule 8 plans `INSERT INTO iceberg_scan`; §6.2 Iceberg writes: iceberg_scan never appears as a write target |
-| `WP-ICEBERG-catalog` | `dgm-write-plan` | SinkTarget.ICEBERG carries no catalog, so Rule 8 cannot check that a REST catalog is attached and plans the write anyway (§6.2 Iceberg writes: rejected at planning time) |
-| `WP-ICEBERG-merge` | `dgm-write-plan` | Rule 10 plans a MERGE into ICEBERG without the engine version or the table's merge-on-read mode; §6.2 rejects every Iceberg plan but APPEND on an engine version the capability table does not cover |
-| `WIN-02` | `pg-duckdb-plan-ir` | DuckDB 1.5.0's postgres extension raises NotImplementedException (PostgresScanSerialize is not serializable) for a SUM window over a PostgreSQL table; the same SQL passes on DuckDB storage |
-| `WIN-03` | `pg-duckdb-plan-ir` | DuckDB 1.5.0's postgres extension raises NotImplementedException (PostgresScanSerialize is not serializable) for a SUM window over a PostgreSQL table; the same SQL passes on DuckDB storage |
 
 ### Refused (fail-closed) and not expressible
 
@@ -412,8 +397,15 @@ implement the area.
 | `DA-02` | `pg-duckdb-plan-ir` | refused | the plan IR raises UnsupportedConstruct for a declared constellation: it has no node for per-branch aggregation aligned by FULL OUTER JOIN (fail-closed) |
 | `DA-02` | `planner-refusals` | refused | every target without an emitter (SQL_POSTGRESQL, CYPHER, SPARQL, DGM_JSON, DGM_YAML) raises UnsupportedCapability |
 | `DA-WF-04` | `duckdb-plan-ir` | refused | the plan IR raises UnsupportedConstruct for a declared constellation: it has no node for per-branch aggregation aligned by FULL OUTER JOIN (fail-closed) |
+| `SINK-CL-01` | `sink-delta` | refused | §6.2 Delta writes: DuckDB's delta extension rejects UPDATE, DELETE and MERGE INTO, so DeltaLakeSink.close_versions() raises SinkUnsupported and sends nothing |
+| `SINK-CL-02` | `sink-delta` | refused | §6.2 Delta writes: DuckDB's delta extension rejects UPDATE, DELETE and MERGE INTO, so DeltaLakeSink.close_versions() raises SinkUnsupported and sends nothing |
+| `SINK-CL-03` | `sink-delta` | refused | §6.2 Delta writes: DuckDB's delta extension rejects UPDATE, DELETE and MERGE INTO, so DeltaLakeSink.close_versions() raises SinkUnsupported and sends nothing |
+| `SINK-CL-04` | `sink-delta` | refused | §6.2 Delta writes: DuckDB's delta extension rejects UPDATE, DELETE and MERGE INTO, so DeltaLakeSink.close_versions() raises SinkUnsupported and sends nothing |
+| `SINK-SQL-C` | `sink-delta` | refused | §6.2 Delta writes: DuckDB's delta extension rejects UPDATE, DELETE and MERGE INTO, so DeltaLakeSink.close_versions() raises SinkUnsupported and sends nothing |
 | `WIN-01` | `planner-refusals` | refused | every target without an emitter (SQL_POSTGRESQL, CYPHER, SPARQL, DGM_JSON, DGM_YAML) raises UnsupportedCapability |
+| `WIN-02` | `pg-duckdb-plan-ir` | refused | POSTGRESQL_VIA_DUCKDB declares window_aggregate unsupported: DuckDB 1.5.0's postgres extension raises NotImplementedException (PostgresScanSerialize) for a SUM window over a PostgreSQL table, so DGMPlanner(execution_profile=POSTGRESQL_VIA_DUCKDB) raises UnsupportedCapability before execution |
 | `WIN-02` | `planner-refusals` | refused | every target without an emitter (SQL_POSTGRESQL, CYPHER, SPARQL, DGM_JSON, DGM_YAML) raises UnsupportedCapability |
+| `WIN-03` | `pg-duckdb-plan-ir` | refused | POSTGRESQL_VIA_DUCKDB declares window_aggregate unsupported: DuckDB 1.5.0's postgres extension raises NotImplementedException (PostgresScanSerialize) for a SUM window over a PostgreSQL table, so DGMPlanner(execution_profile=POSTGRESQL_VIA_DUCKDB) raises UnsupportedCapability before execution |
 | `WIN-03` | `planner-refusals` | refused | every target without an emitter (SQL_POSTGRESQL, CYPHER, SPARQL, DGM_JSON, DGM_YAML) raises UnsupportedCapability |
 
 ### Not covered

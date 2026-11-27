@@ -15,8 +15,11 @@ ADAPTIVE → APPEND from Missing/Failed, MERGE from Stale).  Every other case is
 a typed error: In-flight, Complete within ``ttl`` and a window outside the
 horizon are :class:`NotEligible`; no sink, an unknown ``write_mode`` or an
 inconsistent window are :class:`InvalidArtifactPlan`; MERGE into DELTA is
-:class:`UnsupportedArtifactPlan` (Delta sinks, §6.2).  Nothing falls back to a
-default sink, mode, horizon or window.
+:class:`UnsupportedArtifactPlan` (Delta sinks, §6.2).  An ICEBERG plan needs
+the attached catalog (:class:`IcebergCatalog`), and a MERGE into ICEBERG also
+needs an engine version the §6.2 capability table covers and a merge-on-read
+table; otherwise it is :class:`UnsupportedArtifactPlan` (§6.2 Iceberg writes).
+Nothing falls back to a default sink, mode, horizon or window.
 """
 
 from __future__ import annotations
@@ -37,6 +40,10 @@ from sqldim.core.query.dgm.planner._artifact_plan import (
     WritePlan,
     instant,
     plan_artifact_run,
+)
+from sqldim.core.query.dgm.planner._rule8 import (
+    ICEBERG_DOCUMENTED_VERSIONS,
+    IcebergCatalog,
 )
 from sqldim.core.query.dgm.planner._targets import ExportPlan, SinkTarget
 
@@ -144,12 +151,43 @@ def _window(
     return chosen
 
 
+def _check_sink(
+    sink: SinkTarget, op: WriteOperation, catalog: IcebergCatalog | None
+) -> None:
+    """§6.2 Delta and Iceberg writes: what the sink admits for *op*."""
+    if op is WriteOperation.MERGE and sink is SinkTarget.DELTA:
+        raise UnsupportedArtifactPlan(
+            "a DELTA WritePlan is APPEND only; a MERGE needs another sink"
+        )
+    if sink is not SinkTarget.ICEBERG:
+        return
+    if not isinstance(catalog, IcebergCatalog):
+        raise UnsupportedArtifactPlan(
+            "an ICEBERG WritePlan needs an attached Iceberg REST catalog "
+            "(iceberg_catalog); there is none (§6.2 Iceberg writes)"
+        )
+    if op is not WriteOperation.MERGE:
+        return
+    if not catalog.documented:
+        raise UnsupportedArtifactPlan(
+            f"a MERGE into ICEBERG on DuckDB {catalog.engine_version}: the §6.2 "
+            f"capability table covers {sorted(ICEBERG_DOCUMENTED_VERSIONS)} only, "
+            "and on another version every Iceberg plan but APPEND is rejected"
+        )
+    if not catalog.merge_on_read:
+        raise UnsupportedArtifactPlan(
+            "a MERGE into ICEBERG needs a merge-on-read table; copy-on-write is "
+            "not supported (§6.2 Iceberg writes)"
+        )
+
+
 def plan_rule_10(
     artifact: PipelineArtifact,
     snapshot: ArtifactSnapshot,
     *,
     now: datetime,
     sink: SinkTarget | None,
+    iceberg_catalog: IcebergCatalog | None = None,
     target: ArtifactTarget,
     query: ExportPlan,
     window: tuple[datetime, datetime] | None = None,
@@ -178,10 +216,7 @@ def plan_rule_10(
             f"satisfy now − {artifact.backfill_horizon} days ≤ window_end ≤ now"
         )
     op = operation_for(artifact.write_mode, state)
-    if op is WriteOperation.MERGE and sink is SinkTarget.DELTA:
-        raise UnsupportedArtifactPlan(
-            "a DELTA WritePlan is APPEND only; a MERGE needs another sink"
-        )
+    _check_sink(sink, op, iceberg_catalog)
     write = WritePlan(sink, target.relation, op, target.window_column)
     return plan_artifact_run(
         snapshot, window_start=start, window_end=end, query=query, write=write

@@ -26,15 +26,18 @@ from sqldim.core.query.dgm.planner._targets import (
     _r6_projects_from,
     _r6_role_playing,
     _r6_weight_constraint,
-    _r8_delta_append_flag,
-    _r8_grain_append_flag,
-    _r8_partition_flag,
+)
+from sqldim.core.query.dgm.planner._rule8 import (
+    IcebergCatalog,
+    SinkWritePlan,
+    plan_rule_8,
 )
 
 if TYPE_CHECKING:
     from datetime import datetime
 
     from sqldim.core.query.dgm.algebra import QuestionAlgebra
+    from sqldim.core.query.dgm.planner._capabilities import Profile
     from sqldim.core.query.dgm.planner._artifact_plan import (
         ArtifactPlan,
         ArtifactSnapshot,
@@ -84,6 +87,14 @@ class DGMPlanner:
         Target query language / engine.
     sink_target:
         Optional write sink.
+    iceberg_catalog:
+        The Iceberg REST catalog attached in the session; an ICEBERG write
+        plan without one is rejected at planning time (§6.2).
+    execution_profile:
+        The capabilities of the engine that executes the emitted SQL, when it
+        is not the query target's own, e.g. ``POSTGRESQL_VIA_DUCKDB`` for
+        SQL_DUCKDB run over PostgreSQL tables.  A construct it does not
+        support raises :class:`UnsupportedCapability` before execution.
     """
 
     def __init__(
@@ -94,6 +105,9 @@ class DGMPlanner:
         rules: Any,
         query_target: QueryTarget,
         sink_target: SinkTarget | None = None,
+        *,
+        iceberg_catalog: IcebergCatalog | None = None,
+        execution_profile: "Profile | None" = None,
     ) -> None:
         self.cost_model = cost_model
         self.statistics = statistics
@@ -101,6 +115,8 @@ class DGMPlanner:
         self.rules = rules
         self.query_target = query_target
         self.sink_target = sink_target
+        self.iceberg_catalog = iceberg_catalog
+        self.execution_profile = execution_profile
 
     # ------------------------------------------------------------------
     # Rule 1a — Path execution strategy
@@ -334,29 +350,20 @@ class DGMPlanner:
         has_temporal_agg: bool,
         has_q_delta: bool,
         grain_kind: "GrainKind | None",
-    ) -> str:
-        """Rule 8: Return the write plan string for *sink_target*."""
-        from sqldim.core.query.dgm.annotations import GrainKind
+    ) -> SinkWritePlan:
+        """Rule 8: the typed :class:`SinkWritePlan` for *sink_target* (§6.2).
 
-        _base: dict[SinkTarget, str] = {
-            SinkTarget.DUCKDB: "CREATE TABLE AS / INSERT INTO",
-            SinkTarget.MOTHERDUCK: "CREATE TABLE AS / INSERT INTO",
-            SinkTarget.POSTGRESQL: "ATTACH ... AS pg; CREATE TABLE / INSERT INTO via COPY",
-            SinkTarget.PARQUET: "COPY TO (FORMAT PARQUET)",
-            SinkTarget.DELTA: "CREATE OR REPLACE / INSERT INTO delta_scan",
-            SinkTarget.ICEBERG: "INSERT INTO iceberg_scan",
-        }
-        if sink_target not in _base:
-            raise UnsupportedSink(
-                f"Rule 8 has no write plan for sink {sink_target!r}; it is never "
-                "defaulted to INSERT INTO"
-            )
-        plan = _base[sink_target]
-        plan = _r8_partition_flag(plan, sink_target, has_temporal_agg)
-        plan = _r8_delta_append_flag(plan, sink_target, has_q_delta)
-        if grain_kind is not None:
-            plan = _r8_grain_append_flag(plan, sink_target, grain_kind, GrainKind)
-        return plan
+        A file sink is partitioned by timestamp unit under TemporalAgg.  A
+        DELTA plan is always APPEND only, which subsumes the APPEND mode of
+        ``Q_delta`` and of ``Grain(ACCUMULATING)``, so *has_q_delta* and
+        *grain_kind* change nothing.  ICEBERG needs this planner's
+        ``iceberg_catalog``.
+        """
+        return plan_rule_8(
+            sink_target,
+            temporal_agg=has_temporal_agg,
+            iceberg_catalog=self.iceberg_catalog,
+        )
 
     # ------------------------------------------------------------------
     # Rule 10 — PipelineArtifact state-aware write planning
@@ -388,6 +395,7 @@ class DGMPlanner:
             snapshot,
             now=now,
             sink=self.sink_target,
+            iceberg_catalog=self.iceberg_catalog,
             target=target,
             query=query,
             window=window,
@@ -455,11 +463,17 @@ class DGMPlanner:
             lower_query,
         )
 
-        from sqldim.core.query.dgm.planner._capabilities import query_profile
+        from sqldim.core.query.dgm.planner._capabilities import (
+            query_profile,
+            require_ir,
+        )
 
         # fail-closed (#138): a target with no emitter raises
         # UnsupportedCapability; it is never routed to another target
         query_profile(self.query_target).require_emitter()
+        profile = self.execution_profile
+        if profile is not None:
+            profile.require_emitter()
         if isinstance(source, QuestionAlgebra):
             if final is None:
                 raise UnsupportedConstruct("a QuestionAlgebra plan needs final=")
@@ -468,6 +482,7 @@ class DGMPlanner:
             raise UnsupportedConstruct("final= applies only to a QuestionAlgebra")
         else:
             ir = PlanIR(root=lower_query(source), pre_compute=tuple(pre_compute))
+        require_ir(ir, profile or query_profile(self.query_target))
         return ExportPlan.from_ir(
             ir,
             self.query_target,
@@ -475,7 +490,7 @@ class DGMPlanner:
             write_plan=self._default_write_plan(table_name),
         )
 
-    def _default_write_plan(self, table_name: "str | None") -> "str | None":
+    def _default_write_plan(self, table_name: "str | None") -> SinkWritePlan | None:
         if self.sink_target is None or not table_name:
             return None
         return self.apply_rule_8(

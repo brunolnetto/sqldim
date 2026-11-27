@@ -2,7 +2,8 @@
 
 ``pg-duckdb-plan-ir`` loads each case's fixture into a fresh schema of a real
 PostgreSQL server, attached with DuckDB's postgres extension, and executes the
-SQL emitted by ``DGMPlanner.plan_query()`` there: the tables live in
+SQL emitted by ``DGMPlanner.plan_query()`` there, planned with
+``execution_profile=POSTGRESQL_VIA_DUCKDB``: the tables live in
 PostgreSQL, the scans go through the postgres scanner.  This is how sqldim
 reads PostgreSQL; ``QueryTarget.SQL_POSTGRESQL`` itself has no emitter (see
 :mod:`tests.conformance.runners.refusals`).
@@ -23,12 +24,9 @@ from uuid import uuid4
 
 import duckdb
 
-from tests.conformance.runners.duckdb_sql import (
-    EXECUTED_AREAS,
-    Engine,
-    _ir_sql,
-    backend,
-)
+from sqldim.core.query.dgm import DGMPlanner, DGMQuery
+from sqldim.core.query.dgm.planner import POSTGRESQL_VIA_DUCKDB, QueryTarget
+from tests.conformance.runners.duckdb_sql import EXECUTED_AREAS, Engine, backend
 
 
 def dsn() -> str | None:
@@ -80,11 +78,22 @@ def session() -> Iterator[duckdb.DuckDBPyConnection]:
         con.close()
 
 
+def _pg_sql(q: DGMQuery) -> str:
+    """The plan IR's SQL, planned for the engine that runs it: PG(DD) (#178).
+
+    A construct ``POSTGRESQL_VIA_DUCKDB`` declares unsupported raises
+    ``UnsupportedCapability`` here, before the postgres scanner sees it.
+    """
+    planner = DGMPlanner(None, None, None, None, QueryTarget.SQL_DUCKDB,  # type: ignore[arg-type]
+                         execution_profile=POSTGRESQL_VIA_DUCKDB)  # fmt: skip
+    return planner.plan_query(q).query_text
+
+
 PG_DUCKDB = backend(
     "pg-duckdb-plan-ir",
     "DGMPlanner.plan_query() SQL executed by DuckDB over tables stored in "
     "PostgreSQL (postgres extension; PG(DD) of §6.4)",
-    Engine(_ir_sql, session),
+    Engine(_pg_sql, session),
     areas=EXECUTED_AREAS,
     requires=unavailable,
 )

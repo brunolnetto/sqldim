@@ -80,3 +80,46 @@ def test_exporters_do_not_relabel_another_targets_text(exporter: object) -> None
     plan = _plan(QueryTarget.SQL_DUCKDB)
     with pytest.raises(UnsupportedCapability, match="SQL_DUCKDB"):
         exporter.export(plan)  # type: ignore[attr-defined]
+
+
+# ---------------------------------------------------------------------------
+# Window functions per execution profile (#178)
+# ---------------------------------------------------------------------------
+
+
+def _window_query(expr: str) -> DGMQuery:
+    return DGMQuery().anchor("sale", "s").window(w=expr)
+
+
+@pytest.mark.parametrize(
+    ("expr", "cap"),
+    [
+        ("ROW_NUMBER() OVER (ORDER BY s.id)", Capability.WINDOW),
+        ("dense_rank() OVER (ORDER BY s.id)", Capability.WINDOW),
+        ("SUM(s.revenue) OVER (PARTITION BY s.customer)", Capability.WINDOW_AGGREGATE),
+        ("LAG(s.revenue) OVER (ORDER BY s.id)", Capability.WINDOW_AGGREGATE),
+        ("s.revenue", Capability.WINDOW_AGGREGATE),  # not recognised: fail-closed
+    ],
+)
+def test_window_capability(expr: str, cap: Capability) -> None:
+    from sqldim.core.query.dgm.planner._capabilities import window_capability
+
+    assert window_capability(expr) is cap
+
+
+def test_pg_dd_refuses_an_aggregate_window_before_execution() -> None:
+    from sqldim.core.query.dgm.planner import POSTGRESQL_VIA_DUCKDB
+
+    planner = DGMPlanner(None, None, None, None, QueryTarget.SQL_DUCKDB,  # type: ignore[arg-type]
+                         execution_profile=POSTGRESQL_VIA_DUCKDB)  # fmt: skip
+    q = _window_query("SUM(s.revenue) OVER (PARTITION BY s.customer)")
+    with pytest.raises(UnsupportedCapability, match="window_aggregate"):
+        planner.plan_query(q)
+    ok = _window_query("ROW_NUMBER() OVER (PARTITION BY s.customer ORDER BY s.id)")
+    assert "ROW_NUMBER" in planner.plan_query(ok).query_text
+
+
+def test_duckdb_plans_an_aggregate_window() -> None:
+    planner = DGMPlanner(None, None, None, None, QueryTarget.SQL_DUCKDB)  # type: ignore[arg-type]
+    q = _window_query("SUM(s.revenue) OVER (PARTITION BY s.customer)")
+    assert "SUM(s.revenue)" in planner.plan_query(q).query_text

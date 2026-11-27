@@ -3,10 +3,12 @@
 Each sink implements the :class:`SinkAdapter` protocol so loaders
 are storage-agnostic.  Available backends: :class:`DuckDBSink`,
 :class:`PostgreSQLSink`, :class:`ParquetSink`, :class:`DeltaLakeSink`,
-:class:`MotherDuckSink`, and :class:`IcebergSink`.
+:class:`MotherDuckSink`, and :class:`IcebergSink`.  An operation a sink cannot
+execute exactly raises :class:`SinkUnsupported` before anything is written.
 """
 
 from sqldim.sinks.base import SinkAdapter
+from sqldim.sinks._errors import SinkUnsupported
 from sqldim.sinks.file.parquet import ParquetSink
 from sqldim.sinks.file.delta import DeltaLakeSink
 from sqldim.sinks.file.iceberg import IcebergSink
@@ -16,6 +18,7 @@ from sqldim.sinks.sql.postgresql import PostgreSQLSink
 
 __all__ = [
     "SinkAdapter",
+    "SinkUnsupported",
     "DuckDBSink",
     "PostgreSQLSink",
     "ParquetSink",

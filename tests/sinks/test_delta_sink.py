@@ -4,12 +4,11 @@ Tests for sqldim/sinks/delta.py — DeltaLakeSink.
 Strategy
 --------
 * current_state_sql()  — pure SQL-string tests + one real delta_scan read test
-* close_versions()     — no DB needed (always returns 0)
-* write / update_attributes / rotate_attributes / update_milestones
-                       — DuckDB's delta extension in 1.5.x doesn't support
-                         MERGE INTO; we mock the DuckDB connection so the SQL
-                         generation paths are covered without blocking on that
-                         extension limitation.
+* write()              — ATTACH … (TYPE delta) + INSERT INTO, checked on a mock
+                         connection; the real append is exercised by the
+                         conformance backend ``sink-delta``
+* close_versions / update_attributes / rotate_attributes / update_milestones
+                       — refused with SinkUnsupported, nothing sent (#178)
 * __enter__ / __exit__ — patch duckdb.connect to avoid extension install in CI.
 """
 
@@ -18,6 +17,7 @@ from unittest.mock import MagicMock, patch
 import duckdb
 import pytest
 
+from sqldim.sinks import SinkUnsupported
 from sqldim.sinks.file.delta import DeltaLakeSink
 
 
@@ -79,156 +79,77 @@ class TestDeltaLakeSinkCurrentStateSql:
 
 
 # ---------------------------------------------------------------------------
-# close_versions — always no-op (handled by write's MERGE INTO)
+# write — APPEND through an attached Delta table (§6.2)
 # ---------------------------------------------------------------------------
 
 
-class TestDeltaLakeSinkCloseVersions:
-    def test_returns_zero(self):
-        sink = DeltaLakeSink("/data/lake")
-        con = _mock_con()
-        result = sink.close_versions(
-            con, "dim_player", "player_id", "v_nk", "2024-12-31"
-        )
-        assert result == 0
-
-    def test_does_not_execute_sql(self):
-        sink = DeltaLakeSink("/data/lake")
-        con = _mock_con()
-        sink.close_versions(con, "dim_player", "player_id", "v_nk", "2024-12-31")
-        con.execute.assert_not_called()
+def _write_con(columns=("id", "name"), row_count: int = 3) -> MagicMock:
+    con = MagicMock(spec=duckdb.DuckDBPyConnection)
+    con.execute.return_value.fetchall.return_value = [(c,) for c in columns]
+    con.execute.return_value.fetchone.return_value = (row_count,)
+    return con
 
 
-# ---------------------------------------------------------------------------
-# write
-# ---------------------------------------------------------------------------
+def _sent(con: MagicMock) -> list[str]:
+    return [c[0][0] for c in con.execute.call_args_list]
 
 
 class TestDeltaLakeSinkWrite:
-    def test_execute_called_twice(self):
-        """Expect at least a MERGE INTO call and a SELECT count(*) call."""
-        sink = DeltaLakeSink("/data/lake", natural_key="player_id")
-        con = _mock_con(3)
-        sink.write(con, "v_source", "dim_player")
-        assert con.execute.call_count == 2
-
-    def test_merge_sql_contains_natural_key(self):
-        sink = DeltaLakeSink("/data/lake", natural_key="pid")
-        con = _mock_con()
-        sink.write(con, "v_source", "dim_player")
-        merge_sql = con.execute.call_args_list[0][0][0]
-        assert "pid" in merge_sql
-
-    def test_merge_sql_contains_path(self):
-        sink = DeltaLakeSink("/data/lake", natural_key="player_id")
-        con = _mock_con()
-        sink.write(con, "v_source", "dim_player")
-        merge_sql = con.execute.call_args_list[0][0][0]
-        assert "/data/lake/dim_player" in merge_sql
-
-    def test_returns_source_count(self):
+    def test_attaches_inserts_and_detaches(self):
         sink = DeltaLakeSink("/data/lake")
-        con = _mock_con(7)
-        result = sink.write(con, "v_source", "dim_player")
-        assert result == 7
+        con = _write_con()
+        assert sink.write(con, "v_source", "dim_player") == 3
+        sent = _sent(con)
+        assert sent[0].startswith("ATTACH '/data/lake/dim_player' AS sqldim_delta_")
+        assert sent[0].endswith("(TYPE delta)")
+        alias = sent[0].split(" AS ")[1].split()[0]
+        assert f'INSERT INTO {alias} SELECT "id", "name" FROM v_source' in sent
+        assert sent[-1] == f"DETACH {alias}"
 
-    def test_merge_sql_contains_is_current(self):
-        sink = DeltaLakeSink("/data/lake")
-        con = _mock_con()
-        sink.write(con, "v_source", "dim_player")
-        merge_sql = con.execute.call_args_list[0][0][0]
-        assert "is_current" in merge_sql
+    def test_never_targets_delta_scan_or_spark_sql(self):
+        con = _write_con()
+        DeltaLakeSink("/data/lake").write(con, "v", "t")
+        for sql in _sent(con):
+            assert "delta_scan" not in sql
+            assert "delta.`" not in sql
+            assert "MERGE" not in sql
+
+    def test_every_statement_parses_as_duckdb(self):
+        con = _write_con()
+        DeltaLakeSink("/data/lake").write(con, "v", "t")
+        parser = duckdb.connect()
+        for sql in _sent(con):
+            assert parser.extract_statements(sql)
+
+    def test_missing_table_is_refused_and_detached(self):
+        con = _write_con(columns=())
+        with pytest.raises(SinkUnsupported, match="DuckDB 2.0"):
+            DeltaLakeSink("/data/lake").write(con, "v", "t")
+        assert _sent(con)[-1].startswith("DETACH ")
+        assert not any(s.startswith("INSERT") for s in _sent(con))
 
 
 # ---------------------------------------------------------------------------
-# update_attributes
+# In-place changes — refused (§6.2: the delta extension appends only)
 # ---------------------------------------------------------------------------
 
 
-class TestDeltaLakeSinkUpdateAttributes:
-    def test_set_clause_contains_columns(self):
-        sink = DeltaLakeSink("/data/lake")
-        con = _mock_con(2)
-        sink.update_attributes(
-            con, "dim_player", "pid", "v_updates", ["rating", "team"]
-        )
-        merge_sql = con.execute.call_args_list[0][0][0]
-        assert "rating" in merge_sql
-        assert "team" in merge_sql
-
-    def test_returns_source_count(self):
-        sink = DeltaLakeSink("/data/lake")
-        con = _mock_con(4)
-        result = sink.update_attributes(
-            con, "dim_player", "pid", "v_updates", ["rating"]
-        )
-        assert result == 4
-
-    def test_on_clause_uses_nk_col(self):
-        sink = DeltaLakeSink("/data/lake")
+class TestDeltaLakeSinkRefusals:
+    @pytest.mark.parametrize(
+        ("method", "args"),
+        [
+            ("close_versions", ("dim", "id", "v_nk", "2024-12-31")),
+            ("update_attributes", ("dim", "id", "v_up", ["rating"])),
+            ("rotate_attributes", ("dim", "id", "v_rot", [("a", "prev_a")])),
+            ("update_milestones", ("dim", "id", "v_ms", ["shipped_at"])),
+        ],
+    )
+    def test_refused_without_sending_anything(self, method, args):
         con = _mock_con()
-        sink.update_attributes(con, "dim_player", "my_key", "v_updates", ["col1"])
-        merge_sql = con.execute.call_args_list[0][0][0]
-        assert "my_key" in merge_sql
-
-
-# ---------------------------------------------------------------------------
-# rotate_attributes
-# ---------------------------------------------------------------------------
-
-
-class TestDeltaLakeSinkRotateAttributes:
-    def test_set_clause_contains_both_columns(self):
-        sink = DeltaLakeSink("/data/lake")
-        con = _mock_con()
-        sink.rotate_attributes(
-            con,
-            "dim_player",
-            "pid",
-            "v_rot",
-            column_pairs=[("rating", "prev_rating")],
-        )
-        merge_sql = con.execute.call_args_list[0][0][0]
-        assert "rating" in merge_sql
-        assert "prev_rating" in merge_sql
-
-    def test_returns_source_count(self):
-        sink = DeltaLakeSink("/data/lake")
-        con = _mock_con(6)
-        result = sink.rotate_attributes(
-            con,
-            "dim_player",
-            "pid",
-            "v_rot",
-            column_pairs=[("rating", "prev_rating")],
-        )
-        assert result == 6
-
-
-# ---------------------------------------------------------------------------
-# update_milestones
-# ---------------------------------------------------------------------------
-
-
-class TestDeltaLakeSinkUpdateMilestones:
-    def test_coalesce_clause_contains_columns(self):
-        sink = DeltaLakeSink("/data/lake")
-        con = _mock_con()
-        sink.update_milestones(
-            con, "dim_player", "pid", "v_ms", ["first_game", "last_game"]
-        )
-        merge_sql = con.execute.call_args_list[0][0][0]
-        assert "first_game" in merge_sql
-        assert "last_game" in merge_sql
-        assert "COALESCE" in merge_sql
-
-    def test_returns_source_count(self):
-        sink = DeltaLakeSink("/data/lake")
-        con = _mock_con(9)
-        result = sink.update_milestones(
-            con, "dim_player", "pid", "v_ms", ["first_game"]
-        )
-        assert result == 9
+        with pytest.raises(SinkUnsupported, match="appends only") as info:
+            getattr(DeltaLakeSink("/data/lake"), method)(con, *args)
+        assert info.value.code == "UNSUPPORTED"
+        con.execute.assert_not_called()
 
 
 # ---------------------------------------------------------------------------
