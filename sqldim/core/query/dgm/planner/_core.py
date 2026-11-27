@@ -6,6 +6,7 @@ helpers live in :mod:`sqldim.core.query.dgm.planner_targets`.
 
 from __future__ import annotations
 
+from collections.abc import Sequence
 from typing import TYPE_CHECKING, Any
 
 from sqldim.core.query.dgm.planner._targets import (
@@ -33,8 +34,6 @@ from sqldim.core.query.dgm.planner._targets import (
 )
 
 if TYPE_CHECKING:
-    from collections.abc import Sequence
-
     from sqldim.core.query.dgm.algebra import QuestionAlgebra
     from sqldim.core.query.dgm.planner._rule3 import GraphExprSchedule
     from sqldim.core.query.dgm.bdd import DGMPredicateBDD
@@ -461,7 +460,7 @@ class DGMPlanner:
         *,
         final: "str | None" = None,
         table_name: "str | None" = None,
-        pre_compute: "Sequence[PreComputation]" = (),
+        pre_compute: Sequence[PreComputation] = (),
     ) -> ExportPlan:
         """Lower *source* to the physical plan IR and emit SQL from it (#148).
 

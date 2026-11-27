@@ -54,7 +54,7 @@ from sqldim.core.query.dgm.planner._ir import (
     Scan,
     UnsupportedConstruct,
 )
-from sqldim.core.query.dgm.planner._targets import PreComputation
+from sqldim.core.query.dgm.planner._steps import PreComputation
 
 __all__ = [
     "Dependency",

@@ -29,7 +29,7 @@ from sqldim.core.query.dgm.preds._repeat import RepeatMode
 from sqldim.exceptions import SemanticError
 
 if TYPE_CHECKING:
-    from sqldim.core.query.dgm.planner._targets import PreComputation
+    from sqldim.core.query.dgm.planner._steps import PreComputation
 
 __all__ = [
     "PlanIRError",
@@ -456,7 +456,7 @@ class PlanIR:
 
 
 def _check_steps(steps: tuple["PreComputation", ...], cte_names: set[str]) -> None:
-    from sqldim.core.query.dgm.planner._targets import PreComputation
+    from sqldim.core.query.dgm.planner._steps import PreComputation
 
     for pc in steps:
         if not isinstance(pc, PreComputation):
