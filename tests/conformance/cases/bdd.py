@@ -92,6 +92,51 @@ ORDER_CASES = [
        other=NOT(A("b"))),
 ]  # fmt: skip
 
+STR = "§6.1 Order theory of atoms: String equality always, order under a collation"
+S = {"s": {"nullable": True}}
+SB = {"s": {"nullable": True, "collation": "binary"}}
+
+
+def _s(op: str, c: str) -> tuple:
+    return ("cmp", "s", op, c)
+
+
+STRING_CASES = [
+    _b("BDD-S-01", STR, "s = 'a' AND s = 'b' is not satisfiable (no collation)",
+       "logical_sat", AND(A("a"), A("b")), {"a": _s("=", "a"), "b": _s("=", "b")},
+       DERIVED, S),
+    _b("BDD-S-02", STR, "(s = 'a' OR s = 'b') AND s = 'c' is not satisfiable",
+       "logical_sat", AND(OR(A("a"), A("b")), A("c")),
+       {"a": _s("=", "a"), "b": _s("=", "b"), "c": _s("=", "c")}, DERIVED, S),
+    _b("BDD-S-03", STR, "s = 'a' implies s ≠ 'b' (no collation)", "implies", A("a"),
+       {"a": _s("=", "a"), "b": _s("!=", "b")}, DERIVED, S, other=A("b")),
+    _b("BDD-S-04", STR, "s = 'a' AND s = 'A' is not satisfiable (equality by value)",
+       "logical_sat", AND(A("a"), A("b")), {"a": _s("=", "a"), "b": _s("=", "A")},
+       DERIVED, S),
+    _b("BDD-S-05", STR, "without a collation s > 'b' does not imply s > 'a'",
+       "implies", A("a"), {"a": _s(">", "b"), "b": _s(">", "a")}, DERIVED, S,
+       other=A("b")),
+    _b("BDD-S-06", STR, "without a collation s > 'b' AND s < 'a' is satisfiable",
+       "logical_sat", AND(A("a"), A("b")), {"a": _s(">", "b"), "b": _s("<", "a")},
+       DERIVED, S),
+    _b("BDD-S-07", STR, "without a collation s = 'a' does not imply s < 'b'",
+       "implies", A("a"), {"a": _s("=", "a"), "b": _s("<", "b")}, DERIVED, S,
+       other=A("b")),
+    _b("BDD-S-08", STR, "under binary s > 'b' implies s > 'a'", "implies", A("a"),
+       {"a": _s(">", "b"), "b": _s(">", "a")}, DERIVED, SB, other=A("b")),
+    _b("BDD-S-09", STR, "under binary s > 'b' AND s < 'a' is not satisfiable",
+       "logical_sat", AND(A("a"), A("b")), {"a": _s(">", "b"), "b": _s("<", "a")},
+       DERIVED, SB),
+    _b("BDD-S-10", STR, "under binary s = 'a' implies s < 'b' (O3)", "implies",
+       A("a"), {"a": _s("=", "a"), "b": _s("<", "b")}, DERIVED, SB, other=A("b")),
+    _b("BDD-S-11", STR, "under binary s = 'a' implies s > 'B' (code point order)",
+       "implies", A("a"), {"a": _s("=", "a"), "b": _s(">", "B")}, DERIVED, SB,
+       other=A("b")),
+    _b("BDD-S-12", STR, "under binary s ≥ 'b' implies NOT (s < 'a')", "implies",
+       A("a"), {"a": _s(">=", "b"), "b": _s("<", "a")}, DERIVED, SB,
+       other=NOT(A("b"))),
+]  # fmt: skip
+
 CANON_CASES = [
     _b("BDD-C-01", CANON, "two separately built x > 5 atoms are one variable",
        "equivalent", A("a"), {"a": GT5, "b": GT5}, DERIVED, X, other=A("b")),
@@ -156,6 +201,11 @@ ELIM_CASES = [
     Case("BDD-F-03", "forall_elim", ELIM, "AX φ = guard ∧ ¬EX NotTrue(φ)", "atoms",
          {"mode": "NEXT"},
          sorted([GUARD_EX, ("-", "EXISTS", "NEXT", "NotTrue(φ)")])),
+    Case("BDD-F-04", "forall_elim", ELIM,
+         "FORALL PREVIOUSLY φ = guard ∧ ¬EXISTS PREVIOUSLY NotTrue(φ) (self-dual)",
+         "atoms", {"mode": "PREVIOUSLY"},
+         sorted([("+", "EXISTS", "PREVIOUSLY", "TRUE"),
+                 ("-", "EXISTS", "PREVIOUSLY", "NotTrue(φ)")])),
 ]  # fmt: skip
 
 THM = "§8.2 Propositional completeness (proof by minterm construction)"
@@ -176,6 +226,7 @@ CUBE_CASES = [
 CASES = (
     KLEENE_CASES
     + ORDER_CASES
+    + STRING_CASES
     + CANON_CASES
     + PROP_CASES
     + GENERATED

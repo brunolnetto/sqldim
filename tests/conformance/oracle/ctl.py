@@ -181,7 +181,12 @@ def _evaluate(graph: Mapping[str, Any], s: str, case_input: Mapping[str, Any]) -
     return all(values)
 
 
-_DUAL = {"GLOBALLY": "EVENTUALLY", "EVENTUALLY": "GLOBALLY", "NEXT": "NEXT"}
+_DUAL = {
+    "GLOBALLY": "EVENTUALLY",
+    "EVENTUALLY": "GLOBALLY",
+    "NEXT": "NEXT",
+    "PREVIOUSLY": "PREVIOUSLY",  # self-dual (§4.1 table)
+}
 
 
 def forall_elimination(mode: str, on_empty: str = REQUIRE_WITNESS) -> list[tuple]:
@@ -194,7 +199,8 @@ def forall_elimination(mode: str, on_empty: str = REQUIRE_WITNESS) -> list[tuple
         raise Undefined(f"elimination of FORALL with {mode} is not tabulated here")
     lits = [("-", "EXISTS", _DUAL[mode], "NotTrue(φ)")]
     if on_empty == REQUIRE_WITNESS:
-        guard_mode = "NEXT" if mode == "NEXT" else "EVENTUALLY"
+        # one hop for NEXT and PREVIOUSLY (§4.1 non-emptiness guard)
+        guard_mode = mode if mode in ("NEXT", "PREVIOUSLY") else "EVENTUALLY"
         lits.append(("+", "EXISTS", guard_mode, "TRUE"))
     return sorted(lits)
 

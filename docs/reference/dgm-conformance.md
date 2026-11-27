@@ -50,7 +50,7 @@ implement the area.
 
 <!-- BEGIN GENERATED: tests/conformance/matrix.py -->
 
-398 cases; 196 carry a value stated by the specification, the others are derived by the oracle from the definitions. Every case is checked against the oracle.
+413 cases; 197 carry a value stated by the specification, the others are derived by the oracle from the definitions. Every case is checked against the oracle.
 
 | Clause | Cases | `duckdb-dgmquery` | `duckdb-plan-ir` | `duckdb-ordering` | `dgm-bdd` | `duckdb-question-algebra` | `dgm-model` | `dgm-annotations` | `pg-duckdb-plan-ir` | `planner-refusals` | `dgm-write-plan` | `sink-duckdb` | `sink-parquet` | `sink-postgresql` | `sink-motherduck` | `sink-delta` |
 |---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
@@ -60,7 +60,7 @@ implement the area.
 | ADR 0001 Truth conditions; §4.1 Path semantics | `CTL-A-c-EF` … `CTL-B-a2-EX-VAC` (30) | 9 pass, 15 refused, 6 n/e | 9 pass, 15 refused, 6 n/e | — | — | — | — | — | 9 pass, 15 refused, 6 n/e | 24 refused, 6 n/e | — | — | — | — | — | — |
 | ADR 0003 / §5.1 one reference instant τ | `SCD-TAU-01` | 1 refused | 1 refused | — | — | — | — | — | 1 refused | 1 refused | — | — | — | — | — | — |
 | §2.1 Structural invariants (V_S ⊆ D_S × F_S) | `MOD-08`, `MOD-09`, `MOD-10`, `MOD-11` | — | — | — | — | — | 4 pass | — | — | — | — | — | — | — | — | — |
-| §2.4 Additivity AD1–AD4 and grain defaults | `ADD-01` … `ADD-13` (13) | — | — | — | — | — | — | 9 pass, 4 refused | — | — | — | — | — | — | — | — |
+| §2.4 Additivity AD1–AD4 and grain defaults | `ADD-01` … `ADD-15` (15) | — | — | — | — | — | — | 12 pass, 3 refused | — | — | — | — | — | — | — | — |
 | §2.5 SCD resolution: as-was and as-is | `SCD-01` … `SCD-05` (5) | 5 pass | 5 pass | — | — | — | — | — | 5 pass | 5 refused | — | — | — | — | — | — |
 | §2.5 SCD2 versions; §2.6 M2 (a closed version has valid_to set) | `SINK-CL-01`, `SINK-CL-02`, `SINK-CL-03`, `SINK-CL-04` | — | — | — | — | — | — | — | — | — | — | 4 pass | 4 pass | 4 pass | — | 4 refused |
 | §2.6 Declared model (well-formedness at construction); §2.4 argument kinds | `MOD-01` … `MOD-07` (7) | — | — | — | — | — | 7 pass | — | — | — | — | — | — | — | — | — |
@@ -81,7 +81,7 @@ implement the area.
 | §4.1 Band table (B3: window, QUALIFY); §4.1 NULL rules | `WIN-01`, `WIN-02`, `WIN-03` | 3 pass | 3 pass | — | — | — | — | — | 1 pass, 2 refused | 3 refused | — | — | — | — | — | — |
 | §4.1 Band table; §5.2 cross-band Ref rules | `CON-B-01` … `CON-B-10` (10) | 10 pass | 10 pass | — | — | — | — | — | — | — | — | — | — | — | — | — |
 | §4.1 Empty domain; ADR 0001 Empty-domain policy | `PP-EX-02`, `PP-FA-02`, `PP-FA-03`, `PP-NOT-03` | 3 pass, 1 n/e | 3 pass, 1 n/e | — | — | — | — | — | 3 pass, 1 n/e | 3 refused, 1 n/e | — | — | — | — | — | — |
-| §4.1 FORALL elimination (CTL duality, NotTrue, REQUIRE_WITNESS guard) | `BDD-F-01`, `BDD-F-02`, `BDD-F-03` | — | — | — | 3 pass | — | — | — | — | — | — | — | — | — | — | — |
+| §4.1 FORALL elimination (CTL duality, NotTrue, REQUIRE_WITNESS guard) | `BDD-F-01`, `BDD-F-02`, `BDD-F-03`, `BDD-F-04` | — | — | — | 4 pass | — | — | — | — | — | — | — | — | — | — | — |
 | §4.1 FORALL with ONCE/SINCE; past-time modes need a time-ordered path | `PP-PAST-01`, `PP-PAST-02`, `PP-PAST-03` | 3 pass | 3 pass | — | — | — | — | — | 3 pass | 3 n/e | — | — | — | — | — | — |
 | §4.1 NULL rules (NULL is not a literal) | `CON-N-01`, `CON-N-02` | 2 pass | 2 pass | — | — | — | — | — | — | — | — | — | — | — | — | — |
 | §4.1 PathPred; FORALL elimination with NotTrue; ADR 0001 | `PP-EX-01` … `PP-NULL-04` (8) | 8 pass | 8 pass | — | — | — | — | — | 8 pass | 8 refused | — | — | — | — | — | — |
@@ -92,6 +92,7 @@ implement the area.
 | §5.2.2 Well-formedness of a constellation (DA1–DA3) | `DA-WF-01`, `DA-WF-02`, `DA-WF-03`, `DA-WF-04` | 4 pass | 3 pass, 1 refused | — | — | — | — | — | — | — | — | — | — | — | — | — |
 | §6.1 / §8.3 propositional equivalence, tautology, implication | `BDD-P-01` … `BDD-P-GEN-23` (31) | — | — | — | 31 pass | — | — | — | — | — | — | — | — | — | — | — |
 | §6.1 Order theory of atoms (Δ_ord, O1–O6) | `BDD-O-01` … `BDD-O-08` (8) | — | — | — | 8 pass | — | — | — | — | — | — | — | — | — | — | — |
+| §6.1 Order theory of atoms: String equality always, order under a collation | `BDD-S-01` … `BDD-S-12` (12) | — | — | — | 12 pass | — | — | — | — | — | — | — | — | — | — | — |
 | §6.1 Three-valued logic (T⁺/T⁻ encoding, Δ_excl, Δ_null) | `BDD-K-01` … `BDD-K-08` (8) | — | — | — | 8 pass | — | — | — | — | — | — | — | — | — | — | — |
 | §6.1 Variables (canonical form of atoms) | `BDD-C-01`, `BDD-C-02`, `BDD-C-03` | — | — | — | 3 pass | — | — | — | — | — | — | — | — | — | — | — |
 | §6.2 Rule 10 with Delta and Iceberg writes (MERGE) | `WP-DELTA-merge`, `WP-ICEBERG-merge` | — | — | — | — | — | — | — | — | — | 2 pass | — | — | — | — | — |
@@ -387,10 +388,9 @@ implement the area.
 | `SCD-TAU-01` | `duckdb-plan-ir` | refused | the plan IR refuses TemporalContext (node_resolution cannot be stated) |
 | `SCD-TAU-01` | `pg-duckdb-plan-ir` | refused | the plan IR refuses TemporalContext (node_resolution cannot be stated) |
 | `SCD-TAU-01` | `planner-refusals` | refused | every target without an emitter (SQL_POSTGRESQL, CYPHER, SPARQL, DGM_JSON, DGM_YAML) raises UnsupportedCapability |
-| `ADD-04` | `dgm-annotations` | refused | the question lattice raises LatticeUnsupported for a SEMI_ADDITIVE measure: AD2 decides its SUM by the period or entity of each axis, which the enumeration does not decide (fail-closed) |
-| `ADD-07` | `dgm-annotations` | refused | the question lattice does not offer AVG over a NON_ADDITIVE measure: AD3 accepts it only with a warning, and the enumeration offers no aggregate that needs one |
-| `ADD-09` | `dgm-annotations` | refused | the question lattice raises LatticeUnsupported for a SEMI_ADDITIVE measure: AD2 decides its SUM by the period or entity of each axis, which the enumeration does not decide (fail-closed); rejected for that reason, not by AD2 |
-| `ADD-10` | `dgm-annotations` | refused | the question lattice raises LatticeUnsupported for a SEMI_ADDITIVE measure: AD2 decides its SUM by the period or entity of each axis, which the enumeration does not decide (fail-closed) |
+| `ADD-07` | `dgm-annotations` | refused | the question lattice does not offer AVG over a NON_ADDITIVE measure: AD3 accepts it only with a warning, and a skeleton of the enumeration has no field to carry one (§12.3) |
+| `ADD-09` | `dgm-annotations` | refused | the question lattice does not enumerate SUM over a SEMI_ADDITIVE measure: AD2 decides it by the period of the fact or the entity of a dimension, which the declaration does not identify (Grain names no period property; §12.3); rejected for that reason, not by AD2 |
+| `ADD-10` | `dgm-annotations` | refused | the question lattice does not enumerate SUM over a SEMI_ADDITIVE measure: AD2 decides it by the period of the fact or the entity of a dimension, which the declaration does not identify (Grain names no period property; §12.3) |
 | `DA-01` | `duckdb-plan-ir` | refused | the plan IR raises UnsupportedConstruct for a declared constellation: it has no node for per-branch aggregation aligned by FULL OUTER JOIN (fail-closed) |
 | `DA-01` | `pg-duckdb-plan-ir` | refused | the plan IR raises UnsupportedConstruct for a declared constellation: it has no node for per-branch aggregation aligned by FULL OUTER JOIN (fail-closed) |
 | `DA-01` | `planner-refusals` | refused | every target without an emitter (SQL_POSTGRESQL, CYPHER, SPARQL, DGM_JSON, DGM_YAML) raises UnsupportedCapability |
@@ -414,7 +414,7 @@ implement the area.
 | Clause | Why no executable case |
 |---|---|
 | §4.1 Monitor verdicts | sqldim has no Monitor construct; the cases `MON-*` run against the oracle only |
-| §2.4 AD2 over a declared SEMI_ADDITIVE axis | no implementation decides it: `Grain.rejects_sum` covers the grain default only, and the question lattice refuses every SEMI_ADDITIVE measure (`ADD-04`, `ADD-09`, `ADD-10` are refusals) |
+| §2.4 AD2 over a declared SEMI_ADDITIVE axis | no implementation decides it: `Grain.rejects_sum` covers the grain default only, and the question lattice enumerates COUNT, MIN, MAX and AVG over a SEMI_ADDITIVE measure but never its SUM (`ADD-09`, `ADD-10` are refusals) |
 | §4.2 LATEST / EARLIEST | sqldim has no LATEST or EARLIEST TemporalWindow; `TAGG-*` run against the oracle only |
 | ADR 0001 infinite traces (lasso) | the oracle does not model infinite traces and no backend executes a cyclic temporal PathPred; no case is written |
 | §4.1 SINCE / ONCE / PREVIOUSLY evaluation | only their construction-time rejections are covered; no backend evaluates a past-time mode |

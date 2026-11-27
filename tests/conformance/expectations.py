@@ -91,16 +91,17 @@ _add(N, "arguments are untyped SQL text: Date and Timestamp cannot be told apart
 
 # --- Model, anchor sets, annotations ----------------------------------------
 _SEMI = (
-    "the question lattice raises LatticeUnsupported for a SEMI_ADDITIVE measure: "
-    "AD2 decides its SUM by the period or entity of each axis, which the "
-    "enumeration does not decide (fail-closed)"
+    "the question lattice does not enumerate SUM over a SEMI_ADDITIVE measure: "
+    "AD2 decides it by the period of the fact or the entity of a dimension, "
+    "which the declaration does not identify (Grain names no period property; "
+    "§12.3)"
 )
-_add(R, _SEMI, ("dgm-annotations",), "ADD-04", "ADD-10")
+_add(R, _SEMI, ("dgm-annotations",), "ADD-10")
 _add(R, _SEMI + "; rejected for that reason, not by AD2", ("dgm-annotations",),
      "ADD-09")  # fmt: skip
 _add(R, "the question lattice does not offer AVG over a NON_ADDITIVE measure: AD3 "
-        "accepts it only with a warning, and the enumeration offers no aggregate "
-        "that needs one", ("dgm-annotations",), "ADD-07")  # fmt: skip
+        "accepts it only with a warning, and a skeleton of the enumeration has no "
+        "field to carry one (§12.3)", ("dgm-annotations",), "ADD-07")  # fmt: skip
 
 # --- Per-backend matrix (#138) -----------------------------------------------
 PG, REF, WP = "pg-duckdb-plan-ir", "planner-refusals", "dgm-write-plan"
@@ -139,8 +140,9 @@ NOT_COVERED: list[tuple[str, str]] = [
     (
         "§2.4 AD2 over a declared SEMI_ADDITIVE axis",
         "no implementation decides it: `Grain.rejects_sum` covers the grain "
-        "default only, and the question lattice refuses every SEMI_ADDITIVE "
-        "measure (`ADD-04`, `ADD-09`, `ADD-10` are refusals)",
+        "default only, and the question lattice enumerates COUNT, MIN, MAX and "
+        "AVG over a SEMI_ADDITIVE measure but never its SUM (`ADD-09`, `ADD-10` "
+        "are refusals)",
     ),
     (
         "§4.2 LATEST / EARLIEST",

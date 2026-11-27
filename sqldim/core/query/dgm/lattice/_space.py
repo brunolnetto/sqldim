@@ -3,8 +3,11 @@
 :func:`build_space` checks an anchor set (AS1–AS3, canonical roles), computes
 ``N_𝒜``, ``E_𝒜`` and ``Σ|_𝒜`` within the hop bound and refuses — with
 :class:`LatticeUnsupported` — what the enumeration cannot decide from the
-declaration: a property whose type is not a §4.1 ``Type``, or a SUM governed
-by AD2 whose period the declaration does not state.
+declaration: a property whose type is not a §4.1 ``Type``, or a measure of a
+fact with no ``Grain``.  A SEMI_ADDITIVE measure admits the aggregates AD4
+makes valid under every GroupBy (COUNT, MIN, MAX, AVG); its SUM is not
+enumerated, since AD2 decides it by the period of the fact or the key of a
+dimension, which the declaration does not state.
 
 It also resolves what each numeric property may be aggregated by (§2.4): a
 measure of a fact type by its ``Additivity`` or the default of its ``Grain``
@@ -385,6 +388,9 @@ _BY_KIND: dict[str, frozenset[str]] = {
     AdditivityKind.ADDITIVE.value: frozenset(AGG_FNS),  # AD1, AD4
     # AD3 rejects SUM (PROD with it); AVG only with a warning: not enumerated.
     AdditivityKind.NON_ADDITIVE.value: frozenset({"COUNT", "MIN", "MAX"}),
+    # AD4 admits these under every GroupBy; AD2 decides SUM (and PROD with
+    # it) by the period or the dimension key of each axis: not enumerated.
+    AdditivityKind.SEMI_ADDITIVE.value: frozenset({"COUNT", "MIN", "MAX", "AVG"}),
     DEGENERATE: _COUNT_ONLY,
 }
 """AggFns the enumeration admits over a numeric property, by its resolution."""
@@ -400,9 +406,8 @@ _GRAIN_DEFAULT = {
 def _measures(sigma, props, facts: Iterable[str]) -> dict[tuple[str, str], str]:
     """Resolve every numeric property of a fact of ``G_𝒜`` (§2.4).
 
-    Raises :class:`LatticeUnsupported` for a SEMI_ADDITIVE measure: AD2
-    decides its SUM by the period or the entity of each axis, which the
-    enumeration does not decide.
+    Raises :class:`LatticeUnsupported` for a measure of a fact with no
+    Grain (its Additivity has no default).
     """
     grain = {a.fact: a.grain for a in sigma if isinstance(a, Grain)}
     declared = _declared_measures(sigma)
@@ -426,21 +431,10 @@ def _declared_measures(sigma) -> dict[tuple[str, str], Any]:
 
 
 def _resolve(grain, declared, fact: str, key: str) -> str:
-    """The resolution of one numeric fact property; SEMI_ADDITIVE raises."""
+    """The resolution of one numeric fact property (§2.4)."""
     kind = declared.get((fact, key))
     if kind is None:
         kind = _default(grain, fact, key)
-    if kind is AdditivityKind.SEMI_ADDITIVE:
-        how = (
-            f"Grain({fact}, PERIOD)"
-            if (fact, key) not in declared
-            else f"Additivity({fact}, {key}, SEMI_ADDITIVE)"
-        )
-        raise LatticeUnsupported(
-            f"{how}: {fact}.{key} is SEMI_ADDITIVE and AD2 decides its "
-            "SUM by the period or entity of each axis, which the "
-            "enumeration does not decide"
-        )
     return kind if isinstance(kind, str) else kind.value
 
 

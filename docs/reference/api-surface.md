@@ -215,11 +215,16 @@ questions are decided relative to the axioms Δ of the atoms compiled so far:
 
 - Δ_excl;
 - Δ_null;
-- the order theory over numbers, dates and timestamps.
+- the order theory over numbers, dates and timestamps;
+- equality over strings (`s = 'a'` and `s = 'b'` exclude each other).
 
-Strings get no order axiom, because their order depends on the collation. FORALL is
-eliminated by CTL duality with `NotTrue` and the REQUIRE_WITNESS guard. A FORALL
-with PREVIOUSLY or a non-ALL strategy stays an opaque atom.
+A string's order depends on its collation, so its order comparisons get the order
+axioms only when the Ref declares one, in
+`DGMPredicateBDD(manager, collations={"t.s": "binary"})` (`binary` compares by code
+point; another collation raises `ValueError`). Without one they stay opaque atoms.
+FORALL is eliminated by CTL duality with `NotTrue` and the REQUIRE_WITNESS guard,
+PREVIOUSLY included (guarded by `PathPred(EXISTS, PREVIOUSLY, TRUE)`). A FORALL
+with a non-ALL strategy stays an opaque atom.
 
 ### CSE — Common Sub-expression Elimination
 

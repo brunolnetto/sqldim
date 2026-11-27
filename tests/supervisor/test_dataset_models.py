@@ -643,12 +643,13 @@ def test_without_grain_or_additivity_a_numeric_fact_is_unsupported(
     assert kind in result.error.message
 
 
-def test_a_semi_additive_measure_is_unsupported() -> None:
-    """AD2 is not decided by the enumeration: balance is SEMI_ADDITIVE (§12.3)."""
-    from sqldim.core.query.dgm.lattice import LatticeUnsupported
-    from sqldim.core.query.dgm.lattice._space import _measures, _typed_props
+def test_a_semi_additive_measure_is_resolved_without_sum() -> None:
+    """balance is SEMI_ADDITIVE: AD4 aggregates only, SUM not enumerated (§12.3)."""
+    from sqldim.core.query.dgm.lattice._space import _BY_KIND, _measures, _typed_props
 
     model = _open("growth").dgm_model()
     props = _typed_props(model, frozenset({"AccountBalance"}))
-    with pytest.raises(LatticeUnsupported, match="SEMI_ADDITIVE"):
-        _measures(model.sigma, props, ["AccountBalance"])
+    measures = _measures(model.sigma, props, ["AccountBalance"])
+    kinds = {measures[m] for m in measures if m[1] == "balance"}
+    assert kinds == {"SEMI_ADDITIVE"}
+    assert _BY_KIND["SEMI_ADDITIVE"] == {"COUNT", "MIN", "MAX", "AVG"}
