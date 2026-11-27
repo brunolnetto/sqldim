@@ -82,7 +82,17 @@ def _game() -> NodeType:
 
 
 def _game_detail() -> NodeType:
-    counts = ("fgm", "fga", "fg3m", "fg3a", "ftm", "fta", "oreb", "dreb", "reb")
+    counts: tuple[str, ...] = (
+        "fgm",
+        "fga",
+        "fg3m",
+        "fg3a",
+        "ftm",
+        "fta",
+        "oreb",
+        "dreb",
+        "reb",
+    )
     counts += ("ast", "stl", "blk", "to_", "pf")
     props: dict[str, PropType] = {
         "team_abbreviation": STRING,
@@ -106,7 +116,15 @@ def _game_detail() -> NodeType:
 
 
 def _player_season() -> NodeType:
-    rates = ("gp", "pts", "reb", "ast", "netrtg", "oreb_pct", "dreb_pct")
+    rates: tuple[str, ...] = (
+        "gp",
+        "pts",
+        "reb",
+        "ast",
+        "netrtg",
+        "oreb_pct",
+        "dreb_pct",
+    )
     rates += ("usg_pct", "ts_pct", "ast_pct")
     return table_node(
         "PlayerSeason",
