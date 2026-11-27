@@ -1,6 +1,6 @@
 # sqldim: Unified Dimensional & Graph Modeling
 
-`sqldim` is a high-performance Python toolkit that bridges **Kimball Dimensional
+`sqldim` is a Python toolkit that bridges **Kimball Dimensional
 Modeling** and **Graph Analytics** using the same `SQLModel` definitions to power
 both BI star schemas and network traversal queries.
 
@@ -15,7 +15,8 @@ both BI star schemas and network traversal queries.
 | **[Guides](./guides/lazy_loaders.md)** | How-to guides: lazy loaders, vectorised ETL, semantic layer |
 | **[Reference](./reference/api-surface.md)** | Full public API surface, fact types, sinks, CLI, exceptions, datasets |
 | [Patterns](./patterns/dual_paradigm.md) | Good practices: hybrid SCD, dual-paradigm modelling |
-| [Development](./development/theoretical.md) | Theory, deep research, design rationale |
+| [Specification](./motivation/dimensional_graph_modelling.md) | The DGM specification (v0.27, Draft) and its ADRs in [`adr/`](./adr/) |
+| **[Capabilities](./reference/capabilities.md)** | What the DGM layer implements today, generated from the code |
 
 ---
 
@@ -35,13 +36,16 @@ both BI star schemas and network traversal queries.
 
 - **Dimensional Core** — SCD Types 1–6, surrogate-key resolution, grain validation.
 - **Dimensional Graph Model (DGM)** — three-band query algebra (`B1 ∘ B2? ∘ B3?`) unifying dimensional analysis with graph modelling.
-  See [features/dimensional_graph_model.md](./features/dimensional_graph_model.md).
+  The implementation covers part of the draft specification; see
+  [features/dimensional_graph_model.md](./features/dimensional_graph_model.md) and the generated
+  [capability page](./reference/capabilities.md). Its natural-language interface is a demonstration only (D47).
 - **Graph Extension** — vertex/edge projection, recursive-CTE traversal, `SchemaGraph`.
-- **Vectorised ETL** — Narwhals adapters for Polars, Pandas, DuckDB, PySpark.
+- **Vectorised ETL** — Narwhals adapters for Polars, Pandas and DuckDB.
   See [guides/vectorized_etl.md](./guides/vectorized_etl.md).
 - **Semantic Layer** — fluent query builder with automatic point-in-time resolution.
   See [guides/semantic_layer.md](./guides/semantic_layer.md).
-- **Open Table Formats** — Apache Iceberg and Delta Lake sinks and sources.
+- **Open Table Formats** — Apache Iceberg and Delta Lake sinks and sources. Their writes are not
+  executed against real storage in CI ([backend matrix](./reference/dgm-backend-matrix.md)).
   See [guides/big_data.md](./guides/big_data.md).
 
 ---
@@ -64,6 +68,8 @@ both BI star schemas and network traversal queries.
 
 | Reference | Description |
 |---|---|
+| [Capabilities](./reference/capabilities.md) | What the DGM layer implements, generated from the code |
+| [DGM Conformance](./reference/dgm-conformance.md) · [Backend Matrix](./reference/dgm-backend-matrix.md) · [Claims](./reference/dgm-claims.md) | Generated evidence: semantic cases, executed backends, theorem evidence levels |
 | [API Surface](./reference/api-surface.md) | Every public name exported from `sqldim` |
 | [Fact Types](./reference/fact_types.md) | Transaction, snapshot, accumulating, cumulative, activity |
 | [SCD Processors](./reference/scd_processors.md) | SCD engine internals and configuration |

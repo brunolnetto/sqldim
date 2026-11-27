@@ -34,19 +34,27 @@ Sinks are the write boundary between sqldim's DuckDB execution engine and your s
 
 | Capability | DuckDB | PostgreSQL | MotherDuck | Parquet | Iceberg | Delta |
 |:-----------|:------:|:----------:|:----------:|:-------:|:-------:|:-----:|
-| `write` | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
+| `write` | ✅ | ✅ | ✅ | ✅ | ✅ | ❌ see below |
 | `write_named` | ✅ | ✅ | — | ✅ | — | — |
 | `close_versions` | ✅ UPDATE | ✅ UPDATE | ✅ UPDATE | ✅ rewrite | ✅ overwrite | ⚠️ no-op |
-| `update_attributes` | ✅ UPDATE | ✅ UPDATE | ✅ UPDATE | ✅ rewrite | ✅ overwrite | ✅ MERGE |
-| `rotate_attributes` | ✅ UPDATE | ✅ UPDATE | ✅ UPDATE | ✅ rewrite | ✅ overwrite | ✅ MERGE |
-| `update_milestones` | ✅ UPDATE | ✅ UPDATE | ✅ UPDATE | ✅ rewrite | ✅ overwrite | ✅ MERGE |
+| `update_attributes` | ✅ UPDATE | ✅ UPDATE | ✅ UPDATE | ✅ rewrite | ✅ overwrite | ❌ MERGE |
+| `rotate_attributes` | ✅ UPDATE | ✅ UPDATE | ✅ UPDATE | ✅ rewrite | ✅ overwrite | ❌ MERGE |
+| `update_milestones` | ✅ UPDATE | ✅ UPDATE | ✅ UPDATE | ✅ rewrite | ✅ overwrite | ❌ MERGE |
 | `prefetch_hashes` | ✅ | ✅ | ✅ | — | — | — |
 | `upsert` | ✅ | — | ✅ | — | — | — |
 | Context manager | ✅ | ✅ | ✅ | — | ✅ | ✅ |
 | S3/GCS/Azure | — | — | — | ✅ | ✅ | ✅ |
 | Mutation strategy | In-place UPDATE | In-place UPDATE via pg extension | In-place UPDATE via ATTACH | Partition rewrite | Read-modify-write (Arrow) | MERGE INTO |
 
-**Legend**: ✅ = supported, — = not implemented, ⚠️ = handled differently (see notes below)
+**Legend**: ✅ = implemented, — = not implemented, ⚠️ = handled differently (see notes below), ❌ = implemented but known not to work on DuckDB (see the Delta notes)
+
+This table says what each sink implements. What was *executed* against real
+storage is in the generated [backend matrix](dgm-backend-matrix.md): DuckDB,
+PostgreSQL and Parquet are written and read back in CI. MotherDuck and Delta
+are checked only as captured SQL, and Iceberg only as a write plan. Parquet
+`close_versions` keeps only the current rows, so historical versions are
+lost. The [capability page](capabilities.md) gives the declared support per
+sink.
 
 ## Sink Details
 
@@ -187,7 +195,7 @@ with IcebergSink(
 
 ### DeltaLakeSink
 
-Delta Lake via DuckDB's `delta` extension. Uses `MERGE INTO` for writes — new rows are inserted and changed rows have their current version closed in a single atomic statement.
+Delta Lake via DuckDB's `delta` extension. Its writes send a Spark-style `MERGE INTO delta.`<path>`` statement. **DuckDB's parser rejects that statement**, and the DGM specification allows only APPEND for a Delta write on DuckDB (§6.2 *Delta writes*). As shipped, `write()` and the attribute updates do not work on DuckDB (conformance case `SINK-SQL-W` in the [backend matrix](dgm-backend-matrix.md)). Reading through `delta_scan` is unaffected.
 
 ```python
 from sqldim.sinks import DeltaLakeSink
@@ -201,9 +209,7 @@ with DeltaLakeSink("/data/delta_warehouse", natural_key="email") as sink:
 | `path` | `str` | required | Base directory for Delta tables |
 | `natural_key` | `str` | `"id"` | Column used for MERGE match condition |
 
-**Strengths**: Atomic `MERGE INTO` handles insert + version-close in one statement. All mutations use `MERGE INTO` — efficient for Delta's file-based storage.
-
-**Limitations**: `close_versions()` is a **no-op** — version closing is handled inside `write()` via the MERGE statement, so the source view must include an `_scd_class` column (`'new'`, `'changed'`, `'unchanged'`). No `write_named`, `prefetch_hashes`, or `upsert`.
+**Limitations**: the `MERGE INTO` above is not accepted by DuckDB. `close_versions()` is a **no-op**: it sends no statement and returns 0 (`SINK-SQL-C`), because version closing was meant to happen inside `write()`'s MERGE, so the source view must include an `_scd_class` column (`'new'`, `'changed'`, `'unchanged'`). No `write_named`, `prefetch_hashes`, or `upsert`.
 
 **Important**: The `write()` method expects the source view to contain an `_scd_class` column that classifies each row. This is produced by `LazySCDProcessor` — if you're using `DimensionalLoader` (the standard path), use a different sink.
 

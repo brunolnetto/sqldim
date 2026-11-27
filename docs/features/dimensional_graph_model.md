@@ -6,6 +6,47 @@ The **Dimensional Graph Model** is sqldim's formal query algebra for dimensional
 
 ---
 
+## Status and evidence
+
+The normative text is the specification,
+[`dimensional_graph_modelling.md`](../motivation/dimensional_graph_modelling.md)
+(v0.27, Draft). This page describes the part of it that sqldim implements.
+Several parts are not implemented yet: some constructs are refused, and
+some tools and the natural-language pipeline are missing. Where this page
+and the evidence disagree, the evidence is right:
+
+| What | Where it is stated | How it is kept current |
+|---|---|---|
+| What is implemented, per tool, target and sink | [Capabilities](../reference/capabilities.md) | generated from the registry and the planner profiles |
+| Conformance of each construct to the specification | [DGM semantic conformance](../reference/dgm-conformance.md) | generated; strict `xfail` for each known divergence |
+| Which backends and sinks were executed | [DGM backend matrix](../reference/dgm-backend-matrix.md) | generated from the conformance runs |
+| Evidence behind each theorem or bound | [DGM claims register](../reference/dgm-claims.md) | generated; exhaustive checks on bounded domains |
+
+What follows from those pages:
+
+- **Execution is DuckDB SQL.** `DGMQuery.to_sql()` / `execute()` and the plan
+  IR of `DGMPlanner.plan_query` emit DuckDB SQL, also run over PostgreSQL
+  tables through DuckDB's postgres extension. Cypher, SPARQL, native
+  PostgreSQL SQL, `DGM_JSON` and `DGM_YAML` have no emitter: planning for
+  them raises `UnsupportedCapability`. MotherDuck shares the DuckDB emitter
+  but has not been executed.
+- **Fail-closed.** A construct outside the implemented part raises
+  `UnsupportedConstruct` or `UnsupportedCapability`, never a SQL text that
+  drops it. For example, `to_sql()` refuses a `Repeat`, temporal modes over
+  several positions and strategies other than `ALL`. The backend matrix
+  lists each refusal.
+- **Theorems carry their evidence level.** "Holds on the checked domain"
+  means an exhaustive check on a bounded domain, not a proof. Several claims
+  of the specification are not independently evidenced, among them the
+  canonical-form theorem behind query DAG minimisation (`CLM-8.14-CANON`)
+  and question completeness (`CLM-8.11-QC`). The PTIME data-complexity
+  result rests on a citation (`CLM-8.13-PTIME`).
+- **The natural-language interface and the supervisor's `dgm_query` are
+  demo only** (D47, [ADR 0013](../adr/0013-explicit-demo-mode.md)). See
+  [Supervisor and NL interface](#supervisor-and-nl-interface).
+
+---
+
 ## Core Ideas
 
 | Concept | One-liner |
@@ -54,7 +95,7 @@ from sqldim.core.query.dgm import (
     DGMQuery,
     PropRef, AggRef, WinRef,
     ScalarPred, AND, NOT,
-    VerbHop, BridgeHop, PathPred,
+    VerbHop, BridgeHop, PathPred, Compose,
 )
 
 # B1 only — filter on a joined dimension attribute
@@ -163,9 +204,10 @@ No band may reference the output of a later band.
 ## Predicate Language
 
 All three bands share an identical boolean tree grammar. The only variation is which
-`Ref` kind is permitted inside `ScalarPred` leaves.
+`Ref` kind is permitted inside `ScalarPred` leaves. The block below is a
+grammar sketch, not a runnable program:
 
-```python
+```text
 # Scalar comparison
 ScalarPred(ref, op, value)    # ref.to_sql() op value
 ScalarPred(ref, "IS", None)   # the NULL test: NULL is not a literal, so
@@ -289,6 +331,8 @@ aggregation.
 
 ## Executing a Query
 
+Illustrative: it needs the tables the query names.
+
 ```python
 import duckdb
 
@@ -325,6 +369,34 @@ df  = con.execute(sql).fetchdf()   # Pandas DataFrame
 | Bridge edge | `BridgeModel` with optional `weight` |
 | SCD2 temporal join | `SCD2Mixin` (`valid_from`, `valid_to`, `is_current`) |
 | Path traversal | `TraversalEngine` (recursive CTE, multi-hop) |
+
+---
+
+## Planning for a backend
+
+`DGMPlanner.plan_query` lowers a `DGMQuery` or a `QuestionAlgebra` to the
+physical plan IR and emits SQL for the planner's `query_target`. The target's
+declared profile decides what is accepted. Only the DuckDB SQL targets have an
+emitter; any other target raises `UnsupportedCapability`, and a query is never
+routed to another target:
+
+```python
+from sqldim.core.query.dgm import DGMPlanner, DGMQuery, PropRef, QueryTarget, ScalarPred
+
+q = DGMQuery().anchor("sale_fact", "s").where(ScalarPred(PropRef("s", "year"), "=", 2024))
+planner = DGMPlanner(None, None, None, None, QueryTarget.SQL_DUCKDB)
+print(planner.plan_query(q).query_text)
+
+# No emitter for Cypher: UnsupportedCapability, never a DuckDB plan relabelled
+# DGMPlanner(None, None, None, None, QueryTarget.CYPHER).plan_query(q)
+```
+
+The plan IR and `to_sql()` do not accept the same constructs. For example,
+the plan IR plans a WALK `Repeat` and `to_sql()` refuses it, while `to_sql()`
+evaluates drill-across and the plan IR refuses it. The
+[capability page](../reference/capabilities.md) and the
+[backend matrix](../reference/dgm-backend-matrix.md) give the declaration and
+the evidence for each.
 
 ---
 
@@ -379,14 +451,18 @@ print(alg.to_sql(final="combined"))
 
 ### Semiring structure
 
-`(Q_algebra, UNION, INTERSECT, ∅, Q_top)` is a semiring where:
+For queries with the same result schema, read as *sets* of tuples,
+`(Q_algebra, UNION, INTERSECT, ∅, Q_top)` is a semiring (§8.13):
 
 - **`∅`** (`QuestionAlgebra.EMPTY_Q`) is the additive identity — a CTE that
   returns no rows.
 - **`Q_top`** (`QuestionAlgebra.TOP_Q`) is the multiplicative identity — a CTE
   that returns all rows with no filter.
 
-This algebraic structure underpins the Query DAG Minimisation optimiser.
+This algebraic structure underpins the Query DAG Minimisation optimiser. The
+emitted SQL is not set-valued: `UNION` is `UNION ALL`, so the set laws do not
+hold for the multiplicity of rows (see the caveat under
+[Query DAG Minimisation](#query-dag-minimisation-rule-11-extended)).
 
 ---
 
@@ -398,10 +474,8 @@ dedicated `__cse_<id>` CTE inserted before the group.  Each sharing CTE then
 queries the pre-filtered result, avoiding repeated table scans.
 
 ```python
-from sqldim.core.query.dgm import (
-    apply_cse, find_shared_predicates,
-    BDDManager, DGMPredicateBDD,
-)
+from sqldim.core.query.dgm import apply_cse, find_shared_predicates
+from sqldim.core.query.dgm.bdd import BDDManager, DGMPredicateBDD
 
 bdd = DGMPredicateBDD(BDDManager())
 
@@ -438,9 +512,8 @@ Containment (`Q₁ ⊆ Q₂`) is checked via `bdd.implies(id₁, id₂)` — the
 canonicalises predicates so that structurally equivalent filters share integer IDs.
 
 ```python
-from sqldim.core.query.dgm import (
-    apply_semiring_minimisation, BDDManager, DGMPredicateBDD,
-)
+from sqldim.core.query.dgm import apply_semiring_minimisation
+from sqldim.core.query.dgm.bdd import BDDManager, DGMPredicateBDD
 
 bdd = DGMPredicateBDD(BDDManager())
 
@@ -454,8 +527,18 @@ minimal = alg.minimize(bdd)
 assert len(minimal) == 1  # q_dup eliminated
 ```
 
-The minimum CTE count equals the number of nodes in the canonical DAG — this is a
-**tight lower bound**: no semantically equivalent expression with fewer CTEs exists.
+The CTE count equals the number of nodes in the reduced DAG. That count is
+minimal *within the canonical form*: no composition reachable by these rules
+has fewer nodes. It is **not** a lower bound over every equivalent query: a
+Band 2 composition can have a smaller equivalent that the rules do not find
+(§8.14). The soundness of the rules (two compositions with one DAG node are
+equivalent, `CLM-8.14-CANON`) is proved in the specification but not
+independently evidenced ([claims register](../reference/dgm-claims.md)).
+
+**Caveat — multiplicity.** The elimination laws are set laws, but `UNION`
+emits `UNION ALL`. In the example above, `q_dup` returns every row of `orders`
+twice, and the minimised algebra returns it once. Do not minimise an algebra
+whose result is read as a bag (counts, sums over the union).
 
 ### QueryDAGManager — intern-table for the DAG
 
@@ -490,15 +573,37 @@ step1 = alg.minimize(bdd)
 # Step 2 — extract shared predicates into __cse_* CTEs
 step2 = apply_cse(step1, bdd)
 
-# Step 3 — emit final SQL
+# Step 3 — emit final SQL ("my_final_cte": the name of your final CTE)
 sql = step2.to_sql(final="my_final_cte")
 ```
 
 ---
 
+## Supervisor and NL interface
+
+The supervisor of §12 runs tool calls under the contract of §12.2:
+authorization, budget reservation, bounded concurrency and typed failures.
+The registry decides which tools run. A tool without an implementation is
+registered `available = False` and returns `NOT_IMPLEMENTED` without running.
+The [capability page](../reference/capabilities.md) lists, per deployment
+configuration, which of the nine tools are available. With every component
+configured, these are still unavailable: `dgm_query`, `dgm_correlate`,
+`dgm_explore_from`, `dgm_sensitivity_sweep`.
+
+The natural-language interface of §11 is **demo only**. `build_nl_graph()`
+raises `NLPipelineUnavailable` unless `demo=True`. The CLI commands
+`sqldim nl ask`, `nl chat`, `nl showtime` and `nl evals` answer a data
+question only through the heuristic demo path: a keyword planner, template or
+LLM-written SQL and nodes that confirm automatically. That path runs only
+with `--demo`, or always for `showtime` and the evals, and every result
+carries `demo = true` (D47, [ADR 0013](../adr/0013-explicit-demo-mode.md)).
+Demo output is not a DGM result and is not conformance evidence.
+
+---
+
 ## Related
 
-- [Graph Analytics Roadmap ADR](../development/adr/graph-analytics-roadmap.md) — metadata-driven property graph tiers
+- [Graph Analytics Roadmap](../architecture/graph-analytics-roadmap.md) — metadata-driven property graph tiers
 - [Benchmark Suite ADR: Group O](../architecture/benchmark-suite.md#group-o-dgm-query-builder--throughput-semantics) — verified throughput and three-band measurement semantics
 - [Semantic Layer Guide](../guides/semantic_layer.md) — higher-level query builder built on the same DuckDB backend
 - [Full API Surface](../reference/api-surface.md#question-algebra-multi-cte-composition) — complete symbol reference

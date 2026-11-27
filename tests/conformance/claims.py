@@ -54,6 +54,8 @@ class Claim:
     """``check:<test function in test_claims.py>`` or ``cases:<id glob>``."""
     domain: str = ""
     note: str = ""
+    corrected: str = ""
+    """The earlier statement and the counterexample that made the spec change it."""
 
 
 E, R, W, C, P, N = (
@@ -205,19 +207,24 @@ CLAIMS: tuple[Claim, ...] = (
     Claim(
         "CLM-8.6-SIMPLE-BOUND",
         "§8.6 Finite traversal space",
-        "The number of simple path instances in G_I is at most Σ_k |N_I|!/(|N_I|−k)!.",
+        "The number of simple path instances in G_I is at most "
+        "Σ_k |N_I|!/(|N_I|−k)! · m^k, where m ≥ 1 is the maximum number of "
+        "parallel edges between an ordered pair of nodes (1 without edges).",
         (E, W),
-        Status.COUNTEREXAMPLE,
+        Status.HOLDS,
         (
             "check:test_claim_simple_path_bound_one_label",
+            "check:test_claim_simple_path_bound_parallel_edges",
             "check:test_claim_simple_path_bound_counterexample",
         ),
-        "k read as the number of nodes, 1 ≤ k ≤ |N_I|; the bound holds for every "
-        "one-label graph on ≤ 4 nodes",
-        "fails with parallel edges of different labels: nodes a, b and edges "
-        "(a,b,x), (a,b,y), (a,b,z) give 5 simple path instances (2 of length 0, "
-        "3 of length 1, distinct by §3.3 key) against a bound of 4. The bound "
-        "counts node sequences, not edge instances",
+        "k read as the number of nodes, 1 ≤ k ≤ |N_I|; every one-label graph on "
+        "≤ 4 nodes (m = 1); every graph on ≤ 3 nodes with up to 2 parallel "
+        "edges of distinct labels per ordered pair, and on 2 nodes with up to 3",
+        "simple path instances are counted by §3.3 key, so parallel edges are "
+        "distinct instances",
+        "the bound was Σ_k |N_I|!/(|N_I|−k)!, which counts node sequences: nodes "
+        "a, b and edges (a,b,x), (a,b,y), (a,b,z) give 5 simple path instances "
+        "(2 of length 0, 3 of length 1) against 4; the corrected bound is 24",
     ),
     Claim(
         "CLM-8.6-PATTERNS",
@@ -350,16 +357,22 @@ CLAIMS: tuple[Claim, ...] = (
     Claim(
         "CLM-8.16.6-NBHD",
         "§8.16.6 Neighbourhood size under local moves",
-        "The neighbourhood has at most m + |V_P| + 2L·|E_AB| + a·|AggFn| + 2|P_ord| "
-        "+ Σ(|D_p| − 1) elements, one line per move kind.",
+        "The neighbourhood has at most m + g·(|V_P| − g) + 2L·|E_AB| + a·|AggFn| "
+        "+ 2|P_ord| + Σ(|D_p| − 1) elements, one line per move kind, where g is "
+        "the number of GroupBy keys of q.",
         (E, W),
-        Status.COUNTEREXAMPLE,
-        ("check:test_claim_neighbourhood_bound",),
-        "the bound summed per line, on a toy skeleton space; the §8.16.8 "
-        "arithmetic (57)",
-        "the line 'replace one GroupBy key ≤ |V_P|' fails when q groups by "
-        "g ≥ 2 keys: replacing one of them gives g·(|V_P| − g) neighbours, 6 > 5 "
-        "for g = 2, |V_P| = 5. Polynomiality is unaffected",
+        Status.HOLDS,
+        (
+            "check:test_claim_neighbourhood_bound",
+            "check:test_claim_neighbourhood_bound_counterexample",
+        ),
+        "the GroupBy line exactly, for every key set of every size g over "
+        "|V_P| ≤ 6 properties; the other lines summed on a toy skeleton space; "
+        "the §8.16.8 arithmetic (56)",
+        "",
+        "the line read 'replace one GroupBy key ≤ |V_P|', which fails when q "
+        "groups by g ≥ 2 keys: replacing one of them gives g·(|V_P| − g) "
+        "neighbours, 6 > 5 for g = 2, |V_P| = 5. Polynomiality is unaffected",
     ),
     Claim(
         "CLM-ADR7-METRIC",
@@ -409,9 +422,15 @@ def render() -> str:
         if c.note:
             lines.append(f"  *Note:* {c.note}.")
     lines += ["", "### Counterexamples", ""]
-    for c in CLAIMS:
-        if c.status is Status.COUNTEREXAMPLE:
-            lines.append(f"- **`{c.id}`** ({c.clause}): {c.note}.")
+    open_ = [c for c in CLAIMS if c.status is Status.COUNTEREXAMPLE]
+    for c in open_:
+        lines.append(f"- **`{c.id}`** ({c.clause}): {c.note}.")
+    if not open_:
+        lines.append("None open.")
+    lines += ["", "### Corrected after a counterexample", ""]
+    lines += [
+        f"- **`{c.id}`** ({c.clause}): {c.corrected}." for c in CLAIMS if c.corrected
+    ]
     lines += ["", END]
     return "\n".join(lines) + "\n"
 

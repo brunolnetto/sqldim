@@ -319,8 +319,24 @@ def test_claim_diamond_chain_and_tree() -> None:
 # --------------------------------------------------------------------------
 
 
-def _node_bound(n: int) -> int:
-    return sum(math.factorial(n) // math.factorial(n - k) for k in range(1, n + 1))
+def _node_bound(n: int, m: int = 1) -> int:
+    """§8.6: Σ_k n!/(n−k)! · m^k over paths of k nodes; m = 1 is the old bound."""
+    return sum(
+        math.factorial(n) // math.factorial(n - k) * m**k for k in range(1, n + 1)
+    )
+
+
+def _parallel(n: int, most: int):
+    """Every graph on *n* nodes with 0 … *most* parallel edges per ordered pair.
+
+    The parallel edges of a pair carry distinct labels ``l0 … l{most-1}``; the
+    graph's ``m`` is its largest multiplicity (at least 1).
+    """
+    nodes = [f"v{i}" for i in range(n)]
+    pairs = list(permutations(nodes, 2))
+    for mult in product(range(most + 1), repeat=len(pairs)):
+        edges = [(a, b, f"l{j}") for (a, b), k in zip(pairs, mult) for j in range(k)]
+        yield {"nodes": {v: {} for v in nodes}, "edges": edges}, max((1, *mult))
 
 
 def test_claim_simple_path_bound_one_label() -> None:
@@ -340,13 +356,22 @@ def _complete(n: int) -> dict:
     }
 
 
+def test_claim_simple_path_bound_parallel_edges() -> None:
+    for n, most in ((1, 0), (2, 3), (3, 2)):
+        for g, m in _parallel(n, most):
+            count = sum(len(simple_paths(g, s)) for s in g["nodes"])
+            assert count <= _node_bound(n, m), (g["edges"], count)
+
+
 def test_claim_simple_path_bound_counterexample() -> None:
+    """The old bound counted node sequences; the corrected one counts edges."""
     g = {
         "nodes": {"a": {}, "b": {}},
         "edges": [("a", "b", "x"), ("a", "b", "y"), ("a", "b", "z")],
     }
     count = sum(len(simple_paths(g, s)) for s in g["nodes"])
     assert count == 5 > _node_bound(2) == 4
+    assert count <= _node_bound(2, 3) == 24
 
 
 def test_claim_pattern_count() -> None:
@@ -532,13 +557,22 @@ def _groupby_neighbours(keys: frozenset, vp: tuple) -> set:
 
 
 def test_claim_neighbourhood_bound() -> None:
-    m, vp, length, e_ab, a, aggfn, p_ord = 10, 15, 2, 5, 1, 6, 3
-    assert m + vp + 2 * length * e_ab + a * aggfn + 2 * p_ord == 57  # §8.16.8
+    for n in range(0, 7):
+        props = tuple(f"k{i}" for i in range(n))
+        for g in range(0, n + 1):
+            for keys in combinations(props, g):
+                found = _groupby_neighbours(frozenset(keys), props)
+                assert len(found) == g * (n - g), (keys, n)
+    m, g, vp, length, e_ab, a, aggfn, p_ord = 10, 1, 15, 2, 5, 1, 6, 3
+    total = m + g * (vp - g) + 2 * length * e_ab + a * aggfn + 2 * p_ord
+    assert total == 56  # §8.16.8
+
+
+def test_claim_neighbourhood_bound_counterexample() -> None:
+    """The old line 'replace one GroupBy key ≤ |V_P|' fails for g ≥ 2."""
     props = tuple(f"k{i}" for i in range(5))
-    one = _groupby_neighbours(frozenset({"k0"}), props)
-    assert len(one) <= len(props)
     two = _groupby_neighbours(frozenset({"k0", "k1"}), props)
-    assert len(two) == 2 * (5 - 2) == 6 > len(props)  # the counterexample
+    assert len(two) == 2 * (5 - 2) == 6 > len(props)
 
 
 def _bfs(adj: dict, s) -> dict:
@@ -645,6 +679,9 @@ def test_status_matches_evidence(claim: claims.Claim) -> None:
         assert claim.artifacts and executable & set(claim.kinds), claim.id
     if claim.status is claims.Status.COUNTEREXAMPLE:
         assert claim.note, claim.id
+    if claim.corrected:  # the old counterexample stays as a witness
+        assert claim.status is claims.Status.HOLDS, claim.id
+        assert any(a.endswith("counterexample") for a in claim.artifacts), claim.id
     if claim.status is claims.Status.UNCHECKED:
         assert not claim.artifacts, claim.id
     if claim.status is claims.Status.CITED:

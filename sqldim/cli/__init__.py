@@ -16,6 +16,14 @@ Usage:
     sqldim exercise bench list
     sqldim exercise bench run [CASE ...] [--max-tier TIER] [--source SOURCE]
 
+The ``nl`` commands are demonstrations, not a capability (D47, ADR 0013):
+the §11.10 NL pipeline is not implemented (#143), so a data question is
+answered only by the heuristic demo path, selected with ``--demo`` (always, for
+``showtime`` and the eval suites) and marked demo in every result.  Without
+``--demo`` the NL pipeline reports NOT_IMPLEMENTED.  ``ops migrations generate``,
+``ops migrations show`` and ``ops schema graph`` print guidance only.  See
+docs/reference/capabilities.md.
+
 Examples are auto-discovered from sqldim.application.examples.real_world.*
 and sqldim.application.examples.features.* via EXAMPLE_METADATA dicts.
 """
@@ -75,24 +83,24 @@ def cmd_showtime(args: argparse.Namespace) -> int:
 
 
 def cmd_migrations_generate(args: argparse.Namespace) -> None:
-    """Generate a migration from a schema diff.
+    """Print how to generate a migration; nothing is generated.
 
-    In practice, call ``generate_migration(models, current_state, message)``
+    Call ``generate_migration(models, current_state, message)``
     directly from your project's migration script.
     """
-    print(f"[sqldim] Generating migration: '{args.message}'")
+    print(f"[sqldim] No migration was generated for '{args.message}'.")
     print(
-        "[sqldim] Tip: call generate_migration(models, current_state, message) in your project."
+        "[sqldim] This command prints guidance only: call "
+        "generate_migration(models, current_state, message) in your project."
     )
 
 
 def cmd_migrations_show(args: argparse.Namespace) -> None:
-    """Show pending migration info.
-
-    Prints a human-readable summary of any schema changes detected
-    since the last applied migration.
-    """
-    print("[sqldim] No pending migrations detected (run generate first).")
+    """Print guidance: this command does not inspect the schema."""
+    print(
+        "[sqldim] This command does not inspect your schema. Call "
+        "generate_migration(models, current_state, message) to diff it."
+    )
 
 
 def cmd_migrations_init(args: argparse.Namespace) -> None:
@@ -112,7 +120,7 @@ def cmd_migrations_init(args: argparse.Namespace) -> None:
 
 
 def cmd_schema_graph(args: argparse.Namespace) -> None:
-    """Print schema graph as JSON or Mermaid.
+    """Print guidance on rendering a schema graph; nothing is rendered.
 
     Pass your ``SchemaGraph`` instance to ``.to_dict()`` or ``.to_mermaid()``
     to render the dimensional model as serialisable data or a diagram.
@@ -146,7 +154,8 @@ def cmd_evals_run(args: argparse.Namespace) -> int:
     """Run the eval suite (or a filtered subset) and print a report.
 
     Returns 0 when every case passes, 1 otherwise (useful for CI).
-    When ``--tool`` is given, runs per-tool evals instead of the NL suite.
+    When ``--tool`` is given, lists the per-tool eval cases instead (they are
+    not executed).  The NL suite runs the heuristic graph in demo mode (D47).
     """
     tools: list[str] | None = getattr(args, "tool", None)
     if tools:
@@ -177,7 +186,7 @@ def cmd_evals_run(args: argparse.Namespace) -> int:
 
 
 def _run_tool_evals(args: argparse.Namespace, tools: list[str]) -> int:
-    """Run per-tool evals for the given tool names and print results."""
+    """List the per-tool eval cases of the given tools; none is executed."""
     from sqldim.application.evals.tool_eval_loader import (
         load_all_tool_eval_cases,
         load_cases_for_tool,
@@ -321,14 +330,20 @@ def build_parser() -> argparse.ArgumentParser:
     # ── nl group ──────────────────────────────────────────────────────────
     nl = subparsers.add_parser(
         "nl",
-        help="Natural-language querying and evaluation",
+        help=(
+            "Natural-language querying and evaluation — demonstrations only "
+            "until the §11.10 pipeline lands (#143, D47)"
+        ),
     )
     nl_sub = nl.add_subparsers(dest="subcommand")
 
     # nl ask
     ask = nl_sub.add_parser(
         "ask",
-        help="Ask a natural-language question (single dataset or supervisor mode)",
+        help=(
+            "Ask a natural-language question — demo only: answering it needs "
+            "--demo; without it the NL pipeline reports NOT_IMPLEMENTED"
+        ),
     )
     ask.add_argument(
         "question",
@@ -348,7 +363,7 @@ def build_parser() -> argparse.ArgumentParser:
         dest="dataset",
         default=None,
         help=(
-            "Dataset name for single-dataset mode — one of: ecommerce, fintech, "
+            "Dataset name for single-dataset mode — one of: commerce, fintech, "
             "nba_analytics, growth, telemetry, "
             "entertainment, devops, data_models  (required when --mode=ask)"
         ),
@@ -440,7 +455,10 @@ def build_parser() -> argparse.ArgumentParser:
 
     chat = nl_sub.add_parser(
         "chat",
-        help="Interactive conversational REPL (like Claude Code)",
+        help=(
+            "Interactive REPL over the supervisor — demo only: answering a "
+            "data question needs --demo (dgm_query is NOT_IMPLEMENTED without it)"
+        ),
     )
     chat.add_argument(
         "--datasets",
@@ -474,10 +492,11 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         default=False,
         help=(
-            "Run the heuristic demo path: in --mode ask the heuristic NL graph, "
-            "in --mode supervisor the keyword planner and demo dgm_query. "
-            "Without it the NL pipeline reports NOT_IMPLEMENTED. Its results "
-            "are marked demo and are not contract results (D47)."
+            "Run the heuristic demo path: the keyword planner and demo "
+            "dgm_query. Without it the supervisor plans with the model over the "
+            "available contract tools only, and dgm_query reports "
+            "NOT_IMPLEMENTED. Its results are marked demo and are not contract "
+            "results (D47)."
         ),
     )
     chat.set_defaults(func=cmd_chat)
@@ -522,14 +541,19 @@ def build_parser() -> argparse.ArgumentParser:
     # nl evals
     evals = nl_sub.add_parser(
         "evals",
-        help="NL interface evaluation suite",
+        help=(
+            "NL interface evaluation suite — runs the heuristic NL graph in "
+            "demo mode; its scores are not conformance evidence (D47)"
+        ),
     )
     evals_sub = evals.add_subparsers(dest="evals_subcommand")
 
     ev_list = evals_sub.add_parser("list", help="List all available eval cases")
     ev_list.set_defaults(func=cmd_evals_list)
 
-    ev_run = evals_sub.add_parser("run", help="Run the eval suite and print a report")
+    ev_run = evals_sub.add_parser(
+        "run", help="Run the eval suite in demo mode and print a report"
+    )
     ev_run.add_argument(
         "--dataset",
         nargs="+",
@@ -549,9 +573,9 @@ def build_parser() -> argparse.ArgumentParser:
         default=None,
         metavar="TOOL",
         help=(
-            "Run per-tool evals for specific tools instead of the NL suite "
-            "(e.g. dgm_correlate dgm_explore_from). "
-            "Omit to run the standard NL eval suite."
+            "List the per-tool eval cases of these tools instead of running "
+            "the NL suite (e.g. dgm_correlate dgm_explore_from); the cases are "
+            "listed, not executed. Omit to run the standard NL eval suite."
         ),
     )
     ev_run.add_argument(
@@ -582,7 +606,7 @@ def build_parser() -> argparse.ArgumentParser:
 
     ev_drift = evals_sub.add_parser(
         "drift",
-        help="Run before/after drift evals around a pipeline event",
+        help="Run before/after drift evals around a pipeline event (demo mode)",
     )
     ev_drift.add_argument(
         "--domain",
@@ -633,11 +657,15 @@ def build_parser() -> argparse.ArgumentParser:
     mig = ops_sub.add_parser("migrations", help="Migration management")
     mig_sub = mig.add_subparsers(dest="mig_subcommand")
 
-    gen = mig_sub.add_parser("generate", help="Generate a migration from model diff")
+    gen = mig_sub.add_parser(
+        "generate", help="Print how to generate a migration (generates nothing)"
+    )
     gen.add_argument("message", help="Migration message")
     gen.set_defaults(func=cmd_migrations_generate)
 
-    show = mig_sub.add_parser("show", help="Show pending migrations")
+    show = mig_sub.add_parser(
+        "show", help="Print guidance (does not inspect the schema)"
+    )
     show.set_defaults(func=cmd_migrations_show)
 
     init = mig_sub.add_parser("init", help="Initialize migration directory")
@@ -647,7 +675,9 @@ def build_parser() -> argparse.ArgumentParser:
     # ops schema
     schema = ops_sub.add_parser("schema", help="Schema introspection")
     schema_sub = schema.add_subparsers(dest="schema_subcommand")
-    graph = schema_sub.add_parser("graph", help="Print schema graph")
+    graph = schema_sub.add_parser(
+        "graph", help="Print how to render a SchemaGraph (renders nothing)"
+    )
     graph.set_defaults(func=cmd_schema_graph)
 
     # ── exercise group ───────────────────────────────────────────────────
