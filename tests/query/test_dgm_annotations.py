@@ -694,43 +694,13 @@ class TestPipelineArtifact:
         """PipelineArtifact always implies ACCUMULATING grain."""
         assert self._make().effective_grain is GrainKind.ACCUMULATING
 
-    def test_transition_in_flight_to_complete_is_causal(self):
-        a = self._make()
-        sem = a.transition_semantics(
-            PipelineStateKind.IN_FLIGHT, PipelineStateKind.COMPLETE
-        )
-        assert sem is BridgeSemanticsKind.CAUSAL
-
-    def test_transition_in_flight_to_failed_backfill_is_causal(self):
-        """Backfill failure (no prior Complete) → CAUSAL."""
-        a = self._make(write_mode=WriteModeKind.BACKFILL)
-        sem = a.transition_semantics(
-            PipelineStateKind.IN_FLIGHT, PipelineStateKind.FAILED, is_refresh=False
-        )
-        assert sem is BridgeSemanticsKind.CAUSAL
-
-    def test_transition_in_flight_to_failed_refresh_is_supersession(self):
-        """Refresh failure (prior Complete preserved) → SUPERSESSION."""
+    def test_implies_followed_by_causal(self):
+        """§2.4 / D32: BridgeSemantics is per edge type, never per transition."""
         a = self._make(write_mode=WriteModeKind.REFRESH)
-        sem = a.transition_semantics(
-            PipelineStateKind.IN_FLIGHT, PipelineStateKind.FAILED, is_refresh=True
+        assert a.implied_bridge_semantics == BridgeSemantics(
+            "followed_by", BridgeSemanticsKind.CAUSAL
         )
-        assert sem is BridgeSemanticsKind.SUPERSESSION
-
-    def test_transition_complete_to_stale_is_temporal(self):
-        """TTL expiry → TEMPORAL."""
-        a = self._make()
-        sem = a.transition_semantics(
-            PipelineStateKind.COMPLETE, PipelineStateKind.STALE
-        )
-        assert sem is BridgeSemanticsKind.TEMPORAL
-
-    def test_transition_missing_to_in_flight_is_temporal(self):
-        a = self._make()
-        sem = a.transition_semantics(
-            PipelineStateKind.MISSING, PipelineStateKind.IN_FLIGHT
-        )
-        assert sem is BridgeSemanticsKind.TEMPORAL
+        assert not hasattr(a, "transition_semantics")
 
     def test_equality(self):
         a = self._make()

@@ -6,6 +6,8 @@ module-level helper functions extracted from DGMPlanner's @staticmethod rules.
 
 from __future__ import annotations
 
+from sqldim.exceptions import SemanticError
+
 from collections.abc import Mapping
 from dataclasses import dataclass, field
 from enum import Enum
@@ -71,6 +73,10 @@ class QueryTarget(Enum):
 # ---------------------------------------------------------------------------
 # SinkTarget
 # ---------------------------------------------------------------------------
+
+
+class UnsupportedSink(SemanticError, ValueError):
+    """Rule 8 has no write plan for the sink: it is never defaulted (fail-closed)."""
 
 
 class SinkTarget(Enum):

@@ -20,6 +20,8 @@ Covers:
 
 from __future__ import annotations
 
+import pytest
+
 
 from sqldim.core.query.dgm.planner import (
     QueryTarget,
@@ -859,6 +861,14 @@ class TestRule8:
     def test_returns_string(self):
         p = _make_planner()
         assert isinstance(p.apply_rule_8(SinkTarget.DUCKDB, False, False, None), str)
+
+    def test_unknown_sink_is_a_typed_error(self):
+        """No silent INSERT INTO fallback for a sink Rule 8 does not know (#173)."""
+        from sqldim.core.query.dgm.planner import UnsupportedSink
+
+        p = _make_planner()
+        with pytest.raises(UnsupportedSink, match="no write plan"):
+            p.apply_rule_8("KAFKA", False, False, None)  # type: ignore[arg-type]
 
 
 # ---------------------------------------------------------------------------

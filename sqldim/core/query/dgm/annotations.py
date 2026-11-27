@@ -436,30 +436,15 @@ class PipelineArtifact(SchemaAnnotation):
         """PipelineArtifact always implies ACCUMULATING grain."""
         return GrainKind.ACCUMULATING
 
-    def transition_semantics(
-        self,
-        from_state: PipelineStateKind,
-        to_state: PipelineStateKind,
-        *,
-        is_refresh: bool = False,
-    ) -> BridgeSemanticsKind:
-        """Return the implied BridgeSemanticsKind for a state transition.
+    @property
+    def implied_bridge_semantics(self) -> "BridgeSemantics":
+        """``BridgeSemantics(followed_by, CAUSAL)``, implied by the annotation.
 
-        In-flight → Failed during a REFRESH run (or ADAPTIVE with prior
-        Complete) uses SUPERSESSION so the prior Complete artifact is
-        preserved and the state regresses to Stale rather than Failed.
-        All other successful/failed transitions from In-flight are CAUSAL.
-        Time-driven transitions (TTL expiry, scheduling) are TEMPORAL.
+        §2.4 (D32, ADR 0002): BridgeSemantics belongs to the edge type
+        ``(transitions, transitions, 'followed_by')``, so every transition of
+        the chain is CAUSAL; no transition carries semantics of its own.
         """
-        if (
-            from_state is PipelineStateKind.IN_FLIGHT
-            and to_state is PipelineStateKind.FAILED
-            and is_refresh
-        ):
-            return BridgeSemanticsKind.SUPERSESSION
-        if from_state is PipelineStateKind.IN_FLIGHT:
-            return BridgeSemanticsKind.CAUSAL
-        return BridgeSemanticsKind.TEMPORAL
+        return BridgeSemantics("followed_by", BridgeSemanticsKind.CAUSAL)
 
 
 @dataclass(frozen=True, eq=True)

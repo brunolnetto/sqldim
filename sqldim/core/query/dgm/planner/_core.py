@@ -19,6 +19,7 @@ from sqldim.core.query.dgm.planner._targets import (
     PreComputation,
     QueryTarget,
     SinkTarget,
+    UnsupportedSink,
     _r6_bridge_semantics,
     _r6_degenerate,
     _r6_derived_fact,
@@ -54,6 +55,7 @@ if TYPE_CHECKING:
 __all__ = [
     "QueryTarget",
     "SinkTarget",
+    "UnsupportedSink",
     "PreComputation",
     "CostEstimate",
     "ExportPlan",
@@ -348,7 +350,12 @@ class DGMPlanner:
             SinkTarget.DELTA: "CREATE OR REPLACE / INSERT INTO delta_scan",
             SinkTarget.ICEBERG: "INSERT INTO iceberg_scan",
         }
-        plan = _base.get(sink_target, "INSERT INTO")
+        if sink_target not in _base:
+            raise UnsupportedSink(
+                f"Rule 8 has no write plan for sink {sink_target!r}; it is never "
+                "defaulted to INSERT INTO"
+            )
+        plan = _base[sink_target]
         plan = _r8_partition_flag(plan, sink_target, has_temporal_agg)
         plan = _r8_delta_append_flag(plan, sink_target, has_q_delta)
         if grain_kind is not None:

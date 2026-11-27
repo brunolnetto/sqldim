@@ -171,7 +171,6 @@ def demo_pipeline_artifact() -> None:
     from sqldim.core.query.dgm.annotations import (
         AnnotationSigma,
         PipelineArtifact,
-        PipelineStateKind,
         WriteModeKind,
     )
     from sqldim.core.query.dgm.planner import DGMPlanner, QueryTarget, SinkTarget
@@ -197,20 +196,11 @@ def demo_pipeline_artifact() -> None:
     print(f"  TTL (s)         : {artifact.ttl}")
     print(f"  Backfill horizon: {artifact.backfill_horizon} days")
 
-    transitions = [
-        (PipelineStateKind.MISSING, PipelineStateKind.IN_FLIGHT, False),
-        (PipelineStateKind.IN_FLIGHT, PipelineStateKind.COMPLETE, False),
-        (PipelineStateKind.IN_FLIGHT, PipelineStateKind.FAILED, False),
-        (PipelineStateKind.IN_FLIGHT, PipelineStateKind.FAILED, True),
-        (PipelineStateKind.COMPLETE, PipelineStateKind.STALE, False),
-        (PipelineStateKind.STALE, PipelineStateKind.IN_FLIGHT, False),
-        (PipelineStateKind.FAILED, PipelineStateKind.IN_FLIGHT, False),
-    ]
-    print("\n  Transition semantics:")
-    for from_s, to_s, is_refresh in transitions:
-        sem = artifact.transition_semantics(from_s, to_s, is_refresh=is_refresh)
-        label = "(refresh)" if is_refresh else ""
-        print(f"    {from_s.value:12s} → {to_s.value:12s} {label:10s}: {sem.value}")
+    implied = artifact.implied_bridge_semantics
+    print(
+        f"\n  Implied: BridgeSemantics({implied.bridge}, {implied.sem.value}) —"
+        " every transition of the chain (§2.4, D32)"
+    )
 
     stats = GraphStatistics(node_count=1, edge_count=0)
     planner = DGMPlanner(
