@@ -20,6 +20,8 @@ Covers:
 
 from __future__ import annotations
 
+import pytest
+
 
 from sqldim.core.query.dgm.planner import (
     QueryTarget,
@@ -698,11 +700,16 @@ class TestRule6:
         result = p.apply_rule_6(ann)
         assert any("negat" in s.lower() or "case when" in s.lower() for s in result)
 
-    def test_degenerate_exclude_groupby(self):
+    def test_degenerate_read_from_fact_row_and_groupable(self):
+        """§6.2 Rule 6: no join; GroupBy and Where on f.key stay valid."""
         p = _make_planner()
-        ann = Degenerate(dim="order_no")
+        ann = Degenerate(dim="order_no", fact="Sale")
         result = p.apply_rule_6(ann)
-        assert any("exclusion" in s.lower() or "groupby" in s.lower() for s in result)
+        assert result == [
+            "Degenerate(Sale.order_no): no join — the key is read from the fact "
+            "row; GroupBy and Where on it are valid"
+        ]
+        assert not any("exclusion" in s.lower() for s in result)
 
     def test_returns_list_of_strings(self):
         p = _make_planner()
@@ -854,6 +861,14 @@ class TestRule8:
     def test_returns_string(self):
         p = _make_planner()
         assert isinstance(p.apply_rule_8(SinkTarget.DUCKDB, False, False, None), str)
+
+    def test_unknown_sink_is_a_typed_error(self):
+        """No silent INSERT INTO fallback for a sink Rule 8 does not know (#173)."""
+        from sqldim.core.query.dgm.planner import UnsupportedSink
+
+        p = _make_planner()
+        with pytest.raises(UnsupportedSink, match="no write plan"):
+            p.apply_rule_8("KAFKA", False, False, None)  # type: ignore[arg-type]
 
 
 # ---------------------------------------------------------------------------

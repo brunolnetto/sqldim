@@ -16,6 +16,7 @@ PathPred needs per-iteration evaluation positions (§4.1); those raise
 
 from __future__ import annotations
 
+from sqldim.core.query.dgm._dim_joins import valid_at
 from sqldim.core.query.dgm.algebra import ComposeOp
 from sqldim.core.query.dgm.planner._ir import (
     BandQuery,
@@ -172,15 +173,7 @@ def _version_sql(j: Join) -> str:
     if v.kind is VersionKind.IS_CURRENT:
         return f" AND {a}.is_current = TRUE"
     assert v.as_of is not None
-    t = sql_string(v.as_of)
-    if v.kind is VersionKind.VALID_RANGE_DATE:
-        return (
-            f" AND {a}.valid_from::DATE <= {t}::DATE"
-            f" AND ({a}.valid_to IS NULL OR {a}.valid_to::DATE > {t}::DATE)"
-        )
-    return (
-        f" AND {a}.valid_from <= {t} AND ({a}.valid_to IS NULL OR {a}.valid_to > {t})"
-    )
+    return " AND " + valid_at(a, sql_string(v.as_of))
 
 
 def _select_list(q: BandQuery) -> list[str]:

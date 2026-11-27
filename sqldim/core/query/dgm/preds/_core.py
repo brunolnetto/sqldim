@@ -3,8 +3,6 @@
 from __future__ import annotations
 
 import enum
-from typing import Callable
-
 from sqldim.exceptions import SemanticError
 
 from sqldim.core.query.dgm.refs import (
@@ -61,9 +59,18 @@ __all__ = [
 
 
 class ScalarPred:
-    """Scalar comparison: ref op value."""
+    """Scalar comparison: ref op value.
+
+    NULL is not a literal (§4.1): a comparison with ``None`` is rejected at
+    construction; ``IS`` / ``IS NOT`` with ``None`` is the NULL test.
+    """
 
     def __init__(self, ref: _SQLExpr, op: str, value: object) -> None:
+        if value is None and str(op).upper() not in ("IS", "IS NOT"):
+            raise SemanticError(
+                f"ScalarPred(…, {op!r}, None): NULL is not a literal (§4.1); "
+                "test it with op 'IS' or 'IS NOT'"
+            )
         self.ref = ref
         self.op = op
         self.value = value
@@ -236,51 +243,72 @@ def _flatten_path(path: object) -> list:
 
 
 # ---------------------------------------------------------------------------
-# TemporalMode SQL template mapping  (DGM §6.1)
+# Construction rules and the fail-closed SQL rendering of a PathPred
 # ---------------------------------------------------------------------------
 
-# Deferred import to avoid circularity — accessed via _TEMPORAL_MODE_WRAPPERS
-_TEMPORAL_MODE_WRAPPERS: dict[object, Callable[[str], str]] = {}
+
+def _is_past_mode(mode: object) -> bool:
+    from sqldim.core.query.dgm.temporal import ONCE, PREVIOUSLY, SinceMode
+
+    return mode is ONCE or mode is PREVIOUSLY or isinstance(mode, SinceMode)
 
 
-def _build_temporal_dispatch() -> dict[object, Callable[[str], str]]:
-    """Build singleton-mode dispatch table (deferred to avoid circular import)."""
-    from sqldim.core.query.dgm.temporal import (
-        EVENTUALLY,
-        GLOBALLY,
-        NEXT,
-        ONCE,
-        PREVIOUSLY,
-    )
+def _path_hops(path: object) -> list:
+    """Every hop of *path*, through Compose and the body of a Repeat."""
+    from sqldim.core.query.dgm.preds._repeat import Repeat
 
-    return {
-        EVENTUALLY: lambda s: s,
-        GLOBALLY: lambda s: f"NOT EXISTS (SELECT 1 FROM (SELECT 1 WHERE NOT ({s})))",
-        NEXT: lambda s: s,
-        ONCE: lambda s: f"/* G^T */ {s}",
-        PREVIOUSLY: lambda s: (
-            f"/* G^T */ NOT EXISTS (SELECT 1 FROM (SELECT 1 WHERE NOT ({s})))"
-        ),
-    }
+    out: list = []
+    for item in _flatten_path(path):
+        out += _path_hops(item.path) if isinstance(item, Repeat) else [item]
+    return out
 
 
-def _temporal_mode_sql_wrapper(mode: object, base_exists: str) -> str:
-    """Wrap *base_exists* in the appropriate CTL temporal SQL template."""
-    from sqldim.core.query.dgm.temporal import UntilMode, SinceMode
+def _check_path_pred(pp: "PathPred") -> None:
+    """Construction-time rules of §3.5 and §4.1 that need no schema graph."""
+    from sqldim.core.query.dgm.temporal import ONCE, SinceMode
 
-    dispatch = _build_temporal_dispatch()
-    fn = dispatch.get(mode)
-    if fn is not None:
-        return fn(base_exists)
-    if isinstance(mode, UntilMode):
-        return f"/* UNTIL */ {base_exists}"
-    if isinstance(mode, SinceMode):
-        return f"/* SINCE G^T */ {base_exists}"
-    return base_exists  # pragma: no cover
+    if pp.promote and not isinstance(pp.strategy, (SHORTEST, MIN_WEIGHT)):
+        raise SemanticError(
+            "PathPred(promote=True) is valid only for SHORTEST and MIN_WEIGHT "
+            "(§3.5); it is rejected for ALL and K_SHORTEST"
+        )
+    mode = pp.temporal_mode
+    if pp.quantifier is Quantifier.FORALL and (
+        mode is ONCE or isinstance(mode, SinceMode)
+    ):
+        raise SemanticError("FORALL with ONCE or SINCE is rejected (§4.1)")
+    if _is_past_mode(mode) and any(
+        isinstance(h, (VerbHop, VerbHopInverse)) for h in _path_hops(pp.path)
+    ):
+        raise SemanticError(
+            "SINCE, ONCE and PREVIOUSLY need a time-ordered path (§2.3, §4.1); "
+            "a verb hop is never time-ordered"
+        )
+
+
+def _check_renderable(pp: "PathPred") -> None:
+    """``to_sql()`` renders only what it renders faithfully (fail-closed).
+
+    The same constructs are refused by the plan IR (``planner/_ir_build.py``).
+    """
+    from sqldim.core.query.dgm.planner._ir import UnsupportedConstruct
+
+    mode = pp.temporal_mode
+    if mode is not None:
+        name = getattr(mode, "__name__", type(mode).__name__)
+        raise UnsupportedConstruct(
+            f"PathPred temporal mode {name} has no executable SQL template "
+            "(§4.1); to_sql() refuses it rather than render the EXISTS template"
+        )
+    if pp.strategy is not None and not isinstance(pp.strategy, ALL):
+        raise UnsupportedConstruct(
+            f"PathPred strategy {type(pp.strategy).__name__} restricts the path "
+            "set (§3.3); only ALL is rendered as an EXISTS/FORALL subquery"
+        )  # promote=True implies SHORTEST or MIN_WEIGHT (§3.5), refused here
 
 
 def _path_pred_sql(pp: "PathPred") -> str:
-    """Build EXISTS subquery SQL from a PathPred, applying TemporalMode wrapper."""
+    """EXISTS / FORALL subquery SQL of a PathPred without mode or strategy."""
     hops = _flatten_path(pp.path)
     if not hops:  # pragma: no cover
         return "TRUE"
@@ -289,13 +317,14 @@ def _path_pred_sql(pp: "PathPred") -> str:
             "PathPred over a Repeat (§3.2) has no to_sql() rendering; plan the "
             "query with DGMPlanner.plan_query()"
         )
+    _check_renderable(pp)
     first = hops[0]
     from_clause = f"{first.table} {first.to_alias}"
     join_sql = " ".join(f"JOIN {h.table} {h.to_alias} ON {h.on}" for h in hops[1:])
     sql = f"EXISTS (SELECT 1 FROM {from_clause}"
     if join_sql:
         sql += f" {join_sql}"
-    if pp.quantifier is Quantifier.FORALL and pp.temporal_mode is None:
+    if pp.quantifier is Quantifier.FORALL:
         # §4.1 FORALL elimination with NotTrue, under the REQUIRE_WITNESS
         # default of ADR 0001: no violating position, and at least one.
         sub = pp.sub_filter.to_sql()
@@ -303,10 +332,7 @@ def _path_pred_sql(pp: "PathPred") -> str:
             f"(NOT {sql} WHERE ({sub}) IS NOT TRUE AND {first.on})"
             f" AND {sql} WHERE {first.on}))"
         )
-    base = sql + " WHERE " + " AND ".join([pp.sub_filter.to_sql(), first.on]) + ")"
-    if pp.temporal_mode is None:
-        return base
-    return _temporal_mode_sql_wrapper(pp.temporal_mode, base)
+    return sql + " WHERE " + " AND ".join([pp.sub_filter.to_sql(), first.on]) + ")"
 
 
 # ---------------------------------------------------------------------------
@@ -358,6 +384,7 @@ class PathPred:
         self.strategy = strategy
         self.temporal_mode = temporal_mode
         self.promote = promote
+        _check_path_pred(self)
 
     def to_sql(self) -> str:
         return _path_pred_sql(self)

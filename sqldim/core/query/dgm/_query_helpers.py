@@ -10,6 +10,13 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Iterator
 
 from sqldim.exceptions import SemanticError
+from sqldim.core.query.dgm._entities import ENTITIES, PATHS, entity_aggregate
+from sqldim.core.query.dgm._dim_joins import (
+    dim_join_steps,
+    quote,
+    valid_at,
+    version_sql,
+)
 from sqldim.core.query.dgm.refs import AggRef, PropRef, SignatureRef, WinRef
 from sqldim.core.query.dgm.preds import (
     AND,
@@ -172,17 +179,71 @@ def _validate_b3(q: "DGMQuery") -> None:
         raise SemanticError("B3: .qualify() requires .window() expressions")
 
 
+def _context_aliases(q: "DGMQuery") -> set[str]:
+    """The aliases of the join context C (§3.5)."""
+    out = {q._anchor_alias or q._anchor_table or ""}
+    for join in q._joins:
+        out.add(join.to_alias if isinstance(join, Repeat) else join[1])
+    anchor = q._anchor_alias or q._anchor_table or ""
+    for j in q._scd2_joins:
+        out.update(st.alias for st in dim_join_steps(j, anchor, q._as_of))
+    return out
+
+
+def _path_preds(pred: object) -> Iterator[PathPred]:
+    if isinstance(pred, PathPred):
+        yield pred
+    elif isinstance(pred, (AND, OR)):
+        for sub in pred.preds:
+            yield from _path_preds(sub)
+    elif isinstance(pred, NOT):
+        yield from _path_preds(pred.pred)
+
+
+def _check_alias_uniqueness(q: "DGMQuery") -> None:
+    """C ∩ L ≠ ∅ is rejected (§3.2, §3.5): a path alias never shadows C."""
+    from sqldim.core.query.dgm.preds._core import _path_hops
+
+    context = _context_aliases(q)
+    for pp in _path_preds(q._where_pred):
+        local = {getattr(h, "to_alias", None) for h in _path_hops(pp.path)}
+        clash = sorted(a for a in local & context if a)
+        if clash:
+            raise SemanticError(
+                f"PathPred alias {clash} is an alias of the join context; "
+                "C ∩ L ≠ ∅ is rejected (§3.5)"
+            )
+
+
 def _validate_bands(q: "DGMQuery") -> None:
     if not q._anchor_table:
         raise SemanticError("DGMQuery requires anchor() (B1 mandatory)")
     _validate_b2(q)
     _validate_b3(q)
+    _check_alias_uniqueness(q)
+
+
+def rendered_aggregates(q: "DGMQuery") -> dict[str, str]:
+    """The aggregate expressions of *q* under their ``over`` (§4.2).
+
+    Without a PathJoin each tuple is one anchor instance and the units agree;
+    with one, an ENTITIES aggregate reads each instance once.
+    """
+    if not q._joins:
+        return dict(q._agg_exprs)
+    aliases = _context_aliases(q)
+    return {
+        name: expr
+        if q._agg_over.get(name, ENTITIES) == PATHS
+        else entity_aggregate(expr, aliases)
+        for name, expr in q._agg_exprs.items()
+    }
 
 
 def _build_select_list(q: "DGMQuery") -> list[str]:
     if q._group_by_cols or q._agg_exprs:
         parts: list[str] = list(q._group_by_cols)
-        parts += [f"{expr} AS {name}" for name, expr in q._agg_exprs.items()]
+        parts += [f"{expr} AS {name}" for name, expr in rendered_aggregates(q).items()]
     else:
         parts = ["*"]
     parts += [f"{expr} AS {name}" for name, expr in q._window_exprs.items()]
@@ -190,10 +251,8 @@ def _build_select_list(q: "DGMQuery") -> list[str]:
 
 
 def _augment_on_with_scd2(on: str, alias: str, as_of: str) -> str:
-    return (
-        f"{on} AND {alias}.valid_from <= '{as_of}'"
-        f" AND ({alias}.valid_to IS NULL OR {alias}.valid_to > '{as_of}')"
-    )
+    """Validity of a path-join edge at τ: half-open, NULL bounds open (§2.6)."""
+    return f"{on} AND {valid_at(alias, quote(as_of))}"
 
 
 def _semi_additive_expr(
@@ -219,31 +278,12 @@ def _semi_additive_expr(
     return f"SUM({measure})"
 
 
-def _dim_join_clause(
-    anchor_alias: str,
-    dim_table: str,
-    alias: str,
-    fact_fk: str,
-    dim_pk: str,
-    as_of: "str | None",
-) -> str:
-    """Build a LEFT JOIN clause for a SCD2-aware dimension join."""
-    base = f"{anchor_alias}.{fact_fk} = {alias}.{dim_pk}"
-    if as_of:
-        return (
-            f"LEFT JOIN {dim_table} {alias} ON {base}"
-            f" AND {alias}.valid_from::DATE <= '{as_of}'::DATE"
-            f" AND ({alias}.valid_to IS NULL"
-            f" OR {alias}.valid_to::DATE > '{as_of}'::DATE)"
-        )
-    return f"LEFT JOIN {dim_table} {alias} ON {base} AND {alias}.is_current = TRUE"
-
-
 def _scd2_join_lines(q: "DGMQuery", anchor_alias: str) -> list[str]:
-    """Build LEFT JOIN clauses for all SCD2 dimension joins in *q*."""
+    """``LEFT JOIN`` clauses of every dimension join of *q* (§2.5)."""
     return [
-        _dim_join_clause(anchor_alias, dim_table, alias, fact_fk, dim_pk, q._as_of)
-        for dim_table, alias, fact_fk, dim_pk in q._scd2_joins
+        f"LEFT JOIN {st.table} {st.alias} ON {st.on}{version_sql(st, q._as_of)}"
+        for j in q._scd2_joins
+        for st in dim_join_steps(j, anchor_alias, q._as_of)
     ]
 
 

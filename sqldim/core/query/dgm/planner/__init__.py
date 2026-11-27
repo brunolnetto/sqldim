@@ -7,6 +7,7 @@ from sqldim.core.query.dgm.planner._targets import (  # noqa: F401
     DENSE,
     QueryTarget,
     SinkTarget,
+    UnsupportedSink,
     PreComputation,
     ApproximateVariant,
     CostEstimate,

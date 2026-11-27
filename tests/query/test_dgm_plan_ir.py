@@ -136,13 +136,13 @@ def q_exists_two_hops() -> DGMQuery:
 
 
 def q_scd_current() -> DGMQuery:
-    return DGMQuery("fact_sale").join_dim("dim_customer", "customer_id")
+    return DGMQuery("fact_sale").join_dim("dim_customer", "customer_id", mode="AS_IS")
 
 
 def q_scd_as_of() -> DGMQuery:
     return (
         DGMQuery("fact_sale")
-        .join_dim("dim_customer", "customer_id")
+        .join_dim("dim_customer", "customer_id", mode="AS_IS")
         .as_of("2024-06-30")
         .where("f.revenue > 0")
     )
@@ -471,7 +471,10 @@ class TestUnsupportedConstructsFailClosed:
             VerbHop("c", "x", "c", table="fact_sale", on="c.id = c.customer_id"),
             ScalarPred(PropRef("c", "a"), "=", 1),
         )
-        with pytest.raises(UnsupportedConstruct, match="shadows"):
+        from sqldim.exceptions import SemanticError
+
+        # rejected by the §3.5 rule (C ∩ L ≠ ∅), before lowering (#173)
+        with pytest.raises(SemanticError, match="C ∩ L"):
             self._plan(DGMQuery().anchor("dim_customer", "c").where(pp))
 
     def test_signature_pred(self) -> None:

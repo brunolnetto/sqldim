@@ -6,6 +6,7 @@ from sqlmodel import Session, create_engine, SQLModel
 from sqldim import DimensionModel, FactModel, Field, SCD2Mixin
 from sqldim.core.query.builder import DimensionalQuery, SemanticError
 from sqldim.core.query.dgm import DGMQuery
+from sqldim.exceptions import SemanticError as DGMSemanticError
 
 
 class RegionDim(DimensionModel, SCD2Mixin, table=True):
@@ -188,11 +189,16 @@ class TestDGMQueryLegacyAPI:
         rows = DGMQuery("fact_sales").where("f.revenue > 100").count().execute(con)
         assert rows[0][0] == 1
 
+    def test_join_dim_as_was_needs_event_time(self):
+        """AS_WAS is the default (§2.5); over an entity key it needs event_time."""
+        with pytest.raises(DGMSemanticError, match="AS_WAS"):
+            DGMQuery("fact_sales").join_dim("dim_product", "product_id")
+
     def test_join_dim_is_current(self):
         con = self._con()
         rows = (
             DGMQuery("fact_sales")
-            .join_dim("dim_product", "product_id")
+            .join_dim("dim_product", "product_id", mode="AS_IS")
             .by("d_dim_product.category")
             .sum("f.revenue")
             .execute(con)
@@ -205,7 +211,7 @@ class TestDGMQueryLegacyAPI:
         con = self._con()
         rows = (
             DGMQuery("fact_sales")
-            .join_dim("dim_product", "product_id")
+            .join_dim("dim_product", "product_id", mode="AS_IS")
             .by("d_dim_product.category")
             .count()
             .as_of("2024-06-01")

@@ -13,6 +13,7 @@ from typing import Any
 import duckdb
 
 from sqldim.core.query.dgm import temporal
+from sqldim.exceptions import SemanticError
 from tests.conformance.cases import Case
 from tests.conformance.oracle.allen import domain_of
 from tests.conformance.reference import interval_pairs, point_pairs
@@ -63,7 +64,7 @@ def _typing(case: Case) -> Any:
     kwargs = {"tolerance": i["tolerance"]} if "tolerance" in i else {}
     try:
         _cls(i["relation"])(*args, **kwargs)
-    except (TypeError, ValueError):
+    except (TypeError, ValueError, SemanticError):
         return "REJECTED"
     return "ACCEPTED"
 

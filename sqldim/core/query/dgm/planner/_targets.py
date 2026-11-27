@@ -6,6 +6,8 @@ module-level helper functions extracted from DGMPlanner's @staticmethod rules.
 
 from __future__ import annotations
 
+from sqldim.exceptions import SemanticError
+
 from collections.abc import Mapping
 from dataclasses import dataclass, field
 from enum import Enum
@@ -71,6 +73,10 @@ class QueryTarget(Enum):
 # ---------------------------------------------------------------------------
 # SinkTarget
 # ---------------------------------------------------------------------------
+
+
+class UnsupportedSink(SemanticError, ValueError):
+    """Rule 8 has no write plan for the sink: it is never defaulted (fail-closed)."""
 
 
 class SinkTarget(Enum):
@@ -239,7 +245,11 @@ def _r6_bridge_semantics(ann: Any, _c: "set[str]") -> list[str]:
 
 
 def _r6_degenerate(ann: Any, _c: "set[str]") -> list[str]:
-    return [f"Degenerate({ann.dim}): exclusion from GroupBy candidates"]  # type: ignore[attr-defined]
+    key = f"{ann.fact}.{ann.dim}" if ann.fact else ann.dim
+    return [
+        f"Degenerate({key}): no join — the key is read from the fact row; "
+        "GroupBy and Where on it are valid"
+    ]
 
 
 # ---------------------------------------------------------------------------

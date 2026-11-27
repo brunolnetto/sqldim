@@ -676,13 +676,15 @@ class TestApplyAnnotationSuggestions:
         suggestions = apply_annotation_suggestions([])
         assert suggestions == []
 
-    def test_degenerate_annotation_produces_suppress(self):
+    def test_degenerate_annotation_keeps_group_by(self):
+        """§7.4: a degenerate attribute is a GroupBy key, never suppressed."""
         from sqldim.core.query.dgm.annotations import Degenerate
         from sqldim.core.query.dgm.recommender._types import SuggestionKind
 
-        sigma = self._make_sigma_with(Degenerate(dim="order_number"))
+        sigma = self._make_sigma_with(Degenerate(dim="order_number", fact="Sale"))
         suggestions = apply_annotation_suggestions(sigma)
-        assert any(s.kind is SuggestionKind.SUPPRESS for s in suggestions)
+        assert not any(s.kind is SuggestionKind.SUPPRESS for s in suggestions)
+        assert any(s.kind is SuggestionKind.GROUP_BY for s in suggestions)
 
     def test_conformed_annotation_produces_path_pred(self):
         from sqldim.core.query.dgm.annotations import Conformed
@@ -1187,7 +1189,10 @@ class TestTemplateFallbackAnnotationHook:
         """SUPPRESS suggestion from recommender removes GROUP BY from generated SQL."""
         import duckdb
         from sqldim.application.ask import make_default_budget
-        from sqldim.core.query.dgm.annotations import Degenerate
+        from sqldim.core.query.dgm.annotations import (
+            MedallionLayer,
+            MedallionLayerKind,
+        )
         from sqldim.core.query.dgm.nl._agent_types import (
             DGMContext,
             NLInterfaceState,
@@ -1205,8 +1210,9 @@ class TestTemplateFallbackAnnotationHook:
         r.register_prop("s_cat", "sales.category")
         r.register_prop("s_amt", "sales.amount")
 
-        # DGMRecommender with Degenerate(category) → produces SUPPRESS suggestion
-        sigma = [Degenerate(dim="category")]
+        # MedallionLayer(BRONZE) suppresses GroupBy; Degenerate suppresses
+        # nothing (§7.4), so it no longer drives this hook.
+        sigma = [MedallionLayer("sales", MedallionLayerKind.BRONZE)]
         recommender = DGMRecommender(sigma=sigma)
 
         budget = make_default_budget()

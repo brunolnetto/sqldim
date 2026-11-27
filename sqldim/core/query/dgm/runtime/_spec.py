@@ -268,7 +268,7 @@ def _version_in(value: object) -> VersionResolution | None:
     kind = _enum(VersionKind, d["kind"], "version kind")
     as_of = d["as_of"]
     if (kind is VersionKind.IS_CURRENT) != (as_of is None):
-        raise InvalidSpec("IS_CURRENT has no as_of; VALID_RANGE* requires one")
+        raise InvalidSpec("IS_CURRENT has no as_of; VALID_RANGE requires one")
     return VersionResolution(kind, None if as_of is None else _str(as_of, "as_of"))
 
 
@@ -300,6 +300,8 @@ def _compare_in(value: object, scope: frozenset[str]) -> Compare:
     lhs, op, rhs = parts
     if op not in _OPS:
         raise InvalidSpec(f"comparison operator {op!r} is not supported")
+    if rhs is None and op not in ("IS", "IS NOT"):
+        raise InvalidSpec(f"cmp [{lhs!r}, {op!r}, null]: NULL is not a literal (§4.1)")
     return Compare(check_fragment(lhs, scope), op, _literal_in(rhs))
 
 

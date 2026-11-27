@@ -17,6 +17,8 @@ from sqldim.core.query.dgm.preds import (
     _HopBase,
 )
 from sqldim.core.query.dgm.temporal import TemporalContext
+from sqldim.core.query.dgm._dim_joins import AS_WAS, DimJoin
+from sqldim.core.query.dgm._entities import ENTITIES, check_over
 from sqldim.core.query.dgm._query_helpers import (
     _infer_on,
     _check_where_pred,
@@ -40,11 +42,12 @@ class DGMQuery:
         self._anchor_table: str | None = None
         self._anchor_alias: str | None = None
         self._joins: list[tuple[str, str, str] | Repeat] = []
-        self._scd2_joins: list[tuple[str, str, str, str]] = []
+        self._scd2_joins: list[DimJoin] = []
         self._as_of: str | None = None
         self._where_pred: "_SQLExpr | None" = None
         self._group_by_cols: list[str] = []
         self._agg_exprs: dict[str, str] = {}
+        self._agg_over: dict[str, str] = {}  # name → ENTITIES | PATHS (§4.2)
         self._having_pred: "_SQLExpr | None" = None
         self._window_exprs: dict[str, str] = {}
         self._qualify_pred: "_SQLExpr | None" = None
@@ -182,11 +185,17 @@ class DGMQuery:
         return table, hop.to_alias, on
 
     def temporal_join(self, as_of: str) -> "DGMQuery":
+        """State the reference instant τ of the query (§5.1).
+
+        τ resolves the validity of every path-join edge and the version read
+        by an AS_IS dimension join; an AS_WAS join reads the version in force
+        when the fact happened and does not move with τ (§2.5).
+        """
         self._as_of = as_of
         return self
 
     def as_of(self, point_in_time: str) -> "DGMQuery":
-        """Point-in-time SCD2 filter (alias for :meth:`temporal_join`)."""
+        """Alias for :meth:`temporal_join`: the reference instant τ."""
         return self.temporal_join(point_in_time)
 
     def where(self, pred: "_SQLExpr") -> "DGMQuery":
@@ -211,8 +220,17 @@ class DGMQuery:
         self._group_by_cols.extend(cols)
         return self
 
-    def agg(self, **named_exprs: str) -> "DGMQuery":
+    def agg(self, *, over: str = ENTITIES, **named_exprs: str) -> "DGMQuery":
+        """Add named aggregates; *over* fixes what they count (§4.2).
+
+        ``ENTITIES`` (the default): over a PathJoin, each distinct instance of
+        the aliases an argument references contributes once per group, however
+        many paths reach it.  ``PATHS``: every tuple contributes, once per
+        path instance.  See :mod:`sqldim.core.query.dgm._entities`.
+        """
+        check_over(over)
         self._agg_exprs.update(named_exprs)
+        self._agg_over.update(dict.fromkeys(named_exprs, over))
         return self
 
     def having(self, pred: "_SQLExpr") -> "DGMQuery":
@@ -229,6 +247,7 @@ class DGMQuery:
         self,
         *group_by_cols: str,
         having: "_SQLExpr | None" = None,
+        over: str = ENTITIES,
         **agg_exprs: str,
     ) -> "DGMQuery":
         """Combined B2 setup — matches the DGM spec vocabulary (Band 2 = Aggregation).
@@ -238,7 +257,7 @@ class DGMQuery:
             .aggregate("c.region", total_rev="SUM(s.revenue)",
                        having=ScalarPred(AggRef("total_rev"), ">", 5000))
         """
-        self.group_by(*group_by_cols).agg(**agg_exprs)
+        self.group_by(*group_by_cols).agg(over=over, **agg_exprs)
         if having is not None:
             self.having(having)
         return self
@@ -277,8 +296,20 @@ class DGMQuery:
     # -- Output ------------------------------------------------------------
 
     def to_sql(self) -> str:
-        """Render the three-band query as a DuckDB SQL string."""
+        """Render the three-band query as a DuckDB SQL string.
+
+        Fail-closed, as the plan IR: a construct the SQL cannot state
+        faithfully — a ``TemporalContext``, a PathPred temporal mode, a
+        strategy other than ALL — raises ``UnsupportedConstruct``.
+        """
         _validate_bands(self)
+        if self._temporal_context is not None:
+            from sqldim.core.query.dgm.planner._ir import UnsupportedConstruct
+
+            raise UnsupportedConstruct(
+                "TemporalContext (§5.1) is not rendered by to_sql(): its "
+                "node_resolution, edge_resolution and τ would be dropped"
+            )
         select_parts = _build_select_list(self)
         lines = [
             "SELECT " + ", ".join(select_parts),
@@ -327,15 +358,31 @@ class DGMQuery:
         dim_table: str,
         fact_fk: str,
         dim_pk: str = "id",
+        *,
+        mode: str = AS_WAS,
+        event_time: "str | None" = None,
+        version_key: "str | None" = None,
     ) -> "DGMQuery":
-        """Declare a SCD2-aware dimension join.
+        """Declare a fact → dimension join with SCD resolution (§2.5).
 
-        Generates ``LEFT JOIN {dim_table} d_{dim_table} ON f.{fact_fk} = d_{dim_table}.{dim_pk}
-        AND d_{dim_table}.is_current = TRUE`` (or the date-range variant when
-        :meth:`as_of` / :meth:`temporal_join` is set).
+        The dimension is joined under the alias ``d_{dim_table}``.  *mode*
+        is ``"AS_WAS"`` (the default) or ``"AS_IS"``:
+
+        * the fact stores the durable key in *fact_fk* (matched to *dim_pk*):
+          AS_WAS reads the version valid at the fact's *event_time* column,
+          which is then required; AS_IS reads the version valid at τ;
+        * the fact stores a version surrogate (*version_key* names the
+          dimension column it matches): AS_WAS reads that stored version;
+          AS_IS reads the version of the same entity (*dim_pk*) valid at τ.
+
+        τ is the instant of :meth:`as_of`; without one, AS_IS reads the
+        current version (``is_current``).  Windows are half-open
+        ``[valid_from, valid_to)`` with NULL bounds open (§2.6).
         """
         alias = f"d_{dim_table}"
-        self._scd2_joins.append((dim_table, alias, fact_fk, dim_pk))
+        self._scd2_joins.append(
+            DimJoin(dim_table, alias, fact_fk, dim_pk, mode, event_time, version_key)
+        )
         return self
 
     def ntile_bucket(

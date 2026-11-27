@@ -3,7 +3,7 @@
 * ``dgm-model`` — ``DGMModel`` construction, ``partition_problems``,
   ``validate_anchor_set`` and the question-space scope ``build_space``;
 * ``dgm-annotations`` — what an annotation object decides by itself
-  (``Grain.sum_invalid`` for SUM, Rule 1b).
+  (``Grain.rejects_sum`` for SUM, AD1–AD2).
 """
 
 from __future__ import annotations
@@ -149,13 +149,17 @@ def _additivity(case: Case) -> Any:
         raise NotExpressible(
             "sqldim has no Additivity annotation; Grain decides SUM only"
         )
-    invalid = Grain("AccountBalance", GrainKind[i["grain"]]).sum_invalid
+    invalid = Grain("AccountBalance", GrainKind[i["grain"]]).rejects_sum(
+        group_by_axes=i.get("group_by_axes", ()),
+        where_pins=i.get("where_pins", ()),
+        window=i.get("window"),
+    )
     return REJECTED if invalid else "VALID"
 
 
 ANNOTATIONS = Backend(
     "dgm-annotations",
-    "Grain.sum_invalid (Rule 1b: is SUM rejected at construction)",
+    "Grain.rejects_sum (AD1–AD2: is SUM rejected at construction)",
     frozenset({"additivity"}),
     _additivity,
 )

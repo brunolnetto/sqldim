@@ -272,19 +272,26 @@ def _path_joins(q: "DGMQuery", scope: _Scope) -> list[Join | RepeatJoin]:
 def _dim_joins(
     q: "DGMQuery", anchor_alias: str, scope: _Scope
 ) -> list[Join | RepeatJoin]:
-    version = (
-        VersionResolution(VersionKind.VALID_RANGE_DATE, q._as_of)
-        if q._as_of
-        else VersionResolution(VersionKind.IS_CURRENT)
-    )
+    """The joins of every dimension join, as ``DGMQuery.to_sql()`` renders them."""
+    from sqldim.core.query.dgm._dim_joins import AT_TAU, CURRENT, dim_join_steps
+
+    versions = {
+        CURRENT: VersionResolution(VersionKind.IS_CURRENT),
+        AT_TAU: VersionResolution(VersionKind.VALID_RANGE, q._as_of),
+        None: None,
+    }
     out: list[Join | RepeatJoin] = []
-    for dim_table, alias, fact_fk, dim_pk in q._scd2_joins:
-        visible = scope.add(alias)
-        fk = check_identifier(fact_fk, "column")
-        pk = check_identifier(dim_pk, "column")
-        on = check_fragment(f"{anchor_alias}.{fk} = {alias}.{pk}", visible)
-        scan = Scan(check_relation_name(dim_table), alias, ReadRole.VERSIONED_JOIN)
-        out.append(Join(scan, on, version))
+    for j in q._scd2_joins:
+        for column in (j.fact_fk, j.dim_pk, j.version_key):
+            if column is not None:
+                check_identifier(column, "column")
+        for step in dim_join_steps(j, anchor_alias, q._as_of):
+            visible = scope.add(step.alias)
+            on = check_fragment(step.on, visible)
+            scan = Scan(
+                check_relation_name(step.table), step.alias, ReadRole.VERSIONED_JOIN
+            )
+            out.append(Join(scan, on, versions[step.version]))
     return out
 
 
@@ -301,7 +308,10 @@ def _opt_pred(p: object, scope: frozenset[str]) -> Pred | None:
 
 def lower_query(q: "DGMQuery") -> BandQuery:
     """Lower one three-band query to a :class:`BandQuery`."""
-    from sqldim.core.query.dgm._query_helpers import _validate_bands
+    from sqldim.core.query.dgm._query_helpers import (
+        _validate_bands,
+        rendered_aggregates,
+    )
 
     _validate_bands(q)  # same construction errors as DGMQuery.to_sql()
     if q._temporal_context is not None:
@@ -321,7 +331,7 @@ def lower_query(q: "DGMQuery") -> BandQuery:
         joins=tuple(joins),
         where=_opt_pred(q._where_pred, s),
         group_by=tuple(check_fragment(g, s) for g in q._group_by_cols),
-        aggregates=_named(q._agg_exprs, s),
+        aggregates=_named(rendered_aggregates(q), s),
         having=_opt_pred(q._having_pred, s),
         windows=_named(q._window_exprs, s),
         qualify=_opt_pred(q._qualify_pred, s),

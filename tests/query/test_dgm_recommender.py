@@ -200,15 +200,18 @@ class TestEntropyRouting:
 
 
 class TestAnnotationDrivenRules:
-    def test_degenerate_suppresses_group_by(self):
-        """Degenerate(d) → suppress GroupBy suggestion for d."""
-        sigma = AnnotationSigma([Degenerate(dim="order_num")])
+    def test_degenerate_suppresses_nothing_and_suggests_group_by(self):
+        """§7.4: Degenerate(f, key) suppresses nothing; GroupBy on f.key is added."""
+        sigma = AnnotationSigma([Degenerate(dim="order_num", fact="Sale")])
         rec = DGMRecommender(sigma=sigma)
         suggestions = rec.run_annotation_rules()
-        suppressed = [
-            s for s in suggestions if s.band == "suppress" and "order_num" in s.text
+        assert not [s for s in suggestions if s.kind is SuggestionKind.SUPPRESS]
+        group_by = [
+            s
+            for s in suggestions
+            if s.kind is SuggestionKind.GROUP_BY and "Sale.order_num" in s.text
         ]
-        assert len(suppressed) >= 1
+        assert len(group_by) == 1
 
     def test_degenerate_adds_scalar_pred(self):
         sigma = AnnotationSigma([Degenerate(dim="order_num")])

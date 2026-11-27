@@ -628,13 +628,14 @@ def reports_to(frm: str = "e", to: str = "m") -> BridgeHop:
     )
 
 
-def managers(r: Repeat) -> DGMQuery:
+def managers(r: Repeat, over: str = "PATHS") -> DGMQuery:
+    """COUNT(m.id) per employee; these tests count path instances (§4.2 PATHS)."""
     return (
         DGMQuery()
         .anchor("employee", "e")
         .path_join(r)
         .group_by("e.id")
-        .agg(n="COUNT(m.id)")
+        .agg(n="COUNT(m.id)", over=over)
     )
 
 
@@ -790,6 +791,12 @@ class TestRepeatEmission:
         rows = dict(employee_db().execute(plan.query_text).fetchall())
         # chain: up to three levels; cycle: a walk revisits 6 and 7
         assert rows == {1: 0, 2: 1, 3: 2, 4: 3, 5: 3, 6: 3, 7: 3}
+        # ENTITIES (the default) counts each manager once, however many walks reach it
+        entities = planner().plan_query(
+            managers(Repeat(reports_to(), 1, 3, mode=RepeatMode.WALK), "ENTITIES")
+        )
+        rows = dict(employee_db().execute(entities.query_text).fetchall())
+        assert rows == {1: 0, 2: 1, 3: 2, 4: 3, 5: 3, 6: 2, 7: 2}
         assert plan.deps(CATALOG) == (Dependency("employee"),)
 
     def test_bounds_select_iteration_counts(self) -> None:

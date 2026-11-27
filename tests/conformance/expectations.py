@@ -38,32 +38,20 @@ _IR_MODES = (
 _IR_REPEAT = "a Repeat inside a PathPred is not emitted (UnsupportedConstruct)"
 _LEG_REPEAT = "DGMQuery.to_sql() raises for a Repeat (plan with DGMPlanner)"
 _IR_STRATEGY = "the plan IR executes only strategy ALL (UnsupportedConstruct)"
-_LEG_MODE_FORALL = (
-    "to_sql() ignores the quantifier when a temporal mode is set: FORALL renders as "
-    "the EXISTS template, so AF/AG/AX at c read 'some sale > 500' (true); "
-    "expected false (s2 = 300)"
+_LEG_MODES = (
+    "DGMQuery.to_sql() raises UnsupportedConstruct for every temporal mode "
+    "(fail-closed, as the plan IR; no SQL template)"
 )
-_AS_WAS = (
-    "no AS_WAS: join_dim(...).as_of(τ) reads version(T, key, τ) for every fact; §2.5 "
-    "makes AS_WAS the default (South 600, North 400 expected; got North 1 000)"
+_LEG_STRATEGY = "DGMQuery.to_sql() renders only strategy ALL (UnsupportedConstruct)"
+_LEG_CONTEXT = (
+    "DGMQuery.to_sql() raises UnsupportedConstruct for a TemporalContext "
+    "(fail-closed, as the plan IR)"
 )
 _DRILL = (
-    "a two-branch Join is evaluated row to row, not by drill-across: C1 gives 6 sales, "
-    "900 revenue, 6 returns (expected 2, 300, 3); 1/0 yields inf, not NULL (§4.1)"
+    "a two-branch Join is evaluated row to row, not by drill-across; under the "
+    "ENTITIES default the per-branch counts and sums agree on this fixture, but "
+    "1/0 yields inf, not NULL (§4.1)"
 )
-_OVER = (
-    "aggregates count path fan-out: no `over`, so the ENTITIES default is not "
-    "implemented (got the PATHS value)"
-)
-_ALLEN_OPEN = (
-    "a NULL bound is UNKNOWN in the emitted comparison instead of −∞/+∞ (§3.2), so "
-    "the relation never holds on an open interval"
-)
-_ALLEN_DEGENERATE = (
-    "start ≥ end is not checked: the relation holds on degenerate intervals, which "
-    "satisfy no Allen relation (§3.2)"
-)
-_NO_PRECEDES = "sqldim has no PRECEDES / PRECEDED_BY TemporalOrdering (§3.2 has 13)"
 _BDD_ID = (
     "atoms are BDD variables by Python object identity, not by canonical form "
     "(§6.1 Variables), and comparisons are not normalised"
@@ -92,69 +80,28 @@ BOTH = (LEG, IR)
 
 # --- CTL and PathPred -------------------------------------------------------
 _add(N, _NO_ON_EMPTY, BOTH, "CTL-*-VAC", "CTL-G1-*", "CTL-G2-*", "PP-FA-03")
-_add(X, _LEG_MODE_FORALL, (LEG,), "CTL-A-c-AF", "CTL-A-c-AG", "CTL-A-c-AX")
+_add(R, _LEG_MODES, (LEG,), "CTL-A-c-*", "CTL-A-c0-*-REQ", "PP-UNTIL-*")
 _add(R, _IR_MODES, (IR,), "CTL-A-c-*", "CTL-A-c0-*-REQ", "PP-UNTIL-*")
 _add(R, _IR_REPEAT, (IR,), "CTL-B-a?-??", "CTL-B-a2-*-REQ", "CTL-U-*")
 _add(R, _LEG_REPEAT, (LEG,), "CTL-B-a?-??", "CTL-B-a2-*-REQ", "CTL-U-*", "RJ-*")
 _add(R, _IR_STRATEGY, (IR,), "PP-STR-01", "PP-STR-03", "PP-STR-04")
-_add(X, "to_sql() ignores the strategy: SHORTEST/MIN_WEIGHT read every instance "
-        "(s7 = 600 found; the ≺-least instance s6 = 300 expected)",
-     (LEG,), "PP-STR-01", "PP-STR-04")  # fmt: skip
-_add(X, "UNTIL(ψ) renders as EXISTS φ: ψ is never evaluated (strong UNTIL expected "
-        "false when ψ never holds)", (LEG,), "PP-UNTIL-01")  # fmt: skip
-_add(X, "a path alias equal to an alias of C is accepted and shadows it "
-        "(rejected at construction by §3.2)", (LEG,), "PP-ALIAS-04")  # fmt: skip
-_add(X, "promote: true with ALL is accepted (§3.5 rejects it)", (LEG,), "PP-PROM-01")
-_add(X, "past-time modes are accepted on a non-time-ordered path, and FORALL with "
-        "SINCE is accepted (§4.1 rejects both)", (LEG,), "PP-PAST-*")  # fmt: skip
-_add(R, "rejected only because the plan IR refuses every temporal mode, not by the "
-        "§4.1 rule", (IR,), "PP-PAST-*")  # fmt: skip
-_add(R, "rejected only because the plan IR refuses promote=True for every "
-        "strategy, not by the §3.5 rule", (IR,), "PP-PROM-01")  # fmt: skip
+_add(R, _LEG_STRATEGY, (LEG,), "PP-STR-01", "PP-STR-03", "PP-STR-04")
 _add(R, "the plan IR emits only WALK with 1 ≤ min (SIMPLE/TRAIL need node "
         "identities; min = 0 not emitted)", (IR,), "RJ-04", "RJ-05", "RJ-06")  # fmt: skip
 
-# --- Construction rules -----------------------------------------------------
-_add(X, "Compare(e, =, NULL) is accepted and emitted as `= NULL` (§4.1: NULL is not "
-        "a literal)", BOTH, "CON-N-01")  # fmt: skip
-
 # --- Aggregation ------------------------------------------------------------
-_add(X, _OVER, BOTH, "AGG-OVER-01", "AGG-OVER-03")
-_add(X, _DRILL, BOTH, "DA-01", "DA-02")
+_add(X, _DRILL, BOTH, "DA-01")
 
 # --- SCD and validity -------------------------------------------------------
-_add(X, _AS_WAS, BOTH, "SCD-01", "SCD-05")
-_add(X, "VERSION_KEY joined under as_of reads only the stored version valid at τ: "
-        "S1 (version 101) loses its region under AS_WAS and AS_IS", BOTH,
-     "SCD-03", "SCD-04")  # fmt: skip
-_add(X, "a missing version leaves the tuple with NULL attributes (LEFT JOIN): LAX "
-        "should drop it; TemporalContext is ignored by to_sql()", (LEG,), "SCD-V-01")  # fmt: skip
-_add(X, "STRICT does not reject a missing version: TemporalContext is ignored by "
-        "to_sql() (got the tuple with a NULL segment)", (LEG,), "SCD-V-02")  # fmt: skip
+_add(R, _LEG_CONTEXT, (LEG,), "SCD-V-01", "SCD-TAU-01")
+_add(R, "rejected only because DGMQuery.to_sql() refuses TemporalContext, not "
+        "because the version is missing", (LEG,), "SCD-V-02")  # fmt: skip
 _add(R, "the plan IR refuses TemporalContext (node_resolution cannot be stated)",
      (IR,), "SCD-V-01", "SCD-TAU-01")  # fmt: skip
 _add(R, "rejected only because the plan IR refuses TemporalContext, not because the "
         "version is missing", (IR,), "SCD-V-02")  # fmt: skip
-_add(X, "join_dim compares valid_from/valid_to after ::DATE casts: a version that "
-        "starts later on the same day is read at τ (wholesale instead of retail)",
-     BOTH, "SCD-V-06")  # fmt: skip
-_add(X, "a NULL valid_from is treated as UNKNOWN (`valid_from <= τ`), not as open "
-        "(§2.6 valid(e, t)): E9 is missing", BOTH, "SCD-E-06")  # fmt: skip
-_add(X, "TemporalContext.default_as_of is ignored by to_sql(): validity is not "
-        "resolved at τ, so the expired edge E7 → M1 is followed", (LEG,),
-     "SCD-TAU-01")  # fmt: skip
 
 # --- TemporalOrdering -------------------------------------------------------
-_add(N, _NO_PRECEDES, (ORD,), "TO-PRECEDES-*", "TO-PRECEDED_BY-*", "TO-THM-*")
-_OPEN_HELD = ("OVERLAPS", "OVERLAPPED_BY", "STARTS", "STARTED_BY", "DURING",
-              "CONTAINS", "FINISHES", "FINISHED_BY", "EQUALS")  # fmt: skip
-_add(X, _ALLEN_OPEN, (ORD,), *(f"TO-{r}-open" for r in _OPEN_HELD))
-_DEGENERATE_HELD = ("MEETS", "MET_BY", "STARTS", "STARTED_BY", "DURING", "CONTAINS",
-                    "FINISHES", "FINISHED_BY", "EQUALS")  # fmt: skip
-_add(X, _ALLEN_DEGENERATE, (ORD,), *(f"TO-{r}-degenerate" for r in _DEGENERATE_HELD))
-_add(X, "TemporalOrdering constructors take untyped SQL text and check nothing "
-        "(TO1–TO3 are construction-time rejections)", (ORD,),
-     "TO-TYPE-01", "TO-TYPE-02", "TO-TYPE-03")  # fmt: skip
 _add(N, "arguments are untyped SQL text: Date and Timestamp cannot be told apart",
      (ORD,), "TO-TYPE-04")  # fmt: skip
 
@@ -166,13 +113,6 @@ _add(X, _BDD_ID, (BDD,), "BDD-C-*")
 _add(X, _BDD_ELIM, (BDD,), "BDD-F-*")
 
 # --- Model, anchor sets, annotations ----------------------------------------
-_add(X, "build_space keeps in Σ|_𝒜 only the kinds the enumeration reads "
-        "(Conformed, Grain, FactlessFact, MedallionLayer, BridgeSemantics); "
-        "SCDType(Customer) is dropped although Customer ∈ N_𝒜", ("dgm-model",),
-     "AS-06")  # fmt: skip
-_add(X, "Grain.sum_invalid is true for every SUM over a PERIOD fact, without the "
-        "AD2 exceptions (GroupBy period, pinned period, LATEST/EARLIEST)",
-     ("dgm-annotations",), "ADD-02", "ADD-03", "ADD-11", "ADD-12")  # fmt: skip
 _add(N, "sqldim has no Additivity annotation; Grain decides SUM only",
      ("dgm-annotations",), "ADD-04", "ADD-06", "ADD-07", "ADD-08", "ADD-09", "ADD-10")  # fmt: skip
 

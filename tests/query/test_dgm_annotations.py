@@ -547,18 +547,33 @@ class TestGraphSchemaAnnotations:
 class TestAnnotationConsequences:
     """Annotation objects enforce consequences described in spec §2.4 / Rule 1b."""
 
-    def test_grain_period_sum_invalid(self):
-        """Grain(PERIOD) declares SUM invalid — check via Grain.sum_invalid property."""
+    def test_grain_period_sum_across_periods_rejected(self):
+        """Grain(PERIOD): a SUM over many periods is rejected (AD2)."""
         g = Grain(fact="balance", grain=GrainKind.PERIOD)
-        assert g.sum_invalid is True
+        assert g.rejects_sum() is True
+        assert g.rejects_sum(group_by_axes=["Branch"]) is True
+
+    @pytest.mark.parametrize(
+        "confinement",
+        [
+            {"group_by_axes": ["Branch", "TIME"]},
+            {"where_pins": ["TIME"]},
+            {"window": "LATEST"},
+            {"window": "EARLIEST"},
+        ],
+    )
+    def test_grain_period_sum_confined_to_one_period_valid(self, confinement):
+        """AD2 exceptions: GroupBy period, pinned period, LATEST / EARLIEST."""
+        g = Grain(fact="balance", grain=GrainKind.PERIOD)
+        assert g.rejects_sum(**confinement) is False
 
     def test_grain_event_sum_valid(self):
         g = Grain(fact="sale", grain=GrainKind.EVENT)
-        assert g.sum_invalid is False
+        assert g.rejects_sum() is False
 
-    def test_grain_accumulating_sum_invalid(self):
+    def test_grain_accumulating_sum_valid(self):
         g = Grain(fact="order_ls", grain=GrainKind.ACCUMULATING)
-        assert g.sum_invalid is False  # warn, not reject per spec
+        assert g.rejects_sum() is False  # ADDITIVE by default (§2.4)
 
     def test_factless_measures_invalid(self):
         """FactlessFact declares all aggregation-measures invalid."""
@@ -679,43 +694,13 @@ class TestPipelineArtifact:
         """PipelineArtifact always implies ACCUMULATING grain."""
         assert self._make().effective_grain is GrainKind.ACCUMULATING
 
-    def test_transition_in_flight_to_complete_is_causal(self):
-        a = self._make()
-        sem = a.transition_semantics(
-            PipelineStateKind.IN_FLIGHT, PipelineStateKind.COMPLETE
-        )
-        assert sem is BridgeSemanticsKind.CAUSAL
-
-    def test_transition_in_flight_to_failed_backfill_is_causal(self):
-        """Backfill failure (no prior Complete) → CAUSAL."""
-        a = self._make(write_mode=WriteModeKind.BACKFILL)
-        sem = a.transition_semantics(
-            PipelineStateKind.IN_FLIGHT, PipelineStateKind.FAILED, is_refresh=False
-        )
-        assert sem is BridgeSemanticsKind.CAUSAL
-
-    def test_transition_in_flight_to_failed_refresh_is_supersession(self):
-        """Refresh failure (prior Complete preserved) → SUPERSESSION."""
+    def test_implies_followed_by_causal(self):
+        """§2.4 / D32: BridgeSemantics is per edge type, never per transition."""
         a = self._make(write_mode=WriteModeKind.REFRESH)
-        sem = a.transition_semantics(
-            PipelineStateKind.IN_FLIGHT, PipelineStateKind.FAILED, is_refresh=True
+        assert a.implied_bridge_semantics == BridgeSemantics(
+            "followed_by", BridgeSemanticsKind.CAUSAL
         )
-        assert sem is BridgeSemanticsKind.SUPERSESSION
-
-    def test_transition_complete_to_stale_is_temporal(self):
-        """TTL expiry → TEMPORAL."""
-        a = self._make()
-        sem = a.transition_semantics(
-            PipelineStateKind.COMPLETE, PipelineStateKind.STALE
-        )
-        assert sem is BridgeSemanticsKind.TEMPORAL
-
-    def test_transition_missing_to_in_flight_is_temporal(self):
-        a = self._make()
-        sem = a.transition_semantics(
-            PipelineStateKind.MISSING, PipelineStateKind.IN_FLIGHT
-        )
-        assert sem is BridgeSemanticsKind.TEMPORAL
+        assert not hasattr(a, "transition_semantics")
 
     def test_equality(self):
         a = self._make()

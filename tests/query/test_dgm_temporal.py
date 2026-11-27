@@ -11,6 +11,8 @@ Covers:
 
 from __future__ import annotations
 
+import pytest
+
 
 from sqldim.core.query.dgm.temporal import (
     # TemporalMode
@@ -27,6 +29,8 @@ from sqldim.core.query.dgm.temporal import (
     BEFORE,
     AFTER,
     CONCURRENT,
+    PRECEDES,
+    PRECEDED_BY,
     MEETS,
     MET_BY,
     OVERLAPS,
@@ -62,6 +66,7 @@ from sqldim.core.query.dgm.temporal import (
 )
 from sqldim.core.query.dgm.refs import PropRef
 from sqldim.core.query.dgm.preds import ScalarPred
+from sqldim.exceptions import SemanticError
 
 
 # ---------------------------------------------------------------------------
@@ -163,6 +168,8 @@ class TestPointOrdering:
 
 
 _ALLEN_CLASSES = [
+    PRECEDES,
+    PRECEDED_BY,
     MEETS,
     MET_BY,
     OVERLAPS,
@@ -177,81 +184,83 @@ _ALLEN_CLASSES = [
 ]
 
 
+def _holds(rel: TemporalOrdering, ls, le, rs, re) -> bool:
+    """Evaluate *rel* over l = [ls, le), r = [rs, re) on DuckDB."""
+    import duckdb
+
+    row = duckdb.execute(
+        f"SELECT ({rel.to_sql()}) FROM (SELECT ?::INT AS ls, ?::INT AS le, "
+        "?::INT AS rs, ?::INT AS re)",
+        [ls, le, rs, re],
+    ).fetchone()
+    assert row is not None and row[0] is not None  # two-valued
+    return bool(row[0])
+
+
 class TestAllenOrdering:
+    """§3.2: half-open intervals, NULL bounds unbounded, degenerate excluded."""
+
+    L, R = ("ls", "le"), ("rs", "re")
+
     def test_all_allen_are_temporal_ordering(self):
-        l_iv = ("a.start", "a.end")
-        r_iv = ("b.start", "b.end")
         for cls in _ALLEN_CLASSES:
-            assert isinstance(cls(l_iv, r_iv), TemporalOrdering), cls.__name__
+            assert isinstance(cls(self.L, self.R), TemporalOrdering), cls.__name__
 
-    def test_meets_to_sql(self):
-        o = MEETS(("a.start", "a.end"), ("b.start", "b.end"))
-        assert o.to_sql() == "a.end = b.start"
+    @pytest.mark.parametrize(
+        ("cls", "bounds"),
+        [
+            (PRECEDES, (1, 2, 3, 4)),
+            (PRECEDED_BY, (3, 4, 1, 2)),
+            (MEETS, (1, 2, 2, 3)),
+            (MET_BY, (2, 3, 1, 2)),
+            (OVERLAPS, (1, 3, 2, 4)),
+            (OVERLAPPED_BY, (2, 4, 1, 3)),
+            (STARTS, (1, 2, 1, 3)),
+            (STARTED_BY, (1, 3, 1, 2)),
+            (DURING, (2, 3, 1, 4)),
+            (CONTAINS, (1, 4, 2, 3)),
+            (FINISHES, (2, 3, 1, 3)),
+            (FINISHED_BY, (1, 3, 2, 3)),
+            (EQUALS, (1, 2, 1, 2)),
+        ],
+    )
+    def test_exactly_one_relation_holds(self, cls, bounds):
+        held = [c for c in _ALLEN_CLASSES if _holds(c(self.L, self.R), *bounds)]
+        assert held == [cls]
 
-    def test_met_by_to_sql(self):
-        o = MET_BY(("a.start", "a.end"), ("b.start", "b.end"))
-        assert o.to_sql() == "b.end = a.start"
+    def test_null_bounds_are_unbounded(self):
+        assert _holds(DURING(self.L, self.R), 2, 3, None, None)
+        assert _holds(EQUALS(self.L, self.R), None, None, None, None)
+        assert _holds(STARTS(self.L, self.R), None, 2, None, 3)
+        assert _holds(PRECEDES(self.L, self.R), None, 1, 2, None)
+        assert not _holds(MEETS(self.L, self.R), 1, None, None, 2)
 
-    def test_equals_to_sql(self):
-        o = EQUALS(("a.start", "a.end"), ("b.start", "b.end"))
-        assert o.to_sql() == "a.start = b.start AND a.end = b.end"
-
-    def test_overlaps_to_sql(self):
-        o = OVERLAPS(("a.start", "a.end"), ("b.start", "b.end"))
-        sql = o.to_sql()
-        assert "a.start < b.start" in sql
-        assert "a.end > b.start" in sql
-        assert "a.end < b.end" in sql
-
-    def test_overlapped_by_to_sql(self):
-        o = OVERLAPPED_BY(("a.start", "a.end"), ("b.start", "b.end"))
-        sql = o.to_sql()
-        assert "b.start < a.start" in sql
-        assert "b.end > a.start" in sql
-        assert "b.end < a.end" in sql
-
-    def test_starts_to_sql(self):
-        o = STARTS(("a.start", "a.end"), ("b.start", "b.end"))
-        sql = o.to_sql()
-        assert "a.start = b.start" in sql
-        assert "a.end < b.end" in sql
-
-    def test_started_by_to_sql(self):
-        o = STARTED_BY(("a.start", "a.end"), ("b.start", "b.end"))
-        sql = o.to_sql()
-        assert "a.start = b.start" in sql
-        assert "a.end > b.end" in sql
-
-    def test_during_to_sql(self):
-        o = DURING(("a.start", "a.end"), ("b.start", "b.end"))
-        sql = o.to_sql()
-        assert "a.start > b.start" in sql
-        assert "a.end < b.end" in sql
-
-    def test_contains_to_sql(self):
-        o = CONTAINS(("a.start", "a.end"), ("b.start", "b.end"))
-        sql = o.to_sql()
-        assert "a.start < b.start" in sql
-        assert "a.end > b.end" in sql
-
-    def test_finishes_to_sql(self):
-        o = FINISHES(("a.start", "a.end"), ("b.start", "b.end"))
-        sql = o.to_sql()
-        assert "a.end = b.end" in sql
-        assert "a.start > b.start" in sql
-
-    def test_finished_by_to_sql(self):
-        o = FINISHED_BY(("a.start", "a.end"), ("b.start", "b.end"))
-        sql = o.to_sql()
-        assert "a.end = b.end" in sql
-        assert "a.start < b.start" in sql
+    def test_degenerate_interval_satisfies_no_relation(self):
+        for bounds in ((2, 2, 2, 2), (3, 1, 0, 5)):
+            assert not any(
+                _holds(c(self.L, self.R), *bounds) for c in _ALLEN_CLASSES
+            ), bounds
 
     def test_allen_stores_left_right(self):
-        l_iv = ("a.start", "a.end")
-        r_iv = ("b.start", "b.end")
-        o = DURING(l_iv, r_iv)
-        assert o.left == l_iv
-        assert o.right == r_iv
+        o = DURING(("a.start", "a.end"), ("b.start", "b.end"))
+        assert o.left == ("a.start", "a.end")
+        assert o.right == ("b.start", "b.end")
+
+
+class TestOrderingTyping:
+    """TO1–TO3 are checked at construction (§3.2)."""
+
+    def test_to2_allen_rejects_time_points(self):
+        with pytest.raises(SemanticError, match="TO2"):
+            MEETS("s.occurred_on", "r.occurred_on")
+
+    def test_to1_point_relation_rejects_interval(self):
+        with pytest.raises(SemanticError, match="TO1"):
+            BEFORE(("a.window_start", "a.window_end"), "s.occurred_on")
+
+    def test_to3_negative_tolerance_rejected(self):
+        with pytest.raises(SemanticError, match="TO3"):
+            CONCURRENT("a.ts", "b.ts", tolerance=-1)
 
 
 # ---------------------------------------------------------------------------

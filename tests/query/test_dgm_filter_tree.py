@@ -19,6 +19,7 @@ from sqldim.core.query.dgm.preds import (
     SequenceMatch,
     PathPred,
     VerbHop,
+    BridgeHop,
 )
 from sqldim.core.query.dgm.refs import PropRef, AggRef, WinRef, SignatureRef
 from sqldim.core.query.dgm.temporal import (
@@ -129,66 +130,53 @@ class TestSignatureRefBandEnforcement:
 
 
 # ---------------------------------------------------------------------------
-# TemporalMode SQL template dispatch in PathPred.to_sql()
+# PathPred.to_sql() is fail-closed for temporal modes (§4.1)
 # ---------------------------------------------------------------------------
 
 
-def _make_path_pred_with_mode(mode):
-    """Make a minimal PathPred with a hop for SQL template testing."""
-    hop = VerbHop("c", "placed", "s", table="fact_order", on="c.id = s.cust_id")
+def _make_path_pred_with_mode(mode, hop_cls=None):
+    """A minimal PathPred over one hop with *mode*."""
+    hop_cls = hop_cls or VerbHop
+    hop = hop_cls("c", "placed", "s", table="fact_order", on="c.id = s.cust_id")
     sub = ScalarPred(PropRef("s", "status"), "=", "ok")
     return PathPred("c", hop, sub, temporal_mode=mode)
 
 
 class TestTemporalModeSQLTemplates:
-    def test_eventually_renders_exists_cte(self):
-        pp = _make_path_pred_with_mode(EVENTUALLY)
-        sql = pp.to_sql()
-        assert "EVENTUALLY" in sql or "EXISTS" in sql
+    """No mode has an executable SQL template: to_sql() refuses rather than
+    rendering the EXISTS template, which reads AF/AG/AX as EF (#173)."""
 
-    def test_globally_renders_not_exists(self):
-        pp = _make_path_pred_with_mode(GLOBALLY)
-        sql = pp.to_sql()
-        assert "GLOBALLY" in sql or "NOT" in sql.upper()
+    @pytest.mark.parametrize(
+        "mode",
+        [
+            EVENTUALLY,
+            GLOBALLY,
+            NEXT,
+            UntilMode(ScalarPred(PropRef("s", "done"), "=", True)),
+        ],
+    )
+    def test_future_modes_are_refused(self, mode):
+        from sqldim.core.query.dgm.planner import UnsupportedConstruct
 
-    def test_next_renders_single_hop(self):
-        pp = _make_path_pred_with_mode(NEXT)
-        sql = pp.to_sql()
-        assert "NEXT" in sql or "EXISTS" in sql
-
-    def test_once_uses_gt(self):
-        pp = _make_path_pred_with_mode(ONCE)
-        sql = pp.to_sql()
-        assert (
-            "ONCE" in sql
-            or "G^T" in sql
-            or "backward" in sql.lower()
-            or "EXISTS" in sql
-        )
-
-    def test_previously_uses_gt(self):
-        pp = _make_path_pred_with_mode(PREVIOUSLY)
-        sql = pp.to_sql()
-        assert (
-            "PREVIOUSLY" in sql
-            or "G^T" in sql
-            or "backward" in sql.lower()
-            or "EXISTS" in sql
-        )
-
-    def test_until_mode_renders_recursive(self):
-        inner_pred = ScalarPred(PropRef("s", "done"), "=", True)
-        mode = UntilMode(inner_pred)
         pp = _make_path_pred_with_mode(mode)
-        sql = pp.to_sql()
-        assert "UNTIL" in sql or "EXISTS" in sql
+        with pytest.raises(UnsupportedConstruct, match="temporal mode"):
+            pp.to_sql()
 
-    def test_since_mode_uses_gt(self):
-        inner_pred = ScalarPred(PropRef("s", "started"), "=", True)
-        mode = SinceMode(inner_pred)
-        pp = _make_path_pred_with_mode(mode)
-        sql = pp.to_sql()
-        assert "SINCE" in sql or "EXISTS" in sql
+    @pytest.mark.parametrize(
+        "mode",
+        [ONCE, PREVIOUSLY, SinceMode(ScalarPred(PropRef("s", "a"), "=", True))],
+    )
+    def test_past_modes_rejected_over_a_verb_hop(self, mode):
+        """§4.1: past-time modes need a time-ordered path; a verb hop is not."""
+        with pytest.raises(SemanticError, match="time-ordered"):
+            _make_path_pred_with_mode(mode)
+
+    def test_past_mode_over_bridge_is_refused_by_to_sql(self):
+        from sqldim.core.query.dgm.planner import UnsupportedConstruct
+
+        pp = _make_path_pred_with_mode(ONCE, BridgeHop)
+        with pytest.raises(UnsupportedConstruct):
+            pp.to_sql()
 
     def test_no_mode_produces_plain_exists(self):
         hop = VerbHop("c", "placed", "s", table="fact_order", on="c.id = s.cust_id")
