@@ -6,8 +6,7 @@ FK join conditions are inferred from SQLAlchemy metadata.
 
 from __future__ import annotations
 
-from collections.abc import Iterable
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from sqldim.exceptions import SemanticError
 from sqldim.core.query.dgm.refs import _SQLExpr
@@ -20,7 +19,6 @@ from sqldim.core.query.dgm.preds import (
 from sqldim.core.query.dgm.temporal import TemporalContext
 from sqldim.core.query.dgm._dim_joins import AS_WAS, DimJoin
 from sqldim.core.query.dgm._entities import ENTITIES, check_over
-from sqldim.core.query.dgm._drill_across import check_branches, drill_across_sql
 from sqldim.core.query.dgm._query_helpers import (
     _infer_on,
     _check_where_pred,
@@ -31,6 +29,10 @@ from sqldim.core.query.dgm._query_helpers import (
     _build_from_joins,
     _semi_additive_expr,
 )
+
+
+if TYPE_CHECKING:
+    from collections.abc import Iterable
 
 
 class DGMQuery:
@@ -244,6 +246,8 @@ class DGMQuery:
         evaluated by drill-across, and DA1–DA3 are checked when the SQL is
         built.  See :mod:`sqldim.core.query.dgm._drill_across`.
         """
+        from sqldim.core.query.dgm._drill_across import check_branches
+
         self._branches = check_branches(branches)
         return self
 
@@ -325,6 +329,8 @@ class DGMQuery:
                 "node_resolution, edge_resolution and τ would be dropped"
             )
         if self._branches:
+            from sqldim.core.query.dgm._drill_across import drill_across_sql
+
             return drill_across_sql(self)
         select_parts = _build_select_list(self)
         lines = [
