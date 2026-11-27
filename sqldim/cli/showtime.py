@@ -1,8 +1,10 @@
-"""CLI showtime command — ``sqldim showtime``.
+"""CLI showtime command — ``sqldim nl showtime``.
 
-A guided demo walkthrough showcasing the DGM Supervisor agent's capabilities.
-Runs a curated sequence of questions against selected datasets,
-presenting results with rich formatting and pauses between steps.
+A guided demonstration of the DGM Supervisor.  It always runs in the explicit
+demo mode (D47, ADR 0013): the keyword planner and the heuristic
+``dgm_query``, whose results are marked demo and are not contract results.
+Runs a curated sequence of questions against selected datasets, presenting
+results with rich formatting and pauses between steps.
 """
 
 from __future__ import annotations

@@ -180,7 +180,9 @@ families as ordered CTE chains and emit a single `WITH … SELECT` statement.
 
 ```python
 from sqldim.core.query.dgm import QuestionAlgebra, ComposeOp, DGMQuery
+from sqldim.core.query.dgm.bdd import BDDManager, DGMPredicateBDD
 
+bdd = DGMPredicateBDD(BDDManager())
 alg = QuestionAlgebra()
 alg.add("retail_sales", DGMQuery().anchor("sale_fact", "s").where(...))
 alg.add("premium_sales", DGMQuery().anchor("sale_fact", "s").where(...))
@@ -194,7 +196,9 @@ sql = minimized.to_sql(final="all_sales")
 
 sqldim uses a Binary Decision Diagram (BDD) internally to canonicalise `WHERE`
 predicates and drive containment-based query optimisation.  These symbols are part
-of the public DGM API for users who build custom optimisation passes.
+of the public DGM API for users who build custom optimisation passes. Import
+`BDDManager`, `DGMPredicateBDD` and `TRUE_NODE_ID` from `sqldim.core.query.dgm.bdd`;
+`sqldim.core.query.dgm` does not re-export them.
 
 | Name | Kind | Description |
 |---|---|---|
@@ -229,8 +233,11 @@ When multiple CTEs share an identical `WHERE` predicate (same canonical BDD node
 
 ### Query DAG Minimisation (Rule 11 Extended)
 
-Applies the full semiring elimination laws to a `QuestionAlgebra` before SQL
-emission, producing the minimum-CTE equivalent query family:
+Applies the semiring elimination laws to a `QuestionAlgebra` before SQL
+emission. The result is minimal within the canonical form, not over every
+equivalent query (§8.14), and its soundness (`CLM-8.14-CANON`) is not
+independently evidenced. The laws are set laws while `UNION` emits `UNION ALL`,
+so minimising can change the multiplicity of rows:
 
 | Law | Rule |
 |---|---|

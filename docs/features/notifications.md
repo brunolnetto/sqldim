@@ -5,26 +5,34 @@ The notification system routes alerts from contract violations, quality gate fai
 ## Quick Start
 
 ```python
-from sqldim.notifications import NotificationRouter, Severity
-from sqldim.notifications.channels import MemoryChannel
+from sqldim.medallion import Layer
+from sqldim.notifications import (
+    MemoryChannel, NotificationEvent, NotificationRouter, NotificationRule, Severity,
+)
 
-# Create a router and register channels
-router = NotificationRouter()
-router.add_channel("slack", MemoryChannel())       # swap for SlackChannel in production
-router.add_channel("pagerduty", MemoryChannel())   # swap for PagerDutyChannel in production
+pager, chat = MemoryChannel(), MemoryChannel()  # stand-ins for your channels
+router = (
+    NotificationRouter()
+    .add_channel("pagerduty", pager)
+    .add_channel("slack", chat)
+    .add_rule(NotificationRule("p1_gold", ["*"], [Layer.GOLD], Severity.P1, ["pagerduty"]))
+    .add_rule(NotificationRule("silver_gates", ["quality_gate_fail"], [Layer.SILVER],
+                               Severity.P2, ["slack"]))
+)
 
-# Define routing rules
-router.add_rule(lambda event: event.severity >= Severity.P1)
-router.add_rule(lambda event: event.severity >= Severity.P2 and event.layer == "silver")
-
-# Route an event
-router.route(NotificationEvent(
-    title="Gold contract breach: orders_v2",
+results = router.route(NotificationEvent(
+    event_type="schema_violation",
     severity=Severity.P1,
-    layer="gold",
+    layer=Layer.GOLD,
     contract_id="orders_v2",
 ))
+assert results == [("pagerduty", True)]
+assert len(pager.received()) == 1
 ```
+
+sqldim ships one channel, the in-memory `MemoryChannel`. It has no Slack,
+PagerDuty, Jira, email or webhook channel: you implement those on
+`NotificationChannel` (see [Channels](#channels)).
 
 ## Severity Model
 
@@ -46,58 +54,45 @@ Severity.P4  # Low — daily digest
 
 ## NotificationRouter
 
-```python
-router = NotificationRouter()
+`NotificationRouter.route(event)` evaluates every `NotificationRule` in order
+and dispatches the event to each channel a matching rule names. It returns
+one `(channel_name, success)` pair per dispatch attempted. A rule that names
+an unregistered channel raises `KeyError`. `escalate(event)` returns a copy one
+level closer to P1, or `None` at P1.
 
-# Register delivery channels
-router.add_channel("slack", SlackChannel(webhook_url="https://hooks.slack.com/..."))
-router.add_channel("pagerduty", PagerDutyChannel(routing_key="..."))
-router.add_channel("email", EmailChannel(smtp_config=...))
-
-# Add routing rules (callables that return True to match)
-router.add_rule(lambda e: e.severity == Severity.P1 and e.layer == "gold")
-router.add_rule(lambda e: e.severity >= Severity.P2 and e.event_type == "quality_gate_fail")
-
-# Route events
-router.route(event)
-```
+A `NotificationRule(name, event_types, layers, min_severity, channels)`
+matches when the event type is in `event_types` (`["*"]` matches any), its
+layer is in `layers` (`None` matches any), and its severity is at least as
+critical as `min_severity` (`None` matches any).
 
 ## Channels
 
-Implement the `NotificationChannel` protocol to add delivery backends:
+sqldim ships `MemoryChannel`, which stores events in-process for tests and
+audits (`received()`, `clear()`). For any other destination, implement
+`NotificationChannel.dispatch(event) -> bool`:
 
 ```python
-from sqldim.notifications import NotificationChannel
+from sqldim.notifications import NotificationChannel, NotificationEvent
 
-class SlackChannel(NotificationChannel):
-    def __init__(self, webhook_url: str):
+
+class SlackChannel(NotificationChannel):  # yours, not part of sqldim
+    def __init__(self, webhook_url: str) -> None:
         self.webhook_url = webhook_url
 
-    def send(self, event: NotificationEvent) -> None:
-        # POST to Slack webhook
-        ...
+    def dispatch(self, event: NotificationEvent) -> bool:
+        ...  # POST to the webhook; return False on failure
+        return True
 ```
 
-| Channel | Severity | Notes |
-|---|---|---|
-| `PagerDutyChannel` | P1 | Integrates with on-call rotation |
-| `SlackChannel` | P1, P2, P3 | Per-rule channel targeting |
-| `MemoryChannel` | All | In-process buffer for testing |
-| `WebhookChannel` | All | Generic egress for custom ITSM |
-
-Use `MemoryChannel` in tests to capture notifications without external dependencies:
-
-```python
-router = NotificationRouter()
-memory = MemoryChannel()
-router.add_channel("test", memory)
-router.route(event)
-assert len(memory.events) == 1
-```
+The severities, response targets and escalation paths on this page are a
+convention for the rules you write. sqldim does not enforce response targets
+and does not page anyone.
 
 ## Contract-Triggered Events
 
 Events from the [Data Contracts](data_contracts.md) enforcement points map to severity by layer:
+
+Illustrative (not runnable as written):
 
 ```python
 # After a quality gate failure

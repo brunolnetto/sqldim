@@ -1,4 +1,9 @@
-"""CLI ask command — ``sqldim ask``."""
+"""CLI ask command — ``sqldim nl ask``.
+
+Demo only until the §11.10 pipeline lands (#143): the question is answered by
+the heuristic path selected with ``--demo`` (D47); without it the NL pipeline
+reports NOT_IMPLEMENTED.
+"""
 
 from __future__ import annotations
 

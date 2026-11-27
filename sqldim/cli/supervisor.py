@@ -1,4 +1,9 @@
-"""CLI supervisor command — ``sqldim supervisor``."""
+"""Supervisor entry point over every bundled dataset.
+
+Not registered as a subcommand; the CLI route is ``sqldim nl ask --mode
+supervisor``.  ``dgm_query`` runs only in the explicit demo mode (``--demo``,
+D47).
+"""
 
 from __future__ import annotations
 

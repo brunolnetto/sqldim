@@ -23,7 +23,10 @@ and the evidence behind each. It was built for issue #139 (AUD-11).
 
 A check is evidence, not a proof. It shows the statement on its domain and on
 nothing larger; the domain is stated with each claim. A counterexample is
-recorded as found and is not fixed here: the specification decides.
+recorded as found and is not fixed here: the specification decides. When
+the specification is corrected, the claim states the corrected text and the
+old counterexample stays as a witness of why it changed (§8.6 and §8.16.6,
+corrected in #140).
 
 Run the checks with `PYTHONPATH=. pytest tests/conformance/test_claims.py`.
 The register below is generated from `tests/conformance/claims.py`; regenerate
@@ -35,7 +38,7 @@ not exist, or when a check is not referenced by any claim.
 
 <!-- BEGIN GENERATED: tests/conformance/claims.py -->
 
-26 claims: 16 hold on their checked domain, 2 have a counterexample, 1 only cited, 7 are not independently evidenced.
+26 claims: 18 hold on their checked domain, 0 have a counterexample, 1 only cited, 7 are not independently evidenced.
 
 | Claim | Clause | Evidence | Status | Artifacts |
 |---|---|---|---|---|
@@ -50,7 +53,7 @@ not exist, or when a check is not referenced by any claim.
 | `CLM-8.3-CUBE` | §8.3 Minterms, maxterms, canonical form | exhaustive check on a bounded domain | holds on the checked domain | `tests/conformance/test_claims.py::test_claim_cubes_and_bdd_paths` |
 | `CLM-8.4-DIAMOND` | §8.4 PathPred as compact quantification | exhaustive check on a bounded domain | holds on the checked domain | `tests/conformance/test_claims.py::test_claim_diamond_chain_and_tree` |
 | `CLM-8.5-COLLAPSE` | §8.5 EXISTS/FORALL duality | exhaustive check on a bounded domain | holds on the checked domain | `tests/conformance/test_claims.py::test_claim_strategy_refinement_order` |
-| `CLM-8.6-SIMPLE-BOUND` | §8.6 Finite traversal space | exhaustive check on a bounded domain; executable witness (a single fixture) | **counterexample** | `tests/conformance/test_claims.py::test_claim_simple_path_bound_one_label`<br>`tests/conformance/test_claims.py::test_claim_simple_path_bound_counterexample` |
+| `CLM-8.6-SIMPLE-BOUND` | §8.6 Finite traversal space | exhaustive check on a bounded domain; executable witness (a single fixture) | holds on the checked domain | `tests/conformance/test_claims.py::test_claim_simple_path_bound_one_label`<br>`tests/conformance/test_claims.py::test_claim_simple_path_bound_parallel_edges`<br>`tests/conformance/test_claims.py::test_claim_simple_path_bound_counterexample` |
 | `CLM-8.6-PATTERNS` | §8.6 Finite traversal space | exhaustive check on a bounded domain | holds on the checked domain | `tests/conformance/test_claims.py::test_claim_pattern_count` |
 | `CLM-8.7-CONE` | §8.7 Cone intersection theorem; §6.2 Rule 9 | exhaustive check on a bounded domain; values stated by the spec, reproduced by the oracle | holds on the checked domain | `tests/conformance/test_claims.py::test_claim_cone_intersection_identity`<br>`tests/conformance/test_claims.py::test_claim_cone_old_counterexample_now_holds`<br>cases `CONE-*` |
 | `CLM-8.8-ALLEN` | §8.8 Allen exhaustiveness | exhaustive check on a bounded domain; values stated by the spec, reproduced by the oracle; proof in the specification, not checked | holds on the checked domain | `tests/conformance/test_claims.py::test_claim_allen_exhaustive`<br>cases `TO-THM-*` |
@@ -63,7 +66,7 @@ not exist, or when a check is not referenced by any claim.
 | `CLM-8.13-PTIME` | §8.13 Corollary (data complexity of F_D) and table | cited proof from the literature | rests on the citation | — |
 | `CLM-8.14-CANON` | §8.14 Canonical form theorem (soundness) | proof in the specification, not checked | not evidenced | — |
 | `CLM-8.15-PARAM` | §8.15 Parameter completeness; finite parametric skeleton | proof in the specification, not checked | not evidenced | — |
-| `CLM-8.16.6-NBHD` | §8.16.6 Neighbourhood size under local moves | exhaustive check on a bounded domain; executable witness (a single fixture) | **counterexample** | `tests/conformance/test_claims.py::test_claim_neighbourhood_bound` |
+| `CLM-8.16.6-NBHD` | §8.16.6 Neighbourhood size under local moves | exhaustive check on a bounded domain; executable witness (a single fixture) | holds on the checked domain | `tests/conformance/test_claims.py::test_claim_neighbourhood_bound`<br>`tests/conformance/test_claims.py::test_claim_neighbourhood_bound_counterexample` |
 | `CLM-ADR7-METRIC` | ADR 0007 d_S | exhaustive check on a bounded domain | holds on the checked domain | `tests/conformance/test_claims.py::test_claim_shortest_path_metric`<br>`tests/conformance/test_claims.py::test_claim_move_graph` |
 
 ### Statements and checked domains
@@ -92,9 +95,9 @@ not exist, or when a check is not referenced by any claim.
   *Domain:* D_n for n ≤ 6 (path instances by the oracle); a binary tree of depth 3.
 - **`CLM-8.5-COLLAPSE`** — SHORTEST and MIN_WEIGHT select at most one instance, so EXISTS and FORALL collapse to a single term.
   *Domain:* as CLM-3.3-ORDER.
-- **`CLM-8.6-SIMPLE-BOUND`** — The number of simple path instances in G_I is at most Σ_k |N_I|!/(|N_I|−k)!.
-  *Domain:* k read as the number of nodes, 1 ≤ k ≤ |N_I|; the bound holds for every one-label graph on ≤ 4 nodes.
-  *Note:* fails with parallel edges of different labels: nodes a, b and edges (a,b,x), (a,b,y), (a,b,z) give 5 simple path instances (2 of length 0, 3 of length 1, distinct by §3.3 key) against a bound of 4. The bound counts node sequences, not edge instances.
+- **`CLM-8.6-SIMPLE-BOUND`** — The number of simple path instances in G_I is at most Σ_k |N_I|!/(|N_I|−k)! · m^k, where m ≥ 1 is the maximum number of parallel edges between an ordered pair of nodes (1 without edges).
+  *Domain:* k read as the number of nodes, 1 ≤ k ≤ |N_I|; every one-label graph on ≤ 4 nodes (m = 1); every graph on ≤ 3 nodes with up to 2 parallel edges of distinct labels per ordered pair, and on 2 nodes with up to 3.
+  *Note:* simple path instances are counted by §3.3 key, so parallel edges are distinct instances.
 - **`CLM-8.6-PATTERNS`** — There are at most Σ_{j=0}^{k} (2·|E_S|)^j path patterns of at most k hops.
   *Domain:* |E_S| ≤ 3, k ≤ 4: the enumeration meets the bound with equality.
 - **`CLM-8.7-CONE`** — G_A* ∩ G_*B = G_AB, for node and edge sets; Rule 9 is therefore exact.
@@ -119,17 +122,20 @@ not exist, or when a check is not referenced by any claim.
 - **`CLM-8.14-CANON`** — Two composed queries that reduce to the same query DAG node are equivalent.
 - **`CLM-8.15-PARAM`** — Π_valid(q) is constructively characterisable; its discrete part is finite.
   *Note:* proof sketch only.
-- **`CLM-8.16.6-NBHD`** — The neighbourhood has at most m + |V_P| + 2L·|E_AB| + a·|AggFn| + 2|P_ord| + Σ(|D_p| − 1) elements, one line per move kind.
-  *Domain:* the bound summed per line, on a toy skeleton space; the §8.16.8 arithmetic (57).
-  *Note:* the line 'replace one GroupBy key ≤ |V_P|' fails when q groups by g ≥ 2 keys: replacing one of them gives g·(|V_P| − g) neighbours, 6 > 5 for g = 2, |V_P| = 5. Polynomiality is unaffected.
+- **`CLM-8.16.6-NBHD`** — The neighbourhood has at most m + g·(|V_P| − g) + 2L·|E_AB| + a·|AggFn| + 2|P_ord| + Σ(|D_p| − 1) elements, one line per move kind, where g is the number of GroupBy keys of q.
+  *Domain:* the GroupBy line exactly, for every key set of every size g over |V_P| ≤ 6 properties; the other lines summed on a toy skeleton space; the §8.16.8 arithmetic (56).
 - **`CLM-ADR7-METRIC`** — d_S, the unit-weight shortest-path distance in the undirected move graph M, is a metric on each connected component of M; BFS to depth k visits at most Σ_{j≤k} N^j skeletons; the ADR's example has d_S = 3.
   *Domain:* every undirected graph on ≤ 5 nodes; a toy move graph of 3 atoms × 3 keys × 2 hops × 3 AggFns.
   *Note:* the example reads 'order count' as COUNT over the same argument; a change of measure argument is not one of the four moves.
 
 ### Counterexamples
 
-- **`CLM-8.6-SIMPLE-BOUND`** (§8.6 Finite traversal space): fails with parallel edges of different labels: nodes a, b and edges (a,b,x), (a,b,y), (a,b,z) give 5 simple path instances (2 of length 0, 3 of length 1, distinct by §3.3 key) against a bound of 4. The bound counts node sequences, not edge instances.
-- **`CLM-8.16.6-NBHD`** (§8.16.6 Neighbourhood size under local moves): the line 'replace one GroupBy key ≤ |V_P|' fails when q groups by g ≥ 2 keys: replacing one of them gives g·(|V_P| − g) neighbours, 6 > 5 for g = 2, |V_P| = 5. Polynomiality is unaffected.
+None open.
+
+### Corrected after a counterexample
+
+- **`CLM-8.6-SIMPLE-BOUND`** (§8.6 Finite traversal space): the bound was Σ_k |N_I|!/(|N_I|−k)!, which counts node sequences: nodes a, b and edges (a,b,x), (a,b,y), (a,b,z) give 5 simple path instances (2 of length 0, 3 of length 1) against 4; the corrected bound is 24.
+- **`CLM-8.16.6-NBHD`** (§8.16.6 Neighbourhood size under local moves): the line read 'replace one GroupBy key ≤ |V_P|', which fails when q groups by g ≥ 2 keys: replacing one of them gives g·(|V_P| − g) neighbours, 6 > 5 for g = 2, |V_P| = 5. Polynomiality is unaffected.
 
 <!-- END GENERATED -->
 

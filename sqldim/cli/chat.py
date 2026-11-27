@@ -1,6 +1,8 @@
-"""CLI chat command — ``sqldim chat``.
+"""CLI chat command — ``sqldim nl chat``.
 
-Interactive conversational REPL for the DGM Supervisor agent.
+Interactive conversational REPL for the DGM Supervisor agent.  Answering a
+data question needs the explicit demo mode (``--demo``, D47): without it
+``dgm_query`` is NOT_IMPLEMENTED and only the available contract tools run.
 Uses rich for output rendering and prompt_toolkit for input handling,
 maintaining conversation history across turns within a session.
 """
