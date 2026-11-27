@@ -8,7 +8,8 @@ by AD2 whose period the declaration does not state.
 
 It also resolves what each numeric property may be aggregated by (§2.4): a
 measure of a fact type by its ``Additivity`` or the default of its ``Grain``
-(AD1–AD4), a ``Degenerate`` attribute and a dimension attribute by COUNT only.
+(AD1–AD4), a ``Degenerate`` attribute by COUNT only, and a numeric attribute
+of a dimension type by COUNT, MIN, MAX and AVG over ENTITIES, never SUM.
 """
 
 from __future__ import annotations
@@ -225,17 +226,21 @@ class Space:
     def prop_type(self, type_: str, key: str) -> str | None:
         return dict(self.props.get(type_, ())).get(key)
 
-    def agg_fns(self, type_: str, key: str) -> frozenset[str] | None:
+    def agg_fns(
+        self, type_: str, key: str, *, per_tuple: bool = False
+    ) -> frozenset[str] | None:
         """AggFns admitted over the numeric property ``type_.key``.
 
         ``None`` for a non-numeric property (only §4.2 typing applies).  A
-        dimension attribute is not a measure and carries no Additivity, so
-        AD1–AD4 cannot decide it: COUNT only.
+        numeric attribute of a dimension type is not a measure: it admits
+        COUNT, MIN, MAX and AVG over ENTITIES, never SUM or PROD (§2.4).  A
+        window (*per_tuple*) reads each tuple of C, not each instance once,
+        so there it admits COUNT only.
         """
         if self.prop_type(type_, key) not in NUMERIC:
             return None
         if self.kind(type_) != NodeKind.FACT.value:
-            return _COUNT_ONLY
+            return _COUNT_ONLY if per_tuple else _DIM_ATTRIBUTE
         return _BY_KIND[self.measures[(type_, key)]]
 
     def factless(self, type_: str) -> bool:
@@ -373,6 +378,9 @@ DEGENERATE = "DEGENERATE"
 """Resolution of a ``Degenerate`` attribute: not a measure (§2.4)."""
 
 _COUNT_ONLY = frozenset({"COUNT"})
+_DIM_ATTRIBUTE = frozenset({"COUNT", "MIN", "MAX", "AVG"})
+"""§2.4: a numeric dimension attribute, aggregated over ENTITIES (each
+instance once); a SUM over it is rejected."""
 _BY_KIND: dict[str, frozenset[str]] = {
     AdditivityKind.ADDITIVE.value: frozenset(AGG_FNS),  # AD1, AD4
     # AD3 rejects SUM (PROD with it); AVG only with a warning: not enumerated.

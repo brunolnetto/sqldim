@@ -133,11 +133,16 @@ of aggregation (§4.2):
 | `"PATHS"` | every tuple contributes, once per path instance; must be written explicitly |
 
 With a `path_join`, `to_sql()` rewrites each `SUM`, `AVG` and `COUNT` whose
-argument references an alias so that every instance is read once (the instance
-of an alias is its whole row). `MIN`/`MAX`, `COUNT(*)`, a `DISTINCT` argument and
-an argument that references no alias are left as written; an aggregate with
-`FILTER` or `OVER` raises `UnsupportedConstruct` unless `over="PATHS"`. A query
-with no `path_join` is unchanged.
+argument references an alias so that every instance is read once. The instance
+of a `join_dim` alias is its entity (its `dim_pk`), so the SCD versions of one
+customer are one instance; any other alias is identified by its whole row. A
+`join_dim` alias is rewritten the same way without a `path_join`, since one
+customer is reached by many facts: `AVG(d_customer.age)` reads each customer once.
+If two versions of one entity give the argument different values in a group,
+execution raises `EntityValueConflict` (a `SemanticError`) rather than pick one. `MIN`/`MAX`, `COUNT(*)`, a `DISTINCT`
+argument and an argument that references no alias are left as written; an
+aggregate with `FILTER` or `OVER` raises `UnsupportedConstruct` unless
+`over="PATHS"`. A query with neither a `path_join` nor a `join_dim` is unchanged.
 
 ---
 
