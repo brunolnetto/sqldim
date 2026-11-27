@@ -21,10 +21,13 @@ determines diagram size.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
-    from sqldim.core.query.dgm.preds import AND, OR, PathPred
+    from collections.abc import Iterable
+
+    from sqldim.core.query.dgm._bdd_theory import Formula
+    from sqldim.core.query.dgm.preds import PathPred
 
 __all__ = [
     "BDDNode",
@@ -197,20 +200,38 @@ class BDDManager:
 
 
 class DGMPredicateBDD:
-    """Compiles DGM predicate trees into reduced ordered BDDs.
+    """Compiles DGM predicate trees into reduced ordered BDDs (§6.1).
 
-    Atoms (ScalarPred, PathPred, SignaturePred) are assigned integer variable
-    indices on first occurrence and treated as opaque Boolean atoms inside the
-    BDD.  The BDD structure captures all AND/OR/NOT structure.
+    A variable is an atom in canonical form (:mod:`._bdd_theory`), never a
+    Python object: two separately built ``x > 5`` are one variable.  Filters
+    are three-valued (Kleene); :meth:`compile` returns ``T⁺(φ)``, the BDD of
+    "φ is TRUE", over two variables ``p⁺``/``p⁻`` for every nullable atom and
+    one for a two-valued atom (IsNull, PathPred, SignaturePred, and a
+    comparison whose Refs are all declared non-nullable).  Every property is
+    decided relative to the axioms Δ = Δ_excl ∧ Δ_null ∧ Δ_ord of the atoms
+    compiled so far.
+
+    *non_nullable* names the Refs declared non-nullable, by their SQL
+    (``"t.x"``); every other Ref is nullable, so nothing is inferred from
+    the absence of NULL unless it is declared.
+
+    FORALL is eliminated by CTL duality with ``NotTrue`` and the
+    REQUIRE_WITNESS guard (§4.1).  A FORALL whose dual the specification
+    does not state (a PREVIOUSLY or a strategy other than ALL) stays an
+    opaque atom: no inference is made about it.
     """
 
     MINTERM_THRESHOLD = 8  # UNION ALL below; CASE expression above
 
-    def __init__(self, manager: BDDManager) -> None:
+    def __init__(
+        self, manager: BDDManager, *, non_nullable: "Iterable[str]" = ()
+    ) -> None:
         self.manager = manager
-        self._atom_to_var: dict[int, int] = {}  # id(atom) → var index
+        self._non_nullable = frozenset(non_nullable)
+        self._atoms: dict[tuple, tuple[int, int | None]] = {}  # key → (v⁺, v⁻)
         self._var_to_atom: dict[int, object] = {}  # var index → atom
         self._next_var: int = 0  # variable index counter
+        self._delta_cache: tuple[int, int] | None = None  # (|atoms|, Δ)
 
     # -- Convenience sentinels -----------------------------------------------
 
@@ -223,86 +244,287 @@ class DGMPredicateBDD:
         return FALSE_NODE_ID
 
     def compile(self, pred: object) -> int:
-        """Compile a DGM predicate tree to a BDD node ID."""
-        return self._compile(pred)
+        """``T⁺(pred)``: the BDD of "pred is TRUE"."""
+        return self._tr(pred)[0]
 
-    def _compile_and(self, pred: "AND") -> int:
-        result = TRUE_NODE_ID
-        for sub in pred.preds:
-            result = self.manager.apply("AND", result, self._compile(sub))
-        return result
+    # -- Translation T⁺ / T⁻ -------------------------------------------------
 
-    def _compile_or(self, pred: "OR") -> int:
-        result = FALSE_NODE_ID
-        for sub in pred.preds:
-            result = self.manager.apply("OR", result, self._compile(sub))
-        return result
+    def _tr(self, pred: object) -> tuple[int, int]:
+        """``(T⁺(pred), T⁻(pred))``."""
+        from sqldim.core.query.dgm.preds import AND, NOT, OR, NotTrue
 
-    def _compile_forall(self, pred: "PathPred") -> int:
-        from sqldim.core.query.dgm.preds import NOT, PathPred, Quantifier
+        if isinstance(pred, AND):
+            return self._junction([self._tr(p) for p in pred.preds], "AND")
+        if isinstance(pred, OR):
+            return self._junction([self._tr(p) for p in pred.preds], "OR")
+        if isinstance(pred, NOT):
+            pos, neg = self._tr(pred.pred)
+            return neg, pos
+        if isinstance(pred, NotTrue):
+            pos = self._tr(pred.pred)[0]
+            return self.manager.negate(pos), pos
+        return self._tr_atom(pred)
 
-        inner = NOT(pred.sub_filter)
-        exists_pred = PathPred(
+    def _junction(self, parts: "list[tuple[int, int]]", op: str) -> tuple[int, int]:
+        dual = "OR" if op == "AND" else "AND"
+        pos = TRUE_NODE_ID if op == "AND" else FALSE_NODE_ID
+        neg = FALSE_NODE_ID if op == "AND" else TRUE_NODE_ID
+        for p, n in parts:
+            pos = self.manager.apply(op, pos, p)
+            neg = self.manager.apply(dual, neg, n)
+        return pos, neg
+
+    def _tr_formula(self, f: "Formula", atom: object) -> tuple[int, int]:
+        tag = f[0]
+        if tag == "atom":
+            return self._literal(f[1], atom)
+        if tag == "const":
+            return (
+                (TRUE_NODE_ID, FALSE_NODE_ID) if f[1] else (FALSE_NODE_ID, TRUE_NODE_ID)
+            )
+        if tag == "not":
+            pos, neg = self._tr_formula(f[1], atom)
+            return neg, pos
+        return self._junction([self._tr_formula(g, atom) for g in f[1:]], tag.upper())
+
+    def _tr_atom(self, pred: object) -> tuple[int, int]:
+        from sqldim.core.query.dgm._bdd_theory import canonical
+        from sqldim.core.query.dgm.preds import PathPred, Quantifier, SignaturePred
+
+        f = canonical(pred)
+        if f is not None:
+            return self._tr_formula(f, pred)
+        if isinstance(pred, PathPred):
+            if pred.quantifier is Quantifier.FORALL:
+                eliminated = self._eliminate_forall(pred)
+                if eliminated is not None:
+                    return self._tr(eliminated)
+            return self._literal(self._path_key(pred), pred, two_valued=True)
+        if isinstance(pred, SignaturePred):
+            key: tuple = ("sig", pred.path_alias, repr(pred.sequence), repr(pred.match))
+            return self._literal(key, pred, two_valued=True)
+        to_sql = getattr(pred, "to_sql", None)
+        key = ("raw", to_sql()) if to_sql is not None else ("obj", id(pred))
+        return self._literal(key, pred)
+
+    # -- Atoms ---------------------------------------------------------------
+
+    def _nullable(self, key: tuple) -> bool:
+        from sqldim.core.query.dgm._bdd_theory import exprs_of
+
+        if key[0] in ("isnull", "path", "sig"):
+            return False
+        exprs = exprs_of(key)
+        if not exprs:
+            return True  # a raw or unknown atom: nothing is known
+        return any(self._expr_nullable(e) for e in exprs)
+
+    def _expr_nullable(self, e: tuple) -> bool:
+        return e[1] not in self._non_nullable
+
+    def _new_var(self, atom: object) -> int:
+        var = self._next_var
+        self._next_var += 1
+        self._var_to_atom[var] = atom
+        return var
+
+    def _register(self, key: tuple, atom: object, two_valued: bool) -> None:
+        from sqldim.core.query.dgm._bdd_theory import basis_companions
+
+        for k in basis_companions(key):
+            if k not in self._atoms:
+                pos = self._new_var(atom)
+                null = not two_valued and self._nullable(k)
+                self._atoms[k] = (pos, self._new_var(atom) if null else None)
+
+    def _literal(
+        self, key: tuple, atom: object, *, two_valued: bool = False
+    ) -> tuple[int, int]:
+        """``(T⁺, T⁻)`` of one basis atom, registering it on first use."""
+        self._register(key, atom, two_valued)
+        return self._lits(key)
+
+    def _lits(self, key: tuple) -> tuple[int, int]:
+        pos_var, neg_var = self._atoms[key]
+        pos = self.manager.make(pos_var, FALSE_NODE_ID, TRUE_NODE_ID)
+        if neg_var is None:
+            return pos, self.manager.negate(pos)
+        return pos, self.manager.make(neg_var, FALSE_NODE_ID, TRUE_NODE_ID)
+
+    def _path_key(self, pred: "PathPred") -> tuple:
+        """(anchor, path, strategy, temporal_mode, BDD id of sub_filter)."""
+        from sqldim.core.query.dgm.preds import _flatten_path, _HopBase
+
+        def hop(h: object) -> tuple:
+            if isinstance(h, _HopBase):
+                return (
+                    type(h).__name__,
+                    h.from_alias,
+                    h.label,
+                    h.to_alias,
+                    h.table,
+                    h.on,
+                )
+            return ("obj", id(h))
+
+        strategy = pred.strategy
+        strat = (
+            None
+            if strategy is None
+            else (type(strategy).__name__, getattr(strategy, "k", None))
+        )
+        return (
+            "path",
+            pred.anchor,
+            tuple(hop(h) for h in _flatten_path(pred.path)),
+            strat,
+            self._mode_key(pred.temporal_mode),
+            self.compile(pred.sub_filter),
+        )
+
+    def _mode_key(self, mode: object) -> object:
+        if mode is None:
+            return None
+        if isinstance(mode, type):
+            return mode.__name__
+        inner = getattr(mode, "pred", None)
+        return (type(mode).__name__, None if inner is None else self.compile(inner))
+
+    # -- FORALL elimination (§4.1) ---------------------------------------------
+
+    def _eliminate_forall(self, pred: "PathPred") -> object | None:
+        """The EXISTS form of a FORALL PathPred, or ``None`` when undefined."""
+        from sqldim.core.query.dgm.preds import ALL, AND, NOT, NotTrue, RawPred
+        from sqldim.core.query.dgm.temporal import (
+            EVENTUALLY,
+            GLOBALLY,
+            NEXT,
+            UntilMode,
+        )
+
+        if pred.strategy is not None and not isinstance(pred.strategy, ALL):
+            return None
+        mode: Any = pred.temporal_mode
+        phi: Any = pred.sub_filter
+
+        def exists(m: object, sub: object) -> Any:
+            return self._exists_like(pred, m, sub)
+
+        true = RawPred("TRUE")
+        dual: dict[Any, Any] = {
+            None: None,
+            GLOBALLY: EVENTUALLY,
+            EVENTUALLY: GLOBALLY,
+            NEXT: NEXT,
+        }
+        if mode in dual:
+            guard = exists(
+                NEXT if mode is NEXT else (None if mode is None else EVENTUALLY), true
+            )
+            return AND(guard, NOT(exists(dual[mode], NotTrue(phi))))
+        if isinstance(mode, UntilMode):
+            psi: Any = mode.pred
+            until = exists(UntilMode(AND(NotTrue(phi), NotTrue(psi))), NotTrue(psi))
+            never = exists(GLOBALLY, NotTrue(psi))
+            return AND(exists(EVENTUALLY, true), NOT(until), NOT(never))
+        return None
+
+    @staticmethod
+    def _exists_like(pred: "PathPred", mode: object, sub: object) -> object:
+        from sqldim.core.query.dgm.preds import PathPred, Quantifier
+
+        return PathPred(
             pred.anchor,
             pred.path,
-            inner,
+            sub,  # type: ignore[arg-type]
             quantifier=Quantifier.EXISTS,
             strategy=pred.strategy,
-            temporal_mode=pred.temporal_mode,
+            temporal_mode=mode,
             promote=pred.promote,
         )
-        return self.manager.negate(self._compile(exists_pred))
 
-    def _compile(self, pred: object) -> int:
-        from sqldim.core.query.dgm.preds import AND, OR
+    # -- Δ -------------------------------------------------------------------
 
-        _dispatch = {AND: self._compile_and, OR: self._compile_or}
-        handler = _dispatch.get(type(pred))
-        if handler is not None:
-            return handler(pred)  # type: ignore[operator]
-        return self._compile_structural(pred)
+    def _delta(self) -> int:
+        """Δ_excl ∧ Δ_null ∧ Δ_ord over every atom compiled so far."""
+        from sqldim.core.query.dgm._bdd_theory import delta_clauses
 
-    def _compile_structural(self, pred: object) -> int:
-        from sqldim.core.query.dgm.preds import NOT, PathPred, Quantifier
+        size = len(self._atoms)
+        if self._delta_cache is not None and self._delta_cache[0] == size:
+            return self._delta_cache[1]
+        out = TRUE_NODE_ID
+        clauses = delta_clauses(self._atoms, self._nullable, self._expr_nullable)
+        for clause in clauses:
+            out = self.manager.apply("AND", out, self._clause(clause))
+        self._delta_cache = (size, out)
+        return out
 
-        if isinstance(pred, NOT):
-            return self.manager.negate(self._compile(pred.pred))
-        if isinstance(pred, PathPred) and pred.quantifier is Quantifier.FORALL:
-            return self._compile_forall(pred)
-        return self._atom_id(pred)
+    def _lit(self, lit: "tuple[tuple, bool]") -> int:
+        pos, neg = self._lits(lit[0])
+        return pos if lit[1] else neg
 
-    def _atom_id(self, atom: object) -> int:
-        """Return the BDD ID for an opaque atom, assigning a new var if needed."""
-        key = id(atom)
-        if key not in self._atom_to_var:
-            var = self._next_var
-            self._next_var += 1
-            self._atom_to_var[key] = var
-            self._var_to_atom[var] = atom
-        var = self._atom_to_var[key]
-        return self.manager.make(var, FALSE_NODE_ID, TRUE_NODE_ID)
+    def _all(self, lits: "Iterable[tuple[tuple, bool]]") -> int:
+        out = TRUE_NODE_ID
+        for lit in lits:
+            out = self.manager.apply("AND", out, self._lit(lit))
+        return out
+
+    def _defined(self, key: tuple) -> int:
+        pos, neg = self._lits(key)
+        return self.manager.apply("OR", pos, neg)
+
+    def _clause(self, clause: "tuple[str, tuple, tuple]") -> int:
+        kind, left, right = clause
+        m = self.manager
+        if kind == "excl":
+            return m.negate(self._all(left))
+        if kind == "iff_def":
+            a, b = (self._defined(k) for k, _ in left)
+            return m.negate(self._xor(a, b))
+        premise = self._all(left)
+        if kind == "undef":
+            body = TRUE_NODE_ID
+            for k, _ in right:
+                body = m.apply("AND", body, m.negate(self._defined(k)))
+        else:
+            body = self._all(right)
+        return m.apply("OR", m.negate(premise), body)
+
+    def _xor(self, u: int, v: int) -> int:
+        m = self.manager
+        return m.apply(
+            "OR", m.apply("AND", u, m.negate(v)), m.apply("AND", m.negate(u), v)
+        )
 
     # -- Queries -------------------------------------------------------------
 
     def is_satisfiable(self, uid: int) -> bool:
-        """Return True if the predicate is satisfiable (not identically False)."""
-        return uid != FALSE_NODE_ID
+        """``logical_sat``: Δ ∧ T⁺(φ) is not the FALSE node."""
+        if uid in (FALSE_NODE_ID, TRUE_NODE_ID):
+            return uid == TRUE_NODE_ID
+        return self.manager.apply("AND", self._delta(), uid) != FALSE_NODE_ID
 
     def is_tautology(self, uid: int) -> bool:
-        """Return True if the predicate is a tautology (identically True)."""
-        return uid == TRUE_NODE_ID
+        """``tautology``: Δ → T⁺(φ) is the TRUE node."""
+        if uid in (FALSE_NODE_ID, TRUE_NODE_ID):
+            return uid == TRUE_NODE_ID
+        m = self.manager
+        return m.apply("OR", m.negate(self._delta()), uid) == TRUE_NODE_ID
 
     def implies(self, u: int, v: int) -> bool:
-        """Return True if u → v (u implies v).
-
-        u → v iff NOT u OR v is a tautology, i.e. AND(u, NOT v) == FALSE.
-        """
-        not_v = self.manager.negate(v)
-        return self.manager.apply("AND", u, not_v) == FALSE_NODE_ID
+        """``implies``: Δ ∧ T⁺(u) ∧ ¬T⁺(v) is the FALSE node."""
+        m = self.manager
+        both = m.apply("AND", u, m.negate(v))
+        if both == FALSE_NODE_ID:
+            return True
+        return m.apply("AND", self._delta(), both) == FALSE_NODE_ID
 
     def equivalent(self, u: int, v: int) -> bool:
-        """Return True if u ↔ v (same BDD canonical form)."""
-        return u == v
+        """``equivalent``: under Δ the two filters keep the same tuples."""
+        if u == v:
+            return True
+        diff = self._xor(u, v)
+        return self.manager.apply("AND", self._delta(), diff) == FALSE_NODE_ID
 
     def minterms(self, uid: int) -> list[dict[int, bool]]:
         """Enumerate all satisfying variable assignments (minterms).

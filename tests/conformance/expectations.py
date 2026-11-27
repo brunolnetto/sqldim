@@ -28,7 +28,7 @@ class Status(Enum):
 
 X, R, N = Status.XFAIL, Status.REFUSED, Status.NOT_EXPRESSIBLE
 LEG, IR = "duckdb-dgmquery", "duckdb-plan-ir"
-ORD, BDD = "duckdb-ordering", "dgm-bdd"
+ORD = "duckdb-ordering"
 
 _NO_ON_EMPTY = "PathPred has no `on_empty` field, so VACUOUS cannot be requested"
 _IR_MODES = (
@@ -51,21 +51,6 @@ _DRILL_IR = (
     "the plan IR raises UnsupportedConstruct for a declared constellation: it has "
     "no node for per-branch aggregation aligned by FULL OUTER JOIN (fail-closed)"
 )
-_BDD_ID = (
-    "atoms are BDD variables by Python object identity, not by canonical form "
-    "(§6.1 Variables), and comparisons are not normalised"
-)
-_BDD_ORDER = "no order theory Δ_ord: atoms over one expression are unrelated"
-_BDD_NULL = (
-    "the BDD is two-valued over every atom: no p⁺/p⁻ encoding for nullable atoms, "
-    "no Δ_null"
-)
-_BDD_ELIM = (
-    "FORALL is eliminated as NOT EXISTS(mode, NOT φ): the temporal mode is not "
-    "dualised, NOT is Kleene NOT instead of NotTrue, and the REQUIRE_WITNESS "
-    "guard is missing"
-)
-
 EXPECTATIONS: dict[tuple[str, str], tuple[Status, str]] = {}
 
 
@@ -103,13 +88,6 @@ _add(R, "rejected only because the plan IR refuses TemporalContext, not because 
 # --- TemporalOrdering -------------------------------------------------------
 _add(N, "arguments are untyped SQL text: Date and Timestamp cannot be told apart",
      (ORD,), "TO-TYPE-04")  # fmt: skip
-
-# --- BDD --------------------------------------------------------------------
-_add(X, _BDD_NULL, (BDD,), "BDD-K-01", "BDD-K-06", "BDD-K-08")
-_add(N, "sqldim has no NotTrue filter node", (BDD,), "BDD-K-05")
-_add(X, _BDD_ORDER, (BDD,), "BDD-O-01", "BDD-O-02", "BDD-O-06", "BDD-O-07", "BDD-O-08")
-_add(X, _BDD_ID, (BDD,), "BDD-C-*")
-_add(X, _BDD_ELIM, (BDD,), "BDD-F-*")
 
 # --- Model, anchor sets, annotations ----------------------------------------
 _SEMI = (

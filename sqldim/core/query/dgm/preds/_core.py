@@ -118,6 +118,23 @@ class NOT:
         return f"NOT ({self.pred.to_sql()})"
 
 
+class NotTrue:
+    """``NotTrue(φ)``: φ is FALSE or UNKNOWN — SQL ``(φ) IS NOT TRUE`` (§6.1).
+
+    Two-valued; produced by FORALL elimination (§4.1) so that a position
+    where φ is UNKNOWN counts against a universal condition.
+    """
+
+    def __init__(self, pred: _SQLExpr) -> None:
+        self.pred = pred
+
+    def to_sql(self) -> str:
+        return f"({self.pred.to_sql()}) IS NOT TRUE"
+
+    def __repr__(self) -> str:
+        return f"NotTrue({self.pred!r})"
+
+
 class RawPred:
     """Wraps a raw SQL string as a predicate for backward compatibility."""
 
