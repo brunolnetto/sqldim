@@ -87,8 +87,14 @@ def local_supervisor_runtime(
     model: Any = None,
     demo: bool = False,
     timeout: timedelta = timedelta(minutes=5),
+    kb: Any = None,
 ) -> SupervisorRuntime:
-    """Runtime for a CLI run.  ``demo`` is the user's explicit ``--demo``."""
+    """Runtime for a CLI run.  ``demo`` is the user's explicit ``--demo``.
+
+    With a knowledge base *kb*, the runtime builds the move graph of ADR 0007
+    from each selected dataset's declared schema graph, so the KB tools are
+    both available; without one they are not.
+    """
     from sqldim.application.ask import make_default_budget
 
     return make_runtime(
@@ -98,4 +104,5 @@ def local_supervisor_runtime(
         model=model,
         demo=demo,
         timeout=timeout,
+        kb=kb,
     )

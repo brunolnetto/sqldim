@@ -157,11 +157,11 @@ class TestRegistration:
     def test_registered_in_demo_mode_too(self) -> None:
         assert isinstance(build_registry(demo=True)[TOOL], MapAnalyticalSpaceTool)
 
-    def test_what_can_i_answer_stays_unavailable_with_precise_reason(self) -> None:
+    def test_what_can_i_answer_is_a_contract_tool(self) -> None:
+        # Implemented by the question lattice (tests/supervisor/test_question_lattice.py).
         tool = TOOL_REGISTRY["dgm_what_can_i_answer"]
-        assert tool.capability_schema.available is False
-        assert "§8.11" in tool.missing  # type: ignore[attr-defined]
-        assert "question_key" in tool.missing  # type: ignore[attr-defined]
+        assert tool.capability_schema.available is True
+        assert "+demo" not in tool.capability_schema.version
 
     def test_cost_estimate_reads_no_data(self) -> None:
         cost = TOOL_REGISTRY[TOOL].cost_estimate({"dataset": "sales"}, tool_context())

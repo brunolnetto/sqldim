@@ -39,7 +39,11 @@ from tests.supervisor._fakes import (
 
 
 # Tools whose D43 contract is implemented; every other tool fails closed.
-_IMPLEMENTED = {"dgm_validate_invariant", "dgm_map_analytical_space"}
+_IMPLEMENTED = {
+    "dgm_validate_invariant",
+    "dgm_map_analytical_space",
+    "dgm_what_can_i_answer",
+}
 
 
 def _bound(*steps: ToolCallRequest) -> list[ToolCallRequest]:

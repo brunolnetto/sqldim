@@ -7,10 +7,11 @@ order of ADR 0007, keeping only findings whose datasets are all granted READ.
 
 The move distance ``d_S`` is a shortest path in the move graph ``M`` of
 ADR 0007, whose vertices are the canonical skeletons of ``Q_valid`` named by
-their ``question_key``.  This module does not build ``M``: it needs the
-structural move generator of §8.16.6, supplied as a :class:`MoveGraph`.
-Without one, ``dgm_retrieve_related`` is registered unavailable — distances
-are never approximated by text, embeddings or key equality alone.
+their ``question_key``.  This module does not build ``M``: it receives the
+structural move generator of §8.16.6 as a :class:`MoveGraph`
+(``_tools_lattice.LatticeMoveGraph`` in a runtime, ADR 0007).  Without one,
+``dgm_retrieve_related`` is registered unavailable — distances are never
+approximated by text, embeddings or key equality alone.
 """
 
 from __future__ import annotations
@@ -25,6 +26,7 @@ from pydantic import ValidationError
 
 from sqldim.core.query.dgm.nl.supervisor._auth import (
     NOT_AUTHORIZED_OR_NOT_FOUND,
+    AccessDenied,
     Action,
     AuthContext,
 )
@@ -60,6 +62,7 @@ __all__ = [
     "MISSING_MOVE_GRAPH",
     "MoveGraph",
     "MoveGraphError",
+    "MoveGraphUnsupported",
     "RetrieveRelatedTool",
     "StoreFindingTool",
     "d_P",
@@ -79,6 +82,11 @@ MISSING_MOVE_GRAPH = (
 
 class MoveGraphError(RuntimeError):
     """The move graph could not answer (reported as a tool failure)."""
+
+
+class MoveGraphUnsupported(MoveGraphError):
+    """The move graph cannot decide for this input (reported as UNSUPPORTED):
+    the dataset declares no schema graph, or the key cannot be resolved."""
 
 
 @runtime_checkable
@@ -335,6 +343,10 @@ class RetrieveRelatedTool(_KBTool):
                 ToolErrorKind.INVALID_ARGUMENTS,
                 "question_key is not a skeleton of the dataset's question space",
             )
+        except AccessDenied:
+            return _unauthorized(request)
+        except MoveGraphUnsupported as exc:
+            return _failure(request, ToolErrorKind.UNSUPPORTED, str(exc))
         except MoveGraphError as exc:
             return _failure(request, ToolErrorKind.TOOL_FAILURE, str(exc))
         except KnowledgeBaseError as exc:
