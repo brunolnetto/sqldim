@@ -37,7 +37,6 @@ from sqldim.core.query.dgm.runtime import (
     NoCandidates,
     NotConfigured,
     NotExecutable,
-    NotImplementedCapability,
     PlanExecutor,
     PlanRef,
     ProposedQuestion,
@@ -194,7 +193,7 @@ class TestRun:
 
     def test_write_is_not_performed(self) -> None:
         plan = replace(plan_of(q_eu()), sink_target=SinkTarget.DUCKDB)
-        with pytest.raises(NotImplementedCapability, match="#135"):
+        with pytest.raises(InvalidRuntimeArgument, match="materialise"):
             executor().run(plan, "PROCEED")
 
     def test_cancel_interrupts_the_backend(self) -> None:
