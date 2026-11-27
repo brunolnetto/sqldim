@@ -319,6 +319,16 @@ def lower_query(q: "DGMQuery") -> BandQuery:
             "TemporalContext is not lowered by this IR version; DGMQuery.to_sql() "
             "ignores it, so no plan is produced rather than one that drops it"
         )
+    if q._branches:
+        from sqldim.core.query.dgm._drill_across import drill_across_sql
+
+        drill_across_sql(q)  # DA1–DA3 reject as DGMQuery.to_sql() does
+        raise UnsupportedConstruct(
+            "drill-across (§5.2.2) is not lowered by this IR version: it has no "
+            "node for per-branch aggregation aligned by FULL OUTER JOIN, and "
+            "planning the context as one BandQuery would join the fact branches "
+            "row to row"
+        )
     table = check_relation_name(q._anchor_table)
     anchor_alias = q._anchor_alias or table
     scope = _Scope()

@@ -47,10 +47,9 @@ _LEG_CONTEXT = (
     "DGMQuery.to_sql() raises UnsupportedConstruct for a TemporalContext "
     "(fail-closed, as the plan IR)"
 )
-_DRILL = (
-    "a two-branch Join is evaluated row to row, not by drill-across; under the "
-    "ENTITIES default the per-branch counts and sums agree on this fixture, but "
-    "1/0 yields inf, not NULL (§4.1)"
+_DRILL_IR = (
+    "the plan IR raises UnsupportedConstruct for a declared constellation: it has "
+    "no node for per-branch aggregation aligned by FULL OUTER JOIN (fail-closed)"
 )
 _BDD_ID = (
     "atoms are BDD variables by Python object identity, not by canonical form "
@@ -90,7 +89,7 @@ _add(R, "the plan IR emits only WALK with 1 ≤ min (SIMPLE/TRAIL need node "
         "identities; min = 0 not emitted)", (IR,), "RJ-04", "RJ-05", "RJ-06")  # fmt: skip
 
 # --- Aggregation ------------------------------------------------------------
-_add(X, _DRILL, BOTH, "DA-01")
+_add(R, _DRILL_IR, (IR,), "DA-01", "DA-02")
 
 # --- SCD and validity -------------------------------------------------------
 _add(R, _LEG_CONTEXT, (LEG,), "SCD-V-01", "SCD-TAU-01")
@@ -132,6 +131,8 @@ PG, REF, WP = "pg-duckdb-plan-ir", "planner-refusals", "dgm-write-plan"
 for (_pattern, _b), _v in list(EXPECTATIONS.items()):
     if _b == IR:
         EXPECTATIONS[(_pattern, PG)] = _v
+# construction only: not in the scope of PG(DD), which executes queries
+_add(R, _DRILL_IR, (IR,), "DA-WF-04")
 _add(X, "DuckDB 1.5.0's postgres extension raises NotImplementedException "
         "(PostgresScanSerialize is not serializable) for a SUM window over a "
         "PostgreSQL table; the same SQL passes on DuckDB storage", (PG,),
@@ -192,12 +193,6 @@ NOT_COVERED: list[tuple[str, str]] = [
         "§4.2 LATEST / EARLIEST",
         "sqldim has no LATEST or EARLIEST TemporalWindow; "
         "`TAGG-*` run against the oracle only",
-    ),
-    (
-        "§5.2.2 DA1–DA3",
-        "constellation well-formedness is enforced only inside the "
-        "question-lattice enumeration (`lattice/_context.py`), which has no query to "
-        "submit; `DA-WF-*` run against the oracle only",
     ),
     (
         "ADR 0001 infinite traces (lasso)",

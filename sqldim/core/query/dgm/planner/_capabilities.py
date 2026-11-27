@@ -126,8 +126,8 @@ S, P, U = Support.SUPPORTED, Support.PARTIAL, Support.UNSUPPORTED
 _DUCKDB_SQL: dict[Capability, Declared] = {
     Capability.JOIN: Declared(
         P,
-        "PathJoin over verb and bridge hops; a two-branch Join is evaluated "
-        "row to row, not by drill-across (§5.2.2)",
+        "PathJoin over verb and bridge hops; a constellation declared with "
+        "drill_across raises UnsupportedConstruct in the plan IR (§5.2.2)",
     ),
     Capability.NULL: Declared(S, "Kleene logic; NULL is not a literal"),
     Capability.TEMPORAL: Declared(
@@ -136,7 +136,9 @@ _DUCKDB_SQL: dict[Capability, Declared] = {
         "raises UnsupportedConstruct",
     ),
     Capability.AGGREGATION: Declared(
-        P, "over = ENTITIES / PATHS; drill-across is not implemented (DA-01)"
+        P,
+        "over = ENTITIES / PATHS; drill-across raises UnsupportedConstruct in "
+        "the plan IR (DGMQuery.to_sql() renders it)",
     ),
     Capability.CTE: Declared(
         P, "Repeat in WALK mode with 1 ≤ min; SIMPLE, TRAIL and min = 0 are refused"
@@ -205,6 +207,15 @@ DGMQUERY_TO_SQL = Profile(
     "DuckDB 1.5.0",
     {
         **_DUCKDB_SQL,
+        Capability.JOIN: Declared(
+            P,
+            "PathJoin over verb and bridge hops; a constellation is evaluated by "
+            "drill-across once its fact branches are declared (drill_across, "
+            "§5.2.2): DGMQuery reads no model and cannot find them itself",
+        ),
+        Capability.AGGREGATION: Declared(
+            S, "over = ENTITIES / PATHS; drill-across with DA1–DA4 (§5.2.2)"
+        ),
         Capability.CTE: Declared(
             U, "a Repeat raises UnsupportedConstruct; plan it with DGMPlanner"
         ),
