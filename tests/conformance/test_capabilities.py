@@ -35,6 +35,10 @@ RETIRED = {
     "(dgm-backend-matrix.md)",
     r"like Claude Code": "the NL REPL is a demonstration (D47)",
     r"`bigdata`": "there is no bigdata command",
+    r"billions of rows": "no benchmark states a row count",
+    r"Vectorized Path": "DimensionalLoader takes a list of dicts; it never "
+    "switches to a DataFrame path",
+    r"Fan Trap": "DimensionalQuery does no grain or fan-trap validation",
 }
 
 

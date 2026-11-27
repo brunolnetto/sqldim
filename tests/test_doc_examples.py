@@ -30,6 +30,29 @@ PAGES = {
     ],
     "docs/features/dimensional_graph_model.md": [],
     "docs/features/notifications.md": [],
+    "docs/features/data_contracts.md": [
+        "['NO_DUPLICATES', 'NULL_RATE']",
+        "['no_rule_errors']",
+    ],
+    "docs/features/medallion_layers.md": ["['customer_snapshot']"],
+    "docs/features/observability.md": [
+        "ok True",
+        "error boom",
+        "['counter', 'histogram', 'gauge']",
+    ],
+    "docs/guides/big_data.md": [
+        "2 1 1",
+        "[('c1', 'free', False), ('c1', 'pro', True), ('c2', 'pro', True)]",
+    ],
+    "docs/guides/lazy_loaders.md": [
+        "[('U-001', 32778), ('U-002', 2147483648)]",
+        "[('U-001', 149.99), ('U-002', 20.0)]",
+        "[('p1', 'p2', 22)]",
+    ],
+    "docs/guides/semantic_layer.md": ["[('Games', 7.0)]", "[('Toys', 10.0)]"],
+    "docs/guides/vectorized_etl.md": ["1 1 1", "['B', 'C']"],
+    "docs/patterns/dual_paradigm.md": ["['Pippen', 'Rodman']"],
+    "docs/patterns/hybrid_scd.md": ["[(210, False), (300, True)]"],
 }
 
 # Blocks that need tables the page does not create, or a name of yours.

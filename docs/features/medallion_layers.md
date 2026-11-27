@@ -109,67 +109,58 @@ consumption via BI tools, NL agents, or APIs.
 
 ---
 
+## In code
+
+`sqldim.medallion` has the `Layer` enum, a `MedallionRegistry` of which layer
+each dataset is in, and `SilverBuildOrder`. The layer policies above — what
+each layer holds, its format and its SLA — are conventions, not something
+sqldim enforces.
+
+```python
+from sqldim.medallion import Layer, MedallionRegistry
+
+registry = MedallionRegistry()
+registry.register("dim_customer", Layer.BRONZE)
+registry.register("customer_snapshot", Layer.SILVER)
+print(registry.datasets_in(Layer.SILVER))           # ['customer_snapshot']
+print(Layer.BRONZE.can_promote_to(Layer.SILVER))    # True
+print(Layer.BRONZE.can_promote_to(Layer.GOLD))      # False
+```
+
 ## Quality gates
 
-### Bronze → Silver
+A promotion between two adjacent layers is guarded by a `QualityGate`, whose
+checks you write (see [Data Contracts](data_contracts.md#quality-gates)). The
+policies below are examples of what such checks could cover; sqldim does not
+ship them. There is no YAML gate format, no quarantine partition, no
+statistical-drift baseline and no automatic alert on a failed gate.
 
-```yaml
-checks:
-  - row_count              > 0
-  - null_rate(order_id)    < 0.001
-  - schema_match(contract: orders_v2)
-  - duplicate_rate         < 0.005
-on_fail: quarantine + alert(P2)
-```
-
-Failed rows land in a `quarantine` partition, tagged with the failing check
-name and the pipeline run ID for triage.
-
-### Silver → Gold
-
-```yaml
-checks:
-  - completeness            > 99.5%
-  - referential_integrity(FK)
-  - freshness               < "30m"
-  - statistical_drift       < 3σ
-on_fail: hold + alert(P1)
-```
-
-`statistical_drift` is computed against a rolling 7-day baseline; a 3σ
-deviation in row count or key metric distribution halts the promotion.
-
-### Gold → Semantic
-
-```yaml
-checks:
-  - business_rule_coverage  > 95%
-  - naming_convention       PASS
-  - access_policy           DEFINED
-on_fail: hold + alert(P1)
-```
-
-Semantic promotion verifies that business naming conventions are followed
-and access policies are attached before datasets are exposed to consumers.
+| Promotion | Example checks |
+|---|---|
+| Bronze → Silver | row count > 0, NULL rate of the key, schema match with the contract, duplicate rate |
+| Silver → Gold | completeness, referential integrity, freshness, drift against a baseline |
+| Gold → Semantic | business-rule coverage, naming conventions, access policy defined |
 
 ---
 
 ## Storage format decision guide
 
-| Use case | Recommended format |
-|---|---|
-| High-volume append, long retention | Parquet (Bronze) |
-| SCD2 / MERGE workloads | Delta Lake (Silver) |
-| Multi-engine access (Spark + DuckDB) | Apache Iceberg (Silver) |
-| Interactive BI, sub-second queries | DuckDB / MotherDuck (Gold) |
+| Use case | Format | sqldim sink today |
+|---|---|---|
+| High-volume append, long retention | Parquet | `ParquetSink` — append supported; SCD2 close and merge partial |
+| SCD2 / MERGE workloads | DuckDB, PostgreSQL | `DuckDBSink`, `PostgreSQLSink` — append, SCD2 close and merge supported |
+| Multi-engine access | Delta Lake, Apache Iceberg | `DeltaLakeSink` — append only (SCD2 close and merge refused); `IcebergSink` — partial, storage not executed in CI |
+| Interactive BI | DuckDB / MotherDuck | `DuckDBSink`; `MotherDuckSink` not executed in CI |
+
+The support levels are those of the generated
+[capability page](../reference/capabilities.md#write-sinks-62-rule-8) and the
+[backend matrix](../reference/dgm-backend-matrix.md).
 
 ---
 
 ## Dependencies
 
-- **Data Contracts** — each layer transition requires a contract to exist for
-  the target dataset; gate checks are defined inside the contract.
-- **Observability** — the Observability plane mirrors this three-tier
-  structure with OTel Bronze / Silver / Gold layers.
-- **Notifications** — gate failures route to the notification system
-  (P2 for Silver failures, P1 for Gold failures).
+- **Data Contracts** — a `DataContract` names its layer, and a `QualityGate`
+  runs between two adjacent layers; neither is required by the other.
+- **Observability** and **Notifications** — not wired to layer promotion; a
+  failed gate emits nothing unless you route its `GateResult`.
