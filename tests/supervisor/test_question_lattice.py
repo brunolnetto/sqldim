@@ -90,7 +90,7 @@ KINDS = frozenset(
     }
 )
 """Σ kinds the enumeration reads, stated completely by the fixtures."""
-S, R = PropType("String"), PropType("Real")
+S, REAL = PropType("String"), PropType("Real")
 DIM, FACT, VERB = NodeKind.DIM, NodeKind.FACT, EdgeKind.VERB
 
 
@@ -103,7 +103,7 @@ def shop(*sigma: Any, kinds: Any = KINDS) -> DGMSchema:
     return model(
         (
             NodeType("Customer", DIM, {"country": S, "region": S, "segment": S}),
-            NodeType("Sale", FACT, {"revenue": R}),
+            NodeType("Sale", FACT, {"revenue": REAL}),
             NodeType("Product", DIM, {"category": S}),
             NodeType("Region", DIM, {"code": S}),
         ),
@@ -296,8 +296,8 @@ class TestDrillAcross:
         return model(
             (
                 NodeType("Customer", DIM, {"region": S}),
-                NodeType("Sale", FACT, {"revenue": R}),
-                NodeType("Return", FACT, {"amount": R}),
+                NodeType("Sale", FACT, {"revenue": REAL}),
+                NodeType("Return", FACT, {"amount": REAL}),
             ),
             (
                 EdgeType("Customer", "Sale", "placed", VERB),
@@ -631,7 +631,7 @@ class TestBundledDatasets:
         rt = local_supervisor_runtime(["nba_analytics"])
         args = {
             "dataset": "nba_analytics",
-            "anchors": ["Game", "Team@home"],
+            "anchors": ["Game", "Team"],
             "max_hops": 1,
             "limit": 5,
         }

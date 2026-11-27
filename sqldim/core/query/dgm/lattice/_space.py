@@ -10,7 +10,7 @@ by AD2 whose period the declaration does not state.
 from __future__ import annotations
 
 import dataclasses
-from collections.abc import Mapping, Sequence
+from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass, field
 from enum import Enum
 from typing import Any
@@ -73,25 +73,26 @@ def _needed_kinds(schema: DGMSchema, h: int, nodes, edges, props) -> list[type]:
     """Annotation kinds whose declaration decides something in this ``G_𝒜``.
 
     MedallionLayer filters GroupBy keys; FactlessFact restricts aggregates over
-    a fact; Grain decides SUM over a fact with a numeric property (AD1–AD4);
-    BridgeSemantics decides time order on a bridge (§2.3); Conformed decides
-    fact branches, which need a dimension between two facts (two hops).
+    a fact; Grain decides SUM over a fact with a numeric property (AD1–AD4).
+    BridgeSemantics and Conformed are read where they decide something — a
+    bridge hop of a pattern, a dimension between two facts of a Join — and
+    raise there (:meth:`Space.time_ordered`, :meth:`Space.conformed_for`).
     """
-    kinds = {
-        type_.value: [n for n in nodes if schema.node(n).kind is type_]
-        for type_ in (NodeKind.DIM, NodeKind.FACT)
-    }
-    facts = kinds["fact"]
-    needed: list[type] = [MedallionLayer]
-    if facts:
-        needed.append(FactlessFact)
-    if any(t in NUMERIC for f in facts for _, t in props.get(f, ())):
-        needed.append(Grain)
-    if any(e.kind is EdgeKind.BRIDGE for e in edges):
-        needed.append(BridgeSemantics)
-    if facts and kinds["dim"] and h >= 2:
-        needed.append(Conformed)
-    return needed
+    facts = _of_kind(schema, nodes, NodeKind.FACT)
+    rules = (
+        (MedallionLayer, True),
+        (FactlessFact, bool(facts)),
+        (Grain, _numeric(facts, props)),
+    )
+    return [kind for kind, needed in rules if needed]
+
+
+def _of_kind(schema: DGMSchema, nodes: Iterable[str], kind: NodeKind) -> list[str]:
+    return [n for n in nodes if getattr(schema.node(n), "kind", None) is kind]
+
+
+def _numeric(facts: Iterable[str], props: Mapping[str, Any]) -> bool:
+    return any(t in NUMERIC for f in facts for _, t in props.get(f, ()))
 
 
 _TIME_ORDERED = frozenset(
@@ -140,24 +141,26 @@ def compatible(a: str, b: str) -> str | None:
 
 def _render(value: Any) -> Any:
     """A canonically encodable rendering of a declaration value."""
+    if value is None or isinstance(value, (bool, int, str)):
+        return value
     if isinstance(value, Enum):
         return str(value.value)
     if dataclasses.is_dataclass(value) and not isinstance(value, type):
+        fields = dataclasses.fields(value)
         return (
             type(value).__name__,
-            tuple(
-                (f.name, _render(getattr(value, f.name)))
-                for f in dataclasses.fields(value)
-            ),
+            tuple((f.name, _render(getattr(value, f.name))) for f in fields),
         )
+    return _render_collection(value)
+
+
+def _render_collection(value: Any) -> Any:
     if isinstance(value, Mapping):
         return tuple(sorted((str(k), _render(v)) for k, v in value.items()))
     if isinstance(value, (set, frozenset)):
         return tuple(sorted(_render(v) for v in value))
     if isinstance(value, (tuple, list)):
         return tuple(_render(v) for v in value)
-    if value is None or isinstance(value, (bool, int, str)):
-        return value
     return str(value)
 
 
@@ -214,7 +217,11 @@ class Space:
         )
 
     def conformed_for(self, dim: str, facts: set[str]) -> bool:
-        """``Conformed(dim, Fs) ∈ Σ|_𝒜`` with ``facts ⊆ Fs``."""
+        """``Conformed(dim, Fs) ∈ Σ|_𝒜`` with ``facts ⊆ Fs``.
+
+        Raises ``AnnotationNotDeclared`` if the model does not state Conformed.
+        """
+        self.schema.annotations(Conformed)
         return any(
             isinstance(a, Conformed) and a.dim == dim and facts <= a.fact_types
             for a in self.sigma
@@ -224,15 +231,14 @@ class Space:
         """A hop along a CAUSAL, TEMPORAL or SUPERSESSION bridge, forwards (§2.3)."""
         source, label, target, direction = hop
         edge = next(e for e in self.edges if (e.source, e.label, e.target) == hop[:3])
-        return (
-            direction == "+"
-            and edge.kind.value == "bridge"
-            and any(
-                isinstance(a, BridgeSemantics)
-                and a.bridge == label
-                and a.sem in _TIME_ORDERED
-                for a in self.sigma
-            )
+        if direction != "+" or edge.kind is not EdgeKind.BRIDGE:
+            return False
+        self.schema.annotations(BridgeSemantics)  # AnnotationNotDeclared if unstated
+        return any(
+            isinstance(a, BridgeSemantics)
+            and a.bridge == label
+            and a.sem in _TIME_ORDERED
+            for a in self.sigma
         )
 
 

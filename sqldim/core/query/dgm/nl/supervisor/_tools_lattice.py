@@ -309,8 +309,12 @@ class LatticeMoveGraph:
         lattice, skeleton = self._resolve(dataset, question_key)
         if lattice.key(skeleton) != question_key:
             raise MoveGraphError("question_key is not a skeleton of this dataset")
+        try:
+            questions = lattice.neighbours(skeleton)
+        except (LatticeUnsupported, AnnotationNotDeclared) as exc:
+            raise MoveGraphUnsupported(str(exc)) from exc
         out: list[str] = []
-        for q in lattice.neighbours(skeleton):
+        for q in questions:
             self._index.put(q.question_key, q.skeleton)
             out.append(q.question_key)
         return out
