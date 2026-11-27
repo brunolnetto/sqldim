@@ -25,6 +25,7 @@ class SupervisorPolicy:
 
     max_enum_hops: int = 4
     max_enum_questions: int = 200
+    max_anchors: int = 3
     max_explore: int = 50
     max_sweep_points: int = 50
     max_witnesses: int = 100
