@@ -5,6 +5,7 @@ A tool without an implementation of its D43 contract is registered with
 returns ``NOT_IMPLEMENTED`` without running anything (D42, ADR 0012).  The
 knowledge-base tools (``_tools_kb``) are available only when the deployment
 configures a knowledge base (and, for retrieval, a move graph).
+``dgm_validate_invariant`` is implemented in ``_tools_invariants``.
 
 The explicit demo mode (D47, ADR 0013) adds one heuristic stand-in:
 ``dgm_query`` answered by the current NL graph.  It is registered only by
@@ -52,7 +53,10 @@ _MISSING: dict[str, str] = {
     "dgm_what_can_i_answer": "bounded enumeration of Q_valid skeletons (§8.11)",
     "dgm_correlate": "drill-across over conformed keys (§5.2.2, Rule 12)",
     "dgm_explore_from": "structural moves from a question key (§8.16.6)",
-    "dgm_sensitivity_sweep": "execution of a question over Π(q) (§8.15)",
+    "dgm_sensitivity_sweep": (
+        "contract dgm_query execution of the source question (#153), to run it "
+        "over Π(q) (§8.15)"
+    ),
     "dgm_validate_invariant": "invariant evaluators (§2.1, §3)",
     "dgm_store_finding": "tenant-partitioned knowledge base (§12.7)",
     "dgm_retrieve_related": (
@@ -337,6 +341,11 @@ def build_registry(
     graph *moves* of ADR 0007.
     """
     tools: dict[str, BaseTool] = {name: UnavailableTool(name) for name in TOOL_SCHEMAS}
+    from sqldim.core.query.dgm.nl.supervisor._tools_invariants import (
+        ValidateInvariantTool,
+    )
+
+    tools["dgm_validate_invariant"] = ValidateInvariantTool()
     if demo:
         tools["dgm_query"] = DemoQueryTool(model=model)
     if kb is not None:
