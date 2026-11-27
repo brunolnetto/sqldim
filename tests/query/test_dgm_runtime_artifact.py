@@ -45,6 +45,7 @@ from sqldim.core.query.dgm.runtime import (
     ArtifactPlan,
     ArtifactRuntime,
     ArtifactState,
+    InvalidArtifactPlan,
     InvalidRuntimeArgument,
     MaterialisationFailed,
     NotConfigured,
@@ -280,7 +281,7 @@ class TestPlanTypes:
         assert p.write_id != p.plan_id
 
     def test_transition_outside_delta(self) -> None:
-        with pytest.raises(InvalidRuntimeArgument, match="δ"):
+        with pytest.raises(InvalidArtifactPlan, match="δ"):
             TransitionPlan(
                 KEY,
                 ArtifactState.MISSING,
@@ -291,7 +292,7 @@ class TestPlanTypes:
             )
 
     def test_condition_must_match_kind(self) -> None:
-        with pytest.raises(InvalidRuntimeArgument):
+        with pytest.raises(InvalidArtifactPlan):
             TransitionPlan(
                 KEY,
                 ArtifactState.IN_FLIGHT,
@@ -302,23 +303,23 @@ class TestPlanTypes:
             )
 
     def test_merge_needs_window_column(self) -> None:
-        with pytest.raises(InvalidRuntimeArgument):
+        with pytest.raises(InvalidArtifactPlan):
             WritePlan(SinkTarget.DUCKDB, "daily", WriteOperation.MERGE)
 
     def test_no_run_starts_from_complete(self, con: Any) -> None:
         rt = runtime(con)
         rt.execute(plan_for(rt))
-        with pytest.raises(InvalidRuntimeArgument, match="Complete"):
+        with pytest.raises(InvalidArtifactPlan, match="Complete"):
             plan_for(rt)
 
     def test_window_query_with_text_sink_is_refused(self, con: Any) -> None:
         q = dataclasses.replace(query(), sink_target=SinkTarget.DUCKDB)
-        with pytest.raises(InvalidRuntimeArgument, match="WritePlan"):
+        with pytest.raises(InvalidArtifactPlan, match="WritePlan"):
             plan_for(runtime(con), q=q)
 
     def test_window_must_be_ordered(self, con: Any) -> None:
         snap = runtime(con).snapshot("Window", KEY)
-        with pytest.raises(InvalidRuntimeArgument):
+        with pytest.raises(InvalidArtifactPlan):
             plan_artifact_run(
                 snap, window_start=W1, window_end=W0, query=query(), write=write()
             )

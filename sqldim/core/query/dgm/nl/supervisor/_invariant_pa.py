@@ -35,24 +35,13 @@ from sqldim.core.query.dgm.nl.supervisor._invariant_core import (
 )
 from sqldim.core.query.dgm.annotations import PipelineArtifact
 from sqldim.core.query.dgm.model import EdgeType, NodeTable
+from sqldim.core.query.dgm.planner._artifact_plan import DELTA
 from sqldim.core.query.dgm.nl.supervisor._types import ToolErrorKind
 
 __all__ = ["ARTIFACT_STATES", "DELTA", "PA_EVALUATORS"]
 
 ARTIFACT_STATES = ("Missing", "In-flight", "Complete", "Stale", "Failed")
 
-DELTA: frozenset[tuple[str, str, str]] = frozenset(
-    {
-        ("Missing", "scheduled", "In-flight"),
-        ("In-flight", "succeeded", "Complete"),
-        ("In-flight", "failed", "Failed"),
-        ("In-flight", "failed", "Stale"),
-        ("Complete", "expired", "Stale"),
-        ("Stale", "rescheduled", "In-flight"),
-        ("Failed", "retried", "In-flight"),
-    }
-)
-"""The admissible ``(from_state, kind, to_state)`` triples δ of §2.4."""
 
 Key = tuple[Hashable, ...]
 

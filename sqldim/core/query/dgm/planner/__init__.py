@@ -90,3 +90,4 @@ from sqldim.core.query.dgm.planner._ir_identity import (  # noqa: F401
     relations_read,
     deps,
 )
+from sqldim.core.query.dgm.planner._rule10 import ArtifactTarget  # noqa: F401

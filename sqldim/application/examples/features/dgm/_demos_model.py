@@ -120,6 +120,52 @@ def demo_planner() -> None:
     print(f"  YAML snippet :\n    {yaml_out.splitlines()[0]}")
 
 
+def _demo_rule_10(planner: object, artifact: object) -> None:
+    """Rule 10 emits a typed plan per artifact state, or says why it does not."""
+    from datetime import datetime, timedelta
+
+    from sqldim.core.query.dgm.planner import (
+        ArtifactTarget,
+        DGMPlanner,
+        QueryTarget,
+    )
+    from sqldim.core.query.dgm.planner._artifact_plan import (
+        ArtifactPlan,
+        ArtifactPlanError,
+        ArtifactSnapshot,
+        ArtifactState,
+    )
+
+    reader = DGMPlanner(None, None, None, None, QueryTarget.SQL_DUCKDB)  # type: ignore[arg-type]
+    query = reader.plan_query(DGMQuery().anchor("daily_rev_source", "s"))
+    start, end = datetime(2024, 6, 1), datetime(2024, 6, 2)
+    now = end + timedelta(days=8)
+    print("\n  Rule 10 (typed plans; DELTA sink, ADAPTIVE):")
+    for st in (
+        ArtifactState.MISSING,
+        ArtifactState.FAILED,
+        ArtifactState.STALE,
+        ArtifactState.COMPLETE,
+        ArtifactState.IN_FLIGHT,
+    ):
+        snap = ArtifactSnapshot(
+            "daily_rev", ("2024-06-01",), st, "t0", st is ArtifactState.STALE,
+            (start, end), end,
+        )  # fmt: skip
+        try:
+            plan = planner.apply_rule_10(  # type: ignore[attr-defined]
+                artifact, snap, now=now, target=ArtifactTarget("daily_rev", "ts"),
+                query=query,
+            )  # fmt: skip
+        except ArtifactPlanError as exc:
+            print(f"    state={st.value:10s}: {exc.code}: {exc}")
+            continue
+        if isinstance(plan, ArtifactPlan):
+            print(f"    state={st.value:10s}: WritePlan({plan.write.operation.value})")
+        else:
+            print(f"    state={st.value:10s}: {plan.transition.kind.value} ON_EXPIRY")
+
+
 def demo_pipeline_artifact() -> None:
     """Example 6 — PipelineArtifact: backfill-incremental state machine (D20/D21)."""
     from sqldim.core.query.dgm.annotations import (
@@ -175,20 +221,7 @@ def demo_pipeline_artifact() -> None:
         query_target=QueryTarget.SQL_DUCKDB,
         sink_target=SinkTarget.DELTA,
     )
-    print("\n  Rule 10 (ADAPTIVE write plan inference):")
-    for state in [
-        PipelineStateKind.MISSING,
-        PipelineStateKind.FAILED,
-        PipelineStateKind.STALE,
-        PipelineStateKind.COMPLETE,
-    ]:
-        result = planner.apply_rule_10(
-            fact=artifact.fact,
-            state=state,
-            ttl_elapsed_s=0.0,
-            write_mode=artifact.write_mode,
-        )
-        print(f"    state={state.value:12s}: {result}")
+    _demo_rule_10(planner, artifact)
 
     _section("  Q_backfill (Missing/Failed within horizon)")
     q_backfill = (
