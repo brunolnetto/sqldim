@@ -142,6 +142,8 @@ def route_budget_decision(state: NLInterfaceState) -> str:
     produce a decision before this router is called.
     """
     decision = state.budget_decision
+    if state.error is not None and decision is None:
+        return "FAILED"  # the gate could not decide (e.g. no async target)
     if decision is None:
         raise ValueError("budget_decision must be set before routing")
     label = _DECISION_KIND_MAP.get(type(decision))
@@ -306,17 +308,18 @@ def build_nl_graph(
             "PROCEED": "execution",
             "STREAM": "execution",
             "ASYNC": "explanation_rendering",
-            "REWRITE": "dag_construction",  # rewrite and re-gate
+            "REWRITE": "execution",  # the rewritten plan runs under `then`
             "SAMPLE": "execution",
             "PAGINATE": "execution",
             "CLARIFY": "clarification",
             "REJECT": "explanation_rendering",
+            "FAILED": "explanation_rendering",
         },
     )
 
     graph.add_edge("execution", "explanation_rendering")  # errors included
     graph.add_edge("explanation_rendering", END)
-    graph.add_edge("clarification", "confirmation_loop")  # cycle
+    graph.add_edge("clarification", "explanation_rendering")  # back to caller
 
     graph.set_entry_point("entity_resolution")
 

@@ -62,7 +62,9 @@ from sqldim.core.query.dgm.planner._gate import (
     SampleDecision,
     SampleMethod,
     StreamDecision,
+    Substitution,
 )
+from sqldim.core.query.dgm.planner._targets import SinkTarget
 
 # Logfire emits a warning when no backend is configured; suppress it in tests.
 pytestmark = pytest.mark.filterwarnings(
@@ -441,6 +443,27 @@ class TestRouteAfterConfirmation:
 # ---------------------------------------------------------------------------
 
 
+def _xplan(sql: str, cost: int = 10) -> Any:
+    from sqldim.core.query.dgm.planner._targets import (
+        CostEstimate,
+        ExportPlan,
+        QueryTarget,
+    )
+
+    return ExportPlan(
+        query_target=QueryTarget.SQL_DUCKDB,
+        query_text=sql,
+        cost_estimate=CostEstimate(cpu_ops=cost, io_ops=0),
+    )
+
+
+def _refinement(sql: str) -> Any:
+    from sqldim.core.query.dgm.planner._gate import ClarifyKind, ClarifyOption
+
+    p = _xplan(sql)
+    return ClarifyOption(p, p.cost_estimate, ClarifyKind.REFINEMENT)
+
+
 class TestRouteBudgetDecision:
     def _state(self, decision: BudgetDecision) -> NLInterfaceState:
         return NLInterfaceState(utterance="x", budget_decision=decision)
@@ -455,7 +478,11 @@ class TestRouteBudgetDecision:
         assert (
             route_budget_decision(
                 self._state(
-                    AsyncDecision(sink=None, callback=None, ttl=timedelta(minutes=5))
+                    AsyncDecision(
+                        sink=SinkTarget.PARQUET,
+                        callback="https://host/cb",
+                        ttl=timedelta(minutes=5),
+                    )
                 )
             )
             == "ASYNC"
@@ -464,7 +491,14 @@ class TestRouteBudgetDecision:
     def test_rewrite(self):
         assert (
             route_budget_decision(
-                self._state(RewriteDecision(plan=None, warning="too big"))
+                self._state(
+                    RewriteDecision(
+                        plan=_xplan("SELECT 1"),
+                        substitution=Substitution.CONE_SCOPE,
+                        warning="too big",
+                        then=ProceedDecision(),
+                    )
+                )
             )
             == "REWRITE"
         )
@@ -474,7 +508,12 @@ class TestRouteBudgetDecision:
             route_budget_decision(
                 self._state(
                     SampleDecision(
-                        fraction=0.1, method=SampleMethod.RANDOM, error_bound=0.05
+                        plan=_xplan("SELECT 1"),
+                        fraction=0.1,
+                        method=SampleMethod.RANDOM,
+                        error_bound=0.05,
+                        confidence=0.95,
+                        then=ProceedDecision(),
                     )
                 )
             )
@@ -490,7 +529,7 @@ class TestRouteBudgetDecision:
     def test_clarify(self):
         assert (
             route_budget_decision(
-                self._state(ClarifyDecision(options=[], cost_per_option=0.0))
+                self._state(ClarifyDecision(options=(_refinement("SELECT 1"),)))
             )
             == "CLARIFY"
         )
@@ -1587,63 +1626,86 @@ class TestBuildNLGraphWithContext:
         q = result.get("q_current", "")
         assert "items" in (q or "") or "placeholder" in (q or "")
 
-    def test_clarification_node_with_candidates(self):
-        """Cover _graph.py lines 438-443: _clarification_node when state has
-        candidates (returns confirmed+user_selection+want_more_options).
-        Mock ExecutionGate.gate to return ClarifyDecision to trigger the
-        clarification branch from budget_gate."""
-        from unittest.mock import patch
+    def _users_graph(self) -> Any:
         import duckdb
-        from sqldim.core.query.dgm.planner._gate import (
-            ClarifyDecision,
-            ExecutionGate,
-        )
-        from sqldim.core.query.dgm.planner._targets import ExportPlan, QueryTarget
 
         con = duckdb.connect()
         con.execute("CREATE TABLE users (id INTEGER)")
+        con.execute("INSERT INTO users VALUES (1), (2)")
         reg = EntityRegistry()
         reg.register_node("users", "users")
         reg.register_prop("user id", "users.id")
         ctx = DGMContext(entity_registry=reg, budget=_budget(), con=con)
-        graph = build_nl_graph(context=ctx, demo=True)
-        config = {
-            "configurable": {"thread_id": "test-clarify-branch"},
-            "recursion_limit": 25,
-        }
-        user_candidate = QueryCandidate(
-            dag_node_id=0,
-            description="SELECT from users (id)",
-            band_coverage=["B1"],
-            cost_estimate=1.0,
-        )
-        clarify_decision = ClarifyDecision(
-            options=[
-                ExportPlan(query_target=QueryTarget.SQL_DUCKDB, query_text="SELECT 1")
-            ],
-            cost_per_option=[],
-        )
-        # Mock gate to return ClarifyDecision -> routes to clarification node
-        with patch.object(ExecutionGate, "gate", return_value=clarify_decision):
-            state: dict = {
-                "utterance": "show users",
-                "candidates": [user_candidate],
-                "confirmed": True,
-                "user_selection": 0,
-            }
-            try:
-                result = graph.invoke(state, config=config)
-            except Exception as exc:  # noqa: BLE001
-                from langgraph.errors import GraphRecursionError
+        return build_nl_graph(context=ctx, demo=True)
 
-                if isinstance(exc, GraphRecursionError):
-                    return  # clarification loops back -> recursion limit expected
-                raise
-        visited = result.get("visited_nodes", [])
-        assert "clarification" in visited
+    def test_clarification_node_with_candidates(self):
+        """CLARIFY returns to the caller with its options; nothing executes."""
+        from unittest.mock import patch
+        from sqldim.core.query.dgm.planner._gate import ClarifyDecision, ExecutionGate
+
+        clarify = ClarifyDecision(options=(_refinement("SELECT id FROM users"),))
+        with patch.object(ExecutionGate, "gate", return_value=clarify):
+            result = self._users_graph().invoke(
+                {"utterance": "show users"},
+                config={
+                    "configurable": {"thread_id": "t-clarify"},
+                    "recursion_limit": 25,
+                },
+            )
+        visited = result["visited_nodes"]
+        assert "clarification" in visited and "execution" not in visited
+        assert visited.count("confirmation_loop") == 1  # no auto-confirm cycle
+        assert result["error"]["kind"] == "NEEDS_CLARIFICATION"
+        assert result["error"]["decision"] == "CLARIFY"
+        assert "SELECT id FROM users" in result["error"]["message"]
+        assert result.get("result") is None
+
+    def test_rewrite_runs_under_then_without_regating(self):
+        """REWRITE executes the rewritten plan; the gate is not called again."""
+        from unittest.mock import patch
+        from sqldim.core.query.dgm.planner._gate import ExecutionGate
+
+        rewrite = RewriteDecision(
+            plan=_xplan("SELECT id FROM users WHERE id = 1"),
+            substitution=Substitution.CONE_SCOPE,
+            warning="Scoped to forward cone of anchor node.",
+            then=ProceedDecision(),
+        )
+        with patch.object(ExecutionGate, "gate", return_value=rewrite) as gate:
+            result = self._users_graph().invoke(
+                {"utterance": "show users"},
+                config={
+                    "configurable": {"thread_id": "t-rewrite"},
+                    "recursion_limit": 25,
+                },
+            )
+        assert gate.call_count == 1
+        assert result["q_current"] == "SELECT id FROM users WHERE id = 1"
+        assert result["result"]["count"] == 1
+        assert result["visited_nodes"].count("dag_construction") == 1
+
+    def test_reject_is_a_typed_budget_rejection(self):
+        from unittest.mock import patch
+        from sqldim.core.query.dgm.planner._gate import ExecutionGate
+
+        reject = RejectDecision(reason="Query exceeds hard cost ceiling.")
+        with patch.object(ExecutionGate, "gate", return_value=reject):
+            result = self._users_graph().invoke(
+                {"utterance": "show users"},
+                config={
+                    "configurable": {"thread_id": "t-reject"},
+                    "recursion_limit": 25,
+                },
+            )
+        assert result["error"] == {
+            "kind": "BUDGET_REJECTED",
+            "message": "Query exceeds hard cost ceiling.",
+            "decision": "REJECT",
+        }
+        assert "execution" not in result["visited_nodes"]
 
     def test_clarification_node_without_candidates(self):
-        """The demo clarification node auto-confirms (HITL is #143).
+        """The clarification node returns to the caller; it never auto-confirms.
 
         Through the graph an empty registry no longer reaches the gate: no
         table is resolved, so dag_construction ends the turn with a typed
@@ -1655,7 +1717,8 @@ class TestBuildNLGraphWithContext:
         ctx = DGMContext(entity_registry=EntityRegistry(), budget=_budget(), con=con)
         nodes = make_operational_nodes(ctx)
         out = nodes["clarification"](NLInterfaceState(utterance="query something"))
-        assert out == {"confirmed": True, "want_more_options": False}
+        assert out["error"]["kind"] == "NEEDS_CLARIFICATION"
+        assert "confirmed" not in out
 
         graph = build_nl_graph(context=ctx, demo=True)
         state = graph.invoke(

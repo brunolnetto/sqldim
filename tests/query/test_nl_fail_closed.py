@@ -173,3 +173,70 @@ class TestDemoQueryToolSurfacesErrors:
         assert result.demo is True
         assert result.error is not None
         assert result.error.kind is ToolErrorKind.NEEDS_CLARIFICATION
+
+
+class TestGateDecisionsReachTheSupervisor:
+    def _run(self, decision: Any, monkeypatch: pytest.MonkeyPatch) -> Any:
+        from sqldim.core.query.dgm.planner._gate import ExecutionGate
+
+        monkeypatch.setattr(ExecutionGate, "gate", lambda self, p, b: decision)
+        ctx_nl = _ctx()
+
+        class Source:
+            def setup(self) -> None: ...
+            def teardown(self) -> None: ...
+            def get_connection(self) -> Any:
+                return ctx_nl.con
+
+            def get_table_names(self) -> list[str]:
+                return ["orders"]
+
+        ctx = tool_context(auth({"sales": {Action.READ}}), demo=True)
+        ctx = type(ctx)(**{**ctx.__dict__, "data": ctx.data.scoped(["sales"])})
+        ctx.data._opener = lambda ds: Source()  # type: ignore[attr-defined]
+        bound, _ = bind_plan(
+            plan(step("q1", arguments={"dataset": "sales", "utterance": "list orders"}))
+        )
+        return asyncio.run(DemoQueryTool().execute(bound.steps[0], ctx))
+
+    def test_gate_reject_is_a_budget_rejection(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        from sqldim.core.query.dgm.planner._gate import (
+            BudgetDecisionKind,
+            RejectDecision,
+        )
+
+        result = self._run(RejectDecision(reason="too expensive"), monkeypatch)
+        assert result.status is CallStatus.REJECTED
+        assert result.decision is BudgetDecisionKind.REJECT
+        assert result.error.kind is ToolErrorKind.BUDGET_REJECTED
+        assert result.demo is True
+
+    def test_gate_clarify_is_returned_not_confirmed(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        from sqldim.core.query.dgm.planner._gate import (
+            BudgetDecisionKind,
+            ClarifyDecision,
+            ClarifyKind,
+            ClarifyOption,
+        )
+        from sqldim.core.query.dgm.planner._targets import (
+            CostEstimate,
+            ExportPlan,
+            QueryTarget,
+        )
+
+        p = ExportPlan(
+            query_target=QueryTarget.SQL_DUCKDB,
+            query_text="SELECT id FROM orders",
+            cost_estimate=CostEstimate(cpu_ops=5, io_ops=0),
+        )
+        decision = ClarifyDecision(
+            options=(ClarifyOption(p, p.cost_estimate, ClarifyKind.REFINEMENT),)
+        )
+        result = self._run(decision, monkeypatch)
+        assert result.status is CallStatus.REJECTED
+        assert result.decision is BudgetDecisionKind.CLARIFY
+        assert result.error.kind is ToolErrorKind.NEEDS_CLARIFICATION

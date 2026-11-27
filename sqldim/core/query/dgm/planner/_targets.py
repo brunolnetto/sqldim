@@ -150,6 +150,9 @@ class ExportPlan:
         Alternative ``(ExportPlan, CostEstimate)`` pairs for audit.
     cone_containment_applied:
         True when Rule 9 fired and collapsed REACHABLE_FROM ∩ REACHABLE_TO.
+    estimated_rows:
+        Estimated result size; ``None`` when unknown.  The gate (§6.3)
+        paginates a SYNC plan whose size is unknown or over the limit.
     """
 
     query_target: QueryTarget
@@ -160,6 +163,7 @@ class ExportPlan:
     cost_estimate: CostEstimate | None = None
     alternatives: list[tuple[ExportPlan, CostEstimate]] = field(default_factory=list)
     cone_containment_applied: bool = False
+    estimated_rows: int | None = None
 
 
 # ---------------------------------------------------------------------------
