@@ -8,10 +8,13 @@ from dataclasses import dataclass
 
 import pytest
 
-from sqldim.core.query.dgm.analytical_space import (
-    DGMSchema,
-    EdgeTypeDecl,
-    NodeTypeDecl,
+from sqldim.core.query.dgm.model import (
+    DGMModel,
+    EdgeKind,
+    EdgeType,
+    NodeKind,
+    NodeType,
+    PropType,
 )
 from sqldim.core.query.dgm.nl.supervisor._auth import NOT_AUTHORIZED_OR_NOT_FOUND
 from sqldim.core.query.dgm.planner import (
@@ -335,16 +338,17 @@ def test_unauthorized_message_matches_the_auth_layer() -> None:
 # ---------------------------------------------------------------------------
 
 
-def schema() -> DGMSchema:
-    return DGMSchema(
-        nodes=(
-            NodeTypeDecl("Customer", "dim", (("id", "int"), ("region", "str"))),
-            NodeTypeDecl("Product", "dim", (("sku", "str"),)),
-            NodeTypeDecl("Sale", "fact", (("revenue", "float"),)),
+def schema() -> DGMModel:
+    integer, string, real = PropType("Integer"), PropType("String"), PropType("Real")
+    return DGMModel(
+        node_types=(
+            NodeType("Customer", NodeKind.DIM, {"id": integer, "region": string}),
+            NodeType("Product", NodeKind.DIM, {"sku": string}),
+            NodeType("Sale", NodeKind.FACT, {"revenue": real}),
         ),
-        edges=(
-            EdgeTypeDecl("Customer", "placed", "Sale", "verb"),
-            EdgeTypeDecl("Customer", "returned", "Sale", "verb"),
+        edge_types=(
+            EdgeType("Customer", "Sale", "placed", EdgeKind.VERB),
+            EdgeType("Customer", "Sale", "returned", EdgeKind.VERB),
         ),
     )
 

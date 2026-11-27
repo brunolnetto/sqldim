@@ -18,7 +18,7 @@ from __future__ import annotations
 from collections.abc import Iterator, Mapping
 from types import MappingProxyType
 
-from sqldim.core.query.dgm.analytical_space import DGMSchema
+from sqldim.core.query.dgm.model import DGMModel
 from sqldim.core.query.dgm.nl._types import EntityRegistry
 from sqldim.core.query.dgm.planner._ir import check_identifier
 from sqldim.core.query.dgm.runtime._errors import (
@@ -30,13 +30,17 @@ __all__ = ["SchemaVocabulary", "VerbLabels", "GroundedEntityRegistry"]
 
 
 class SchemaVocabulary:
-    """The ``schema`` of ``DGMRuntime``: lookups over a declared ``G_S``."""
+    """The ``schema`` of ``DGMRuntime``: lookups over the declared model.
 
-    def __init__(self, schema: DGMSchema) -> None:
-        if not isinstance(schema, DGMSchema):
-            raise InvalidRuntimeArgument("SchemaVocabulary needs a DGMSchema")
-        self.schema = schema
-        self._props = {n.name: tuple(k for k, _ in n.properties) for n in schema.nodes}
+    The model is the one declared for the dataset (``dgm_model()``); nothing
+    is inferred from the data.
+    """
+
+    def __init__(self, model: DGMModel) -> None:
+        if not isinstance(model, DGMModel):
+            raise InvalidRuntimeArgument("SchemaVocabulary needs a declared DGMModel")
+        self.model = model
+        self._props = {n.name: tuple(n.properties) for n in model.node_types}
 
     @property
     def node_types(self) -> frozenset[str]:
@@ -65,7 +69,7 @@ class VerbLabels(Mapping[tuple[str, str], tuple[str, ...]]):
     def __init__(self, vocab: SchemaVocabulary) -> None:
         self._vocab = vocab
         labels: dict[tuple[str, str], list[str]] = {}
-        for e in vocab.schema.edges:
+        for e in vocab.model.edge_types:
             labels.setdefault((e.source, e.target), []).append(e.label)
         self._labels = {k: tuple(sorted(v)) for k, v in labels.items()}
 
