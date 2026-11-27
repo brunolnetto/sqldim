@@ -33,9 +33,8 @@ from sqldim.core.query.dgm.nl.supervisor._invariant_core import (
     lit,
     plain,
 )
-from sqldim.core.query.dgm.nl.supervisor._invariant_model import (
+from sqldim.core.query.dgm.model import (
     Derived,
-    EdgeKind,
     EdgeType,
     ForeignKey,
     Holder,
@@ -76,20 +75,10 @@ def _by_construction(name: str, reason: str) -> Check:
 
 def partition(ev: Evaluator) -> None:
     """§2.1: τ_N, τ_E partition N_S, E_S; V_S ⊆ D_S×F_S×L; B_S ⊆ N_S×N_S×L."""
-    kinds = {n.name: n.kind for n in ev.model.node_types}
-    ev.examine(len(kinds))  # τ_N is total and single-valued by declaration
+    ev.examine(len(ev.model.node_types))  # τ_N is total and single-valued
     for edge in ev.model.edge_types:
         ev.examine()
-        problems = [
-            f"{end} {name!r} is not a node type"
-            for end, name in (("source", edge.source), ("target", edge.target))
-            if name not in kinds
-        ]
-        if edge.kind is EdgeKind.VERB and not problems:
-            if kinds[edge.source] is not NodeKind.DIM:
-                problems.append("a verb edge type must start at a dimension type")
-            if kinds[edge.target] is not NodeKind.FACT:
-                problems.append("a verb edge type must end at a fact type")
+        problems = ev.model.partition_problems(edge)
         if problems:
             ev.violate(
                 {"edge": edge.key, "kind": edge.kind.value, "problems": problems}
@@ -303,11 +292,11 @@ def h3(ev: Evaluator) -> None:
 # ---------------------------------------------------------------------------
 
 
-def _m2_declaration(node: NodeType, table: NodeTable) -> str | None:
+def _m2_declaration(versioned: bool, table: NodeTable) -> str | None:
     declared = [table.version_key, table.effective_from, table.effective_to]
-    if node.versioned and None in declared:
+    if versioned and None in declared:
         return "an SCD2/SCD6 NodeTable must declare version_key, effective_from and effective_to"
-    if not node.versioned and any(c is not None for c in declared):
+    if not versioned and any(c is not None for c in declared):
         return "only an SCD2/SCD6 NodeTable declares version_key, effective_from or effective_to"
     return None
 
@@ -377,10 +366,11 @@ def m2(ev: Evaluator) -> None:
         if table is None:
             continue  # no NodeTable to examine: M1's finding
         ev.examine()
-        problem = _m2_declaration(node, table)
+        versioned = ev.model.versioned(node.name)
+        problem = _m2_declaration(versioned, table)
         if problem is not None:
             ev.violate({"node_type": node.name, "problem": problem})
-        elif node.versioned:
+        elif versioned:
             _m2_intervals(ev, node, table)
 
 
@@ -540,7 +530,7 @@ def _references_versioned(ev: Evaluator, fact: str, edge: EdgeType) -> bool:
     if fact not in (edge.source, edge.target):
         return False
     other = ev.model.node(edge.target if edge.source == fact else edge.source)
-    if other is None or not other.versioned:
+    if other is None or not ev.model.versioned(other.name):
         return False
     mapping = edge.mapping
     if isinstance(mapping, ForeignKey):

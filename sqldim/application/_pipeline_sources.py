@@ -13,6 +13,7 @@ from typing import Any
 import duckdb
 
 from sqldim.application.datasets.dataset import Dataset
+from sqldim.core.query.dgm.model import DGMModel, ModelNotDeclared
 
 __all__ = [
     "PipelineSource",
@@ -106,6 +107,19 @@ class DatasetPipelineSource(PipelineSource):
 
     def get_table_names(self) -> list[str]:
         return self._dataset.table_names()
+
+    def dgm_model(self) -> DGMModel:
+        """The dataset's declared DGM model (``DeclaresDGMModel``, §2.6).
+
+        Raises :class:`ModelNotDeclared` when the dataset declares none; the
+        model is never inferred from the tables.
+        """
+        build = self._dataset.model
+        if build is None:
+            raise ModelNotDeclared(
+                f"dataset {self._dataset.name!r} declares no DGM model"
+            )
+        return build()
 
     def teardown(self) -> None:  # pragma: no cover
         if self._con is not None:

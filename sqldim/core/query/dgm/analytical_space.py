@@ -3,8 +3,12 @@
 Everything here is computed from the schema graph ``G_S = (N_S, E_S, τ_N, τ_E,
 K_S, Σ)`` alone and reads no instance data (§8.11, *Schema determinacy*):
 
-* :class:`DGMSchema` — a declared ``G_S``, checked against the structural
-  invariants of §2.1 at construction;
+* the schema graph is the one the dataset declares in its
+  :class:`~sqldim.core.query.dgm.model.DGMModel` (``DGMSchema`` is that type);
+  :func:`decompose` and the anchor-set functions read ``N_S``, ``E_S``,
+  ``K_S`` and the kinds of ``Σ`` they need, and raise
+  :class:`~sqldim.core.query.dgm.model.AnnotationNotDeclared` for a kind the
+  model does not state;
 * :func:`validate_anchor_set` / :func:`admissible_anchor_sets` — AS1–AS3 of
   §3.4.6 with connection taken in ``U(G_S)``;
 * :func:`decompose` — the six vocabularies of §8.16.1 with their members.
@@ -21,16 +25,16 @@ from collections.abc import Iterable, Iterator, Mapping
 from dataclasses import dataclass
 from enum import Enum
 from itertools import combinations, combinations_with_replacement
-from typing import Any, Literal
+from typing import Any
 
 from sqldim.core.query.dgm.annotations import (
     FactlessFact,
     MedallionLayer,
     MedallionLayerKind,
-    RolePlaying,
     SchemaAnnotation,
     annotation_kind,
 )
+from sqldim.core.query.dgm.model import DGMModel, ModelDeclarationError, NodeType
 
 __all__ = [
     "AGG_FNS",
@@ -41,17 +45,12 @@ __all__ = [
     "VOCABULARIES",
     "Anchor",
     "DGMSchema",
-    "EdgeTypeDecl",
-    "NodeTypeDecl",
     "SchemaDeclarationError",
     "admissible_anchor_sets",
     "decompose",
     "parse_anchor",
     "validate_anchor_set",
 ]
-
-NodeKind = Literal["dim", "fact"]
-EdgeKind = Literal["verb", "bridge"]
 
 # Formalism-derived vocabularies (§4.1, §4.2, §3.1): fixed by the specification.
 AGG_FNS: tuple[str, ...] = ("SUM", "COUNT", "AVG", "MIN", "MAX", "PROD")
@@ -77,115 +76,11 @@ SIGMA_KEY = "Σ"
 """Key of the declared annotations in :func:`decompose` output."""
 
 
-class SchemaDeclarationError(ValueError):
-    """A declared schema graph violates a structural invariant of §2.1."""
+DGMSchema = DGMModel
+"""The declared schema graph is the declared model (§2.6); kept as a name."""
 
-
-# ---------------------------------------------------------------------------
-# Declared schema graph (§2.1)
-# ---------------------------------------------------------------------------
-
-
-@dataclass(frozen=True)
-class NodeTypeDecl:
-    """A node type ``T ∈ N_S`` with ``τ_N(T)`` and ``K_S(T)`` (key → value type)."""
-
-    name: str
-    kind: NodeKind
-    properties: tuple[tuple[str, str], ...] = ()
-
-
-@dataclass(frozen=True)
-class EdgeTypeDecl:
-    """An edge type ``(source, target, label) ∈ E_S`` with ``τ_E`` and ``K_S``."""
-
-    source: str
-    label: str
-    target: str
-    kind: EdgeKind
-    properties: tuple[tuple[str, str], ...] = ()
-
-    @property
-    def term(self) -> str:
-        return f"({self.source}, {self.label}, {self.target})"
-
-
-def _check_properties(owner: str, props: tuple[tuple[str, str], ...]) -> None:
-    keys = [k for k, _ in props]
-    if any(not k for k in keys) or len(set(keys)) != len(keys):
-        raise SchemaDeclarationError(
-            f"{owner}: property keys must be non-empty and distinct"
-        )
-
-
-def _check_nodes(nodes: tuple[NodeTypeDecl, ...]) -> dict[str, NodeTypeDecl]:
-    if not nodes:
-        raise SchemaDeclarationError("N_S is empty: a schema has at least one type")
-    by_name: dict[str, NodeTypeDecl] = {}
-    for n in nodes:
-        if not n.name or "@" in n.name:
-            raise SchemaDeclarationError(f"invalid node type name {n.name!r}")
-        if n.kind not in ("dim", "fact"):
-            raise SchemaDeclarationError(f"{n.name}: τ_N must be dim or fact")
-        if n.name in by_name:
-            raise SchemaDeclarationError(f"node type {n.name!r} declared twice")
-        _check_properties(n.name, n.properties)
-        by_name[n.name] = n
-    return by_name
-
-
-def _check_edge(e: EdgeTypeDecl, nodes: Mapping[str, NodeTypeDecl]) -> None:
-    if e.source not in nodes or e.target not in nodes:
-        raise SchemaDeclarationError(f"{e.term}: endpoint is not a node type")
-    if not e.label:
-        raise SchemaDeclarationError(f"{e.term}: label must be non-empty")
-    if e.kind == "verb":
-        if (nodes[e.source].kind, nodes[e.target].kind) != ("dim", "fact"):
-            raise SchemaDeclarationError(f"{e.term}: a verb edge type is dim → fact")
-    elif e.kind != "bridge":
-        raise SchemaDeclarationError(f"{e.term}: τ_E must be verb or bridge")
-    _check_properties(e.term, e.properties)
-
-
-@dataclass(frozen=True)
-class DGMSchema:
-    """A declared schema graph ``G_S`` (§2.1), validated at construction."""
-
-    nodes: tuple[NodeTypeDecl, ...]
-    edges: tuple[EdgeTypeDecl, ...] = ()
-    sigma: tuple[SchemaAnnotation, ...] = ()
-
-    def __post_init__(self) -> None:
-        by_name = _check_nodes(self.nodes)
-        seen: set[tuple[str, str, str]] = set()
-        for e in self.edges:
-            _check_edge(e, by_name)
-            key = (e.source, e.target, e.label)
-            if key in seen:
-                raise SchemaDeclarationError(f"{e.term} declared twice")
-            seen.add(key)
-        if not all(isinstance(a, SchemaAnnotation) for a in self.sigma):
-            raise SchemaDeclarationError("Σ holds only SchemaAnnotation members")
-
-    @property
-    def node_names(self) -> list[str]:
-        return sorted(n.name for n in self.nodes)
-
-    def node(self, name: str) -> NodeTypeDecl | None:
-        return next((n for n in self.nodes if n.name == name), None)
-
-    def roles_of(self, name: str) -> frozenset[str]:
-        """Roles that tell apart two anchors of type *name* (AS2, §3.4.6).
-
-        A role is declared by ``RolePlaying`` or is the label of an edge type
-        reaching *name*.
-        """
-        declared = {
-            r for a in self.sigma if isinstance(a, RolePlaying) and a.dim == name
-            for r in a.roles
-        }  # fmt: skip
-        labels = {e.label for e in self.edges if name in (e.source, e.target)}
-        return frozenset(declared | labels)
+SchemaDeclarationError = ModelDeclarationError
+"""A declaration rejected at construction; kept as a name."""
 
 
 # ---------------------------------------------------------------------------
@@ -195,7 +90,7 @@ class DGMSchema:
 
 def _undirected_adjacency(schema: DGMSchema) -> dict[str, set[str]]:
     adj: dict[str, set[str]] = {n: set() for n in schema.node_names}
-    for e in schema.edges:
+    for e in schema.edge_types:
         adj[e.source].add(e.target)
         adj[e.target].add(e.source)
     return adj
@@ -215,9 +110,9 @@ def _distances_from(adj: Mapping[str, set[str]], start: str) -> dict[str, int]:
 
 def _shortest_closed_walk(schema: DGMSchema, name: str) -> int | None:
     """Length of the shortest walk of ≥ 1 hop from *name* back to *name*."""
-    if any(e.source == e.target == name for e in schema.edges):
+    if any(e.source == e.target == name for e in schema.edge_types):
         return 1
-    if any(name in (e.source, e.target) for e in schema.edges):
+    if any(name in (e.source, e.target) for e in schema.edge_types):
         return 2
     return None
 
@@ -384,19 +279,17 @@ def render_annotation(ann: SchemaAnnotation) -> str:
     return f"{annotation_kind(ann)}({args})"
 
 
-def _agg_domain(schema: DGMSchema, node: NodeTypeDecl) -> tuple[str, ...]:
+def _agg_domain(schema: DGMSchema, node: NodeType) -> tuple[str, ...]:
     """AggFn values left by Σ for aggregates over *node* (§8.15 projection)."""
-    factless = any(
-        isinstance(a, FactlessFact) and a.fact == node.name for a in schema.sigma
-    )
+    factless = any(a.fact == node.name for a in schema.annotations(FactlessFact))
     return ("COUNT",) if factless else AGG_FNS
 
 
 def _bronze(schema: DGMSchema) -> set[str]:
     return {
         a.node
-        for a in schema.sigma
-        if isinstance(a, MedallionLayer) and a.layer is MedallionLayerKind.BRONZE
+        for a in schema.annotations(MedallionLayer)
+        if a.layer is MedallionLayerKind.BRONZE
     }
 
 
@@ -437,10 +330,10 @@ def _fixed_parameters(has_edges: bool) -> list[str]:
 
 def _schema_parameters(schema: DGMSchema) -> list[str]:
     out: list[str] = []
-    for node in sorted(schema.nodes, key=lambda n: n.name):
+    for node in sorted(schema.node_types, key=lambda n: n.name):
         out.extend(
             f"FILTER.threshold[{node.name}.{key}]: {type_}"
-            for key, type_ in sorted(node.properties)
+            for key, type_ in sorted(node.properties.items())
         )
         out.append(
             f"AGGREGATION.agg_fn[{node.name}]: {_set(_agg_domain(schema, node))}"
@@ -464,14 +357,14 @@ def decompose(schema: DGMSchema) -> dict[str, list[str]]:
     """
     return {
         "V_N": schema.node_names,
-        "V_E": sorted(e.term for e in schema.edges),
+        "V_E": sorted(e.term for e in schema.edge_types),
         "V_P": sorted(
-            f"{n.name}.{key}" for n in schema.nodes for key, _ in n.properties
+            f"{n.name}.{key}" for n in schema.node_types for key in n.properties
         ),
         "V_Pred": list(PREDICATE_TERMS),
         "V_Op": list(AGG_FNS + COMPARISON_OPS + JOIN_KINDS),
         "V_Par": sorted(
-            _fixed_parameters(bool(schema.edges)) + _schema_parameters(schema)
+            _fixed_parameters(bool(schema.edge_types)) + _schema_parameters(schema)
         ),
         SIGMA_KEY: sorted(render_annotation(a) for a in schema.sigma),
     }

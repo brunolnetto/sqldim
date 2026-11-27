@@ -16,6 +16,7 @@ Instantiate and use with a DuckDB connection:
 """
 
 from sqldim.application.datasets.dataset import Dataset
+from sqldim.application.datasets.domains.growth.model import build_model
 from sqldim.application.datasets.domains.growth.sources import (
     EmployeesSource,
     AccountsSource,
@@ -31,6 +32,7 @@ growth_dataset = Dataset(
         (SaaSUsersSource(), "saas_users"),
         (SaaSSessionsSource(n=200), "saas_sessions"),
     ],
+    model=build_model,
 )
 
 DATASET_METADATA = {

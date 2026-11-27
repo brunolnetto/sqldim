@@ -16,6 +16,7 @@ Instantiate and use with a DuckDB connection:
 """
 
 from sqldim.application.datasets.dataset import Dataset
+from sqldim.application.datasets.domains.fintech.model import build_model
 from sqldim.application.datasets.domains.fintech.sources import (
     AccountsSource,
     CounterpartiesSource,
@@ -29,6 +30,7 @@ fintech_dataset = Dataset(
         (CounterpartiesSource(), "counterparties"),
         (TransactionsSource(), "transactions"),
     ],
+    model=build_model,
 )
 
 DATASET_METADATA = {

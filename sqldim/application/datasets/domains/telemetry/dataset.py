@@ -16,6 +16,7 @@ Instantiate and use with a DuckDB connection:
 """
 
 from sqldim.application.datasets.dataset import Dataset
+from sqldim.application.datasets.domains.telemetry.model import build_model
 from sqldim.application.datasets.domains.telemetry.sources import (
     DevicesSource,
     EventsSource,
@@ -31,6 +32,7 @@ telemetry_dataset = Dataset(
         (PipelineSpanSource(), "pipeline_spans"),
         (MetricSampleSource(), "metric_samples"),
     ],
+    model=build_model,
 )
 
 DATASET_METADATA = {

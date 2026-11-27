@@ -1,22 +1,21 @@
 """``dgm_map_analytical_space`` — vocabulary decomposition of a dataset (§12.3, §8.16).
 
-The tool reads the schema graph the dataset *declares* — ``G_S``, ``K_S`` and
-``Σ`` — through ``ToolContext.data`` and nothing else (§12.10).  It never reads
-instance data (§8.11, *Schema determinacy*), never infers a schema from tables
-and never looks at another dataset.
-
-Declaration protocol: the object returned by ``ctx.data.open(dataset)`` has a
-``dgm_schema()`` method returning a :class:`~sqldim.core.query.dgm.
-analytical_space.DGMSchema`, or ``None`` when the dataset declares none.
+The tool reads ``G_S``, ``K_S`` and ``Σ`` from the model the dataset
+*declares* — the same :class:`~sqldim.core.query.dgm.model.DGMModel` that
+``dgm_validate_invariant`` reads — through ``ToolContext.data`` and nothing
+else (§12.10).  It never reads instance data (§8.11, *Schema determinacy*),
+never infers a model and never looks at another dataset.
 
 Outcomes, kept apart (D42):
 
 * an ``utterance`` asks for the grounding check of §12.8, which needs the
   reading of the NL interface (§11.10) — not implemented → ``NOT_IMPLEMENTED``;
-* a dataset that declares no schema graph → ``UNSUPPORTED``;
-* a declaration that raises or violates §2.1 → ``TOOL_FAILURE``;
-* otherwise SUCCEEDED with the decomposition.  It is never empty: a valid
-  schema has at least one node type.
+* a dataset that declares no model → ``UNSUPPORTED``;
+* a declaration that is ill-formed, raises, or violates §2.1 → ``TOOL_FAILURE``;
+* a model that does not state a kind of Σ the decomposition reads
+  (``FactlessFact``, ``MedallionLayer``, ``RolePlaying``) → ``UNSUPPORTED``;
+* otherwise SUCCEEDED with the decomposition.  It is never empty: a
+  well-formed model has at least one node type.
 """
 
 from __future__ import annotations
@@ -26,12 +25,16 @@ from typing import Any
 
 from sqldim.core.query.dgm.analytical_space import (
     VOCABULARIES,
-    DGMSchema,
-    SchemaDeclarationError,
     admissible_anchor_sets,
     decompose,
 )
+from sqldim.core.query.dgm.model import AnnotationNotDeclared, DGMModel
 from sqldim.core.query.dgm.nl.supervisor._auth import AccessDenied
+from sqldim.core.query.dgm.nl.supervisor._declared_model import (
+    DeclarationUnavailable,
+    declared_model,
+    undeclared_annotation,
+)
 from sqldim.core.query.dgm.nl.supervisor._schemas import (
     DEFAULT_POLICY,
     SupervisorPolicy,
@@ -61,45 +64,24 @@ GROUNDING_MISSING = (
 )
 
 
-class _Failed(Exception):
-    def __init__(self, kind: ToolErrorKind, message: str, **context: Any) -> None:
-        super().__init__(message)
-        self.kind = kind
-        self.message = message
-        self.context = context
-
-
-def _declared_schema(source: Any) -> DGMSchema:
-    declare = getattr(source, "dgm_schema", None)
-    if not callable(declare):
-        raise _Failed(
-            ToolErrorKind.UNSUPPORTED,
-            "the dataset declares no DGM schema graph (G_S, K_S, Σ)",
-        )
-    try:
-        schema = declare()
-    except SchemaDeclarationError as exc:
-        raise _Failed(
+def _partition_violations(model: DGMModel) -> None:
+    problems = [
+        f"{e.term}: {p}" for e in model.edge_types for p in model.partition_problems(e)
+    ]
+    if problems:
+        raise DeclarationUnavailable(
             ToolErrorKind.TOOL_FAILURE,
             "the declared schema graph violates §2.1",
-            detail=str(exc),
-        ) from exc
-    if schema is None:
-        raise _Failed(
-            ToolErrorKind.UNSUPPORTED,
-            "the dataset declares no DGM schema graph (G_S, K_S, Σ)",
+            detail="; ".join(problems),
         )
-    if not isinstance(schema, DGMSchema):
-        raise _Failed(
-            ToolErrorKind.TOOL_FAILURE,
-            "the dataset's schema declaration is not a DGMSchema",
-            declared=type(schema).__name__,
-        )
-    return schema
 
 
-def map_space(schema: DGMSchema, policy: SupervisorPolicy) -> dict[str, Any]:
-    """The SUCCEEDED payload: vocabularies, sizes and admissible anchor sets."""
+def map_space(schema: DGMModel, policy: SupervisorPolicy) -> dict[str, Any]:
+    """The SUCCEEDED payload: vocabularies, sizes and admissible anchor sets.
+
+    Raises :class:`AnnotationNotDeclared` if *schema* does not state a kind
+    of Σ the decomposition reads.
+    """
     vocabularies = decompose(schema)
     return {
         "vocabularies": vocabularies,
@@ -135,7 +117,7 @@ class MapAnalyticalSpaceTool(BaseTool):
         started = datetime.now(timezone.utc)
         try:
             data = self._run(request, ctx)
-        except _Failed as exc:
+        except DeclarationUnavailable as exc:
             return ToolCallResult.failure(
                 request, CallStatus.FAILED, exc.kind, exc.message, context=exc.context
             )
@@ -148,7 +130,7 @@ class MapAnalyticalSpaceTool(BaseTool):
                 request,
                 CallStatus.FAILED,
                 ToolErrorKind.TOOL_FAILURE,
-                "the schema declaration of the dataset failed",
+                "the analytical space of the dataset could not be computed",
                 context={"exception": type(exc).__name__, "detail": str(exc)},
             )
         return ToolCallResult(
@@ -165,17 +147,22 @@ class MapAnalyticalSpaceTool(BaseTool):
 
     def _run(self, request: ToolCallRequest, ctx: ToolContext) -> dict[str, Any]:
         if request.arguments.get("utterance") is not None:
-            raise _Failed(
+            raise DeclarationUnavailable(
                 ToolErrorKind.NOT_IMPLEMENTED,
                 "the grounding check is not implemented in this deployment",
                 missing=GROUNDING_MISSING,
             )
-        schema = _declared_schema(ctx.data.open(request.arguments["dataset"]))
-        return map_space(schema, self._policy)
+        dataset = request.arguments["dataset"]
+        model = declared_model(ctx.data.open(dataset), dataset)
+        _partition_violations(model)
+        try:
+            return map_space(model, self._policy)
+        except AnnotationNotDeclared as exc:
+            raise undeclared_annotation(exc) from exc
 
     def explain(self, arguments: dict[str, Any]) -> str:
         return (
             f"{NAME}: the vocabularies {', '.join(VOCABULARIES)} and the "
             f"anchor sets of dataset {arguments.get('dataset')!r}, from its "
-            "declared schema graph"
+            "declared model"
         )

@@ -67,12 +67,16 @@ Example
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from dataclasses import dataclass, field
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import duckdb
 
 from sqldim.application.datasets.base import BaseSource
+
+if TYPE_CHECKING:
+    from sqldim.core.query.dgm.model import DGMModel
 
 
 @dataclass
@@ -86,6 +90,10 @@ class Dataset:
     sources : List of ``(source, table_name)`` pairs in FK dependency order.
               Parents before children — ``setup()`` processes this list
               front-to-back; ``teardown()`` reverses it.
+    model   : The dataset's declared DGM model (§2.6), as a function that
+              builds it, or ``None`` when the dataset declares none.  It is
+              written from the source definitions and never inferred from the
+              tables; building it checks it (``ModelDeclarationError``).
 
     Attributes
     ----------
@@ -95,6 +103,7 @@ class Dataset:
 
     name: str
     sources: list[tuple[BaseSource, str]] = field(default_factory=list)
+    model: Callable[[], DGMModel] | None = None
 
     # ------------------------------------------------------------------
     # Lookup
