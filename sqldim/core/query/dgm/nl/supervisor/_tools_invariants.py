@@ -2,12 +2,13 @@
 
 Checks one formal model invariant over every element of its scope, against the
 DGM model the dataset handle declares (``dgm_model()``, see
-:class:`~._invariant_model.DeclaresDGMModel`)
-and its data, opened only through ``ToolContext.data`` (§12.10).
+:class:`~sqldim.core.query.dgm.model.DeclaresDGMModel`, read by
+:func:`~._declared_model.declared_model`) and its data, opened only through ``ToolContext.data`` (§12.10).
 
 Fail closed (D42): ``holds`` is set only after a complete evaluation.  Every
 other end is a typed failure — UNSUPPORTED (the dataset declares no model, the
-model lacks what the invariant reads, or the invariant holds by construction),
+model lacks what the invariant reads — a mapping or an annotation kind it does
+not state — or the invariant holds by construction),
 NOT_IMPLEMENTED (a clause this build does not evaluate), INVALID_ARGUMENTS
 (``PA*`` without a PipelineArtifact type), UNAUTHORIZED, CANCELLED or
 TOOL_FAILURE.  ``violation_count`` is always the full count; only the list of
@@ -23,7 +24,13 @@ from typing import Any
 import duckdb
 from pydantic import ValidationError
 
+from sqldim.core.query.dgm.model import AnnotationNotDeclared, DGMModel
 from sqldim.core.query.dgm.nl.supervisor._auth import AccessDenied
+from sqldim.core.query.dgm.nl.supervisor._declared_model import (
+    DeclarationUnavailable,
+    declared_model,
+    undeclared_annotation,
+)
 from sqldim.core.query.dgm.nl.supervisor._invariant_core import (
     Evaluation,
     Evaluator,
@@ -33,7 +40,6 @@ from sqldim.core.query.dgm.nl.supervisor._invariant_eval import (
     EVALUATORS,
     SCHEMA_ONLY,
 )
-from sqldim.core.query.dgm.nl.supervisor._invariant_model import DGMModel
 from sqldim.core.query.dgm.nl.supervisor._invariant_pa import PA_EVALUATORS
 from sqldim.core.query.dgm.nl.supervisor._schemas import (
     INVARIANTS,
@@ -147,21 +153,7 @@ class ValidateInvariantTool(BaseTool):
         args: ValidateInvariantArgs, ctx: ToolContext, run: _Run
     ) -> Evaluation:
         source = ctx.data.open(args.dataset)
-        declare = getattr(source, "dgm_model", None)
-        if not callable(declare):
-            raise NotEvaluable(
-                ToolErrorKind.UNSUPPORTED,
-                "the dataset declares no DGM model (G_S, K_S, M, Σ; §2.6), so "
-                "no invariant can be evaluated against it",
-                dataset=args.dataset,
-            )
-        model = declare()
-        if not isinstance(model, DGMModel):
-            raise NotEvaluable(
-                ToolErrorKind.UNSUPPORTED,
-                "the dataset's dgm_model() did not return a DGMModel",
-                dataset=args.dataset,
-            )
+        model = declared_model(source, args.dataset)
         if args.invariant in SCHEMA_ONLY:
             return evaluate_invariant(
                 args.invariant, model, None, args.max_witnesses, cancel=ctx.cancel
@@ -188,6 +180,12 @@ def _failure(request: ToolCallRequest, exc: Exception) -> ToolCallResult:
             CallStatus.FAILED,
             ToolErrorKind.INVALID_ARGUMENTS,
             "arguments do not match dgm_validate_invariant",
+        )
+    if isinstance(exc, AnnotationNotDeclared):
+        exc = undeclared_annotation(exc)
+    if isinstance(exc, DeclarationUnavailable):
+        return ToolCallResult.failure(
+            request, CallStatus.FAILED, exc.kind, exc.message, context=exc.context
         )
     if isinstance(exc, NotEvaluable):
         status = (

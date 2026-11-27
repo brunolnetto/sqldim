@@ -10,24 +10,30 @@ from typing import Any
 import duckdb
 import pytest
 
-from sqldim.core.query.dgm.annotations import SCDKind
-from sqldim.core.query.dgm.nl.supervisor._auth import Action
-from sqldim.core.query.dgm.nl.supervisor._dispatch import execute_tool
-from sqldim.core.query.dgm.nl.supervisor._invariant_core import NotEvaluable
-from sqldim.core.query.dgm.nl.supervisor._invariant_model import (
+from sqldim.core.query.dgm.annotations import (
+    PipelineArtifact,
+    SCDKind,
+    SCDType,
+    WriteModeKind,
+)
+from sqldim.core.query.dgm.model import (
     DGMModel,
     EdgeKind,
     EdgeType,
     ForeignKey,
     Holder,
+    ModelDeclarationError,
+    ModelNotDeclared,
     NodeKind,
     NodeTable,
     NodeType,
-    PipelineArtifactRef,
     PropType,
     Reference,
     RelationTable,
 )
+from sqldim.core.query.dgm.nl.supervisor._auth import Action
+from sqldim.core.query.dgm.nl.supervisor._dispatch import execute_tool
+from sqldim.core.query.dgm.nl.supervisor._invariant_core import NotEvaluable
 from sqldim.core.query.dgm.nl.supervisor._schemas import (
     INVARIANTS,
     ValidateInvariantOutput,
@@ -81,7 +87,6 @@ CUSTOMER = NodeType(
         effective_from="effective_from",
         effective_to="effective_to",
     ),
-    scd=SCDKind.SCD2,
 )
 PRODUCT = NodeType(
     "Product",
@@ -129,7 +134,12 @@ REFERS = EdgeType(
         {"weight": "weight"},
     ),
 )
-RETAIL = DGMModel((CUSTOMER, PRODUCT, SALE), (PLACED, SOLD, REFERS))
+KINDS = frozenset({"SCDType", "PipelineArtifact"})
+"""The kinds of Σ the invariants read, stated completely by the fixtures."""
+SCD2_CUSTOMER = (SCDType("Customer", SCDKind.SCD2),)
+RETAIL = DGMModel(
+    (CUSTOMER, PRODUCT, SALE), (PLACED, SOLD, REFERS), SCD2_CUSTOMER, KINDS
+)
 
 # Bags: 3 customer versions + 2 products + 3 sales; edges: placed 2 (S3 is
 # dangling), sold 3, refers 1.
@@ -184,10 +194,11 @@ FOLLOWED_BY = EdgeType(
     EdgeKind.BRIDGE,
     mapping=ForeignKey(Holder.TARGET, ("prev_tid",), Reference.ENTITY_KEY),
 )
+RUN_ARTIFACT = PipelineArtifact(
+    "Run", "runs", 3600, 90, WriteModeKind.BACKFILL, transitions="RunTransition"
+)
 PIPELINE = DGMModel(
-    (RUN, TRANSITION),
-    (TRANSITION_OF, FOLLOWED_BY),
-    (PipelineArtifactRef("Run", "RunTransition"),),
+    (RUN, TRANSITION), (TRANSITION_OF, FOLLOWED_BY), (RUN_ARTIFACT,), KINDS
 )
 
 
@@ -228,6 +239,19 @@ class NoModelSource(DuckSource):
     """A dataset handle that declares no DGM model."""
 
     dgm_model = None  # type: ignore[assignment]
+
+
+class RaisingSource(DuckSource):
+    """A handle whose declaration raises *outcome*, or returns it if not an error."""
+
+    def __init__(self, outcome: Any) -> None:
+        super().__init__(RETAIL, RETAIL_SQL)
+        self._outcome = outcome
+
+    def dgm_model(self) -> DGMModel:
+        if isinstance(self._outcome, Exception):
+            raise self._outcome
+        return self._outcome  # type: ignore[no-any-return]
 
 
 class SourceOpener:
@@ -339,6 +363,42 @@ class TestRefusals:
         result = _failed("H3", source, ToolErrorKind.UNSUPPORTED)
         assert "declares no DGM model" in result.error.message  # type: ignore[union-attr]
         assert source.setups == 0
+
+    def test_model_not_declared_is_unsupported(self) -> None:
+        source = RaisingSource(ModelNotDeclared("no model"))
+        _failed("H3", source, ToolErrorKind.UNSUPPORTED)
+        assert source.setups == 0
+
+    def test_ill_formed_declaration_is_tool_failure(self) -> None:
+        source = RaisingSource(ModelDeclarationError("edge names no type"))
+        result = _failed("M1", source, ToolErrorKind.TOOL_FAILURE)
+        assert "names no type" in result.error.context["detail"]  # type: ignore[union-attr]
+
+    def test_wrong_declaration_type_is_tool_failure(self) -> None:
+        _failed("M1", RaisingSource({"N_S": []}), ToolErrorKind.TOOL_FAILURE)
+
+    @pytest.mark.parametrize(
+        "invariant,source,kind",
+        [
+            ("M2", "retail", "SCDType"),
+            ("M7", "retail", "SCDType"),
+            ("PA1", "pipeline", "PipelineArtifact"),
+        ],
+    )
+    def test_undeclared_annotation_kind_is_unsupported(
+        self, invariant: str, source: str, kind: str
+    ) -> None:
+        base = RETAIL if source == "retail" else PIPELINE
+        sigma = () if source == "retail" else base.sigma
+        kinds = KINDS - {kind}
+        model = dataclasses.replace(
+            base,
+            sigma=tuple(a for a in sigma if type(a).__name__ != kind),
+            sigma_kinds=kinds,
+        )
+        src = _retail(model=model) if source == "retail" else _pipeline(model=model)
+        result = _failed(invariant, src, ToolErrorKind.UNSUPPORTED)
+        assert result.error.context["annotation"] == kind  # type: ignore[union-attr]
 
     @pytest.mark.parametrize("invariant", ["H1", "M5"])
     def test_invariant_true_by_construction_is_unsupported(
@@ -523,10 +583,7 @@ class TestVersioning:
         ]
 
     def test_m2_version_columns_without_scd2(self) -> None:
-        model = dataclasses.replace(
-            RETAIL,
-            node_types=(dataclasses.replace(CUSTOMER, scd=SCDKind.SCD1), PRODUCT, SALE),
-        )
+        model = dataclasses.replace(RETAIL, sigma=(SCDType("Customer", SCDKind.SCD1),))
         data = _holds("M2", _retail(model=model))
         assert data["violation_count"] == 1
         assert data["violations"][0]["node_type"] == "Customer"
@@ -552,10 +609,11 @@ class TestVersioning:
     def test_empty_scope_holds_vacuously_with_nothing_checked(self) -> None:
         unversioned = dataclasses.replace(
             CUSTOMER,
-            scd=None,
             mapping=NodeTable("dim_customer", ("customer_id",), {"segment": "segment"}),
         )
-        model = dataclasses.replace(RETAIL, node_types=(unversioned, PRODUCT, SALE))
+        model = dataclasses.replace(
+            RETAIL, node_types=(unversioned, PRODUCT, SALE), sigma=()
+        )
         data = _holds("M7", _retail(model=model))
         assert data == {
             "holds": True,
@@ -594,7 +652,7 @@ ORDERED = EdgeType(
     EdgeKind.VERB,
     mapping=ForeignKey(Holder.TARGET, ("customer_vk",), Reference.VERSION_KEY),
 )
-ORDERS = DGMModel((CUSTOMER, ORDER), (ORDERED,))
+ORDERS = DGMModel((CUSTOMER, ORDER), (ORDERED,), SCD2_CUSTOMER, KINDS)
 
 
 class TestReferences:
@@ -622,10 +680,9 @@ class TestReferences:
     def test_m6_version_key_reference_to_unversioned_type(self) -> None:
         plain_customer = dataclasses.replace(
             CUSTOMER,
-            scd=None,
             mapping=NodeTable("dim_customer", ("customer_id",), {"segment": "segment"}),
         )
-        model = DGMModel((plain_customer, ORDER), (ORDERED,))
+        model = DGMModel((plain_customer, ORDER), (ORDERED,), (), KINDS)
         data = _holds("M6", DuckSource(model, ORDER_SQL))
         assert data["violation_count"] == 1
         assert (
@@ -690,15 +747,26 @@ class TestPipelineArtifact:
         assert data["violations"][0]["state_at_now"] == "Complete"
 
     def test_pa4_versioned_artifact_is_not_implemented(self) -> None:
-        model = dataclasses.replace(
-            PIPELINE,
-            node_types=(dataclasses.replace(RUN, scd=SCDKind.SCD2), TRANSITION),
+        # SCDType names a dimension type (§2.4): an artifact is versioned only
+        # through a NodeTable with a version_key.
+        versioned = dataclasses.replace(
+            RUN,
+            mapping=dataclasses.replace(RUN.mapping, version_key="run_id"),  # type: ignore[arg-type]
         )
+        model = dataclasses.replace(PIPELINE, node_types=(versioned, TRANSITION))
         _failed("PA4", _pipeline(model=model), ToolErrorKind.NOT_IMPLEMENTED)
+        with pytest.raises(ModelDeclarationError, match="not a dim type"):
+            dataclasses.replace(PIPELINE, sigma=(SCDType("Run", SCDKind.SCD2),))
 
     def test_missing_pipeline_edge_is_unsupported(self) -> None:
         model = dataclasses.replace(PIPELINE, edge_types=(TRANSITION_OF,))
         _failed("PA2", _pipeline(model=model), ToolErrorKind.UNSUPPORTED)
+
+    def test_artifact_without_transitions_type_is_unsupported(self) -> None:
+        bare = dataclasses.replace(RUN_ARTIFACT, transitions=None)
+        model = dataclasses.replace(PIPELINE, sigma=(bare,))
+        result = _failed("PA1", _pipeline(model=model), ToolErrorKind.UNSUPPORTED)
+        assert "transitions" in result.error.message  # type: ignore[union-attr]
 
 
 # ---------------------------------------------------------------------------

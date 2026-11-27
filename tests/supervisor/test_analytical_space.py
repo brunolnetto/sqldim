@@ -1,8 +1,9 @@
 """``dgm_map_analytical_space`` and the §8.16 / §3.4.6 computations (#132).
 
-The tool reads only the schema graph a dataset declares, through
-``ToolContext.data``; it never reads instance data, never infers a schema and
-never looks at another dataset.  Every non-success is typed (D42).
+The tool reads only the model a dataset declares (the ``DGMModel`` that
+``dgm_validate_invariant`` reads too), through ``ToolContext.data``; it never
+reads instance data, never infers a model and never looks at another dataset.
+Every non-success is typed (D42).
 """
 
 from __future__ import annotations
@@ -16,8 +17,6 @@ from sqldim.core.query.dgm.analytical_space import (
     AGG_FNS,
     VOCABULARIES,
     DGMSchema,
-    EdgeTypeDecl,
-    NodeTypeDecl,
     SchemaDeclarationError,
     admissible_anchor_sets,
     decompose,
@@ -25,9 +24,21 @@ from sqldim.core.query.dgm.analytical_space import (
 )
 from sqldim.core.query.dgm.annotations import (
     FactlessFact,
+    Grain,
+    GrainKind,
     MedallionLayer,
     MedallionLayerKind,
     RolePlaying,
+)
+from sqldim.core.query.dgm.model import (
+    AnnotationNotDeclared,
+    DGMModel,
+    EdgeKind,
+    EdgeType,
+    ModelNotDeclared,
+    NodeKind,
+    NodeType,
+    PropType,
 )
 from sqldim.core.query.dgm.nl.supervisor._auth import Action
 from sqldim.core.query.dgm.nl.supervisor._dispatch import execute_tool
@@ -50,34 +61,43 @@ from tests.supervisor._fakes import auth, plan, step, tool_context
 TOOL = "dgm_map_analytical_space"
 
 
-def retail(*sigma: Any) -> DGMSchema:
+SPACE_KINDS = frozenset({"FactlessFact", "MedallionLayer", "RolePlaying"})
+"""The kinds of Σ the decomposition reads, stated completely by the fixtures."""
+
+INTEGER, STRING = PropType("Integer"), PropType("String")
+DIM, FACT = NodeKind.DIM, NodeKind.FACT
+VERB, BRIDGE = EdgeKind.VERB, EdgeKind.BRIDGE
+
+
+def retail(*sigma: Any, kinds: frozenset[str] = SPACE_KINDS) -> DGMSchema:
     """Customer → Sale ← Date (two roles), Product → Sale; Region is isolated."""
-    return DGMSchema(
-        nodes=(
-            NodeTypeDecl("Customer", "dim", (("age", "Int"), ("name", "String"))),
-            NodeTypeDecl("Product", "dim", (("category", "String"),)),
-            NodeTypeDecl("Date", "dim", (("day", "Date"),)),
-            NodeTypeDecl("Sale", "fact", (("revenue", "Decimal"),)),
-            NodeTypeDecl("Region", "dim", (("code", "String"),)),
+    return DGMModel(
+        node_types=(
+            NodeType("Customer", DIM, {"age": INTEGER, "name": STRING}),
+            NodeType("Product", DIM, {"category": STRING}),
+            NodeType("Date", DIM, {"day": PropType("Date")}),
+            NodeType("Sale", FACT, {"revenue": PropType("Real")}),
+            NodeType("Region", DIM, {"code": STRING}),
         ),
-        edges=(
-            EdgeTypeDecl("Customer", "placed", "Sale", "verb"),
-            EdgeTypeDecl("Product", "included_in", "Sale", "verb"),
-            EdgeTypeDecl("Date", "ordered_on", "Sale", "verb"),
-            EdgeTypeDecl("Date", "shipped_on", "Sale", "verb"),
+        edge_types=(
+            EdgeType("Customer", "Sale", "placed", VERB),
+            EdgeType("Product", "Sale", "included_in", VERB),
+            EdgeType("Date", "Sale", "ordered_on", VERB),
+            EdgeType("Date", "Sale", "shipped_on", VERB),
         ),
         sigma=sigma,
+        sigma_kinds=kinds | {type(a).__name__ for a in sigma},
     )
 
 
 class Source:
-    """A dataset handle that declares a schema graph and has data it must not touch."""
+    """A dataset handle that declares a model and has data it must not touch."""
 
     def __init__(self, schema: Any = None, *, declares: bool = True) -> None:
         self._schema = schema
         self.instance_reads = 0
         if declares:
-            self.dgm_schema = self._declare
+            self.dgm_model = self._declare
 
     def _declare(self) -> Any:
         if isinstance(self._schema, Exception):
@@ -177,7 +197,7 @@ class TestKnownSchema:
             "Region.code",
             "Sale.revenue",
         ]
-        assert "FILTER.threshold[Sale.revenue]: Decimal" in vocab["V_Par"]
+        assert "FILTER.threshold[Sale.revenue]: Real" in vocab["V_Par"]
         assert set(AGG_FNS) <= set(vocab["V_Op"])
         assert "TemporalMode.EVENTUALLY" in vocab["V_Pred"]
         assert data["sizes"] == {k: len(v) for k, v in vocab.items()}
@@ -219,7 +239,9 @@ class TestKnownSchema:
         ]
 
     def test_schema_without_edges_has_no_anchor_set(self) -> None:
-        schema = DGMSchema(nodes=(NodeTypeDecl("Only", "dim", (("x", "Int"),)),))
+        schema = DGMModel(
+            (NodeType("Only", DIM, {"x": INTEGER}),), sigma_kinds=SPACE_KINDS
+        )
         result, _ = _run({"dataset": "sales"}, {"sales": Source(schema)})
         assert result.status is CallStatus.SUCCEEDED
         assert result.data["vocabularies"]["V_N"] == ["Only"]
@@ -295,9 +317,28 @@ class TestFailClosed:
         assert result.data is None
         assert result.error.kind is ToolErrorKind.UNSUPPORTED
 
-    def test_declared_none_is_unsupported(self) -> None:
-        result, _ = _run({"dataset": "sales"}, {"sales": Source(None)})
+    def test_model_not_declared_is_unsupported(self) -> None:
+        source = Source(ModelNotDeclared("no model"))
+        result, _ = _run({"dataset": "sales"}, {"sales": source})
         assert result.error.kind is ToolErrorKind.UNSUPPORTED
+
+    @pytest.mark.parametrize("kind", sorted(SPACE_KINDS))
+    def test_undeclared_annotation_kind_is_unsupported(self, kind: str) -> None:
+        schema = retail(kinds=SPACE_KINDS - {kind})
+        result, _ = _run({"dataset": "sales"}, {"sales": Source(schema)})
+        assert result.status is CallStatus.FAILED and result.data is None
+        assert result.error.kind is ToolErrorKind.UNSUPPORTED
+        assert result.error.context["annotation"] == kind
+
+    def test_declaration_violating_2_1_is_tool_failure(self) -> None:
+        schema = DGMModel(
+            (NodeType("F", FACT), NodeType("D", DIM)),
+            (EdgeType("F", "D", "x", VERB),),
+            sigma_kinds=SPACE_KINDS,
+        )
+        result, _ = _run({"dataset": "sales"}, {"sales": Source(schema)})
+        assert result.error.kind is ToolErrorKind.TOOL_FAILURE
+        assert "must start at a dimension type" in result.error.context["detail"]
 
     def test_declaration_error_is_tool_failure(self) -> None:
         bad = SchemaDeclarationError("verb edge type is dim → fact")
@@ -310,8 +351,9 @@ class TestFailClosed:
         assert result.error.kind is ToolErrorKind.TOOL_FAILURE
         assert result.error.context["exception"] == "OSError"
 
-    def test_wrong_declaration_type_is_tool_failure(self) -> None:
-        result, _ = _run({"dataset": "sales"}, {"sales": Source({"V_N": ["x"]})})
+    @pytest.mark.parametrize("declared", [{"V_N": ["x"]}, None])
+    def test_wrong_declaration_type_is_tool_failure(self, declared: Any) -> None:
+        result, _ = _run({"dataset": "sales"}, {"sales": Source(declared)})
         assert result.error.kind is ToolErrorKind.TOOL_FAILURE
 
     def test_utterance_is_not_implemented_and_opens_nothing(self) -> None:
@@ -336,51 +378,85 @@ class TestFailClosed:
 # ---------------------------------------------------------------------------
 
 
+def _dims(*names: str) -> tuple[NodeType, ...]:
+    return tuple(NodeType(n, DIM) for n in names)
+
+
+def _model(*sigma: Any, kinds: Any = None, edges: Any = ()) -> DGMModel:
+    kinds = frozenset({type(a).__name__ for a in sigma}) if kinds is None else kinds
+    return DGMModel(_dims("D"), edges, sigma, kinds)
+
+
 class TestSchemaDeclaration:
+    """Ill-formed declarations are rejected at construction (§2.1, §2.4)."""
+
     @pytest.mark.parametrize(
-        "kwargs,needle",
+        "build,needle",
         [
-            ({"nodes": ()}, "N_S is empty"),
+            (lambda: DGMModel(()), "N_S is empty"),
             (
-                {"nodes": (NodeTypeDecl("A", "dim"), NodeTypeDecl("A", "fact"))},
+                lambda: DGMModel((NodeType("A", DIM), NodeType("A", FACT))),
                 "declared twice",
             ),
-            ({"nodes": (NodeTypeDecl("A", "cube"),)}, "τ_N"),  # type: ignore[arg-type]
-            ({"nodes": (NodeTypeDecl("A@x", "dim"),)}, "invalid node type"),
+            (lambda: NodeType("A", "cube"), "τ_N"),  # type: ignore[arg-type]
+            (lambda: NodeType("A@x", DIM), "invalid node type"),
+            (lambda: NodeType("A", DIM, {"": INTEGER}), "non-empty"),
+            (lambda: NodeType("A", DIM, {"k": "Int"}), "not a PropType"),  # type: ignore[dict-item]
+            (lambda: PropType("Decimal"), "unknown property type"),
             (
-                {"nodes": (NodeTypeDecl("A", "dim", (("k", "Int"), ("k", "Int"))),)},
-                "distinct",
-            ),
-            (
-                {
-                    "nodes": (NodeTypeDecl("F", "fact"), NodeTypeDecl("D", "dim")),
-                    "edges": (EdgeTypeDecl("F", "x", "D", "verb"),),
-                },
-                "dim → fact",
-            ),
-            (
-                {
-                    "nodes": (NodeTypeDecl("D", "dim"),),
-                    "edges": (EdgeTypeDecl("D", "x", "Z", "bridge"),),
-                },
+                lambda: _model(edges=(EdgeType("D", "Z", "x", BRIDGE),)),
                 "endpoint",
             ),
             (
-                {
-                    "nodes": (NodeTypeDecl("D", "dim"),),
-                    "edges": (
-                        EdgeTypeDecl("D", "x", "D", "bridge"),
-                        EdgeTypeDecl("D", "x", "D", "bridge"),
-                    ),
-                },
+                lambda: _model(
+                    edges=(
+                        EdgeType("D", "D", "x", BRIDGE),
+                        EdgeType("D", "D", "x", BRIDGE),
+                    )
+                ),
                 "declared twice",
             ),
-            ({"nodes": (NodeTypeDecl("D", "dim"),), "sigma": ("Grain",)}, "Σ"),
+            (lambda: _model("Grain"), "Σ"),
+            (
+                lambda: _model(FactlessFact("D"), kinds=frozenset()),
+                "not in sigma_kinds",
+            ),
+            (lambda: _model(FactlessFact("D")), "not a fact type"),
+            (lambda: _model(Grain("Ghost", GrainKind.EVENT)), "'Ghost'"),
+            (lambda: _model(kinds=frozenset({"Folklore"})), "unknown annotation kinds"),
+            (
+                lambda: _model(
+                    MedallionLayer("D", MedallionLayerKind.GOLD),
+                    MedallionLayer("D", MedallionLayerKind.BRONZE),
+                ),
+                "declared twice",
+            ),
         ],
     )
-    def test_invariants_of_2_1(self, kwargs: dict[str, Any], needle: str) -> None:
+    def test_ill_formed_declaration(self, build: Any, needle: str) -> None:
         with pytest.raises(SchemaDeclarationError, match=needle):
-            DGMSchema(**kwargs)
+            build()
+
+    def test_invariants_are_not_construction_checks(self) -> None:
+        # A verb edge from a fact breaks PARTITION (§2.1): the model is
+        # well-formed, dgm_validate_invariant reports it, this tool refuses it.
+        model = DGMModel(
+            (NodeType("F", FACT), NodeType("D", DIM)),
+            (EdgeType("F", "D", "x", VERB),),
+        )
+        assert model.partition_problems(model.edge_types[0]) == [
+            "a verb edge type must start at a dimension type",
+            "a verb edge type must end at a fact type",
+        ]
+
+    def test_undeclared_kind_is_never_read_as_none(self) -> None:
+        with pytest.raises(AnnotationNotDeclared) as info:
+            decompose(retail(kinds=frozenset({"MedallionLayer", "RolePlaying"})))
+        assert info.value.kind == "FactlessFact"
+
+    def test_kinds_are_accepted_as_strings(self) -> None:
+        node = NodeType("A", "fact")  # type: ignore[arg-type]
+        assert node.kind is NodeKind.FACT
 
 
 class TestAnchorSets:
@@ -411,10 +487,11 @@ class TestAnchorSets:
         assert self._check(["Date@ordered_on", "Date@shipped_on"]) == []
 
     def test_as2_roles_from_role_playing(self) -> None:
-        schema = DGMSchema(
-            nodes=(NodeTypeDecl("Emp", "dim"),),
-            edges=(EdgeTypeDecl("Emp", "reports_to", "Emp", "bridge"),),
+        schema = DGMModel(
+            _dims("Emp"),
+            (EdgeType("Emp", "Emp", "reports_to", BRIDGE),),
             sigma=(RolePlaying("Emp", ["manager", "report"]),),
+            sigma_kinds=SPACE_KINDS,
         )
         assert (
             validate_anchor_set(

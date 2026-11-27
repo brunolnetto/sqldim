@@ -43,6 +43,7 @@ __all__ = [
     "PipelineArtifact",
     "MedallionLayer",
     # Helpers
+    "ANNOTATION_KINDS",
     "annotation_kind",
     "AnnotationSigma",
 ]
@@ -349,6 +350,9 @@ class PipelineArtifact(SchemaAnnotation):
     write_mode:
         BACKFILL → always APPEND; REFRESH → always MERGE;
         ADAPTIVE → inferred from P(f).state at planning time (Rule 10).
+    transitions:
+        Name of the transition fact type (§2.4), or ``None`` when it is not
+        declared.  A consumer that reads the transitions fails on ``None``.
     """
 
     fact: str
@@ -356,6 +360,7 @@ class PipelineArtifact(SchemaAnnotation):
     ttl: int  # seconds
     backfill_horizon: int  # days
     write_mode: WriteModeKind
+    transitions: str | None = None
 
     @property
     def effective_grain(self) -> GrainKind:
@@ -436,6 +441,9 @@ _KIND_MAP: dict[type, str] = {
     PipelineArtifact: "PipelineArtifact",
     MedallionLayer: "MedallionLayer",
 }
+
+ANNOTATION_KINDS: frozenset[str] = frozenset(_KIND_MAP.values())
+"""The kind names of the annotation types of §2.4 implemented here."""
 
 _AT = TypeVar("_AT", bound=SchemaAnnotation)
 

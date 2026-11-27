@@ -24,7 +24,7 @@ from typing import Any
 
 import duckdb
 
-from sqldim.core.query.dgm.nl.supervisor._invariant_model import (
+from sqldim.core.query.dgm.model import (
     DGMModel,
     Derived,
     EdgeType,

@@ -16,6 +16,7 @@ Instantiate and use with a DuckDB connection:
 """
 
 from sqldim.application.datasets.dataset import Dataset
+from sqldim.application.datasets.domains.nba_analytics.model import build_model
 from sqldim.application.datasets.domains.nba_analytics.sources import (
     PlayerSeasonsSource,
     TeamsSource,
@@ -35,6 +36,7 @@ nba_analytics_dataset = Dataset(
         (_games_src, "games"),
         (GameDetailsSource(_games_src, seed=42), "game_details"),
     ],
+    model=build_model,
 )
 
 DATASET_METADATA = {

@@ -13,7 +13,9 @@ makes the evaluation UNSUPPORTED, never vacuous.
   at ``Missing``, with ``next.from_state = previous.to_state``.
 * PA3 defines ``state_at``; it constrains nothing, so it is UNSUPPORTED.
 * PA4 examines every artifact row of an unversioned artifact type.  The
-  versioned clause is NOT_IMPLEMENTED in this build.
+  versioned clause is NOT_IMPLEMENTED in this build.  ``SCDType`` names a
+  dimension type (§2.4), so an artifact — a fact type — is versioned only
+  through a NodeTable that declares a ``version_key``.
 """
 
 from __future__ import annotations
@@ -31,15 +33,26 @@ from sqldim.core.query.dgm.nl.supervisor._invariant_core import (
     lit,
     plain,
 )
-from sqldim.core.query.dgm.nl.supervisor._invariant_model import (
-    DELTA,
-    EdgeType,
-    NodeTable,
-    PipelineArtifactRef,
-)
+from sqldim.core.query.dgm.annotations import PipelineArtifact
+from sqldim.core.query.dgm.model import EdgeType, NodeTable
 from sqldim.core.query.dgm.nl.supervisor._types import ToolErrorKind
 
-__all__ = ["PA_EVALUATORS"]
+__all__ = ["ARTIFACT_STATES", "DELTA", "PA_EVALUATORS"]
+
+ARTIFACT_STATES = ("Missing", "In-flight", "Complete", "Stale", "Failed")
+
+DELTA: frozenset[tuple[str, str, str]] = frozenset(
+    {
+        ("Missing", "scheduled", "In-flight"),
+        ("In-flight", "succeeded", "Complete"),
+        ("In-flight", "failed", "Failed"),
+        ("In-flight", "failed", "Stale"),
+        ("Complete", "expired", "Stale"),
+        ("Stale", "rescheduled", "In-flight"),
+        ("Failed", "retried", "In-flight"),
+    }
+)
+"""The admissible ``(from_state, kind, to_state)`` triples δ of §2.4."""
 
 Key = tuple[Hashable, ...]
 
@@ -51,7 +64,6 @@ class _Artifact:
     transitions: NodeTable
     transition_of: EdgeType
     followed_by: EdgeType
-    versioned: bool
 
 
 def _prop(table: NodeTable, key: str, owner: str) -> str:
@@ -65,37 +77,52 @@ def _prop(table: NodeTable, key: str, owner: str) -> str:
     return column
 
 
-def _edge(ev: Evaluator, ref: PipelineArtifactRef, target: str, label: str) -> EdgeType:
-    edge = ev.model.edge(ref.transitions, target, label)
+def _edge(
+    ev: Evaluator, fact: str, transitions: str, target: str, label: str
+) -> EdgeType:
+    edge = ev.model.edge(transitions, target, label)
     if edge is None:
         raise NotEvaluable(
             ToolErrorKind.UNSUPPORTED,
-            f"PipelineArtifact {ref.artifact!r}: the model declares no edge type "
-            f"({ref.transitions}, {target}, {label!r}) (§2.4)",
-            artifact=ref.artifact,
+            f"PipelineArtifact {fact!r}: the model declares no edge type "
+            f"({transitions}, {target}, {label!r}) (§2.4)",
+            artifact=fact,
         )
     return edge
 
 
+def _transition_type(ann: PipelineArtifact) -> str:
+    if ann.transitions is None:
+        raise NotEvaluable(
+            ToolErrorKind.UNSUPPORTED,
+            f"PipelineArtifact {ann.fact!r} declares no transitions fact type (§2.4)",
+            artifact=ann.fact,
+        )
+    return ann.transitions
+
+
 def _artifacts(ev: Evaluator) -> list[_Artifact]:
-    refs = ev.model.pipeline_artifacts
-    if not refs:
+    anns = ev.model.annotations(PipelineArtifact)
+    if not anns:
         raise NotEvaluable(
             ToolErrorKind.INVALID_ARGUMENTS,
             "the dataset has no PipelineArtifact type (§12.3)",
         )
     out = []
-    for ref in refs:
-        owner = f"PipelineArtifact {ref.artifact!r}"
-        node = ev.model.node(ref.artifact)
+    for ann in anns:
+        owner = f"PipelineArtifact {ann.fact!r}"
+        transitions = _transition_type(ann)
         out.append(
             _Artifact(
-                name=ref.artifact,
-                table=ev.node_table(ref.artifact, owner),
-                transitions=ev.node_table(ref.transitions, owner),
-                transition_of=_edge(ev, ref, ref.artifact, "transition_of"),
-                followed_by=_edge(ev, ref, ref.transitions, "followed_by"),
-                versioned=bool(node and node.versioned),
+                name=ann.fact,
+                table=ev.node_table(ann.fact, owner),
+                transitions=ev.node_table(transitions, owner),
+                transition_of=_edge(
+                    ev, ann.fact, transitions, ann.fact, "transition_of"
+                ),
+                followed_by=_edge(
+                    ev, ann.fact, transitions, transitions, "followed_by"
+                ),
             )
         )
     return out
@@ -327,7 +354,7 @@ def _state_at(
 def pa4(ev: Evaluator) -> None:
     """PA4: P(a).state = state_at(a, now) for every artifact row."""
     for art in _artifacts(ev):
-        if art.versioned or art.table.version_key is not None:
+        if art.table.version_key is not None:
             raise NotEvaluable(
                 ToolErrorKind.NOT_IMPLEMENTED,
                 "PA4 for a versioned artifact type (state in force per version) is "

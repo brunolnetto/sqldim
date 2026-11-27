@@ -16,6 +16,7 @@ Instantiate and use with a DuckDB connection:
 """
 
 from sqldim.application.datasets.dataset import Dataset
+from sqldim.application.datasets.domains.devops.model import build_model
 from sqldim.application.datasets.domains.devops.sources import (
     GitHubIssuesSource,
 )
@@ -25,6 +26,7 @@ devops_dataset = Dataset(
     [
         (GitHubIssuesSource(), "github_issues"),
     ],
+    model=build_model,
 )
 
 DATASET_METADATA = {
