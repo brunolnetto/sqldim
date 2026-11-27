@@ -346,6 +346,8 @@ def _fanout(sql_of: Executor) -> Callable[[Case], Any]:
     def run(case: Case) -> Any:
         fixture, i = INPUTS[case.fixture], case.input
         agg = f"SUM(s.{i['prop']})" if i["fn"] == "SUM" else "COUNT(s.id)"
+        # PATHS is asked for explicitly; ENTITIES is left to the default (§4.2)
+        over = {"over": "PATHS"} if i["over"] == "PATHS" else {}
         q = (
             DGMQuery()
             .anchor("sale", "s")
@@ -354,7 +356,7 @@ def _fanout(sql_of: Executor) -> Callable[[Case], Any]:
                 BridgeHop("p", "at", "st", table="store", on="st.id = p.store_id")
             )
             .group_by("st.id")
-            .agg(v=agg)
+            .agg(v=agg, **over)
         )
         rows = _run(sql_of, q, lambda con: setup(con, fixture))
         return rows if rows == REJECTED else sorted((k, int(v)) for k, v in rows)
@@ -401,8 +403,9 @@ def _drill(sql_of: Executor) -> Callable[[Case], Any]:
 
 
 def _scd(sql_of: Executor) -> Callable[[Case], Any]:
-    """τ is stated with ``as_of`` (the only instant DGMQuery takes); the SCD
-    mode is not expressible and is left to the implementation's default."""
+    """τ is stated with ``as_of``; the SCD mode is passed only when the case
+    states one, so a case without it reads the implementation's default.
+    ``event_time(Sale) = occurred_on`` is the mapping of the fixture (§2.5)."""
 
     def setup(con: Any, i: Mapping[str, Any]) -> None:
         dims = [
@@ -417,14 +420,19 @@ def _scd(sql_of: Executor) -> Callable[[Case], Any]:
         create(con, "fact_sale", [{"id": f["id"], "customer_key": f["dim_ref"],
                                    "occurred_on": f["event_time"],
                                    "revenue": f["revenue"]} for f in i["facts"]])  # fmt: skip
+        con.execute("ALTER TABLE fact_sale ALTER occurred_on TYPE TIMESTAMP")
 
     def run(case: Case) -> Any:
         i = case.input
-        pk = "version_key" if i.get("reference") == "VERSION_KEY" else "id"
+        ref: dict[str, Any] = {"event_time": "occurred_on"}
+        if i.get("reference") == "VERSION_KEY":
+            ref = {"version_key": "version_key"}
+        if "mode" in i:
+            ref["mode"] = i["mode"]
         q = DGMQuery().anchor("fact_sale", "f")
         if i.get("node_resolution"):
             q.temporal_context(i["tau"], node_resolution=i["node_resolution"])
-        q.join_dim("dim_customer", "customer_key", pk).as_of(i["tau"])
+        q.join_dim("dim_customer", "customer_key", "id", **ref).as_of(i["tau"])
         q.group_by(f"d_dim_customer.{i['attr']}").agg(total="SUM(f.revenue)")
         rows = _run(sql_of, q, lambda con: setup(con, i))
         return (
