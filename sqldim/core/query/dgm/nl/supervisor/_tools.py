@@ -6,6 +6,7 @@ returns ``NOT_IMPLEMENTED`` without running anything (D42, ADR 0012).  The
 knowledge-base tools (``_tools_kb``) are available only when the deployment
 configures a knowledge base (and, for retrieval, a move graph).
 ``dgm_validate_invariant`` is implemented in ``_tools_invariants``.
+``dgm_map_analytical_space`` is a contract tool (``_tools_space``).
 
 The explicit demo mode (D47, ADR 0013) adds one heuristic stand-in:
 ``dgm_query`` answered by the current NL graph.  It is registered only by
@@ -50,7 +51,12 @@ TOOL_VERSION = "0.1.0"
 # The component each tool still lacks (context of its NOT_IMPLEMENTED error).
 _MISSING: dict[str, str] = {
     "dgm_query": "run_ask_from_source: the non-interactive NL turn of §11.10",
-    "dgm_what_can_i_answer": "bounded enumeration of Q_valid skeletons (§8.11)",
+    "dgm_what_can_i_answer": (
+        "bounded enumeration of Q_valid skeletons (§8.11): no enumerator of "
+        "Join skeletons, typed structural atoms (§4.1), canonical Where "
+        "functions and Band 2/3 components, and no persistent question_key "
+        "(§8.14); AS1-AS3 checks exist in dgm.analytical_space"
+    ),
     "dgm_correlate": "drill-across over conformed keys (§5.2.2, Rule 12)",
     "dgm_explore_from": "structural moves from a question key (§8.16.6)",
     "dgm_sensitivity_sweep": (
@@ -340,12 +346,17 @@ def build_registry(
     only with a configured knowledge base *kb*; retrieval also needs the move
     graph *moves* of ADR 0007.
     """
+    from sqldim.core.query.dgm.nl.supervisor._tools_space import (
+        MapAnalyticalSpaceTool,
+    )
+
     tools: dict[str, BaseTool] = {name: UnavailableTool(name) for name in TOOL_SCHEMAS}
     from sqldim.core.query.dgm.nl.supervisor._tools_invariants import (
         ValidateInvariantTool,
     )
 
     tools["dgm_validate_invariant"] = ValidateInvariantTool()
+    tools["dgm_map_analytical_space"] = MapAnalyticalSpaceTool()
     if demo:
         tools["dgm_query"] = DemoQueryTool(model=model)
     if kb is not None:

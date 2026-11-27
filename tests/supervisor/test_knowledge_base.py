@@ -280,6 +280,7 @@ class TestAvailability:
                 "dgm_store_finding",
                 "dgm_retrieve_related",
                 "dgm_validate_invariant",  # needs no KB (#134)
+                "dgm_map_analytical_space",  # needs no KB (#132)
             }
         ]
         assert others == []
@@ -293,7 +294,11 @@ class TestAvailability:
     ) -> None:
         rt = make_runtime(auth(tenant="t9"), Opener(), budget(), kb=kb)
         names = [s.name for s in rt.available_tools()]
-        assert names == ["dgm_store_finding", "dgm_validate_invariant"]
+        assert names == [
+            "dgm_map_analytical_space",
+            "dgm_store_finding",
+            "dgm_validate_invariant",
+        ]
         handle = rt.tool_context().kb
         assert isinstance(handle, TenantKnowledgeBase) and handle.tenant_id == "t9"
         assert make_runtime(auth(), Opener(), budget()).tool_context().kb is None
