@@ -15,6 +15,8 @@ The status of each (case, backend) pair comes from
 
 from __future__ import annotations
 
+import os
+
 import pytest
 
 from tests.conformance.cases import Case, all_cases
@@ -39,7 +41,14 @@ def _params() -> list:
 
 @pytest.mark.parametrize(("case", "backend_name", "st"), _params())
 def test_backend_conforms(case: Case, backend_name: str, st: Status) -> None:
-    run = backend(backend_name).run
+    b = backend(backend_name)
+    missing = b.unavailable()
+    if missing:
+        # a case that did not run is never reported as passing; CI must run it
+        if os.environ.get("CI") == "true":
+            pytest.fail(f"{backend_name} cannot run under CI: {missing}")
+        pytest.skip(missing)
+    run = b.run
     if st is Status.NOT_EXPRESSIBLE:
         with pytest.raises(NotExpressible):
             run(case)

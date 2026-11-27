@@ -16,6 +16,19 @@ from sqldim.core.query.dgm.planner._targets import (  # noqa: F401
 from sqldim.core.query.dgm.planner._core import (  # noqa: F401
     DGMPlanner,
 )
+from sqldim.core.query.dgm.planner._capabilities import (  # noqa: F401
+    Capability,
+    DGMQUERY_TO_SQL,
+    Declared,
+    POSTGRESQL_VIA_DUCKDB,
+    Profile,
+    QUERY_PROFILES,
+    SINK_PROFILES,
+    Support,
+    UnsupportedCapability,
+    query_profile,
+    sink_profile,
+)
 from sqldim.core.query.dgm.planner._gate import (  # noqa: F401
     HARD_CEILING_FACTOR,
     SAMPLE_DELTA,

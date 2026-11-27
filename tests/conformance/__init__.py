@@ -10,5 +10,8 @@
 * :mod:`tests.conformance.expectations` — the known non-conformances
   (strict xfail) and the constructs a backend refuses (fail-closed).
 * :mod:`tests.conformance.matrix` — the traceability matrix, generated from
-  the above and checked against ``docs/reference/dgm-conformance.md``.
+  the above and checked against ``docs/reference/dgm-conformance.md``;
+* :mod:`tests.conformance.backend_matrix` — the per-backend capability matrix
+  (#138): each target's and sink's declared capabilities against the cases
+  that evidence them, checked against ``docs/reference/dgm-backend-matrix.md``.
 """

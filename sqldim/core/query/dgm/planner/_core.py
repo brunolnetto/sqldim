@@ -67,10 +67,6 @@ __all__ = [
 ]
 
 
-#: Query targets the plan IR emits SQL for.
-_IR_TARGETS = frozenset({QueryTarget.SQL_DUCKDB, QueryTarget.SQL_MOTHERDUCK})
-
-
 class DGMPlanner:
     """Query planner implementing planning rules 1a–9 (DGM §6.2).
 
@@ -459,11 +455,11 @@ class DGMPlanner:
             lower_query,
         )
 
-        if self.query_target not in _IR_TARGETS:
-            raise UnsupportedConstruct(
-                f"the plan IR emits DuckDB SQL; {self.query_target.value} is "
-                "not an IR target"
-            )
+        from sqldim.core.query.dgm.planner._capabilities import query_profile
+
+        # fail-closed (#138): a target with no emitter raises
+        # UnsupportedCapability; it is never routed to another target
+        query_profile(self.query_target).require_emitter()
         if isinstance(source, QuestionAlgebra):
             if final is None:
                 raise UnsupportedConstruct("a QuestionAlgebra plan needs final=")

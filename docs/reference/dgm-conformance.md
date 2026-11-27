@@ -22,8 +22,11 @@ per-backend matrix (#138) and the theoretical claims (#139).
 - **Backends** (`tests/conformance/runners/`). An adapter per implementation
   path: `DGMQuery.to_sql()` and `DGMPlanner.plan_query()` executed on DuckDB,
   `TemporalOrdering.to_sql()` on DuckDB, `DGMPredicateBDD`, `DGMModel` with the
-  anchor-set functions, and `Grain`. A new backend (#138) is one `Backend` and
-  its expectations; cases and oracle do not change.
+  anchor-set functions, and `Grain`. A new backend is one `Backend` and its
+  expectations; cases and oracle do not change. #138 added PostgreSQL through
+  DuckDB, the refusals of the targets without an emitter, write planning
+  (Rules 8 and 10) and the sinks. Their capability matrix, per target and
+  sink, is `docs/reference/dgm-backend-matrix.md`.
 - **Expectations** (`tests/conformance/expectations.py`). A disagreement is
   never fixed in the oracle. It is a strict `xfail` with its reason; a
   wholesale rejection by the implementation is *refused*; a missing construct
@@ -47,51 +50,57 @@ implement the area.
 
 <!-- BEGIN GENERATED: tests/conformance/matrix.py -->
 
-353 cases; 174 carry a value stated by the specification, the others are derived by the oracle from the definitions. Every case is checked against the oracle.
+381 cases; 191 carry a value stated by the specification, the others are derived by the oracle from the definitions. Every case is checked against the oracle.
 
-| Clause | Cases | `duckdb-dgmquery` | `duckdb-plan-ir` | `duckdb-ordering` | `dgm-bdd` | `dgm-model` | `dgm-annotations` |
-|---|---|---|---|---|---|---|---|
-| ADR 0001 Empty-domain policy; §4.1 Empty domain | `CTL-A-c0-AF-REQ` … `CTL-B-a2-AX-VAC` (12) | 6 refused, 6 n/e | 6 refused, 6 n/e | — | — | — | — |
-| ADR 0001 Truth conditions (UNTIL is strong) | `PP-UNTIL-01`, `PP-UNTIL-02` | 2 refused | 2 refused | — | — | — | — |
-| ADR 0001 Truth conditions (UNTIL is strong); §4.1 | `CTL-U-01` … `CTL-U-05` (5) | 5 refused | 5 refused | — | — | — | — |
-| ADR 0001 Truth conditions; §4.1 Path semantics | `CTL-A-c-EF` … `CTL-B-a2-EX-VAC` (30) | 24 refused, 6 n/e | 24 refused, 6 n/e | — | — | — | — |
-| ADR 0003 / §5.1 one reference instant τ | `SCD-TAU-01` | 1 refused | 1 refused | — | — | — | — |
-| §2.1 Structural invariants (V_S ⊆ D_S × F_S) | `MOD-08`, `MOD-09`, `MOD-10`, `MOD-11` | — | — | — | — | 4 pass | — |
-| §2.4 Additivity AD1–AD4 and grain defaults | `ADD-01` … `ADD-13` (13) | — | — | — | — | — | 7 pass, 6 n/e |
-| §2.5 SCD resolution: as-was and as-is | `SCD-01` … `SCD-05` (5) | 5 pass | 5 pass | — | — | — | — |
-| §2.6 Declared model (well-formedness at construction); §2.4 argument kinds | `MOD-01` … `MOD-07` (7) | — | — | — | — | 7 pass | — |
-| §2.6 Declared model: §2.1 invariants are not construction checks | `MOD-12` | — | — | — | — | 1 pass | — |
-| §2.6 Version and validity at an instant (half-open windows) | `SCD-V-01` … `SCD-E-06` (13) | 11 pass, 2 refused | 11 pass, 2 refused | — | — | — | — |
-| §3.2 Alias uniqueness (C ∩ L ≠ ∅ rejected) | `PP-ALIAS-04` | 1 pass | 1 pass | — | — | — | — |
-| §3.2 Repeat well-formedness | `CON-R2-01` … `CON-R-02` (7) | 7 pass | 7 pass | — | — | — | — |
-| §3.2 Repetition and RepeatMode; PathJoin under ALL | `RJ-01` … `RJ-06` (6) | 6 refused | 3 pass, 3 refused | — | — | — | — |
-| §3.2 TemporalOrdering semantics (Allen, half-open, NULL bounds) | `TO-PRECEDES-proper` … `TO-EQUALS-degenerate` (39) | — | — | 39 pass | — | — | — |
-| §3.2 Typing of TemporalOrdering (TO1–TO4) | `TO-TYPE-01`, `TO-TYPE-02`, `TO-TYPE-03`, `TO-TYPE-04` | — | — | 3 pass, 1 n/e | — | — | — |
-| §3.2 point relations (NULL TimePoint is UNKNOWN) | `TO-BEFORE-pt`, `TO-AFTER-pt`, `TO-CONCURRENT-pt`, `TO-CONCURRENT-tol1` | — | — | 4 pass | — | — | — |
-| §3.3 Strategy (deterministic ≺ order) | `PP-STR-01`, `PP-STR-02`, `PP-STR-03`, `PP-STR-04` | 1 pass, 3 refused | 1 pass, 3 refused | — | — | — | — |
-| §3.4.6 Anchor sets (AS1–AS3, N_𝒜, E_𝒜, Σ|_𝒜) | `AS-01` … `AS-GEN-11-edges` (50) | — | — | — | — | 50 pass | — |
-| §3.5 Evaluation contexts (Refs in C ∪ L) | `PP-ALIAS-01`, `PP-ALIAS-02`, `PP-ALIAS-03` | 3 pass | 3 pass | — | — | — | — |
-| §3.5 L-promotion | `PP-PROM-01` | 1 pass | 1 pass | — | — | — | — |
-| §4.1 AF and AG are distinct; FORALL elimination | `CTL-G1-AF` … `CTL-G2-NOT-EF` (8) | 8 n/e | 8 n/e | — | — | — | — |
-| §4.1 Band table; §5.2 cross-band Ref rules | `CON-B-01` … `CON-B-10` (10) | 10 pass | 10 pass | — | — | — | — |
-| §4.1 Empty domain; ADR 0001 Empty-domain policy | `PP-EX-02`, `PP-FA-02`, `PP-FA-03`, `PP-NOT-03` | 3 pass, 1 n/e | 3 pass, 1 n/e | — | — | — | — |
-| §4.1 FORALL elimination (CTL duality, NotTrue, REQUIRE_WITNESS guard) | `BDD-F-01`, `BDD-F-02`, `BDD-F-03` | — | — | — | 3 **non-conf.** | — | — |
-| §4.1 FORALL with ONCE/SINCE; past-time modes need a time-ordered path | `PP-PAST-01`, `PP-PAST-02`, `PP-PAST-03` | 3 pass | 3 pass | — | — | — | — |
-| §4.1 NULL rules (NULL is not a literal) | `CON-N-01`, `CON-N-02` | 2 pass | 2 pass | — | — | — | — |
-| §4.1 PathPred; FORALL elimination with NotTrue; ADR 0001 | `PP-EX-01` … `PP-NULL-04` (8) | 8 pass | 8 pass | — | — | — | — |
-| §4.1 Recorded traces and monitoring verdicts | `MON-01` … `MON-15` (15) | — | — | — | — | — | — |
-| §4.2 TemporalWindow LATEST / EARLIEST | `TAGG-01`, `TAGG-02` | — | — | — | — | — | — |
-| §4.2 What an aggregate counts (ENTITIES / PATHS) | `AGG-OVER-01`, `AGG-OVER-02`, `AGG-OVER-03`, `AGG-OVER-04` | 4 pass | 4 pass | — | — | — | — |
-| §5.2.2 Drill-across (steps 1–3, DA4) | `DA-01`, `DA-02` | 1 pass, 1 **non-conf.** | 1 pass, 1 **non-conf.** | — | — | — | — |
-| §5.2.2 Well-formedness of a constellation (DA1–DA3) | `DA-WF-01`, `DA-WF-02`, `DA-WF-03`, `DA-WF-04` | — | — | — | — | — | — |
-| §6.1 / §8.3 propositional equivalence, tautology, implication | `BDD-P-01` … `BDD-P-GEN-23` (31) | — | — | — | 31 pass | — | — |
-| §6.1 Order theory of atoms (Δ_ord, O1–O6) | `BDD-O-01` … `BDD-O-08` (8) | — | — | — | 3 pass, 5 **non-conf.** | — | — |
-| §6.1 Three-valued logic (T⁺/T⁻ encoding, Δ_excl, Δ_null) | `BDD-K-01` … `BDD-K-08` (8) | — | — | — | 4 pass, 3 **non-conf.**, 1 n/e | — | — |
-| §6.1 Variables (canonical form of atoms) | `BDD-C-01`, `BDD-C-02`, `BDD-C-03` | — | — | — | 3 **non-conf.** | — | — |
-| §8.2 Propositional completeness (proof by minterm construction) | `THM-PC-0000` … `THM-PC-1111` (16) | — | — | — | 16 pass | — | — |
-| §8.3 A BDD's paths to TRUE are disjoint cubes covering its minterms | `THM-CUBE-00` … `THM-CUBE-07` (8) | — | — | — | 8 pass | — | — |
-| §8.8 Allen exhaustiveness theorem | `TO-THM-01` | — | — | 1 pass | — | — | — |
-| §8.8 Outside the domain | `TO-THM-02` | — | — | 1 pass | — | — | — |
+| Clause | Cases | `duckdb-dgmquery` | `duckdb-plan-ir` | `duckdb-ordering` | `dgm-bdd` | `dgm-model` | `dgm-annotations` | `pg-duckdb-plan-ir` | `planner-refusals` | `dgm-write-plan` | `sink-duckdb` | `sink-parquet` | `sink-postgresql` | `sink-motherduck` | `sink-delta` |
+|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
+| ADR 0001 Empty-domain policy; §4.1 Empty domain | `CTL-A-c0-AF-REQ` … `CTL-B-a2-AX-VAC` (12) | 6 refused, 6 n/e | 6 refused, 6 n/e | — | — | — | — | 6 refused, 6 n/e | 6 refused, 6 n/e | — | — | — | — | — | — |
+| ADR 0001 Truth conditions (UNTIL is strong) | `PP-UNTIL-01`, `PP-UNTIL-02` | 2 refused | 2 refused | — | — | — | — | 2 refused | 2 refused | — | — | — | — | — | — |
+| ADR 0001 Truth conditions (UNTIL is strong); §4.1 | `CTL-U-01` … `CTL-U-05` (5) | 5 refused | 5 refused | — | — | — | — | 5 refused | 5 refused | — | — | — | — | — | — |
+| ADR 0001 Truth conditions; §4.1 Path semantics | `CTL-A-c-EF` … `CTL-B-a2-EX-VAC` (30) | 24 refused, 6 n/e | 24 refused, 6 n/e | — | — | — | — | 24 refused, 6 n/e | 24 refused, 6 n/e | — | — | — | — | — | — |
+| ADR 0003 / §5.1 one reference instant τ | `SCD-TAU-01` | 1 refused | 1 refused | — | — | — | — | 1 refused | 1 refused | — | — | — | — | — | — |
+| §2.1 Structural invariants (V_S ⊆ D_S × F_S) | `MOD-08`, `MOD-09`, `MOD-10`, `MOD-11` | — | — | — | — | 4 pass | — | — | — | — | — | — | — | — | — |
+| §2.4 Additivity AD1–AD4 and grain defaults | `ADD-01` … `ADD-13` (13) | — | — | — | — | — | 7 pass, 6 n/e | — | — | — | — | — | — | — | — |
+| §2.5 SCD resolution: as-was and as-is | `SCD-01` … `SCD-05` (5) | 5 pass | 5 pass | — | — | — | — | 5 pass | 5 refused | — | — | — | — | — | — |
+| §2.5 SCD2 versions; §2.6 M2 (a closed version has valid_to set) | `SINK-CL-01`, `SINK-CL-02`, `SINK-CL-03`, `SINK-CL-04` | — | — | — | — | — | — | — | — | — | 4 pass | 4 **non-conf.** | 4 pass | — | — |
+| §2.6 Declared model (well-formedness at construction); §2.4 argument kinds | `MOD-01` … `MOD-07` (7) | — | — | — | — | 7 pass | — | — | — | — | — | — | — | — | — |
+| §2.6 Declared model: §2.1 invariants are not construction checks | `MOD-12` | — | — | — | — | 1 pass | — | — | — | — | — | — | — | — | — |
+| §2.6 Version and validity at an instant (half-open windows) | `SCD-V-01` … `SCD-E-06` (13) | 11 pass, 2 refused | 11 pass, 2 refused | — | — | — | — | 11 pass, 2 refused | 13 refused | — | — | — | — | — | — |
+| §3.2 Alias uniqueness (C ∩ L ≠ ∅ rejected) | `PP-ALIAS-04` | 1 pass | 1 pass | — | — | — | — | 1 pass | 1 refused | — | — | — | — | — | — |
+| §3.2 Repeat well-formedness | `CON-R2-01` … `CON-R-02` (7) | 7 pass | 7 pass | — | — | — | — | — | — | — | — | — | — | — | — |
+| §3.2 Repetition and RepeatMode; PathJoin under ALL | `RJ-01` … `RJ-06` (6) | 6 refused | 3 pass, 3 refused | — | — | — | — | 3 pass, 3 refused | 6 refused | — | — | — | — | — | — |
+| §3.2 TemporalOrdering semantics (Allen, half-open, NULL bounds) | `TO-PRECEDES-proper` … `TO-EQUALS-degenerate` (39) | — | — | 39 pass | — | — | — | — | — | — | — | — | — | — | — |
+| §3.2 Typing of TemporalOrdering (TO1–TO4) | `TO-TYPE-01`, `TO-TYPE-02`, `TO-TYPE-03`, `TO-TYPE-04` | — | — | 3 pass, 1 n/e | — | — | — | — | — | — | — | — | — | — | — |
+| §3.2 point relations (NULL TimePoint is UNKNOWN) | `TO-BEFORE-pt`, `TO-AFTER-pt`, `TO-CONCURRENT-pt`, `TO-CONCURRENT-tol1` | — | — | 4 pass | — | — | — | — | — | — | — | — | — | — | — |
+| §3.3 Strategy (deterministic ≺ order) | `PP-STR-01`, `PP-STR-02`, `PP-STR-03`, `PP-STR-04` | 1 pass, 3 refused | 1 pass, 3 refused | — | — | — | — | 1 pass, 3 refused | 4 refused | — | — | — | — | — | — |
+| §3.4.6 Anchor sets (AS1–AS3, N_𝒜, E_𝒜, Σ|_𝒜) | `AS-01` … `AS-GEN-11-edges` (50) | — | — | — | — | 50 pass | — | — | — | — | — | — | — | — | — |
+| §3.5 Evaluation contexts (Refs in C ∪ L) | `PP-ALIAS-01`, `PP-ALIAS-02`, `PP-ALIAS-03` | 3 pass | 3 pass | — | — | — | — | 3 pass | 3 refused | — | — | — | — | — | — |
+| §3.5 L-promotion | `PP-PROM-01` | 1 pass | 1 pass | — | — | — | — | 1 pass | 1 n/e | — | — | — | — | — | — |
+| §4.1 AF and AG are distinct; FORALL elimination | `CTL-G1-AF` … `CTL-G2-NOT-EF` (8) | 8 n/e | 8 n/e | — | — | — | — | 8 n/e | 8 n/e | — | — | — | — | — | — |
+| §4.1 Band table (B3: window, QUALIFY); §4.1 NULL rules | `WIN-01`, `WIN-02`, `WIN-03` | 3 pass | 3 pass | — | — | — | — | 1 pass, 2 **non-conf.** | 3 refused | — | — | — | — | — | — |
+| §4.1 Band table; §5.2 cross-band Ref rules | `CON-B-01` … `CON-B-10` (10) | 10 pass | 10 pass | — | — | — | — | — | — | — | — | — | — | — | — |
+| §4.1 Empty domain; ADR 0001 Empty-domain policy | `PP-EX-02`, `PP-FA-02`, `PP-FA-03`, `PP-NOT-03` | 3 pass, 1 n/e | 3 pass, 1 n/e | — | — | — | — | 3 pass, 1 n/e | 3 refused, 1 n/e | — | — | — | — | — | — |
+| §4.1 FORALL elimination (CTL duality, NotTrue, REQUIRE_WITNESS guard) | `BDD-F-01`, `BDD-F-02`, `BDD-F-03` | — | — | — | 3 **non-conf.** | — | — | — | — | — | — | — | — | — | — |
+| §4.1 FORALL with ONCE/SINCE; past-time modes need a time-ordered path | `PP-PAST-01`, `PP-PAST-02`, `PP-PAST-03` | 3 pass | 3 pass | — | — | — | — | 3 pass | 3 n/e | — | — | — | — | — | — |
+| §4.1 NULL rules (NULL is not a literal) | `CON-N-01`, `CON-N-02` | 2 pass | 2 pass | — | — | — | — | — | — | — | — | — | — | — | — |
+| §4.1 PathPred; FORALL elimination with NotTrue; ADR 0001 | `PP-EX-01` … `PP-NULL-04` (8) | 8 pass | 8 pass | — | — | — | — | 8 pass | 8 refused | — | — | — | — | — | — |
+| §4.1 Recorded traces and monitoring verdicts | `MON-01` … `MON-15` (15) | — | — | — | — | — | — | — | — | — | — | — | — | — | — |
+| §4.2 TemporalWindow LATEST / EARLIEST | `TAGG-01`, `TAGG-02` | — | — | — | — | — | — | — | — | — | — | — | — | — | — |
+| §4.2 What an aggregate counts (ENTITIES / PATHS) | `AGG-OVER-01`, `AGG-OVER-02`, `AGG-OVER-03`, `AGG-OVER-04` | 4 pass | 4 pass | — | — | — | — | 4 pass | 4 refused | — | — | — | — | — | — |
+| §5.2.2 Drill-across (steps 1–3, DA4) | `DA-01`, `DA-02` | 1 pass, 1 **non-conf.** | 1 pass, 1 **non-conf.** | — | — | — | — | 1 pass, 1 **non-conf.** | 2 refused | — | — | — | — | — | — |
+| §5.2.2 Well-formedness of a constellation (DA1–DA3) | `DA-WF-01`, `DA-WF-02`, `DA-WF-03`, `DA-WF-04` | — | — | — | — | — | — | — | — | — | — | — | — | — | — |
+| §6.1 / §8.3 propositional equivalence, tautology, implication | `BDD-P-01` … `BDD-P-GEN-23` (31) | — | — | — | 31 pass | — | — | — | — | — | — | — | — | — | — |
+| §6.1 Order theory of atoms (Δ_ord, O1–O6) | `BDD-O-01` … `BDD-O-08` (8) | — | — | — | 3 pass, 5 **non-conf.** | — | — | — | — | — | — | — | — | — | — |
+| §6.1 Three-valued logic (T⁺/T⁻ encoding, Δ_excl, Δ_null) | `BDD-K-01` … `BDD-K-08` (8) | — | — | — | 4 pass, 3 **non-conf.**, 1 n/e | — | — | — | — | — | — | — | — | — | — |
+| §6.1 Variables (canonical form of atoms) | `BDD-C-01`, `BDD-C-02`, `BDD-C-03` | — | — | — | 3 **non-conf.** | — | — | — | — | — | — | — | — | — | — |
+| §6.2 Rule 10 with Delta and Iceberg writes (MERGE) | `WP-DELTA-merge`, `WP-ICEBERG-merge` | — | — | — | — | — | — | — | — | 1 pass, 1 **non-conf.** | — | — | — | — | — |
+| §6.2 Rule 8 APPEND (INSERT INTO); §2.4 write_mode | `SINK-RT-01`, `SINK-RT-02`, `SINK-RT-03` | — | — | — | — | — | — | — | — | — | 3 pass | 3 **non-conf.** | 3 pass | — | — |
+| §6.2 Rule 8 sink-aware write planning; Delta and Iceberg writes | `WP-DUCKDB-target` … `WP-ICEBERG-catalog` (14) | — | — | — | — | — | — | — | — | 11 pass, 3 **non-conf.** | — | — | — | — | — |
+| §6.2 Rule 8, §6.4 sink write semantics: statements executed by DuckDB | `SINK-SQL-W`, `SINK-SQL-C` | — | — | — | — | — | — | — | — | — | 2 pass | 2 pass | 2 pass | 2 pass | 2 **non-conf.** |
+| §8.2 Propositional completeness (proof by minterm construction) | `THM-PC-0000` … `THM-PC-1111` (16) | — | — | — | 16 pass | — | — | — | — | — | — | — | — | — | — |
+| §8.3 A BDD's paths to TRUE are disjoint cubes covering its minterms | `THM-CUBE-00` … `THM-CUBE-07` (8) | — | — | — | 8 pass | — | — | — | — | — | — | — | — | — | — |
+| §8.8 Allen exhaustiveness theorem | `TO-THM-01` | — | — | 1 pass | — | — | — | — | — | — | — | — | — | — | — |
+| §8.8 Outside the domain | `TO-THM-02` | — | — | 1 pass | — | — | — | — | — | — | — | — | — | — | — |
 
 ### Non-conformances (strict xfail)
 
@@ -99,6 +108,7 @@ implement the area.
 |---|---|---|
 | `DA-01` | `duckdb-dgmquery` | a two-branch Join is evaluated row to row, not by drill-across; under the ENTITIES default the per-branch counts and sums agree on this fixture, but 1/0 yields inf, not NULL (§4.1) |
 | `DA-01` | `duckdb-plan-ir` | a two-branch Join is evaluated row to row, not by drill-across; under the ENTITIES default the per-branch counts and sums agree on this fixture, but 1/0 yields inf, not NULL (§4.1) |
+| `DA-01` | `pg-duckdb-plan-ir` | a two-branch Join is evaluated row to row, not by drill-across; under the ENTITIES default the per-branch counts and sums agree on this fixture, but 1/0 yields inf, not NULL (§4.1) |
 | `BDD-K-01` | `dgm-bdd` | the BDD is two-valued over every atom: no p⁺/p⁻ encoding for nullable atoms, no Δ_null |
 | `BDD-K-06` | `dgm-bdd` | the BDD is two-valued over every atom: no p⁺/p⁻ encoding for nullable atoms, no Δ_null |
 | `BDD-K-08` | `dgm-bdd` | the BDD is two-valued over every atom: no p⁺/p⁻ encoding for nullable atoms, no Δ_null |
@@ -113,6 +123,21 @@ implement the area.
 | `BDD-F-01` | `dgm-bdd` | FORALL is eliminated as NOT EXISTS(mode, NOT φ): the temporal mode is not dualised, NOT is Kleene NOT instead of NotTrue, and the REQUIRE_WITNESS guard is missing |
 | `BDD-F-02` | `dgm-bdd` | FORALL is eliminated as NOT EXISTS(mode, NOT φ): the temporal mode is not dualised, NOT is Kleene NOT instead of NotTrue, and the REQUIRE_WITNESS guard is missing |
 | `BDD-F-03` | `dgm-bdd` | FORALL is eliminated as NOT EXISTS(mode, NOT φ): the temporal mode is not dualised, NOT is Kleene NOT instead of NotTrue, and the REQUIRE_WITNESS guard is missing |
+| `SINK-RT-01` | `sink-parquet` | is_current, ParquetSink's default hive partition column, is read back as VARCHAR ('true'/'false'), not as the BOOLEAN written |
+| `SINK-RT-02` | `sink-parquet` | is_current, ParquetSink's default hive partition column, is read back as VARCHAR ('true'/'false'), not as the BOOLEAN written; and a second write() replaces the files of every partition it writes (COPY … OVERWRITE_OR_IGNORE), so the first write's rows there are lost |
+| `SINK-RT-03` | `sink-parquet` | is_current, ParquetSink's default hive partition column, is read back as VARCHAR ('true'/'false'), not as the BOOLEAN written |
+| `SINK-CL-01` | `sink-parquet` | is_current, ParquetSink's default hive partition column, is read back as VARCHAR ('true'/'false'), not as the BOOLEAN written; and close_versions() rewrites only the current rows into the partitions, overwriting the historical versions, which are lost |
+| `SINK-CL-02` | `sink-parquet` | is_current, ParquetSink's default hive partition column, is read back as VARCHAR ('true'/'false'), not as the BOOLEAN written; and close_versions() rewrites only the current rows into the partitions, overwriting the historical versions, which are lost |
+| `SINK-CL-03` | `sink-parquet` | is_current, ParquetSink's default hive partition column, is read back as VARCHAR ('true'/'false'), not as the BOOLEAN written; and when every current row is closed nothing is written to is_current=true, so the old files stay and each key is read back both open and closed |
+| `SINK-CL-04` | `sink-parquet` | is_current, ParquetSink's default hive partition column, is read back as VARCHAR ('true'/'false'), not as the BOOLEAN written |
+| `SINK-SQL-W` | `sink-delta` | DeltaLakeSink.write() sends `MERGE INTO delta.`<path>``, Spark SQL that DuckDB's parser rejects (and §6.2 allows a Delta write to APPEND only) |
+| `SINK-SQL-C` | `sink-delta` | DeltaLakeSink.close_versions() is a no-op: it sends no statement and returns 0, so no version is closed |
+| `WP-DELTA-target` | `dgm-write-plan` | Rule 8 plans `INSERT INTO delta_scan`; §6.2 Delta writes: delta_scan is read-only, the write goes to a Delta table attached with TYPE delta |
+| `WP-ICEBERG-target` | `dgm-write-plan` | Rule 8 plans `INSERT INTO iceberg_scan`; §6.2 Iceberg writes: iceberg_scan never appears as a write target |
+| `WP-ICEBERG-catalog` | `dgm-write-plan` | SinkTarget.ICEBERG carries no catalog, so Rule 8 cannot check that a REST catalog is attached and plans the write anyway (§6.2 Iceberg writes: rejected at planning time) |
+| `WP-ICEBERG-merge` | `dgm-write-plan` | Rule 10 plans a MERGE into ICEBERG without the engine version or the table's merge-on-read mode; §6.2 rejects every Iceberg plan but APPEND on an engine version the capability table does not cover |
+| `WIN-02` | `pg-duckdb-plan-ir` | DuckDB 1.5.0's postgres extension raises NotImplementedException (PostgresScanSerialize is not serializable) for a SUM window over a PostgreSQL table; the same SQL passes on DuckDB storage |
+| `WIN-03` | `pg-duckdb-plan-ir` | DuckDB 1.5.0's postgres extension raises NotImplementedException (PostgresScanSerialize is not serializable) for a SUM window over a PostgreSQL table; the same SQL passes on DuckDB storage |
 
 ### Refused (fail-closed) and not expressible
 
@@ -120,149 +145,331 @@ implement the area.
 |---|---|---|---|
 | `CTL-A-c-EF` | `duckdb-dgmquery` | refused | DGMQuery.to_sql() raises UnsupportedConstruct for every temporal mode (fail-closed, as the plan IR; no SQL template) |
 | `CTL-A-c-EF` | `duckdb-plan-ir` | refused | the plan IR raises UnsupportedConstruct for every temporal mode (fail-closed; no SQL template) |
+| `CTL-A-c-EF` | `pg-duckdb-plan-ir` | refused | the plan IR raises UnsupportedConstruct for every temporal mode (fail-closed; no SQL template) |
+| `CTL-A-c-EF` | `planner-refusals` | refused | every target without an emitter (SQL_POSTGRESQL, CYPHER, SPARQL, DGM_JSON, DGM_YAML) raises UnsupportedCapability |
 | `CTL-A-c-EG` | `duckdb-dgmquery` | refused | DGMQuery.to_sql() raises UnsupportedConstruct for every temporal mode (fail-closed, as the plan IR; no SQL template) |
 | `CTL-A-c-EG` | `duckdb-plan-ir` | refused | the plan IR raises UnsupportedConstruct for every temporal mode (fail-closed; no SQL template) |
+| `CTL-A-c-EG` | `pg-duckdb-plan-ir` | refused | the plan IR raises UnsupportedConstruct for every temporal mode (fail-closed; no SQL template) |
+| `CTL-A-c-EG` | `planner-refusals` | refused | every target without an emitter (SQL_POSTGRESQL, CYPHER, SPARQL, DGM_JSON, DGM_YAML) raises UnsupportedCapability |
 | `CTL-A-c-EX` | `duckdb-dgmquery` | refused | DGMQuery.to_sql() raises UnsupportedConstruct for every temporal mode (fail-closed, as the plan IR; no SQL template) |
 | `CTL-A-c-EX` | `duckdb-plan-ir` | refused | the plan IR raises UnsupportedConstruct for every temporal mode (fail-closed; no SQL template) |
+| `CTL-A-c-EX` | `pg-duckdb-plan-ir` | refused | the plan IR raises UnsupportedConstruct for every temporal mode (fail-closed; no SQL template) |
+| `CTL-A-c-EX` | `planner-refusals` | refused | every target without an emitter (SQL_POSTGRESQL, CYPHER, SPARQL, DGM_JSON, DGM_YAML) raises UnsupportedCapability |
 | `CTL-A-c-AF` | `duckdb-dgmquery` | refused | DGMQuery.to_sql() raises UnsupportedConstruct for every temporal mode (fail-closed, as the plan IR; no SQL template) |
 | `CTL-A-c-AF` | `duckdb-plan-ir` | refused | the plan IR raises UnsupportedConstruct for every temporal mode (fail-closed; no SQL template) |
+| `CTL-A-c-AF` | `pg-duckdb-plan-ir` | refused | the plan IR raises UnsupportedConstruct for every temporal mode (fail-closed; no SQL template) |
+| `CTL-A-c-AF` | `planner-refusals` | refused | every target without an emitter (SQL_POSTGRESQL, CYPHER, SPARQL, DGM_JSON, DGM_YAML) raises UnsupportedCapability |
 | `CTL-A-c-AG` | `duckdb-dgmquery` | refused | DGMQuery.to_sql() raises UnsupportedConstruct for every temporal mode (fail-closed, as the plan IR; no SQL template) |
 | `CTL-A-c-AG` | `duckdb-plan-ir` | refused | the plan IR raises UnsupportedConstruct for every temporal mode (fail-closed; no SQL template) |
+| `CTL-A-c-AG` | `pg-duckdb-plan-ir` | refused | the plan IR raises UnsupportedConstruct for every temporal mode (fail-closed; no SQL template) |
+| `CTL-A-c-AG` | `planner-refusals` | refused | every target without an emitter (SQL_POSTGRESQL, CYPHER, SPARQL, DGM_JSON, DGM_YAML) raises UnsupportedCapability |
 | `CTL-A-c-AX` | `duckdb-dgmquery` | refused | DGMQuery.to_sql() raises UnsupportedConstruct for every temporal mode (fail-closed, as the plan IR; no SQL template) |
 | `CTL-A-c-AX` | `duckdb-plan-ir` | refused | the plan IR raises UnsupportedConstruct for every temporal mode (fail-closed; no SQL template) |
+| `CTL-A-c-AX` | `pg-duckdb-plan-ir` | refused | the plan IR raises UnsupportedConstruct for every temporal mode (fail-closed; no SQL template) |
+| `CTL-A-c-AX` | `planner-refusals` | refused | every target without an emitter (SQL_POSTGRESQL, CYPHER, SPARQL, DGM_JSON, DGM_YAML) raises UnsupportedCapability |
 | `CTL-A-c0-EF-REQ` | `duckdb-dgmquery` | refused | DGMQuery.to_sql() raises UnsupportedConstruct for every temporal mode (fail-closed, as the plan IR; no SQL template) |
 | `CTL-A-c0-EF-REQ` | `duckdb-plan-ir` | refused | the plan IR raises UnsupportedConstruct for every temporal mode (fail-closed; no SQL template) |
+| `CTL-A-c0-EF-REQ` | `pg-duckdb-plan-ir` | refused | the plan IR raises UnsupportedConstruct for every temporal mode (fail-closed; no SQL template) |
+| `CTL-A-c0-EF-REQ` | `planner-refusals` | refused | every target without an emitter (SQL_POSTGRESQL, CYPHER, SPARQL, DGM_JSON, DGM_YAML) raises UnsupportedCapability |
 | `CTL-A-c0-EG-REQ` | `duckdb-dgmquery` | refused | DGMQuery.to_sql() raises UnsupportedConstruct for every temporal mode (fail-closed, as the plan IR; no SQL template) |
 | `CTL-A-c0-EG-REQ` | `duckdb-plan-ir` | refused | the plan IR raises UnsupportedConstruct for every temporal mode (fail-closed; no SQL template) |
+| `CTL-A-c0-EG-REQ` | `pg-duckdb-plan-ir` | refused | the plan IR raises UnsupportedConstruct for every temporal mode (fail-closed; no SQL template) |
+| `CTL-A-c0-EG-REQ` | `planner-refusals` | refused | every target without an emitter (SQL_POSTGRESQL, CYPHER, SPARQL, DGM_JSON, DGM_YAML) raises UnsupportedCapability |
 | `CTL-A-c0-EX-REQ` | `duckdb-dgmquery` | refused | DGMQuery.to_sql() raises UnsupportedConstruct for every temporal mode (fail-closed, as the plan IR; no SQL template) |
 | `CTL-A-c0-EX-REQ` | `duckdb-plan-ir` | refused | the plan IR raises UnsupportedConstruct for every temporal mode (fail-closed; no SQL template) |
+| `CTL-A-c0-EX-REQ` | `pg-duckdb-plan-ir` | refused | the plan IR raises UnsupportedConstruct for every temporal mode (fail-closed; no SQL template) |
+| `CTL-A-c0-EX-REQ` | `planner-refusals` | refused | every target without an emitter (SQL_POSTGRESQL, CYPHER, SPARQL, DGM_JSON, DGM_YAML) raises UnsupportedCapability |
 | `CTL-A-c0-AF-REQ` | `duckdb-dgmquery` | refused | DGMQuery.to_sql() raises UnsupportedConstruct for every temporal mode (fail-closed, as the plan IR; no SQL template) |
 | `CTL-A-c0-AF-REQ` | `duckdb-plan-ir` | refused | the plan IR raises UnsupportedConstruct for every temporal mode (fail-closed; no SQL template) |
+| `CTL-A-c0-AF-REQ` | `pg-duckdb-plan-ir` | refused | the plan IR raises UnsupportedConstruct for every temporal mode (fail-closed; no SQL template) |
+| `CTL-A-c0-AF-REQ` | `planner-refusals` | refused | every target without an emitter (SQL_POSTGRESQL, CYPHER, SPARQL, DGM_JSON, DGM_YAML) raises UnsupportedCapability |
 | `CTL-A-c0-AG-REQ` | `duckdb-dgmquery` | refused | DGMQuery.to_sql() raises UnsupportedConstruct for every temporal mode (fail-closed, as the plan IR; no SQL template) |
 | `CTL-A-c0-AG-REQ` | `duckdb-plan-ir` | refused | the plan IR raises UnsupportedConstruct for every temporal mode (fail-closed; no SQL template) |
+| `CTL-A-c0-AG-REQ` | `pg-duckdb-plan-ir` | refused | the plan IR raises UnsupportedConstruct for every temporal mode (fail-closed; no SQL template) |
+| `CTL-A-c0-AG-REQ` | `planner-refusals` | refused | every target without an emitter (SQL_POSTGRESQL, CYPHER, SPARQL, DGM_JSON, DGM_YAML) raises UnsupportedCapability |
 | `CTL-A-c0-AX-REQ` | `duckdb-dgmquery` | refused | DGMQuery.to_sql() raises UnsupportedConstruct for every temporal mode (fail-closed, as the plan IR; no SQL template) |
 | `CTL-A-c0-AX-REQ` | `duckdb-plan-ir` | refused | the plan IR raises UnsupportedConstruct for every temporal mode (fail-closed; no SQL template) |
+| `CTL-A-c0-AX-REQ` | `pg-duckdb-plan-ir` | refused | the plan IR raises UnsupportedConstruct for every temporal mode (fail-closed; no SQL template) |
+| `CTL-A-c0-AX-REQ` | `planner-refusals` | refused | every target without an emitter (SQL_POSTGRESQL, CYPHER, SPARQL, DGM_JSON, DGM_YAML) raises UnsupportedCapability |
 | `CTL-A-c0-EF-VAC` | `duckdb-dgmquery` | n/e | PathPred has no `on_empty` field, so VACUOUS cannot be requested |
 | `CTL-A-c0-EF-VAC` | `duckdb-plan-ir` | n/e | PathPred has no `on_empty` field, so VACUOUS cannot be requested |
+| `CTL-A-c0-EF-VAC` | `pg-duckdb-plan-ir` | n/e | PathPred has no `on_empty` field, so VACUOUS cannot be requested |
+| `CTL-A-c0-EF-VAC` | `planner-refusals` | n/e | PathPred has no `on_empty` field, so VACUOUS cannot be requested |
 | `CTL-A-c0-EG-VAC` | `duckdb-dgmquery` | n/e | PathPred has no `on_empty` field, so VACUOUS cannot be requested |
 | `CTL-A-c0-EG-VAC` | `duckdb-plan-ir` | n/e | PathPred has no `on_empty` field, so VACUOUS cannot be requested |
+| `CTL-A-c0-EG-VAC` | `pg-duckdb-plan-ir` | n/e | PathPred has no `on_empty` field, so VACUOUS cannot be requested |
+| `CTL-A-c0-EG-VAC` | `planner-refusals` | n/e | PathPred has no `on_empty` field, so VACUOUS cannot be requested |
 | `CTL-A-c0-EX-VAC` | `duckdb-dgmquery` | n/e | PathPred has no `on_empty` field, so VACUOUS cannot be requested |
 | `CTL-A-c0-EX-VAC` | `duckdb-plan-ir` | n/e | PathPred has no `on_empty` field, so VACUOUS cannot be requested |
+| `CTL-A-c0-EX-VAC` | `pg-duckdb-plan-ir` | n/e | PathPred has no `on_empty` field, so VACUOUS cannot be requested |
+| `CTL-A-c0-EX-VAC` | `planner-refusals` | n/e | PathPred has no `on_empty` field, so VACUOUS cannot be requested |
 | `CTL-A-c0-AF-VAC` | `duckdb-dgmquery` | n/e | PathPred has no `on_empty` field, so VACUOUS cannot be requested |
 | `CTL-A-c0-AF-VAC` | `duckdb-plan-ir` | n/e | PathPred has no `on_empty` field, so VACUOUS cannot be requested |
+| `CTL-A-c0-AF-VAC` | `pg-duckdb-plan-ir` | n/e | PathPred has no `on_empty` field, so VACUOUS cannot be requested |
+| `CTL-A-c0-AF-VAC` | `planner-refusals` | n/e | PathPred has no `on_empty` field, so VACUOUS cannot be requested |
 | `CTL-A-c0-AG-VAC` | `duckdb-dgmquery` | n/e | PathPred has no `on_empty` field, so VACUOUS cannot be requested |
 | `CTL-A-c0-AG-VAC` | `duckdb-plan-ir` | n/e | PathPred has no `on_empty` field, so VACUOUS cannot be requested |
+| `CTL-A-c0-AG-VAC` | `pg-duckdb-plan-ir` | n/e | PathPred has no `on_empty` field, so VACUOUS cannot be requested |
+| `CTL-A-c0-AG-VAC` | `planner-refusals` | n/e | PathPred has no `on_empty` field, so VACUOUS cannot be requested |
 | `CTL-A-c0-AX-VAC` | `duckdb-dgmquery` | n/e | PathPred has no `on_empty` field, so VACUOUS cannot be requested |
 | `CTL-A-c0-AX-VAC` | `duckdb-plan-ir` | n/e | PathPred has no `on_empty` field, so VACUOUS cannot be requested |
+| `CTL-A-c0-AX-VAC` | `pg-duckdb-plan-ir` | n/e | PathPred has no `on_empty` field, so VACUOUS cannot be requested |
+| `CTL-A-c0-AX-VAC` | `planner-refusals` | n/e | PathPred has no `on_empty` field, so VACUOUS cannot be requested |
 | `CTL-B-a0-EF` | `duckdb-dgmquery` | refused | DGMQuery.to_sql() raises for a Repeat (plan with DGMPlanner) |
 | `CTL-B-a0-EF` | `duckdb-plan-ir` | refused | a Repeat inside a PathPred is not emitted (UnsupportedConstruct) |
+| `CTL-B-a0-EF` | `pg-duckdb-plan-ir` | refused | a Repeat inside a PathPred is not emitted (UnsupportedConstruct) |
+| `CTL-B-a0-EF` | `planner-refusals` | refused | every target without an emitter (SQL_POSTGRESQL, CYPHER, SPARQL, DGM_JSON, DGM_YAML) raises UnsupportedCapability |
 | `CTL-B-a0-EG` | `duckdb-dgmquery` | refused | DGMQuery.to_sql() raises for a Repeat (plan with DGMPlanner) |
 | `CTL-B-a0-EG` | `duckdb-plan-ir` | refused | a Repeat inside a PathPred is not emitted (UnsupportedConstruct) |
+| `CTL-B-a0-EG` | `pg-duckdb-plan-ir` | refused | a Repeat inside a PathPred is not emitted (UnsupportedConstruct) |
+| `CTL-B-a0-EG` | `planner-refusals` | refused | every target without an emitter (SQL_POSTGRESQL, CYPHER, SPARQL, DGM_JSON, DGM_YAML) raises UnsupportedCapability |
 | `CTL-B-a0-EX` | `duckdb-dgmquery` | refused | DGMQuery.to_sql() raises for a Repeat (plan with DGMPlanner) |
 | `CTL-B-a0-EX` | `duckdb-plan-ir` | refused | a Repeat inside a PathPred is not emitted (UnsupportedConstruct) |
+| `CTL-B-a0-EX` | `pg-duckdb-plan-ir` | refused | a Repeat inside a PathPred is not emitted (UnsupportedConstruct) |
+| `CTL-B-a0-EX` | `planner-refusals` | refused | every target without an emitter (SQL_POSTGRESQL, CYPHER, SPARQL, DGM_JSON, DGM_YAML) raises UnsupportedCapability |
 | `CTL-B-a0-AF` | `duckdb-dgmquery` | refused | DGMQuery.to_sql() raises for a Repeat (plan with DGMPlanner) |
 | `CTL-B-a0-AF` | `duckdb-plan-ir` | refused | a Repeat inside a PathPred is not emitted (UnsupportedConstruct) |
+| `CTL-B-a0-AF` | `pg-duckdb-plan-ir` | refused | a Repeat inside a PathPred is not emitted (UnsupportedConstruct) |
+| `CTL-B-a0-AF` | `planner-refusals` | refused | every target without an emitter (SQL_POSTGRESQL, CYPHER, SPARQL, DGM_JSON, DGM_YAML) raises UnsupportedCapability |
 | `CTL-B-a0-AG` | `duckdb-dgmquery` | refused | DGMQuery.to_sql() raises for a Repeat (plan with DGMPlanner) |
 | `CTL-B-a0-AG` | `duckdb-plan-ir` | refused | a Repeat inside a PathPred is not emitted (UnsupportedConstruct) |
+| `CTL-B-a0-AG` | `pg-duckdb-plan-ir` | refused | a Repeat inside a PathPred is not emitted (UnsupportedConstruct) |
+| `CTL-B-a0-AG` | `planner-refusals` | refused | every target without an emitter (SQL_POSTGRESQL, CYPHER, SPARQL, DGM_JSON, DGM_YAML) raises UnsupportedCapability |
 | `CTL-B-a0-AX` | `duckdb-dgmquery` | refused | DGMQuery.to_sql() raises for a Repeat (plan with DGMPlanner) |
 | `CTL-B-a0-AX` | `duckdb-plan-ir` | refused | a Repeat inside a PathPred is not emitted (UnsupportedConstruct) |
+| `CTL-B-a0-AX` | `pg-duckdb-plan-ir` | refused | a Repeat inside a PathPred is not emitted (UnsupportedConstruct) |
+| `CTL-B-a0-AX` | `planner-refusals` | refused | every target without an emitter (SQL_POSTGRESQL, CYPHER, SPARQL, DGM_JSON, DGM_YAML) raises UnsupportedCapability |
 | `CTL-B-a1-EF` | `duckdb-dgmquery` | refused | DGMQuery.to_sql() raises for a Repeat (plan with DGMPlanner) |
 | `CTL-B-a1-EF` | `duckdb-plan-ir` | refused | a Repeat inside a PathPred is not emitted (UnsupportedConstruct) |
+| `CTL-B-a1-EF` | `pg-duckdb-plan-ir` | refused | a Repeat inside a PathPred is not emitted (UnsupportedConstruct) |
+| `CTL-B-a1-EF` | `planner-refusals` | refused | every target without an emitter (SQL_POSTGRESQL, CYPHER, SPARQL, DGM_JSON, DGM_YAML) raises UnsupportedCapability |
 | `CTL-B-a1-EG` | `duckdb-dgmquery` | refused | DGMQuery.to_sql() raises for a Repeat (plan with DGMPlanner) |
 | `CTL-B-a1-EG` | `duckdb-plan-ir` | refused | a Repeat inside a PathPred is not emitted (UnsupportedConstruct) |
+| `CTL-B-a1-EG` | `pg-duckdb-plan-ir` | refused | a Repeat inside a PathPred is not emitted (UnsupportedConstruct) |
+| `CTL-B-a1-EG` | `planner-refusals` | refused | every target without an emitter (SQL_POSTGRESQL, CYPHER, SPARQL, DGM_JSON, DGM_YAML) raises UnsupportedCapability |
 | `CTL-B-a1-EX` | `duckdb-dgmquery` | refused | DGMQuery.to_sql() raises for a Repeat (plan with DGMPlanner) |
 | `CTL-B-a1-EX` | `duckdb-plan-ir` | refused | a Repeat inside a PathPred is not emitted (UnsupportedConstruct) |
+| `CTL-B-a1-EX` | `pg-duckdb-plan-ir` | refused | a Repeat inside a PathPred is not emitted (UnsupportedConstruct) |
+| `CTL-B-a1-EX` | `planner-refusals` | refused | every target without an emitter (SQL_POSTGRESQL, CYPHER, SPARQL, DGM_JSON, DGM_YAML) raises UnsupportedCapability |
 | `CTL-B-a1-AF` | `duckdb-dgmquery` | refused | DGMQuery.to_sql() raises for a Repeat (plan with DGMPlanner) |
 | `CTL-B-a1-AF` | `duckdb-plan-ir` | refused | a Repeat inside a PathPred is not emitted (UnsupportedConstruct) |
+| `CTL-B-a1-AF` | `pg-duckdb-plan-ir` | refused | a Repeat inside a PathPred is not emitted (UnsupportedConstruct) |
+| `CTL-B-a1-AF` | `planner-refusals` | refused | every target without an emitter (SQL_POSTGRESQL, CYPHER, SPARQL, DGM_JSON, DGM_YAML) raises UnsupportedCapability |
 | `CTL-B-a1-AG` | `duckdb-dgmquery` | refused | DGMQuery.to_sql() raises for a Repeat (plan with DGMPlanner) |
 | `CTL-B-a1-AG` | `duckdb-plan-ir` | refused | a Repeat inside a PathPred is not emitted (UnsupportedConstruct) |
+| `CTL-B-a1-AG` | `pg-duckdb-plan-ir` | refused | a Repeat inside a PathPred is not emitted (UnsupportedConstruct) |
+| `CTL-B-a1-AG` | `planner-refusals` | refused | every target without an emitter (SQL_POSTGRESQL, CYPHER, SPARQL, DGM_JSON, DGM_YAML) raises UnsupportedCapability |
 | `CTL-B-a1-AX` | `duckdb-dgmquery` | refused | DGMQuery.to_sql() raises for a Repeat (plan with DGMPlanner) |
 | `CTL-B-a1-AX` | `duckdb-plan-ir` | refused | a Repeat inside a PathPred is not emitted (UnsupportedConstruct) |
+| `CTL-B-a1-AX` | `pg-duckdb-plan-ir` | refused | a Repeat inside a PathPred is not emitted (UnsupportedConstruct) |
+| `CTL-B-a1-AX` | `planner-refusals` | refused | every target without an emitter (SQL_POSTGRESQL, CYPHER, SPARQL, DGM_JSON, DGM_YAML) raises UnsupportedCapability |
 | `CTL-B-a2-EF-REQ` | `duckdb-dgmquery` | refused | DGMQuery.to_sql() raises for a Repeat (plan with DGMPlanner) |
 | `CTL-B-a2-EF-REQ` | `duckdb-plan-ir` | refused | a Repeat inside a PathPred is not emitted (UnsupportedConstruct) |
+| `CTL-B-a2-EF-REQ` | `pg-duckdb-plan-ir` | refused | a Repeat inside a PathPred is not emitted (UnsupportedConstruct) |
+| `CTL-B-a2-EF-REQ` | `planner-refusals` | refused | every target without an emitter (SQL_POSTGRESQL, CYPHER, SPARQL, DGM_JSON, DGM_YAML) raises UnsupportedCapability |
 | `CTL-B-a2-EG-REQ` | `duckdb-dgmquery` | refused | DGMQuery.to_sql() raises for a Repeat (plan with DGMPlanner) |
 | `CTL-B-a2-EG-REQ` | `duckdb-plan-ir` | refused | a Repeat inside a PathPred is not emitted (UnsupportedConstruct) |
+| `CTL-B-a2-EG-REQ` | `pg-duckdb-plan-ir` | refused | a Repeat inside a PathPred is not emitted (UnsupportedConstruct) |
+| `CTL-B-a2-EG-REQ` | `planner-refusals` | refused | every target without an emitter (SQL_POSTGRESQL, CYPHER, SPARQL, DGM_JSON, DGM_YAML) raises UnsupportedCapability |
 | `CTL-B-a2-EX-REQ` | `duckdb-dgmquery` | refused | DGMQuery.to_sql() raises for a Repeat (plan with DGMPlanner) |
 | `CTL-B-a2-EX-REQ` | `duckdb-plan-ir` | refused | a Repeat inside a PathPred is not emitted (UnsupportedConstruct) |
+| `CTL-B-a2-EX-REQ` | `pg-duckdb-plan-ir` | refused | a Repeat inside a PathPred is not emitted (UnsupportedConstruct) |
+| `CTL-B-a2-EX-REQ` | `planner-refusals` | refused | every target without an emitter (SQL_POSTGRESQL, CYPHER, SPARQL, DGM_JSON, DGM_YAML) raises UnsupportedCapability |
 | `CTL-B-a2-AF-REQ` | `duckdb-dgmquery` | refused | DGMQuery.to_sql() raises for a Repeat (plan with DGMPlanner) |
 | `CTL-B-a2-AF-REQ` | `duckdb-plan-ir` | refused | a Repeat inside a PathPred is not emitted (UnsupportedConstruct) |
+| `CTL-B-a2-AF-REQ` | `pg-duckdb-plan-ir` | refused | a Repeat inside a PathPred is not emitted (UnsupportedConstruct) |
+| `CTL-B-a2-AF-REQ` | `planner-refusals` | refused | every target without an emitter (SQL_POSTGRESQL, CYPHER, SPARQL, DGM_JSON, DGM_YAML) raises UnsupportedCapability |
 | `CTL-B-a2-AG-REQ` | `duckdb-dgmquery` | refused | DGMQuery.to_sql() raises for a Repeat (plan with DGMPlanner) |
 | `CTL-B-a2-AG-REQ` | `duckdb-plan-ir` | refused | a Repeat inside a PathPred is not emitted (UnsupportedConstruct) |
+| `CTL-B-a2-AG-REQ` | `pg-duckdb-plan-ir` | refused | a Repeat inside a PathPred is not emitted (UnsupportedConstruct) |
+| `CTL-B-a2-AG-REQ` | `planner-refusals` | refused | every target without an emitter (SQL_POSTGRESQL, CYPHER, SPARQL, DGM_JSON, DGM_YAML) raises UnsupportedCapability |
 | `CTL-B-a2-AX-REQ` | `duckdb-dgmquery` | refused | DGMQuery.to_sql() raises for a Repeat (plan with DGMPlanner) |
 | `CTL-B-a2-AX-REQ` | `duckdb-plan-ir` | refused | a Repeat inside a PathPred is not emitted (UnsupportedConstruct) |
+| `CTL-B-a2-AX-REQ` | `pg-duckdb-plan-ir` | refused | a Repeat inside a PathPred is not emitted (UnsupportedConstruct) |
+| `CTL-B-a2-AX-REQ` | `planner-refusals` | refused | every target without an emitter (SQL_POSTGRESQL, CYPHER, SPARQL, DGM_JSON, DGM_YAML) raises UnsupportedCapability |
 | `CTL-B-a2-EF-VAC` | `duckdb-dgmquery` | n/e | PathPred has no `on_empty` field, so VACUOUS cannot be requested |
 | `CTL-B-a2-EF-VAC` | `duckdb-plan-ir` | n/e | PathPred has no `on_empty` field, so VACUOUS cannot be requested |
+| `CTL-B-a2-EF-VAC` | `pg-duckdb-plan-ir` | n/e | PathPred has no `on_empty` field, so VACUOUS cannot be requested |
+| `CTL-B-a2-EF-VAC` | `planner-refusals` | n/e | PathPred has no `on_empty` field, so VACUOUS cannot be requested |
 | `CTL-B-a2-EG-VAC` | `duckdb-dgmquery` | n/e | PathPred has no `on_empty` field, so VACUOUS cannot be requested |
 | `CTL-B-a2-EG-VAC` | `duckdb-plan-ir` | n/e | PathPred has no `on_empty` field, so VACUOUS cannot be requested |
+| `CTL-B-a2-EG-VAC` | `pg-duckdb-plan-ir` | n/e | PathPred has no `on_empty` field, so VACUOUS cannot be requested |
+| `CTL-B-a2-EG-VAC` | `planner-refusals` | n/e | PathPred has no `on_empty` field, so VACUOUS cannot be requested |
 | `CTL-B-a2-EX-VAC` | `duckdb-dgmquery` | n/e | PathPred has no `on_empty` field, so VACUOUS cannot be requested |
 | `CTL-B-a2-EX-VAC` | `duckdb-plan-ir` | n/e | PathPred has no `on_empty` field, so VACUOUS cannot be requested |
+| `CTL-B-a2-EX-VAC` | `pg-duckdb-plan-ir` | n/e | PathPred has no `on_empty` field, so VACUOUS cannot be requested |
+| `CTL-B-a2-EX-VAC` | `planner-refusals` | n/e | PathPred has no `on_empty` field, so VACUOUS cannot be requested |
 | `CTL-B-a2-AF-VAC` | `duckdb-dgmquery` | n/e | PathPred has no `on_empty` field, so VACUOUS cannot be requested |
 | `CTL-B-a2-AF-VAC` | `duckdb-plan-ir` | n/e | PathPred has no `on_empty` field, so VACUOUS cannot be requested |
+| `CTL-B-a2-AF-VAC` | `pg-duckdb-plan-ir` | n/e | PathPred has no `on_empty` field, so VACUOUS cannot be requested |
+| `CTL-B-a2-AF-VAC` | `planner-refusals` | n/e | PathPred has no `on_empty` field, so VACUOUS cannot be requested |
 | `CTL-B-a2-AG-VAC` | `duckdb-dgmquery` | n/e | PathPred has no `on_empty` field, so VACUOUS cannot be requested |
 | `CTL-B-a2-AG-VAC` | `duckdb-plan-ir` | n/e | PathPred has no `on_empty` field, so VACUOUS cannot be requested |
+| `CTL-B-a2-AG-VAC` | `pg-duckdb-plan-ir` | n/e | PathPred has no `on_empty` field, so VACUOUS cannot be requested |
+| `CTL-B-a2-AG-VAC` | `planner-refusals` | n/e | PathPred has no `on_empty` field, so VACUOUS cannot be requested |
 | `CTL-B-a2-AX-VAC` | `duckdb-dgmquery` | n/e | PathPred has no `on_empty` field, so VACUOUS cannot be requested |
 | `CTL-B-a2-AX-VAC` | `duckdb-plan-ir` | n/e | PathPred has no `on_empty` field, so VACUOUS cannot be requested |
+| `CTL-B-a2-AX-VAC` | `pg-duckdb-plan-ir` | n/e | PathPred has no `on_empty` field, so VACUOUS cannot be requested |
+| `CTL-B-a2-AX-VAC` | `planner-refusals` | n/e | PathPred has no `on_empty` field, so VACUOUS cannot be requested |
 | `CTL-G1-AF` | `duckdb-dgmquery` | n/e | PathPred has no `on_empty` field, so VACUOUS cannot be requested |
 | `CTL-G1-AF` | `duckdb-plan-ir` | n/e | PathPred has no `on_empty` field, so VACUOUS cannot be requested |
+| `CTL-G1-AF` | `pg-duckdb-plan-ir` | n/e | PathPred has no `on_empty` field, so VACUOUS cannot be requested |
+| `CTL-G1-AF` | `planner-refusals` | n/e | PathPred has no `on_empty` field, so VACUOUS cannot be requested |
 | `CTL-G1-NOT-EG` | `duckdb-dgmquery` | n/e | PathPred has no `on_empty` field, so VACUOUS cannot be requested |
 | `CTL-G1-NOT-EG` | `duckdb-plan-ir` | n/e | PathPred has no `on_empty` field, so VACUOUS cannot be requested |
+| `CTL-G1-NOT-EG` | `pg-duckdb-plan-ir` | n/e | PathPred has no `on_empty` field, so VACUOUS cannot be requested |
+| `CTL-G1-NOT-EG` | `planner-refusals` | n/e | PathPred has no `on_empty` field, so VACUOUS cannot be requested |
 | `CTL-G1-AG` | `duckdb-dgmquery` | n/e | PathPred has no `on_empty` field, so VACUOUS cannot be requested |
 | `CTL-G1-AG` | `duckdb-plan-ir` | n/e | PathPred has no `on_empty` field, so VACUOUS cannot be requested |
+| `CTL-G1-AG` | `pg-duckdb-plan-ir` | n/e | PathPred has no `on_empty` field, so VACUOUS cannot be requested |
+| `CTL-G1-AG` | `planner-refusals` | n/e | PathPred has no `on_empty` field, so VACUOUS cannot be requested |
 | `CTL-G1-NOT-EF` | `duckdb-dgmquery` | n/e | PathPred has no `on_empty` field, so VACUOUS cannot be requested |
 | `CTL-G1-NOT-EF` | `duckdb-plan-ir` | n/e | PathPred has no `on_empty` field, so VACUOUS cannot be requested |
+| `CTL-G1-NOT-EF` | `pg-duckdb-plan-ir` | n/e | PathPred has no `on_empty` field, so VACUOUS cannot be requested |
+| `CTL-G1-NOT-EF` | `planner-refusals` | n/e | PathPred has no `on_empty` field, so VACUOUS cannot be requested |
 | `CTL-G2-AF` | `duckdb-dgmquery` | n/e | PathPred has no `on_empty` field, so VACUOUS cannot be requested |
 | `CTL-G2-AF` | `duckdb-plan-ir` | n/e | PathPred has no `on_empty` field, so VACUOUS cannot be requested |
+| `CTL-G2-AF` | `pg-duckdb-plan-ir` | n/e | PathPred has no `on_empty` field, so VACUOUS cannot be requested |
+| `CTL-G2-AF` | `planner-refusals` | n/e | PathPred has no `on_empty` field, so VACUOUS cannot be requested |
 | `CTL-G2-NOT-EG` | `duckdb-dgmquery` | n/e | PathPred has no `on_empty` field, so VACUOUS cannot be requested |
 | `CTL-G2-NOT-EG` | `duckdb-plan-ir` | n/e | PathPred has no `on_empty` field, so VACUOUS cannot be requested |
+| `CTL-G2-NOT-EG` | `pg-duckdb-plan-ir` | n/e | PathPred has no `on_empty` field, so VACUOUS cannot be requested |
+| `CTL-G2-NOT-EG` | `planner-refusals` | n/e | PathPred has no `on_empty` field, so VACUOUS cannot be requested |
 | `CTL-G2-AG` | `duckdb-dgmquery` | n/e | PathPred has no `on_empty` field, so VACUOUS cannot be requested |
 | `CTL-G2-AG` | `duckdb-plan-ir` | n/e | PathPred has no `on_empty` field, so VACUOUS cannot be requested |
+| `CTL-G2-AG` | `pg-duckdb-plan-ir` | n/e | PathPred has no `on_empty` field, so VACUOUS cannot be requested |
+| `CTL-G2-AG` | `planner-refusals` | n/e | PathPred has no `on_empty` field, so VACUOUS cannot be requested |
 | `CTL-G2-NOT-EF` | `duckdb-dgmquery` | n/e | PathPred has no `on_empty` field, so VACUOUS cannot be requested |
 | `CTL-G2-NOT-EF` | `duckdb-plan-ir` | n/e | PathPred has no `on_empty` field, so VACUOUS cannot be requested |
+| `CTL-G2-NOT-EF` | `pg-duckdb-plan-ir` | n/e | PathPred has no `on_empty` field, so VACUOUS cannot be requested |
+| `CTL-G2-NOT-EF` | `planner-refusals` | n/e | PathPred has no `on_empty` field, so VACUOUS cannot be requested |
 | `CTL-U-01` | `duckdb-dgmquery` | refused | DGMQuery.to_sql() raises for a Repeat (plan with DGMPlanner) |
 | `CTL-U-01` | `duckdb-plan-ir` | refused | a Repeat inside a PathPred is not emitted (UnsupportedConstruct) |
+| `CTL-U-01` | `pg-duckdb-plan-ir` | refused | a Repeat inside a PathPred is not emitted (UnsupportedConstruct) |
+| `CTL-U-01` | `planner-refusals` | refused | every target without an emitter (SQL_POSTGRESQL, CYPHER, SPARQL, DGM_JSON, DGM_YAML) raises UnsupportedCapability |
 | `CTL-U-02` | `duckdb-dgmquery` | refused | DGMQuery.to_sql() raises for a Repeat (plan with DGMPlanner) |
 | `CTL-U-02` | `duckdb-plan-ir` | refused | a Repeat inside a PathPred is not emitted (UnsupportedConstruct) |
+| `CTL-U-02` | `pg-duckdb-plan-ir` | refused | a Repeat inside a PathPred is not emitted (UnsupportedConstruct) |
+| `CTL-U-02` | `planner-refusals` | refused | every target without an emitter (SQL_POSTGRESQL, CYPHER, SPARQL, DGM_JSON, DGM_YAML) raises UnsupportedCapability |
 | `CTL-U-03` | `duckdb-dgmquery` | refused | DGMQuery.to_sql() raises for a Repeat (plan with DGMPlanner) |
 | `CTL-U-03` | `duckdb-plan-ir` | refused | a Repeat inside a PathPred is not emitted (UnsupportedConstruct) |
+| `CTL-U-03` | `pg-duckdb-plan-ir` | refused | a Repeat inside a PathPred is not emitted (UnsupportedConstruct) |
+| `CTL-U-03` | `planner-refusals` | refused | every target without an emitter (SQL_POSTGRESQL, CYPHER, SPARQL, DGM_JSON, DGM_YAML) raises UnsupportedCapability |
 | `CTL-U-04` | `duckdb-dgmquery` | refused | DGMQuery.to_sql() raises for a Repeat (plan with DGMPlanner) |
 | `CTL-U-04` | `duckdb-plan-ir` | refused | a Repeat inside a PathPred is not emitted (UnsupportedConstruct) |
+| `CTL-U-04` | `pg-duckdb-plan-ir` | refused | a Repeat inside a PathPred is not emitted (UnsupportedConstruct) |
+| `CTL-U-04` | `planner-refusals` | refused | every target without an emitter (SQL_POSTGRESQL, CYPHER, SPARQL, DGM_JSON, DGM_YAML) raises UnsupportedCapability |
 | `CTL-U-05` | `duckdb-dgmquery` | refused | DGMQuery.to_sql() raises for a Repeat (plan with DGMPlanner) |
 | `CTL-U-05` | `duckdb-plan-ir` | refused | a Repeat inside a PathPred is not emitted (UnsupportedConstruct) |
+| `CTL-U-05` | `pg-duckdb-plan-ir` | refused | a Repeat inside a PathPred is not emitted (UnsupportedConstruct) |
+| `CTL-U-05` | `planner-refusals` | refused | every target without an emitter (SQL_POSTGRESQL, CYPHER, SPARQL, DGM_JSON, DGM_YAML) raises UnsupportedCapability |
+| `PP-EX-01` | `planner-refusals` | refused | every target without an emitter (SQL_POSTGRESQL, CYPHER, SPARQL, DGM_JSON, DGM_YAML) raises UnsupportedCapability |
+| `PP-EX-02` | `planner-refusals` | refused | every target without an emitter (SQL_POSTGRESQL, CYPHER, SPARQL, DGM_JSON, DGM_YAML) raises UnsupportedCapability |
+| `PP-FA-01` | `planner-refusals` | refused | every target without an emitter (SQL_POSTGRESQL, CYPHER, SPARQL, DGM_JSON, DGM_YAML) raises UnsupportedCapability |
+| `PP-FA-02` | `planner-refusals` | refused | every target without an emitter (SQL_POSTGRESQL, CYPHER, SPARQL, DGM_JSON, DGM_YAML) raises UnsupportedCapability |
 | `PP-FA-03` | `duckdb-dgmquery` | n/e | PathPred has no `on_empty` field, so VACUOUS cannot be requested |
 | `PP-FA-03` | `duckdb-plan-ir` | n/e | PathPred has no `on_empty` field, so VACUOUS cannot be requested |
+| `PP-FA-03` | `pg-duckdb-plan-ir` | n/e | PathPred has no `on_empty` field, so VACUOUS cannot be requested |
+| `PP-FA-03` | `planner-refusals` | n/e | PathPred has no `on_empty` field, so VACUOUS cannot be requested |
+| `PP-NOT-01` | `planner-refusals` | refused | every target without an emitter (SQL_POSTGRESQL, CYPHER, SPARQL, DGM_JSON, DGM_YAML) raises UnsupportedCapability |
+| `PP-NOT-02` | `planner-refusals` | refused | every target without an emitter (SQL_POSTGRESQL, CYPHER, SPARQL, DGM_JSON, DGM_YAML) raises UnsupportedCapability |
+| `PP-NOT-03` | `planner-refusals` | refused | every target without an emitter (SQL_POSTGRESQL, CYPHER, SPARQL, DGM_JSON, DGM_YAML) raises UnsupportedCapability |
+| `PP-NULL-01` | `planner-refusals` | refused | every target without an emitter (SQL_POSTGRESQL, CYPHER, SPARQL, DGM_JSON, DGM_YAML) raises UnsupportedCapability |
+| `PP-NULL-02` | `planner-refusals` | refused | every target without an emitter (SQL_POSTGRESQL, CYPHER, SPARQL, DGM_JSON, DGM_YAML) raises UnsupportedCapability |
+| `PP-NULL-03` | `planner-refusals` | refused | every target without an emitter (SQL_POSTGRESQL, CYPHER, SPARQL, DGM_JSON, DGM_YAML) raises UnsupportedCapability |
+| `PP-NULL-04` | `planner-refusals` | refused | every target without an emitter (SQL_POSTGRESQL, CYPHER, SPARQL, DGM_JSON, DGM_YAML) raises UnsupportedCapability |
 | `PP-STR-01` | `duckdb-dgmquery` | refused | DGMQuery.to_sql() renders only strategy ALL (UnsupportedConstruct) |
 | `PP-STR-01` | `duckdb-plan-ir` | refused | the plan IR executes only strategy ALL (UnsupportedConstruct) |
+| `PP-STR-01` | `pg-duckdb-plan-ir` | refused | the plan IR executes only strategy ALL (UnsupportedConstruct) |
+| `PP-STR-01` | `planner-refusals` | refused | every target without an emitter (SQL_POSTGRESQL, CYPHER, SPARQL, DGM_JSON, DGM_YAML) raises UnsupportedCapability |
+| `PP-STR-02` | `planner-refusals` | refused | every target without an emitter (SQL_POSTGRESQL, CYPHER, SPARQL, DGM_JSON, DGM_YAML) raises UnsupportedCapability |
 | `PP-STR-03` | `duckdb-dgmquery` | refused | DGMQuery.to_sql() renders only strategy ALL (UnsupportedConstruct) |
 | `PP-STR-03` | `duckdb-plan-ir` | refused | the plan IR executes only strategy ALL (UnsupportedConstruct) |
+| `PP-STR-03` | `pg-duckdb-plan-ir` | refused | the plan IR executes only strategy ALL (UnsupportedConstruct) |
+| `PP-STR-03` | `planner-refusals` | refused | every target without an emitter (SQL_POSTGRESQL, CYPHER, SPARQL, DGM_JSON, DGM_YAML) raises UnsupportedCapability |
 | `PP-STR-04` | `duckdb-dgmquery` | refused | DGMQuery.to_sql() renders only strategy ALL (UnsupportedConstruct) |
 | `PP-STR-04` | `duckdb-plan-ir` | refused | the plan IR executes only strategy ALL (UnsupportedConstruct) |
+| `PP-STR-04` | `pg-duckdb-plan-ir` | refused | the plan IR executes only strategy ALL (UnsupportedConstruct) |
+| `PP-STR-04` | `planner-refusals` | refused | every target without an emitter (SQL_POSTGRESQL, CYPHER, SPARQL, DGM_JSON, DGM_YAML) raises UnsupportedCapability |
+| `PP-ALIAS-01` | `planner-refusals` | refused | every target without an emitter (SQL_POSTGRESQL, CYPHER, SPARQL, DGM_JSON, DGM_YAML) raises UnsupportedCapability |
+| `PP-ALIAS-02` | `planner-refusals` | refused | every target without an emitter (SQL_POSTGRESQL, CYPHER, SPARQL, DGM_JSON, DGM_YAML) raises UnsupportedCapability |
+| `PP-ALIAS-03` | `planner-refusals` | refused | every target without an emitter (SQL_POSTGRESQL, CYPHER, SPARQL, DGM_JSON, DGM_YAML) raises UnsupportedCapability |
+| `PP-ALIAS-04` | `planner-refusals` | refused | every target without an emitter (SQL_POSTGRESQL, CYPHER, SPARQL, DGM_JSON, DGM_YAML) raises UnsupportedCapability |
+| `PP-PROM-01` | `planner-refusals` | n/e | the query is rejected while it is built (§3.5, §4.1), before planning: it says nothing about the targets |
+| `PP-PAST-01` | `planner-refusals` | n/e | the query is rejected while it is built (§3.5, §4.1), before planning: it says nothing about the targets |
+| `PP-PAST-02` | `planner-refusals` | n/e | the query is rejected while it is built (§3.5, §4.1), before planning: it says nothing about the targets |
+| `PP-PAST-03` | `planner-refusals` | n/e | the query is rejected while it is built (§3.5, §4.1), before planning: it says nothing about the targets |
 | `PP-UNTIL-01` | `duckdb-dgmquery` | refused | DGMQuery.to_sql() raises UnsupportedConstruct for every temporal mode (fail-closed, as the plan IR; no SQL template) |
 | `PP-UNTIL-01` | `duckdb-plan-ir` | refused | the plan IR raises UnsupportedConstruct for every temporal mode (fail-closed; no SQL template) |
+| `PP-UNTIL-01` | `pg-duckdb-plan-ir` | refused | the plan IR raises UnsupportedConstruct for every temporal mode (fail-closed; no SQL template) |
+| `PP-UNTIL-01` | `planner-refusals` | refused | every target without an emitter (SQL_POSTGRESQL, CYPHER, SPARQL, DGM_JSON, DGM_YAML) raises UnsupportedCapability |
 | `PP-UNTIL-02` | `duckdb-dgmquery` | refused | DGMQuery.to_sql() raises UnsupportedConstruct for every temporal mode (fail-closed, as the plan IR; no SQL template) |
 | `PP-UNTIL-02` | `duckdb-plan-ir` | refused | the plan IR raises UnsupportedConstruct for every temporal mode (fail-closed; no SQL template) |
+| `PP-UNTIL-02` | `pg-duckdb-plan-ir` | refused | the plan IR raises UnsupportedConstruct for every temporal mode (fail-closed; no SQL template) |
+| `PP-UNTIL-02` | `planner-refusals` | refused | every target without an emitter (SQL_POSTGRESQL, CYPHER, SPARQL, DGM_JSON, DGM_YAML) raises UnsupportedCapability |
 | `RJ-01` | `duckdb-dgmquery` | refused | DGMQuery.to_sql() raises for a Repeat (plan with DGMPlanner) |
+| `RJ-01` | `planner-refusals` | refused | every target without an emitter (SQL_POSTGRESQL, CYPHER, SPARQL, DGM_JSON, DGM_YAML) raises UnsupportedCapability |
 | `RJ-02` | `duckdb-dgmquery` | refused | DGMQuery.to_sql() raises for a Repeat (plan with DGMPlanner) |
+| `RJ-02` | `planner-refusals` | refused | every target without an emitter (SQL_POSTGRESQL, CYPHER, SPARQL, DGM_JSON, DGM_YAML) raises UnsupportedCapability |
 | `RJ-03` | `duckdb-dgmquery` | refused | DGMQuery.to_sql() raises for a Repeat (plan with DGMPlanner) |
+| `RJ-03` | `planner-refusals` | refused | every target without an emitter (SQL_POSTGRESQL, CYPHER, SPARQL, DGM_JSON, DGM_YAML) raises UnsupportedCapability |
 | `RJ-04` | `duckdb-dgmquery` | refused | DGMQuery.to_sql() raises for a Repeat (plan with DGMPlanner) |
 | `RJ-04` | `duckdb-plan-ir` | refused | the plan IR emits only WALK with 1 ≤ min (SIMPLE/TRAIL need node identities; min = 0 not emitted) |
+| `RJ-04` | `pg-duckdb-plan-ir` | refused | the plan IR emits only WALK with 1 ≤ min (SIMPLE/TRAIL need node identities; min = 0 not emitted) |
+| `RJ-04` | `planner-refusals` | refused | every target without an emitter (SQL_POSTGRESQL, CYPHER, SPARQL, DGM_JSON, DGM_YAML) raises UnsupportedCapability |
 | `RJ-05` | `duckdb-dgmquery` | refused | DGMQuery.to_sql() raises for a Repeat (plan with DGMPlanner) |
 | `RJ-05` | `duckdb-plan-ir` | refused | the plan IR emits only WALK with 1 ≤ min (SIMPLE/TRAIL need node identities; min = 0 not emitted) |
+| `RJ-05` | `pg-duckdb-plan-ir` | refused | the plan IR emits only WALK with 1 ≤ min (SIMPLE/TRAIL need node identities; min = 0 not emitted) |
+| `RJ-05` | `planner-refusals` | refused | every target without an emitter (SQL_POSTGRESQL, CYPHER, SPARQL, DGM_JSON, DGM_YAML) raises UnsupportedCapability |
 | `RJ-06` | `duckdb-dgmquery` | refused | DGMQuery.to_sql() raises for a Repeat (plan with DGMPlanner) |
 | `RJ-06` | `duckdb-plan-ir` | refused | the plan IR emits only WALK with 1 ≤ min (SIMPLE/TRAIL need node identities; min = 0 not emitted) |
+| `RJ-06` | `pg-duckdb-plan-ir` | refused | the plan IR emits only WALK with 1 ≤ min (SIMPLE/TRAIL need node identities; min = 0 not emitted) |
+| `RJ-06` | `planner-refusals` | refused | every target without an emitter (SQL_POSTGRESQL, CYPHER, SPARQL, DGM_JSON, DGM_YAML) raises UnsupportedCapability |
+| `AGG-OVER-01` | `planner-refusals` | refused | every target without an emitter (SQL_POSTGRESQL, CYPHER, SPARQL, DGM_JSON, DGM_YAML) raises UnsupportedCapability |
+| `AGG-OVER-02` | `planner-refusals` | refused | every target without an emitter (SQL_POSTGRESQL, CYPHER, SPARQL, DGM_JSON, DGM_YAML) raises UnsupportedCapability |
+| `AGG-OVER-03` | `planner-refusals` | refused | every target without an emitter (SQL_POSTGRESQL, CYPHER, SPARQL, DGM_JSON, DGM_YAML) raises UnsupportedCapability |
+| `AGG-OVER-04` | `planner-refusals` | refused | every target without an emitter (SQL_POSTGRESQL, CYPHER, SPARQL, DGM_JSON, DGM_YAML) raises UnsupportedCapability |
 | `TO-TYPE-04` | `duckdb-ordering` | n/e | arguments are untyped SQL text: Date and Timestamp cannot be told apart |
+| `SCD-01` | `planner-refusals` | refused | every target without an emitter (SQL_POSTGRESQL, CYPHER, SPARQL, DGM_JSON, DGM_YAML) raises UnsupportedCapability |
+| `SCD-02` | `planner-refusals` | refused | every target without an emitter (SQL_POSTGRESQL, CYPHER, SPARQL, DGM_JSON, DGM_YAML) raises UnsupportedCapability |
+| `SCD-03` | `planner-refusals` | refused | every target without an emitter (SQL_POSTGRESQL, CYPHER, SPARQL, DGM_JSON, DGM_YAML) raises UnsupportedCapability |
+| `SCD-04` | `planner-refusals` | refused | every target without an emitter (SQL_POSTGRESQL, CYPHER, SPARQL, DGM_JSON, DGM_YAML) raises UnsupportedCapability |
+| `SCD-05` | `planner-refusals` | refused | every target without an emitter (SQL_POSTGRESQL, CYPHER, SPARQL, DGM_JSON, DGM_YAML) raises UnsupportedCapability |
 | `SCD-V-01` | `duckdb-dgmquery` | refused | DGMQuery.to_sql() raises UnsupportedConstruct for a TemporalContext (fail-closed, as the plan IR) |
 | `SCD-V-01` | `duckdb-plan-ir` | refused | the plan IR refuses TemporalContext (node_resolution cannot be stated) |
+| `SCD-V-01` | `pg-duckdb-plan-ir` | refused | the plan IR refuses TemporalContext (node_resolution cannot be stated) |
+| `SCD-V-01` | `planner-refusals` | refused | every target without an emitter (SQL_POSTGRESQL, CYPHER, SPARQL, DGM_JSON, DGM_YAML) raises UnsupportedCapability |
 | `SCD-V-02` | `duckdb-dgmquery` | refused | rejected only because DGMQuery.to_sql() refuses TemporalContext, not because the version is missing |
 | `SCD-V-02` | `duckdb-plan-ir` | refused | rejected only because the plan IR refuses TemporalContext, not because the version is missing |
+| `SCD-V-02` | `pg-duckdb-plan-ir` | refused | rejected only because the plan IR refuses TemporalContext, not because the version is missing |
+| `SCD-V-02` | `planner-refusals` | refused | every target without an emitter (SQL_POSTGRESQL, CYPHER, SPARQL, DGM_JSON, DGM_YAML) raises UnsupportedCapability |
+| `SCD-V-03` | `planner-refusals` | refused | every target without an emitter (SQL_POSTGRESQL, CYPHER, SPARQL, DGM_JSON, DGM_YAML) raises UnsupportedCapability |
+| `SCD-V-04` | `planner-refusals` | refused | every target without an emitter (SQL_POSTGRESQL, CYPHER, SPARQL, DGM_JSON, DGM_YAML) raises UnsupportedCapability |
+| `SCD-V-05` | `planner-refusals` | refused | every target without an emitter (SQL_POSTGRESQL, CYPHER, SPARQL, DGM_JSON, DGM_YAML) raises UnsupportedCapability |
+| `SCD-V-06` | `planner-refusals` | refused | every target without an emitter (SQL_POSTGRESQL, CYPHER, SPARQL, DGM_JSON, DGM_YAML) raises UnsupportedCapability |
+| `SCD-V-07` | `planner-refusals` | refused | every target without an emitter (SQL_POSTGRESQL, CYPHER, SPARQL, DGM_JSON, DGM_YAML) raises UnsupportedCapability |
+| `SCD-E-01` | `planner-refusals` | refused | every target without an emitter (SQL_POSTGRESQL, CYPHER, SPARQL, DGM_JSON, DGM_YAML) raises UnsupportedCapability |
+| `SCD-E-02` | `planner-refusals` | refused | every target without an emitter (SQL_POSTGRESQL, CYPHER, SPARQL, DGM_JSON, DGM_YAML) raises UnsupportedCapability |
+| `SCD-E-03` | `planner-refusals` | refused | every target without an emitter (SQL_POSTGRESQL, CYPHER, SPARQL, DGM_JSON, DGM_YAML) raises UnsupportedCapability |
+| `SCD-E-04` | `planner-refusals` | refused | every target without an emitter (SQL_POSTGRESQL, CYPHER, SPARQL, DGM_JSON, DGM_YAML) raises UnsupportedCapability |
+| `SCD-E-05` | `planner-refusals` | refused | every target without an emitter (SQL_POSTGRESQL, CYPHER, SPARQL, DGM_JSON, DGM_YAML) raises UnsupportedCapability |
+| `SCD-E-06` | `planner-refusals` | refused | every target without an emitter (SQL_POSTGRESQL, CYPHER, SPARQL, DGM_JSON, DGM_YAML) raises UnsupportedCapability |
 | `SCD-TAU-01` | `duckdb-dgmquery` | refused | DGMQuery.to_sql() raises UnsupportedConstruct for a TemporalContext (fail-closed, as the plan IR) |
 | `SCD-TAU-01` | `duckdb-plan-ir` | refused | the plan IR refuses TemporalContext (node_resolution cannot be stated) |
+| `SCD-TAU-01` | `pg-duckdb-plan-ir` | refused | the plan IR refuses TemporalContext (node_resolution cannot be stated) |
+| `SCD-TAU-01` | `planner-refusals` | refused | every target without an emitter (SQL_POSTGRESQL, CYPHER, SPARQL, DGM_JSON, DGM_YAML) raises UnsupportedCapability |
 | `ADD-04` | `dgm-annotations` | n/e | sqldim has no Additivity annotation; Grain decides SUM only |
 | `ADD-06` | `dgm-annotations` | n/e | sqldim has no Additivity annotation; Grain decides SUM only |
 | `ADD-07` | `dgm-annotations` | n/e | sqldim has no Additivity annotation; Grain decides SUM only |
 | `ADD-08` | `dgm-annotations` | n/e | sqldim has no Additivity annotation; Grain decides SUM only |
 | `ADD-09` | `dgm-annotations` | n/e | sqldim has no Additivity annotation; Grain decides SUM only |
 | `ADD-10` | `dgm-annotations` | n/e | sqldim has no Additivity annotation; Grain decides SUM only |
+| `DA-01` | `planner-refusals` | refused | every target without an emitter (SQL_POSTGRESQL, CYPHER, SPARQL, DGM_JSON, DGM_YAML) raises UnsupportedCapability |
+| `DA-02` | `planner-refusals` | refused | every target without an emitter (SQL_POSTGRESQL, CYPHER, SPARQL, DGM_JSON, DGM_YAML) raises UnsupportedCapability |
 | `BDD-K-05` | `dgm-bdd` | n/e | sqldim has no NotTrue filter node |
+| `WIN-01` | `planner-refusals` | refused | every target without an emitter (SQL_POSTGRESQL, CYPHER, SPARQL, DGM_JSON, DGM_YAML) raises UnsupportedCapability |
+| `WIN-02` | `planner-refusals` | refused | every target without an emitter (SQL_POSTGRESQL, CYPHER, SPARQL, DGM_JSON, DGM_YAML) raises UnsupportedCapability |
+| `WIN-03` | `planner-refusals` | refused | every target without an emitter (SQL_POSTGRESQL, CYPHER, SPARQL, DGM_JSON, DGM_YAML) raises UnsupportedCapability |
 
 ### Not covered
 

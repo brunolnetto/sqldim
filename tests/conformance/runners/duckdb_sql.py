@@ -12,8 +12,10 @@ query is built with the public ``sqldim`` API only.
 
 from __future__ import annotations
 
-from collections.abc import Callable, Mapping, Sequence
-from typing import Any
+from collections.abc import Callable, Iterator, Mapping, Sequence
+from contextlib import contextmanager
+from dataclasses import dataclass
+from typing import Any, ContextManager
 
 import duckdb
 
@@ -54,6 +56,24 @@ from tests.conformance.cases.fixtures import GRAPHS, INPUTS
 from tests.conformance.runners import REJECTED, Backend, NotExpressible
 
 Executor = Callable[[DGMQuery], str]
+Session = Callable[[], ContextManager[duckdb.DuckDBPyConnection]]
+
+
+@contextmanager
+def memory_session() -> Iterator[duckdb.DuckDBPyConnection]:
+    con = duckdb.connect()
+    try:
+        yield con
+    finally:
+        con.close()
+
+
+@dataclass(frozen=True)
+class Engine:
+    """How SQL is produced (*sql*) and where it runs (*session*)."""
+
+    sql: Executor
+    session: Session = memory_session
 
 
 def _legacy_sql(q: DGMQuery) -> str:
@@ -83,11 +103,18 @@ def _sql_type(values: Sequence[object]) -> str:
     return "VARCHAR"
 
 
-def create(con: duckdb.DuckDBPyConnection, table: str, rows: Sequence[Mapping]) -> None:
+def create(
+    con: duckdb.DuckDBPyConnection,
+    table: str,
+    rows: Sequence[Mapping],
+    types: Mapping[str, str] | None = None,
+) -> None:
+    """A table for *rows*; *types* overrides the inferred type of a column."""
     cols: list[str] = []
     for r in rows:
         cols += [k for k in r if k not in cols]
-    types = {c: _sql_type([r.get(c) for r in rows]) for c in cols}
+    types = {c: (types or {}).get(c) or _sql_type([r.get(c) for r in rows])
+             for c in cols}  # fmt: skip
     con.execute(f"CREATE TABLE {table} ({', '.join(f'{c} {types[c]}' for c in cols)})")
     insert_rows(con, table, [[r.get(c) for c in cols] for r in rows])
 
@@ -126,15 +153,15 @@ def load_graph(con: duckdb.DuckDBPyConnection, graph: Mapping[str, Any]) -> None
         create(con, table_of(type_), rs)
 
 
-def _run(sql_of: Executor, q: DGMQuery, setup: Callable[[Any], None]) -> Any:
+def _run(eng: Engine, q: DGMQuery, setup: Callable[[Any], None]) -> Any:
     """SQL of *q*, executed; a construction or lowering error is REJECTED."""
     try:
-        sql = sql_of(q)
+        sql = eng.sql(q)
     except SemanticError:
         return REJECTED
-    con = duckdb.connect()
-    setup(con)
-    return con.execute(sql).fetchall()
+    with eng.session() as con:
+        setup(con)
+        return con.execute(sql).fetchall()
 
 
 # ---------------------------------------------------------------------------
@@ -229,12 +256,12 @@ def _path_pred_query(case: Case) -> tuple[DGMQuery, str]:
     return q, i["start"]
 
 
-def _path_pred(sql_of: Executor) -> Callable[[Case], Any]:
+def _path_pred(eng: Engine) -> Callable[[Case], Any]:
     def run(case: Case) -> Any:
         q, start = _path_pred_query(case)
         if q is None:
             return REJECTED
-        rows = _run(sql_of, q, lambda con: load_graph(con, GRAPHS[case.fixture]))
+        rows = _run(eng, q, lambda con: load_graph(con, GRAPHS[case.fixture]))
         if rows == REJECTED:
             return REJECTED
         return start in {r[0] for r in rows}
@@ -247,7 +274,7 @@ def _path_pred(sql_of: Executor) -> Callable[[Case], Any]:
 # ---------------------------------------------------------------------------
 
 
-def _repeat_join(sql_of: Executor) -> Callable[[Case], Any]:
+def _repeat_join(eng: Engine) -> Callable[[Case], Any]:
     def run(case: Case) -> Any:
         graph, i = GRAPHS[case.fixture], case.input
         try:
@@ -262,7 +289,7 @@ def _repeat_join(sql_of: Executor) -> Callable[[Case], Any]:
             )
         except SemanticError:
             return REJECTED
-        rows = _run(sql_of, q, lambda con: load_graph(con, graph))
+        rows = _run(eng, q, lambda con: load_graph(con, graph))
         if rows == REJECTED:
             return REJECTED
         return sorted(y for y, n in rows if y is not None for _ in range(n))
@@ -313,7 +340,7 @@ def _null_query(i: Mapping[str, Any]) -> DGMQuery:
     )
 
 
-def _construction(sql_of: Executor) -> Callable[[Case], Any]:
+def _construction(eng: Engine) -> Callable[[Case], Any]:
     def run(case: Case) -> Any:
         i = case.input
         try:
@@ -321,7 +348,7 @@ def _construction(sql_of: Executor) -> Callable[[Case], Any]:
                 _repeat_ctor(i)
                 return "ACCEPTED"
             q = _band_query(i) if i["kind"] == "band" else _null_query(i)
-            sql_of(q)
+            eng.sql(q)
         except SemanticError:
             return REJECTED
         return "ACCEPTED"
@@ -334,7 +361,7 @@ def _construction(sql_of: Executor) -> Callable[[Case], Any]:
 # ---------------------------------------------------------------------------
 
 
-def _fanout(sql_of: Executor) -> Callable[[Case], Any]:
+def _fanout(eng: Engine) -> Callable[[Case], Any]:
     def setup(con: Any, fixture: Mapping[str, Any]) -> None:
         create(con, "sale", [{"id": s, **p} for s, p in fixture["props"].items()])
         create(con, "link", [{"sale_id": t["s"], "campaign": t["p"],
@@ -358,13 +385,13 @@ def _fanout(sql_of: Executor) -> Callable[[Case], Any]:
             .group_by("st.id")
             .agg(v=agg, **over)
         )
-        rows = _run(sql_of, q, lambda con: setup(con, fixture))
+        rows = _run(eng, q, lambda con: setup(con, fixture))
         return rows if rows == REJECTED else sorted((k, int(v)) for k, v in rows)
 
     return run
 
 
-def _drill(sql_of: Executor) -> Callable[[Case], Any]:
+def _drill(eng: Engine) -> Callable[[Case], Any]:
     def setup(con: Any, fixture: Mapping[str, Any]) -> None:
         keys = sorted(
             {r["customer"] for rs in fixture["branches"].values() for r in rs}
@@ -391,7 +418,7 @@ def _drill(sql_of: Executor) -> Callable[[Case], Any]:
             else:
                 exprs[name] = f"{fn}({aliases[branch]}.{prop})"
         q.group_by("c.id").agg(**exprs)
-        rows = _run(sql_of, q, lambda con: setup(con, fixture))
+        rows = _run(eng, q, lambda con: setup(con, fixture))
         return rows if rows == REJECTED else sorted(tuple(r) for r in rows)
 
     return run
@@ -401,8 +428,10 @@ def _drill(sql_of: Executor) -> Callable[[Case], Any]:
 # SCD resolution and validity (scd_measure, edge_validity)
 # ---------------------------------------------------------------------------
 
+TS = "TIMESTAMP"
 
-def _scd(sql_of: Executor) -> Callable[[Case], Any]:
+
+def _scd(eng: Engine) -> Callable[[Case], Any]:
     """τ is stated with ``as_of``; the SCD mode is passed only when the case
     states one, so a case without it reads the implementation's default.
     ``event_time(Sale) = occurred_on`` is the mapping of the fixture (§2.5)."""
@@ -414,13 +443,11 @@ def _scd(sql_of: Executor) -> Callable[[Case], Any]:
              "valid_to": r["effective_to"], "is_current": r["effective_to"] is None}
             for r in i["dim_rows"]
         ]  # fmt: skip
-        create(con, "dim_customer", dims)
-        con.execute("ALTER TABLE dim_customer ALTER valid_from TYPE TIMESTAMP")
-        con.execute("ALTER TABLE dim_customer ALTER valid_to TYPE TIMESTAMP")
+        create(con, "dim_customer", dims, {"valid_from": TS, "valid_to": TS})
         create(con, "fact_sale", [{"id": f["id"], "customer_key": f["dim_ref"],
                                    "occurred_on": f["event_time"],
-                                   "revenue": f["revenue"]} for f in i["facts"]])  # fmt: skip
-        con.execute("ALTER TABLE fact_sale ALTER occurred_on TYPE TIMESTAMP")
+                                   "revenue": f["revenue"]} for f in i["facts"]],
+               {"occurred_on": TS})  # fmt: skip
 
     def run(case: Case) -> Any:
         i = case.input
@@ -434,7 +461,7 @@ def _scd(sql_of: Executor) -> Callable[[Case], Any]:
             q.temporal_context(i["tau"], node_resolution=i["node_resolution"])
         q.join_dim("dim_customer", "customer_key", "id", **ref).as_of(i["tau"])
         q.group_by(f"d_dim_customer.{i['attr']}").agg(total="SUM(f.revenue)")
-        rows = _run(sql_of, q, lambda con: setup(con, i))
+        rows = _run(eng, q, lambda con: setup(con, i))
         return (
             rows
             if rows == REJECTED
@@ -444,15 +471,14 @@ def _scd(sql_of: Executor) -> Callable[[Case], Any]:
     return run
 
 
-def _validity(sql_of: Executor) -> Callable[[Case], Any]:
+def _validity(eng: Engine) -> Callable[[Case], Any]:
     def setup(con: Any, i: Mapping[str, Any]) -> None:
         people = {e["source_key"] for e in i["edges"]} | {
             e["target_key"] for e in i["edges"]
         }
         create(con, "employee", [{"id": p} for p in sorted(people)])
-        create(con, "bridge_reports_to", list(i["edges"]))
-        for col in ("valid_from", "valid_to"):
-            con.execute(f"ALTER TABLE bridge_reports_to ALTER {col} TYPE TIMESTAMP")
+        create(con, "bridge_reports_to", list(i["edges"]),
+               {"valid_from": TS, "valid_to": TS})  # fmt: skip
 
     def run(case: Case) -> Any:
         i = case.input
@@ -465,7 +491,7 @@ def _validity(sql_of: Executor) -> Callable[[Case], Any]:
         else:
             q.as_of(i["tau"])
         q.group_by("b.source_key").agg(n="COUNT(*)")
-        rows = _run(sql_of, q, lambda con: setup(con, i))
+        rows = _run(eng, q, lambda con: setup(con, i))
         return (
             rows if rows == REJECTED else sorted(k for k, _n in rows if k is not None)
         )
@@ -473,26 +499,77 @@ def _validity(sql_of: Executor) -> Callable[[Case], Any]:
     return run
 
 
-def _backend(name: str, description: str, sql_of: Executor) -> Backend:
+# ---------------------------------------------------------------------------
+# Band B3: window and QUALIFY (window)
+# ---------------------------------------------------------------------------
+
+WINDOW_TYPES = {"id": "VARCHAR", "customer": "VARCHAR", "revenue": "BIGINT",
+                "discount": "DOUBLE"}  # fmt: skip
+
+
+def _window_sql(fn: Sequence) -> str:
+    if fn[0] == "ROW_NUMBER":
+        order = ", ".join(f"s.{col} {d}" for col, d in fn[2])
+        return f"ROW_NUMBER() OVER (PARTITION BY s.{fn[1]} ORDER BY {order})"
+    return f"SUM(s.{fn[2]}) OVER (PARTITION BY s.{fn[1]})"
+
+
+def _window(eng: Engine) -> Callable[[Case], Any]:
+    def run(case: Case) -> Any:
+        i = case.input
+        preds = [
+            ScalarPred(WinRef("w") if col == "w" else PropRef(f"s.{col}"), op, lit)
+            for col, op, lit in i["qualify"]
+        ]
+        q = (
+            DGMQuery()
+            .anchor("sale", "s")
+            .window(w=_window_sql(i["window"]))
+            .qualify(preds[0] if len(preds) == 1 else AND(*preds))
+        )
+        rows = _run(eng, q, lambda con: create(con, "sale", i["rows"], WINDOW_TYPES))
+        return rows if rows == REJECTED else sorted(r[0] for r in rows)
+
+    return run
+
+
+#: Areas whose cases execute a query; ``construction`` only builds and emits.
+EXECUTED_AREAS = frozenset(
+    {"ctl", "pathpred", "repeat_join", "fanout", "drill_across", "scd_measure",
+     "edge_validity", "window"}
+)  # fmt: skip
+
+
+def backend(
+    name: str,
+    description: str,
+    eng: Engine,
+    *,
+    areas: frozenset[str] | None = None,
+    requires: Callable[[], str | None] | None = None,
+) -> Backend:
     runners: dict[str, Callable[[Case], Any]] = {
-        "ctl": _path_pred(sql_of),
-        "pathpred": _path_pred(sql_of),
-        "repeat_join": _repeat_join(sql_of),
-        "construction": _construction(sql_of),
-        "fanout": _fanout(sql_of),
-        "drill_across": _drill(sql_of),
-        "scd_measure": _scd(sql_of),
-        "edge_validity": _validity(sql_of),
+        "ctl": _path_pred(eng),
+        "pathpred": _path_pred(eng),
+        "repeat_join": _repeat_join(eng),
+        "construction": _construction(eng),
+        "fanout": _fanout(eng),
+        "drill_across": _drill(eng),
+        "scd_measure": _scd(eng),
+        "edge_validity": _validity(eng),
+        "window": _window(eng),
     }
-    return Backend(name, description, frozenset(runners),
-                   lambda case: runners[case.area](case))  # fmt: skip
+    scope = frozenset(runners) if areas is None else areas
+    return Backend(name, description, scope,
+                   lambda case: runners[case.area](case),
+                   requires=requires)  # fmt: skip
 
 
-LEGACY = _backend(
-    "duckdb-dgmquery", "DGMQuery.to_sql() executed on DuckDB", _legacy_sql
+LEGACY = backend(
+    "duckdb-dgmquery", "DGMQuery.to_sql() executed on DuckDB", Engine(_legacy_sql)
 )
-PLAN_IR = _backend(
+PLAN_IR = backend(
     "duckdb-plan-ir",
     "DGMPlanner.plan_query() (plan IR, #148) executed on DuckDB",
-    _ir_sql,
+    Engine(_ir_sql),
 )

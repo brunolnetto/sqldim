@@ -35,13 +35,14 @@ def all_cases() -> list[Case]:
         anchors,
         bdd,
         ctl,
+        export,
         query,
         scd,
         temporal,
     )
 
     out: list[Case] = []
-    for mod in (ctl, query, temporal, scd, aggregation, anchors, bdd):
+    for mod in (ctl, query, temporal, scd, aggregation, anchors, bdd, export):
         out.extend(mod.CASES)
     ids = [c.id for c in out]
     dupes = sorted({i for i in ids if ids.count(i) > 1})
