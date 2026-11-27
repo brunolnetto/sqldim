@@ -326,8 +326,21 @@ class DGMQuery:
         return "\n".join(lines)
 
     def execute(self, con: Any) -> list:
-        """Execute the query and return all rows."""
-        return con.execute(self.to_sql()).fetchall()
+        """Execute the query and return all rows.
+
+        Raises :class:`~sqldim.core.query.dgm._entities.EntityValueConflict`
+        when an ENTITIES aggregate meets one entity with conflicting values.
+        """
+        from sqldim.core.query.dgm._entities import entity_conflict
+
+        sql = self.to_sql()
+        try:
+            return con.execute(sql).fetchall()
+        except Exception as exc:
+            typed = entity_conflict(exc)
+            if typed is None:
+                raise
+            raise typed from exc
 
     # -- Legacy / DuckDB-compat API ----------------------------------------
     # These methods support the original DuckDBDimensionalQuery calling style.

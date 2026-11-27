@@ -139,7 +139,7 @@ customer are one instance; any other alias is identified by its whole row. A
 `join_dim` alias is rewritten the same way without a `path_join`, since one
 customer is reached by many facts: `AVG(d_customer.age)` reads each customer once.
 If two versions of one entity give the argument different values in a group,
-execution fails rather than pick one. `MIN`/`MAX`, `COUNT(*)`, a `DISTINCT`
+execution raises `EntityValueConflict` (a `SemanticError`) rather than pick one. `MIN`/`MAX`, `COUNT(*)`, a `DISTINCT`
 argument and an argument that references no alias are left as written; an
 aggregate with `FILTER` or `OVER` raises `UnsupportedConstruct` unless
 `over="PATHS"`. A query with neither a `path_join` nor a `join_dim` is unchanged.

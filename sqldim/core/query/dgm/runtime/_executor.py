@@ -30,6 +30,7 @@ from __future__ import annotations
 
 import asyncio
 from collections.abc import Callable, Iterator, Mapping
+from contextlib import contextmanager
 from dataclasses import dataclass
 from datetime import timedelta
 from typing import TYPE_CHECKING, Any, Protocol
@@ -285,9 +286,24 @@ def _resolve_delivery(
     return _from_string(plan, mode, page_size)
 
 
+@contextmanager
+def _typed_errors() -> Iterator[None]:
+    """Re-raise an ENTITIES conflict of the backend as its typed error (§4.2)."""
+    from sqldim.core.query.dgm._entities import entity_conflict
+
+    try:
+        yield
+    except Exception as exc:
+        typed = entity_conflict(exc)
+        if typed is None:
+            raise
+        raise typed from exc
+
+
 def _chunks(cur: Cursor, size: int) -> Iterator[list[tuple]]:
     while True:
-        rows = cur.fetchmany(size)
+        with _typed_errors():
+            rows = cur.fetchmany(size)
         if not rows:
             return
         yield rows
@@ -403,11 +419,13 @@ class PlanExecutor:
         """Execute *plan* under the delivery *mode* (§11.10 ``execution``)."""
         d = _resolve_delivery(plan, mode, page_size)
         datasets = self._admit(d.plan)
-        cur = self._backend.execute(d.plan.query_text, datasets)
+        with _typed_errors():
+            cur = self._backend.execute(d.plan.query_text, datasets)
         columns = tuple(c[0] for c in (cur.description or ()))
         result = ExecutionResult(d.mode, columns, datasets, warning=d.warning)
         if d.mode == "PROCEED":
-            result.rows = list(cur.fetchall())
+            with _typed_errors():
+                result.rows = list(cur.fetchall())
             return result
         size = self._batch if d.mode == "STREAM" else d.page_size
         assert size is not None

@@ -23,7 +23,7 @@ from sqldim.core.query.dgm import (
     SinceMode,
     VerbHop,
 )
-from sqldim.core.query.dgm._entities import entity_aggregate
+from sqldim.core.query.dgm._entities import EntityValueConflict, entity_aggregate
 from sqldim.core.query.dgm.planner import UnsupportedConstruct
 from sqldim.exceptions import SemanticError
 
@@ -334,8 +334,27 @@ def test_paths_reads_every_tuple():
 
 def test_entities_refuses_an_entity_with_two_values():
     """Two versions of C42 disagree on age: no single value to count once."""
-    with pytest.raises(duckdb.InvalidInputException, match="unique"):
+    with pytest.raises(EntityValueConflict) as err:
         _ages().execute(_versions_db(age_102=41))
+    assert isinstance(err.value, SemanticError)
+    assert err.value.alias == "d_dim_customer"
+    msg = str(err.value)
+    assert "'d_dim_customer' contributes conflicting values within a group" in msg
+    assert "AS_WAS/AS_IS" in msg and "version_key" in msg and "over='PATHS'" in msg
+
+
+def test_paths_reads_the_conflicting_versions_per_tuple():
+    rows = _ages("PATHS").execute(_versions_db(age_102=41))
+    assert rows == [(pytest.approx(101 / 3), 3, 1100)]
+
+
+def test_runtime_executor_raises_the_typed_conflict():
+    from sqldim.core.query.dgm.runtime._executor import _typed_errors
+
+    con = _versions_db(age_102=41)
+    with pytest.raises(EntityValueConflict, match="d_dim_customer"):
+        with _typed_errors():
+            con.execute(_ages().to_sql()).fetchall()
 
 
 def test_entity_key_identifies_a_dimension_alias():
