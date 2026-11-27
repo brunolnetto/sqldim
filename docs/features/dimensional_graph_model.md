@@ -112,12 +112,32 @@ q = (
         ScalarPred(PropRef("s", "year"), "=", 2024),
     ))
     .group_by("c.customer_id", "c.region")
-    .agg(weighted_rev="SUM(s.revenue * st.weight)", order_count="COUNT(*)")
+    # an allocation weight is per path instance: ask for PATHS explicitly
+    .agg(weighted_rev="SUM(s.revenue * st.weight)", order_count="COUNT(*)",
+         over="PATHS")
     .having(ScalarPred(AggRef("weighted_rev"), ">", 5000))
     .window(rnk="RANK() OVER (PARTITION BY c.region ORDER BY weighted_rev DESC)")
     .qualify(ScalarPred(WinRef("rnk"), "<=", 2))
 )
 ```
+
+### What an aggregate counts (`over`)
+
+A `path_join` puts one tuple in the context per path instance, so a sale
+reached through two campaigns appears twice. `agg(..., over=...)` fixes the unit
+of aggregation (§4.2):
+
+| `over` | Meaning |
+|---|---|
+| `"ENTITIES"` (default) | each distinct instance of the aliases an argument references contributes once per group: `SUM(s.revenue)` counts each sale once, `COUNT(s.id)` counts distinct sales |
+| `"PATHS"` | every tuple contributes, once per path instance; must be written explicitly |
+
+With a `path_join`, `to_sql()` rewrites each `SUM`, `AVG` and `COUNT` whose
+argument references an alias so that every instance is read once (the instance
+of an alias is its whole row). `MIN`/`MAX`, `COUNT(*)`, a `DISTINCT` argument and
+an argument that references no alias are left as written; an aggregate with
+`FILTER` or `OVER` raises `UnsupportedConstruct` unless `over="PATHS"`. A query
+with no `path_join` is unchanged.
 
 ---
 
@@ -143,6 +163,8 @@ All three bands share an identical boolean tree grammar. The only variation is w
 ```python
 # Scalar comparison
 ScalarPred(ref, op, value)    # ref.to_sql() op value
+ScalarPred(ref, "IS", None)   # the NULL test: NULL is not a literal, so
+                              # ScalarPred(ref, "=", None) is rejected (§4.1)
 
 # Boolean tree
 AND(*preds)                    # preds joined with AND (auto short-circuits single pred)
@@ -166,20 +188,48 @@ PathPred(
 )
 ```
 
+`to_sql()` renders `EXISTS` and `FORALL` under strategy `ALL` only. It is
+fail-closed, like the plan IR: a `temporal_mode`, a strategy other than `ALL`
+and a `TemporalContext` raise `UnsupportedConstruct` instead of a SQL text that
+would drop them. The construction rules of the specification are checked when
+the `PathPred` is built: `promote=True` needs `SHORTEST` or `MIN_WEIGHT`,
+`FORALL` with `ONCE` or `SINCE` is rejected, and `ONCE`, `PREVIOUSLY` and `SINCE`
+are rejected over a verb hop (never time-ordered). A path alias equal to an
+alias of the join context is rejected by `to_sql()` (C ∩ L ≠ ∅).
+
 ---
 
 ## Temporal Joins (SCD2)
 
-`temporal_join(as_of)` injects SCD2 validity conditions into all subsequent
-`path_join` calls. The generated SQL appends:
+`temporal_join(as_of)` (alias `as_of`) states the reference instant τ of the
+query. Every `path_join` edge is read valid at τ; windows are half-open and a
+NULL bound is open (§2.6). The generated SQL appends:
 
 ```sql
-AND alias.valid_from <= '<as_of>'
+AND (alias.valid_from IS NULL OR alias.valid_from <= '<as_of>')
 AND (alias.valid_to IS NULL OR alias.valid_to > '<as_of>')
 ```
 
-This resolves SCD2-versioned dimension rows to the version active at `as_of` — at
-join time, not as a post-hoc filter.
+The instant is compared as it is, never cast to a date, so a version that
+starts later on the same day is not read.
+
+`join_dim(dim_table, fact_fk, dim_pk="id", *, mode="AS_WAS", event_time=None,
+version_key=None)` joins the anchor fact to a versioned dimension and reads the
+version that the SCD resolution mode selects (§2.5):
+
+| Fact stores | `mode="AS_WAS"` (default) | `mode="AS_IS"` |
+|---|---|---|
+| the durable key (`fact_fk` = `dim_pk`) | the version valid at the fact's `event_time` column, which is then required | the version valid at τ, or the current one without τ |
+| a version surrogate (`version_key=`) | the stored version | the version of the same entity (`dim_pk`) valid at τ, or the current one |
+
+```python
+q = (
+    DGMQuery("fact_sale")
+    .join_dim("dim_customer", "customer_key", event_time="occurred_on")  # AS_WAS
+    .by("d_dim_customer.region")
+    .sum("f.revenue")
+)
+```
 
 ```python
 q = (

@@ -250,10 +250,7 @@ class ReadRole(Enum):
 class VersionKind(Enum):
     """SCD version-resolution scheme attached to a join (§6.2 Rule 1c)."""
 
-    VALID_RANGE = (
-        "VALID_RANGE"  # valid_from <= τ AND (valid_to IS NULL OR valid_to > τ)
-    )
-    VALID_RANGE_DATE = "VALID_RANGE_DATE"  # same, compared as DATE
+    VALID_RANGE = "VALID_RANGE"  # valid_from ≤ τ < valid_to, NULL bounds open
     IS_CURRENT = "IS_CURRENT"  # is_current = TRUE
 
 
@@ -288,7 +285,7 @@ class Scan:
 @dataclass(frozen=True)
 class VersionResolution:
     kind: VersionKind
-    as_of: str | None = None  # required for VALID_RANGE*, absent for IS_CURRENT
+    as_of: str | None = None  # required for VALID_RANGE, absent for IS_CURRENT
 
 
 @dataclass(frozen=True)

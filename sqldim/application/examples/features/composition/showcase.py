@@ -220,7 +220,9 @@ def example_11_sales_star_schema() -> None:
 
     1. ProductsSource + CustomersSource (OLTP) → sqldim SCD processors → dims
     2. fact_sales built referencing both old and new product SKs
-    3. DGMQuery joins fact to current dimension versions
+    3. DGMQuery joins fact to the dimension versions it was loaded against:
+       ``fact_sales`` stores version surrogates (``product_sk``, ``customer_sk``),
+       so the AS_WAS default reads the stored version (§2.5)
     """
     print("\n── Example 11: Sales Star Schema (End-to-End Query) ────────────")
 
@@ -232,8 +234,8 @@ def example_11_sales_star_schema() -> None:
 
     q = (
         DGMQuery("fact_sales")
-        .join_dim("dim_product", fact_fk="product_sk")
-        .join_dim("dim_customer", fact_fk="customer_sk")
+        .join_dim("dim_product", "product_sk", "product_id", version_key="id")
+        .join_dim("dim_customer", "customer_sk", "customer_id", version_key="id")
         .by("d_dim_product.category", "d_dim_customer.city")
         .sum("f.revenue")
         .count()
@@ -267,7 +269,9 @@ def example_12_point_in_time_query() -> None:
 
     Because sqldim versioned some products on 2024-01-01, the AS OF clause
     returns their *original* (cheaper) price for the historical view, while
-    the current-view query returns the updated prices.
+    the current-view query returns the updated prices.  Both read AS_IS
+    (§2.5): each sale's stored version identifies the product, and the
+    version in force at τ (or the current one) is read.
     """
     print("\n── Example 12: Point-in-Time Price Query (AS OF 2023-12-31) ────")
 
@@ -279,16 +283,19 @@ def example_12_point_in_time_query() -> None:
 
     pit_date = "2023-12-31"
 
+    def by_product() -> DGMQuery:
+        return DGMQuery("fact_sales").join_dim(
+            "dim_product", "product_sk", "product_id", version_key="id", mode="AS_IS"
+        )
+
     q_pit = (
-        DGMQuery("fact_sales")
-        .join_dim("dim_product", fact_fk="product_sk")
+        by_product()
         .by("d_dim_product.product_id", "d_dim_product.name", "d_dim_product.price")
         .sum("f.revenue")
         .as_of(pit_date)
     )
     q_now = (
-        DGMQuery("fact_sales")
-        .join_dim("dim_product", fact_fk="product_sk")
+        by_product()
         .by("d_dim_product.product_id", "d_dim_product.name", "d_dim_product.price")
         .sum("f.revenue")
     )
