@@ -8,6 +8,7 @@ from sqldim.core.query.dgm.planner._targets import (  # noqa: F401
     QueryTarget,
     SinkTarget,
     PreComputation,
+    ApproximateVariant,
     CostEstimate,
     ExportPlan,
 )
@@ -49,4 +50,30 @@ from sqldim.core.query.dgm.planner._gate import (  # noqa: F401
     ExecutionBudget,
     ExecutionGate,
     zone,
+)
+from sqldim.core.query.dgm.planner._precompute import (  # noqa: F401
+    DeclaredPrecomputeProvider,
+)
+from sqldim.core.query.dgm.planner._canon import (  # noqa: F401
+    CANON_VERSION,
+    CanonicalEncodingError,
+)
+from sqldim.core.query.dgm.planner._ir import (  # noqa: F401
+    PlanIR,
+    PlanIRError,
+    UnsupportedConstruct,
+    UnsafeFragment,
+    UnknownRelation,
+    PlanIdentityUnavailable,
+)
+from sqldim.core.query.dgm.planner._ir_emit import emit_sql  # noqa: F401
+from sqldim.core.query.dgm.planner._ir_identity import (  # noqa: F401
+    Dependency,
+    RelationCatalog,
+    StaticCatalog,
+    dag_hash,
+    predicate_hash,
+    question_key,
+    relations_read,
+    deps,
 )
