@@ -292,11 +292,18 @@ def _path_pred_sql(pp: "PathPred") -> str:
     first = hops[0]
     from_clause = f"{first.table} {first.to_alias}"
     join_sql = " ".join(f"JOIN {h.table} {h.to_alias} ON {h.on}" for h in hops[1:])
-    where_terms = [pp.sub_filter.to_sql(), first.on]
     sql = f"EXISTS (SELECT 1 FROM {from_clause}"
     if join_sql:
         sql += f" {join_sql}"
-    base = sql + " WHERE " + " AND ".join(where_terms) + ")"
+    if pp.quantifier is Quantifier.FORALL and pp.temporal_mode is None:
+        # §4.1 FORALL elimination with NotTrue, under the REQUIRE_WITNESS
+        # default of ADR 0001: no violating position, and at least one.
+        sub = pp.sub_filter.to_sql()
+        return (
+            f"(NOT {sql} WHERE ({sub}) IS NOT TRUE AND {first.on})"
+            f" AND {sql} WHERE {first.on}))"
+        )
+    base = sql + " WHERE " + " AND ".join([pp.sub_filter.to_sql(), first.on]) + ")"
     if pp.temporal_mode is None:
         return base
     return _temporal_mode_sql_wrapper(pp.temporal_mode, base)

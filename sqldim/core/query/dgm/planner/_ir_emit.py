@@ -82,7 +82,13 @@ def _path_sql(p: PathExists) -> str:
         sql += f" JOIN {h.scan.relation} {h.scan.alias} ON {h.on.sql}"
     sub = emit_pred(p.sub_filter)
     if p.quantifier is Quantifier.FORALL:
-        return f"NOT EXISTS ({sql} WHERE NOT ({sub}) AND {first.on.sql})"
+        # §4.1 FORALL elimination: NotTrue — an UNKNOWN position counts
+        # against — and the REQUIRE_WITNESS guard of ADR 0001 (the default;
+        # PathPred has no on_empty field, so VACUOUS is never requested).
+        return (
+            f"(NOT EXISTS ({sql} WHERE ({sub}) IS NOT TRUE AND {first.on.sql})"
+            f" AND EXISTS ({sql} WHERE {first.on.sql}))"
+        )
     return f"EXISTS ({sql} WHERE {sub} AND {first.on.sql})"
 
 

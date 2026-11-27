@@ -399,9 +399,13 @@ class TestEmission:
         pp = return_pred()
         pp.quantifier = Quantifier.FORALL
         sql = planner().plan_query(DGMQuery().anchor("dim_customer", "c").where(pp))
-        assert "NOT EXISTS (SELECT 1 FROM fact_return r WHERE NOT (r.amount > 1)" in (
-            sql.query_text
+        text = sql.query_text
+        # NotTrue (§4.1) and the REQUIRE_WITNESS guard (ADR 0001)
+        assert (
+            "NOT EXISTS (SELECT 1 FROM fact_return r WHERE (r.amount > 1) IS NOT TRUE"
+            in text
         )
+        assert "AND EXISTS (SELECT 1 FROM fact_return r WHERE " in text
 
     def test_algebra_emits_topological_with(self) -> None:
         alg, final = alg_nested()
