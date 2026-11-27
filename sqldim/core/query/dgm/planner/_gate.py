@@ -556,6 +556,17 @@ class ExecutionGate:
                 slow.append(pc)
         return slow
 
+    def _executable_approximation(
+        self, approx: Approximation | None, budget: ExecutionBudget
+    ) -> bool:
+        """An approximation counts only if it is priced within DEFERRED and
+        each of its own PreComputations has a known time within budget."""
+        if approx is None or approx.plan.cost_estimate is None:
+            return False
+        if zone(approx.plan.cost_estimate, budget) > Zone.DEFERRED:
+            return False
+        return self._slow_precomputations(approx.plan, budget) == []
+
     def _precompute_guard(
         self, plan: "ExportPlan", budget: ExecutionBudget
     ) -> BudgetDecision | None:
@@ -568,11 +579,8 @@ class ExecutionGate:
             return None
         assert self._precompute is not None
         approx = self._precompute.approximate(plan, slow)
-        if (
-            approx is not None
-            and approx.plan.cost_estimate is not None
-            and zone(approx.plan.cost_estimate, budget) <= Zone.DEFERRED
-        ):
+        if self._executable_approximation(approx, budget):
+            assert approx is not None and approx.plan.cost_estimate is not None
             if Substitution.APPROX_ALGORITHM in budget.substitutions:
                 return RewriteDecision(
                     plan=approx.plan,

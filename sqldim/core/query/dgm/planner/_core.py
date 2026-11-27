@@ -33,7 +33,9 @@ from sqldim.core.query.dgm.planner._targets import (
 )
 
 if TYPE_CHECKING:
+    from sqldim.core.query.dgm.algebra import QuestionAlgebra
     from sqldim.core.query.dgm.bdd import DGMPredicateBDD
+    from sqldim.core.query.dgm.core import DGMQuery
     from sqldim.core.query.dgm.graph import GraphStatistics, NodeExpr, SubgraphExpr
     from sqldim.core.query.dgm.annotations import AnnotationSigma, GrainKind, SCDKind
 
@@ -49,6 +51,10 @@ __all__ = [
     "SMALL_GRAPH_THRESHOLD",
     "DENSE",
 ]
+
+
+#: Query targets the plan IR emits SQL for.
+_IR_TARGETS = frozenset({QueryTarget.SQL_DUCKDB, QueryTarget.SQL_MOTHERDUCK})
 
 
 class DGMPlanner:
@@ -469,23 +475,70 @@ class DGMPlanner:
     # build_plan() — high-level entry point
     # ------------------------------------------------------------------
 
+    def plan_query(
+        self,
+        source: "DGMQuery | QuestionAlgebra",
+        *,
+        final: "str | None" = None,
+        table_name: "str | None" = None,
+    ) -> ExportPlan:
+        """Lower *source* to the physical plan IR and emit SQL from it (#148).
+
+        *source* is a :class:`DGMQuery`, or a :class:`QuestionAlgebra` with
+        the name of its *final* CTE.  The returned plan carries the IR in
+        ``ir`` and the SQL emitted from it in ``query_text``.  A construct
+        the IR cannot represent raises :class:`UnsupportedConstruct`.
+        """
+        from sqldim.core.query.dgm.algebra import QuestionAlgebra
+        from sqldim.core.query.dgm.planner._ir import PlanIR, UnsupportedConstruct
+        from sqldim.core.query.dgm.planner._ir_build import (
+            lower_algebra,
+            lower_query,
+        )
+
+        if self.query_target not in _IR_TARGETS:
+            raise UnsupportedConstruct(
+                f"the plan IR emits DuckDB SQL; {self.query_target.value} is "
+                "not an IR target"
+            )
+        if isinstance(source, QuestionAlgebra):
+            if final is None:
+                raise UnsupportedConstruct("a QuestionAlgebra plan needs final=")
+            ir = lower_algebra(source, final)
+        elif final is not None:
+            raise UnsupportedConstruct("final= applies only to a QuestionAlgebra")
+        else:
+            ir = PlanIR(root=lower_query(source))
+        return ExportPlan.from_ir(
+            ir,
+            self.query_target,
+            sink_target=self.sink_target,
+            write_plan=self._default_write_plan(table_name),
+        )
+
+    def _default_write_plan(self, table_name: "str | None") -> "str | None":
+        if self.sink_target is None or not table_name:
+            return None
+        return self.apply_rule_8(
+            sink_target=self.sink_target,
+            has_temporal_agg=False,
+            has_q_delta=False,
+            grain_kind=None,
+        )
+
     def build_plan(
         self,
         query_text: str,
         table_name: "str | None" = None,
     ) -> ExportPlan:
-        """Build an ExportPlan for *query_text* targeting self.query_target."""
-        write_plan: str | None = None
-        if self.sink_target is not None and table_name:
-            write_plan = self.apply_rule_8(
-                sink_target=self.sink_target,
-                has_temporal_agg=False,
-                has_q_delta=False,
-                grain_kind=None,
-            )
+        """Build an ExportPlan for *query_text* targeting self.query_target.
+
+        The plan has no IR: it has no canonical identity and no declared
+        dependencies.  Use :meth:`plan_query` to plan from a query.
+        """
         return ExportPlan(
             query_target=self.query_target,
             query_text=query_text,
             sink_target=self.sink_target,
-            write_plan=write_plan,
+            write_plan=self._default_write_plan(table_name),
         )

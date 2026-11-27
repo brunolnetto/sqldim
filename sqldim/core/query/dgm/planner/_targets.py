@@ -6,17 +6,24 @@ module-level helper functions extracted from DGMPlanner's @staticmethod rules.
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from dataclasses import dataclass, field
+from datetime import timedelta
 from enum import Enum
 from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
-    pass
+    from sqldim.core.query.dgm.planner._ir import PlanIR
+    from sqldim.core.query.dgm.planner._ir_identity import (
+        Dependency,
+        RelationCatalog,
+    )
 
 __all__ = [
     "QueryTarget",
     "SinkTarget",
     "PreComputation",
+    "ApproximateVariant",
     "CostEstimate",
     "ExportPlan",
     "SMALL",
@@ -80,6 +87,51 @@ class SinkTarget(Enum):
 # ---------------------------------------------------------------------------
 
 
+def _check_duration(value: timedelta | None, what: str) -> None:
+    if value is None:
+        return
+    if not isinstance(value, timedelta) or value < timedelta(0):
+        raise ValueError(f"{what} must be a non-negative timedelta, got {value!r}")
+
+
+@dataclass(frozen=True)
+class ApproximateVariant:
+    """The declared approximate variant of a PreComputation (§6.3 Step 1b).
+
+    Used only under ``Substitution.APPROX_ALGORITHM`` or when the caller picks
+    it from a ``CLARIFY`` option.  Every field is required: an approximation
+    whose time, cost or accuracy is not stated is not an approximation the
+    gate can offer.
+
+    Parameters
+    ----------
+    name, query, kind:
+        The replacement PreComputation step.
+    estimated_time:
+        Estimated duration of the approximate step.
+    cost_estimate:
+        Cost of the approximate step, in the units of the plan's cost.
+    accuracy:
+        The accuracy statement of the approximate algorithm (§6.3, e.g.
+        ``"Monte Carlo approximation (k=200 samples)"``); it becomes the
+        warning of the REWRITE or CLARIFY option.
+    """
+
+    name: str
+    query: str
+    estimated_time: timedelta
+    cost_estimate: "CostEstimate"
+    accuracy: str
+    kind: str = "sql"
+
+    def __post_init__(self) -> None:
+        if self.estimated_time is None:
+            raise ValueError("an approximate variant needs an estimated_time")
+        _check_duration(self.estimated_time, "estimated_time")
+        if not isinstance(self.accuracy, str) or not self.accuracy.strip():
+            raise ValueError("an approximate variant needs an accuracy statement")
+
+
 @dataclass(eq=True)
 class PreComputation:
     """A named pre-computation step emitted before the main query.
@@ -92,11 +144,25 @@ class PreComputation:
         SQL or Python snippet that materialises the result.
     kind:
         ``"sql"`` (default) or ``"py"`` (Python pre-computation).
+    estimated_time:
+        Estimated duration; ``None`` when unknown.  The gate (§6.3 Step 1b)
+        never starts a PreComputation whose time is unknown.
+    cost_estimate:
+        Cost of this step, as included in the plan's cost; needed to price
+        the plan with the step replaced by its approximation.
+    approximation:
+        The declared approximate variant, if the algorithm has one.
     """
 
     name: str
     query: str
     kind: str = "sql"
+    estimated_time: timedelta | None = None
+    cost_estimate: "CostEstimate | None" = None
+    approximation: ApproximateVariant | None = None
+
+    def __post_init__(self) -> None:
+        _check_duration(self.estimated_time, "estimated_time")
 
 
 # ---------------------------------------------------------------------------
@@ -153,6 +219,11 @@ class ExportPlan:
     estimated_rows:
         Estimated result size; ``None`` when unknown.  The gate (§6.3)
         paginates a SYNC plan whose size is unknown or over the limit.
+    ir:
+        The physical plan IR the query text was emitted from (issue #148),
+        or ``None`` for a plan built from text.  When present, ``query_text``
+        must equal the SQL emitted from it; build such plans with
+        :meth:`from_ir`.
     """
 
     query_target: QueryTarget
@@ -164,6 +235,57 @@ class ExportPlan:
     alternatives: list[tuple[ExportPlan, CostEstimate]] = field(default_factory=list)
     cone_containment_applied: bool = False
     estimated_rows: int | None = None
+    ir: "PlanIR | None" = None
+
+    def __post_init__(self) -> None:
+        if self.ir is not None:
+            from sqldim.core.query.dgm.planner._ir_emit import emit_sql
+
+            if self.query_text != emit_sql(self.ir):
+                raise ValueError(
+                    "query_text does not match the SQL emitted from the plan IR"
+                )
+
+    @classmethod
+    def from_ir(
+        cls, ir: "PlanIR", query_target: QueryTarget, **kwargs: Any
+    ) -> "ExportPlan":
+        """Build a plan whose ``query_text`` is emitted from *ir*."""
+        from sqldim.core.query.dgm.planner._ir_emit import emit_sql
+
+        return cls(query_target, emit_sql(ir), ir=ir, **kwargs)
+
+    def _identity_ir(self) -> "PlanIR":
+        from sqldim.core.query.dgm.planner._ir import PlanIdentityUnavailable
+
+        if self.ir is None:
+            raise PlanIdentityUnavailable(
+                "the plan was built from text and has no IR; it has no "
+                "canonical identity or declared dependencies"
+            )
+        if self.pre_compute:
+            raise PlanIdentityUnavailable(
+                "PreComputation steps are not part of the plan IR; a plan "
+                "with pre_compute has no canonical identity or declared "
+                "dependencies in this IR version"
+            )
+        return self.ir
+
+    def question_key(
+        self, *, schema_version: str, params: Mapping[str, object] | None = None
+    ) -> str:
+        """``question_key`` of §8.14 for this plan's IR."""
+        from sqldim.core.query.dgm.planner._ir_identity import question_key
+
+        return question_key(
+            self._identity_ir(), schema_version=schema_version, params=params
+        )
+
+    def deps(self, catalog: "RelationCatalog") -> "tuple[Dependency, ...]":
+        """``deps(plan)`` of §8.14 for this plan's IR."""
+        from sqldim.core.query.dgm.planner._ir_identity import deps
+
+        return deps(self._identity_ir(), catalog)
 
 
 # ---------------------------------------------------------------------------
