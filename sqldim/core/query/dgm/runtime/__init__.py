@@ -68,3 +68,21 @@ from sqldim.core.query.dgm.runtime._registry import (  # noqa: F401
     VerbLabels,
     GroundedEntityRegistry,
 )
+from sqldim.core.query.dgm.runtime._cache import (  # noqa: F401
+    CacheStoreError,
+    CachePolicy,
+    CacheEntry,
+    ResultStore,
+    InMemoryResultStore,
+    SQLiteResultStore,
+    MissReason,
+    NotStoredReason,
+    CacheLookup,
+    CachedResult,
+    CacheExecutor,
+    ResultCache,
+)
+from sqldim.core.query.dgm.runtime._watermarks import (  # noqa: F401
+    WatermarkReadError,
+    CommitCounters,
+)
