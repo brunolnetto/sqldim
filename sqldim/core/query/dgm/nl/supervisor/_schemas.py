@@ -204,7 +204,14 @@ class StoreFindingOutput(BaseModel):
 class RelatedFinding(BaseModel):
     finding_id: str
     d_S: int = Field(ge=0)
-    d_P: int = Field(ge=0)
+    # d_P is defined only when the finding's skeleton is q' itself (ADR 0007).
+    d_P: int | None = Field(default=None, ge=0)
+
+    @model_validator(mode="after")
+    def _d_p_only_at_origin(self) -> "RelatedFinding":
+        if (self.d_P is None) != (self.d_S != 0):
+            raise ValueError("d_P is present iff d_S = 0 (ADR 0007)")
+        return self
 
 
 class RetrieveRelatedOutput(BaseModel):
