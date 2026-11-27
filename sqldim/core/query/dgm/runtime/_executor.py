@@ -339,6 +339,20 @@ class PlanExecutor:
         if not all(self._auth.allows(ds, {action}) for ds in datasets):
             raise Unauthorized()
 
+    # -- result-cache hook (§8.14, D44; see ``_cache``) -----------------------
+
+    @property
+    def tenant_id(self) -> str:
+        return self._auth.tenant_id
+
+    def authorize_read(
+        self, plan: ExportPlan, also: frozenset[str] = frozenset()
+    ) -> frozenset[str]:
+        """``READ`` on the datasets of ``deps(plan)`` and on *also*; the plan's datasets."""
+        datasets = self._plan_datasets(plan)
+        self._require(datasets | also, Action.READ)
+        return datasets
+
     def _admit(self, plan: ExportPlan) -> frozenset[str]:
         """Authorize *plan* for READ and refuse what this executor cannot run."""
         if not isinstance(plan, ExportPlan):
