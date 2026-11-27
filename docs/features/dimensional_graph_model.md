@@ -249,6 +249,44 @@ q = (
 
 ---
 
+## Drill-across (constellations)
+
+Two facts reached through a conformed dimension, such as sales and returns per
+customer, are not joined row to row: each fact branch is aggregated on its own
+and the results are aligned on the GroupBy keys (§5.2.2). `DGMQuery` reads no
+model, so it cannot find the fact branches itself. Declare them with
+`drill_across`, one set of aliases per branch. Every other alias is a conformed
+dimension shared by all branches.
+
+```python
+q = (
+    DGMQuery()
+    .anchor("customer", "c")
+    .path_join(VerbHop("c", "placed", "s", table="sale", on="s.customer_id = c.id"))
+    .path_join(VerbHop("c", "returned", "r", table="return_ev", on="r.customer_id = c.id"))
+    .drill_across(["s"], ["r"])
+    .group_by("c.id")
+    .agg(n_sales="COUNT(s.id)", n_returns="COUNT(r.id)",
+         rate="COUNT(r.id) / COUNT(s.id)")
+)
+```
+
+Each branch is grouped and aggregated in its own subquery, and the subqueries
+are aligned by `FULL OUTER JOIN` on the keys. The named expressions are then
+evaluated on the aligned rows, followed by `having`. The rules:
+
+- DA1: each aggregate call references one branch.
+- DA2: a GroupBy key references shared aliases only.
+- DA3: a Where conjunct references at most one branch.
+
+`to_sql()` raises `SemanticError` for a violation. A COUNT of a branch absent
+for a key is 0 and every other aggregate is NULL (DA4). A division by zero in a
+named expression is NULL. The plan IR (`DGMPlanner.plan_query`) checks DA1–DA3
+and then raises `UnsupportedConstruct`, because it has no node for the aligned
+aggregation.
+
+---
+
 ## Executing a Query
 
 ```python

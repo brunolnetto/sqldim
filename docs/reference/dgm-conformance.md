@@ -87,8 +87,8 @@ implement the area.
 | §4.1 Recorded traces and monitoring verdicts | `MON-01` … `MON-15` (15) | — | — | — | — | — | — | — | — | — | — | — | — | — | — |
 | §4.2 TemporalWindow LATEST / EARLIEST | `TAGG-01`, `TAGG-02` | — | — | — | — | — | — | — | — | — | — | — | — | — | — |
 | §4.2 What an aggregate counts (ENTITIES / PATHS) | `AGG-OVER-01`, `AGG-OVER-02`, `AGG-OVER-03`, `AGG-OVER-04` | 4 pass | 4 pass | — | — | — | — | 4 pass | 4 refused | — | — | — | — | — | — |
-| §5.2.2 Drill-across (steps 1–3, DA4) | `DA-01`, `DA-02` | 1 pass, 1 **non-conf.** | 1 pass, 1 **non-conf.** | — | — | — | — | 1 pass, 1 **non-conf.** | 2 refused | — | — | — | — | — | — |
-| §5.2.2 Well-formedness of a constellation (DA1–DA3) | `DA-WF-01`, `DA-WF-02`, `DA-WF-03`, `DA-WF-04` | — | — | — | — | — | — | — | — | — | — | — | — | — | — |
+| §5.2.2 Drill-across (steps 1–3, DA4) | `DA-01`, `DA-02` | 2 pass | 2 refused | — | — | — | — | 2 refused | 2 refused | — | — | — | — | — | — |
+| §5.2.2 Well-formedness of a constellation (DA1–DA3) | `DA-WF-01`, `DA-WF-02`, `DA-WF-03`, `DA-WF-04` | 4 pass | 3 pass, 1 refused | — | — | — | — | — | — | — | — | — | — | — | — |
 | §6.1 / §8.3 propositional equivalence, tautology, implication | `BDD-P-01` … `BDD-P-GEN-23` (31) | — | — | — | 31 pass | — | — | — | — | — | — | — | — | — | — |
 | §6.1 Order theory of atoms (Δ_ord, O1–O6) | `BDD-O-01` … `BDD-O-08` (8) | — | — | — | 3 pass, 5 **non-conf.** | — | — | — | — | — | — | — | — | — | — |
 | §6.1 Three-valued logic (T⁺/T⁻ encoding, Δ_excl, Δ_null) | `BDD-K-01` … `BDD-K-08` (8) | — | — | — | 4 pass, 3 **non-conf.**, 1 n/e | — | — | — | — | — | — | — | — | — | — |
@@ -106,9 +106,6 @@ implement the area.
 
 | Case | Backend | Observed vs. specified |
 |---|---|---|
-| `DA-01` | `duckdb-dgmquery` | a two-branch Join is evaluated row to row, not by drill-across; under the ENTITIES default the per-branch counts and sums agree on this fixture, but 1/0 yields inf, not NULL (§4.1) |
-| `DA-01` | `duckdb-plan-ir` | a two-branch Join is evaluated row to row, not by drill-across; under the ENTITIES default the per-branch counts and sums agree on this fixture, but 1/0 yields inf, not NULL (§4.1) |
-| `DA-01` | `pg-duckdb-plan-ir` | a two-branch Join is evaluated row to row, not by drill-across; under the ENTITIES default the per-branch counts and sums agree on this fixture, but 1/0 yields inf, not NULL (§4.1) |
 | `BDD-K-01` | `dgm-bdd` | the BDD is two-valued over every atom: no p⁺/p⁻ encoding for nullable atoms, no Δ_null |
 | `BDD-K-06` | `dgm-bdd` | the BDD is two-valued over every atom: no p⁺/p⁻ encoding for nullable atoms, no Δ_null |
 | `BDD-K-08` | `dgm-bdd` | the BDD is two-valued over every atom: no p⁺/p⁻ encoding for nullable atoms, no Δ_null |
@@ -462,8 +459,13 @@ implement the area.
 | `ADD-07` | `dgm-annotations` | refused | the question lattice does not offer AVG over a NON_ADDITIVE measure: AD3 accepts it only with a warning, and the enumeration offers no aggregate that needs one |
 | `ADD-09` | `dgm-annotations` | refused | the question lattice raises LatticeUnsupported for a SEMI_ADDITIVE measure: AD2 decides its SUM by the period or entity of each axis, which the enumeration does not decide (fail-closed); rejected for that reason, not by AD2 |
 | `ADD-10` | `dgm-annotations` | refused | the question lattice raises LatticeUnsupported for a SEMI_ADDITIVE measure: AD2 decides its SUM by the period or entity of each axis, which the enumeration does not decide (fail-closed) |
+| `DA-01` | `duckdb-plan-ir` | refused | the plan IR raises UnsupportedConstruct for a declared constellation: it has no node for per-branch aggregation aligned by FULL OUTER JOIN (fail-closed) |
+| `DA-01` | `pg-duckdb-plan-ir` | refused | the plan IR raises UnsupportedConstruct for a declared constellation: it has no node for per-branch aggregation aligned by FULL OUTER JOIN (fail-closed) |
 | `DA-01` | `planner-refusals` | refused | every target without an emitter (SQL_POSTGRESQL, CYPHER, SPARQL, DGM_JSON, DGM_YAML) raises UnsupportedCapability |
+| `DA-02` | `duckdb-plan-ir` | refused | the plan IR raises UnsupportedConstruct for a declared constellation: it has no node for per-branch aggregation aligned by FULL OUTER JOIN (fail-closed) |
+| `DA-02` | `pg-duckdb-plan-ir` | refused | the plan IR raises UnsupportedConstruct for a declared constellation: it has no node for per-branch aggregation aligned by FULL OUTER JOIN (fail-closed) |
 | `DA-02` | `planner-refusals` | refused | every target without an emitter (SQL_POSTGRESQL, CYPHER, SPARQL, DGM_JSON, DGM_YAML) raises UnsupportedCapability |
+| `DA-WF-04` | `duckdb-plan-ir` | refused | the plan IR raises UnsupportedConstruct for a declared constellation: it has no node for per-branch aggregation aligned by FULL OUTER JOIN (fail-closed) |
 | `BDD-K-05` | `dgm-bdd` | n/e | sqldim has no NotTrue filter node |
 | `WIN-01` | `planner-refusals` | refused | every target without an emitter (SQL_POSTGRESQL, CYPHER, SPARQL, DGM_JSON, DGM_YAML) raises UnsupportedCapability |
 | `WIN-02` | `planner-refusals` | refused | every target without an emitter (SQL_POSTGRESQL, CYPHER, SPARQL, DGM_JSON, DGM_YAML) raises UnsupportedCapability |
@@ -476,7 +478,6 @@ implement the area.
 | §4.1 Monitor verdicts | sqldim has no Monitor construct; the cases `MON-*` run against the oracle only |
 | §2.4 AD2 over a declared SEMI_ADDITIVE axis | no implementation decides it: `Grain.rejects_sum` covers the grain default only, and the question lattice refuses every SEMI_ADDITIVE measure (`ADD-04`, `ADD-09`, `ADD-10` are refusals) |
 | §4.2 LATEST / EARLIEST | sqldim has no LATEST or EARLIEST TemporalWindow; `TAGG-*` run against the oracle only |
-| §5.2.2 DA1–DA3 | constellation well-formedness is enforced only inside the question-lattice enumeration (`lattice/_context.py`), which has no query to submit; `DA-WF-*` run against the oracle only |
 | ADR 0001 infinite traces (lasso) | the oracle does not model infinite traces and no backend executes a cyclic temporal PathPred; no case is written |
 | §4.1 SINCE / ONCE / PREVIOUSLY evaluation | only their construction-time rejections are covered; no backend evaluates a past-time mode |
 | §4.1 typing rules of ScalarPred (Int/String/Enum mixes) | PropRef and ScalarPred carry no property types; a typing error cannot be posed |

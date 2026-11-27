@@ -6,7 +6,7 @@ FK join conditions are inferred from SQLAlchemy metadata.
 
 from __future__ import annotations
 
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from sqldim.exceptions import SemanticError
 from sqldim.core.query.dgm.refs import _SQLExpr
@@ -31,6 +31,10 @@ from sqldim.core.query.dgm._query_helpers import (
 )
 
 
+if TYPE_CHECKING:
+    from collections.abc import Iterable
+
+
 class DGMQuery:
     """
     Three-band dimensional graph query builder.
@@ -52,6 +56,7 @@ class DGMQuery:
         self._window_exprs: dict[str, str] = {}
         self._qualify_pred: "_SQLExpr | None" = None
         self._temporal_context: "TemporalContext | None" = None
+        self._branches: tuple[frozenset[str], ...] = ()  # §5.2.2
         # Maps alias → model class for FK inference in model-first path_join
         self._alias_registry: dict[str, Any] = {}
         if fact_table is not None:
@@ -233,6 +238,19 @@ class DGMQuery:
         self._agg_over.update(dict.fromkeys(named_exprs, over))
         return self
 
+    def drill_across(self, *branches: "Iterable[str]") -> "DGMQuery":
+        """Declare the fact branches of a constellation (§5.2.2).
+
+        Each branch is the set of aliases it binds; every other alias is a
+        conformed dimension shared by all branches.  The query is then
+        evaluated by drill-across, and DA1–DA3 are checked when the SQL is
+        built.  See :mod:`sqldim.core.query.dgm._drill_across`.
+        """
+        from sqldim.core.query.dgm._drill_across import check_branches
+
+        self._branches = check_branches(branches)
+        return self
+
     def having(self, pred: "_SQLExpr") -> "DGMQuery":
         """Apply a B2 filter (AggRef only; PathPred not allowed).
 
@@ -310,6 +328,10 @@ class DGMQuery:
                 "TemporalContext (§5.1) is not rendered by to_sql(): its "
                 "node_resolution, edge_resolution and τ would be dropped"
             )
+        if self._branches:
+            from sqldim.core.query.dgm._drill_across import drill_across_sql
+
+            return drill_across_sql(self)
         select_parts = _build_select_list(self)
         lines = [
             "SELECT " + ", ".join(select_parts),

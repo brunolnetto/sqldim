@@ -417,9 +417,52 @@ def _drill(eng: Engine) -> Callable[[Case], Any]:
                 exprs[name] = f"COUNT({aliases[branch]}.id)"
             else:
                 exprs[name] = f"{fn}({aliases[branch]}.{prop})"
+        # DGMQuery reads no model: the fact branches are declared (§5.2.2)
+        q.drill_across(*([a] for a in aliases.values()))
         q.group_by("c.id").agg(**exprs)
         rows = _run(eng, q, lambda con: setup(con, fixture))
         return rows if rows == REJECTED else sorted(tuple(r) for r in rows)
+
+    return run
+
+
+def _constellation(eng: Engine) -> Callable[[Case], Any]:
+    """DA1–DA3 at construction.  Customer (conformed) anchors the query and
+    each fact branch joins it; a dimension not conformed for every branch
+    (Store) hangs off the first branch."""
+    facts = ("sale", "return_ev")
+
+    def run(case: Case) -> Any:
+        i = case.input
+        alias = {"sale": "s", "return_ev": "r", "Customer": "c", "Store": "st"}
+        q = DGMQuery().anchor("customer", "c")
+        for f in facts:
+            q.path_join(VerbHop("c", f, alias[f], table=f,
+                                on=f"{alias[f]}.customer_id = c.id"))  # fmt: skip
+        dims = [
+            d for d in i.get("group_by_dims", ()) if d not in i["conformed_for_all"]
+        ]
+        for d in dims:
+            q.path_join(BridgeHop("s", "at", alias[d], table=d.lower(),
+                                  on=f"{alias[d]}.id = s.store_id"))  # fmt: skip
+        q.drill_across(["s", *(alias[d] for d in dims)], ["r"])
+        for branches in i.get("where_branches", ()):
+            refs = " + ".join(f"{alias[b]}.amount" for b in branches)
+            q.where(RawPred(f"{refs} > 0"))
+        q.group_by(*(f"{alias[d]}.id" for d in i.get("group_by_dims", ())))
+        for n, branches in enumerate(i.get("aggregate_branches", ())):
+            q.agg(
+                **{
+                    f"v{n}": "SUM("
+                    + " + ".join(f"{alias[b]}.amount" for b in branches)
+                    + ")"
+                }
+            )
+        try:
+            eng.sql(q)
+        except SemanticError:
+            return REJECTED
+        return "VALID"
 
     return run
 
@@ -555,6 +598,7 @@ def backend(
         "construction": _construction(eng),
         "fanout": _fanout(eng),
         "drill_across": _drill(eng),
+        "constellation_check": _constellation(eng),
         "scd_measure": _scd(eng),
         "edge_validity": _validity(eng),
         "window": _window(eng),
