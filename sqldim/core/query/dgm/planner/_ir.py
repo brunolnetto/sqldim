@@ -452,25 +452,25 @@ class PlanIR:
     pre_compute: tuple["PreComputation", ...] = ()
 
     def __post_init__(self) -> None:
-        from sqldim.core.query.dgm.planner._targets import PreComputation
+        _check_steps(self.pre_compute, {c.name for c in self.ctes})
 
-        for pc in self.pre_compute:
-            if not isinstance(pc, PreComputation):
-                raise UnsupportedConstruct(f"{pc!r} is not a PreComputation")
-        names = [pc.name for pc in self.pre_compute]
-        cte_names = {c.name for c in self.ctes}
-        for i, pc in enumerate(self.pre_compute):
-            name = check_identifier(pc.name, "PreComputation name")
-            if name in names[:i] or name in cte_names:
-                raise UnsupportedConstruct(
-                    f"PreComputation name {name!r} is bound twice"
-                )
-            ahead = sorted(set(pc.reads or ()) & set(names[i:]))
-            if ahead:
-                raise UnsupportedConstruct(
-                    f"PreComputation {name!r} reads {ahead}, which no earlier "
-                    "step produces"
-                )
+
+def _check_steps(steps: tuple["PreComputation", ...], cte_names: set[str]) -> None:
+    from sqldim.core.query.dgm.planner._targets import PreComputation
+
+    for pc in steps:
+        if not isinstance(pc, PreComputation):
+            raise UnsupportedConstruct(f"{pc!r} is not a PreComputation")
+    names = [pc.name for pc in steps]
+    for i, pc in enumerate(steps):
+        name = check_identifier(pc.name, "PreComputation name")
+        if name in names[:i] or name in cte_names:
+            raise UnsupportedConstruct(f"PreComputation name {name!r} is bound twice")
+        ahead = sorted(set(pc.reads or ()) & set(names[i:]))
+        if ahead:
+            raise UnsupportedConstruct(
+                f"PreComputation {name!r} reads {ahead}, which no earlier step produces"
+            )
 
 
 def _hop_scans(h: PathHop | PathRepeat) -> list[Scan]:

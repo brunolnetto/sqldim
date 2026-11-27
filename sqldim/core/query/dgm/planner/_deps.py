@@ -336,8 +336,9 @@ class _Deps:
             if pt is None:
                 self.acc[b] = None
                 continue
-            direct = band is not None and b == name
-            touched = pt.touched(_anchor_conds(band, pt.column)) if direct else None
+            touched = None
+            if band is not None and b == name:
+                touched = pt.touched(_anchor_conds(band, pt.column))
             prior = self.acc.get(b) or set()
             self.acc[b] = prior | set(pt.names() if touched is None else touched)
 
