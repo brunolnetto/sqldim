@@ -23,14 +23,18 @@ from sqldim.application.datasets.domains.growth.sources import (
     SaaSUsersSource,
     SaaSSessionsSource,
 )
+from sqldim.application.datasets.domains.growth.sources.users import N_SAAS_USERS
+
+_users = SaaSUsersSource(n=N_SAAS_USERS)
 
 growth_dataset = Dataset(
     "growth",
     [
         (EmployeesSource(), "employees"),
         (AccountsSource(), "accounts"),
-        (SaaSUsersSource(), "saas_users"),
-        (SaaSSessionsSource(n=200), "saas_sessions"),
+        (_users, "saas_users"),
+        # Every session references a generated user.
+        (SaaSSessionsSource(n=200, n_users=len(_users.initial)), "saas_sessions"),
     ],
     model=build_model,
 )

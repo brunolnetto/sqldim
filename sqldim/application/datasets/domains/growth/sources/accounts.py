@@ -98,6 +98,7 @@ class AccountsSource(BaseSource):
         Faker()
         Faker.seed(seed)
         random.seed(seed)
+        self._seed = seed
 
         account_types = ["checking", "savings", "money_market", "cd"]
         self._accounts: list[dict[str, Any]] = [
@@ -121,8 +122,10 @@ class AccountsSource(BaseSource):
         """
         OLTP daily balance extract for a given date.
 
-        Each call adds a small random ±3 % drift to simulate realistic
-        daily balance movement.  The rows carry no date column:
+        Each date adds a small random ±3 % drift to simulate realistic
+        daily balance movement.  The drift is drawn from a stream seeded by
+        ``(seed, snapshot_date)``, so an extract is the same however often
+        and in whatever order it is taken (#168).  The rows carry no date column:
         ``LazySnapshotLoader`` injects ``snapshot_date`` when it loads them.
         """
         return self._extract(snapshot_date, None)
@@ -131,10 +134,11 @@ class AccountsSource(BaseSource):
         from sqldim.sources import SQLSource
 
         dated = f", DATE '{snapshot_date}' AS {date_column}" if date_column else ""
+        drift = random.Random(f"{self._seed}:{snapshot_date}")
         rows = " UNION ALL ".join(
             f"SELECT {a['account_id']} AS account_id,"
             f" '{a['account_type']}' AS account_type,"
-            f" {round(a['balance'] * random.uniform(0.97, 1.03), 2)} AS balance"
+            f" {round(a['balance'] * drift.uniform(0.97, 1.03), 2)} AS balance"
             f"{dated}"
             for a in self._accounts
         )

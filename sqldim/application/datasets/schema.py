@@ -26,6 +26,8 @@ faker     : Faker method call        (method; optional pattern for numerify/
 choices   : random.choice            (choices list)
 uniform   : random.uniform float     (low, high; optional precision)
 randint   : random.randint integer   (low, high)
+date      : seeded date              (low, high: day offsets from REFERENCE_DATE)
+datetime  : seeded timestamp         (low, high: day offsets from REFERENCE_DATE)
 const     : fixed value              (value)
 computed  : arbitrary callable       (fn(fake, i) -> Any)
 
@@ -35,12 +37,21 @@ All ``FieldSpec`` instances may supply an optional ``post`` callable
 Fields with ``sql_export=False`` appear in generate() output and DDL but are
 *not* included in ``to_sql()`` — useful for internal tracking columns like
 ``updated_at`` that sqldim does not consume.
+
+Reproducibility
+---------------
+Generated dates never depend on the day the data is generated: the ``date``
+and ``datetime`` kinds (and :func:`seeded_date` / :func:`seeded_datetime` for
+event mutations) draw an offset from the seeded ``random`` stream and add it
+to the fixed :data:`REFERENCE_DATE`.  Faker's clock-relative providers
+(``date``, ``date_this_year``, ``date_time_this_year``, …) are not used.
 """
 
 from __future__ import annotations
 
 import random
 from dataclasses import dataclass, field
+from datetime import date, datetime, time, timedelta
 from typing import Any
 
 # ── constants ─────────────────────────────────────────────────────────────────
@@ -55,6 +66,24 @@ _SCD_AUDIT: list[tuple[str, str]] = [
     ("is_current", "BOOLEAN"),
     ("checksum", "VARCHAR"),
 ]
+
+REFERENCE_DATE: date = date(2024, 12, 31)
+"""The fixed anchor every generated date is drawn around (#168)."""
+
+_DAY_SECONDS = 86_400
+
+
+def seeded_date(low: int, high: int) -> date:
+    """A date ``REFERENCE_DATE + d`` days, ``d`` drawn from ``[low, high]``."""
+    return REFERENCE_DATE + timedelta(days=random.randint(low, high))
+
+
+def seeded_datetime(low: int, high: int) -> datetime:
+    """A timestamp on a day ``REFERENCE_DATE + d``, ``d`` in ``[low, high]``."""
+    start = datetime.combine(REFERENCE_DATE, time())
+    seconds = random.randint(low * _DAY_SECONDS, (high + 1) * _DAY_SECONDS - 1)
+    return start + timedelta(seconds=seconds)
+
 
 # ── per-kind generator functions ──────────────────────────────────────────────
 
@@ -82,6 +111,14 @@ def _gen_randint(spec: "FieldSpec", fake: Any, i: int) -> Any:
     return random.randint(int(spec.low), int(spec.high))  # type: ignore[arg-type]
 
 
+def _gen_date(spec: "FieldSpec", fake: Any, i: int) -> Any:
+    return seeded_date(int(spec.low), int(spec.high))  # type: ignore[arg-type]
+
+
+def _gen_datetime(spec: "FieldSpec", fake: Any, i: int) -> Any:
+    return seeded_datetime(int(spec.low), int(spec.high))  # type: ignore[arg-type]
+
+
 def _gen_const(spec: "FieldSpec", fake: Any, i: int) -> Any:
     return spec.value
 
@@ -96,6 +133,8 @@ _KIND_GENERATORS: dict[str, Any] = {
     "choices": _gen_choices,
     "uniform": _gen_uniform,
     "randint": _gen_randint,
+    "date": _gen_date,
+    "datetime": _gen_datetime,
     "const": _gen_const,
     "computed": _gen_computed,
 }
@@ -121,6 +160,7 @@ class FieldSpec:
     choices    : (choices) List of candidate values.
     low        : (uniform / randint) Lower bound.
     high       : (uniform / randint) Upper bound.
+                 (date / datetime) Day offsets from ``REFERENCE_DATE``.
     precision  : (uniform) Decimal places, e.g. ``2`` for currency.
     value      : (const) The constant to return.
     fn         : (computed) ``callable(fake, i) -> Any``.

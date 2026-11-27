@@ -23,6 +23,9 @@ _PLAN_TIERS = ["free", "free", "free", "pro", "enterprise"]
 _ACQ_SOURCES = ["organic", "ads", "referral", "content", "social"]
 _DEVICES = ["desktop", "mobile", "tablet"]
 
+N_SAAS_USERS = 200
+"""Users the bundled growth dataset generates; ``user_id`` runs 1..N."""
+
 # ── DatasetSpec ───────────────────────────────────────────────────────────────
 
 _SAAS_USERS_SPEC = DatasetSpec(
@@ -38,11 +41,14 @@ _SAAS_USERS_SPEC = DatasetSpec(
                     "acq_source", "VARCHAR", kind="choices", choices=_ACQ_SOURCES
                 ),
                 FieldSpec("device", "VARCHAR", kind="choices", choices=_DEVICES),
+                # Sign-ups precede the session year (2022-2023), so no
+                # session predates its user's sign-up.
                 FieldSpec(
                     "signup_date",
                     "VARCHAR",
-                    kind="faker",
-                    method="date",
+                    kind="date",
+                    low=-1095,
+                    high=-366,
                     post=lambda v, f, i: str(v),
                 ),
             ],

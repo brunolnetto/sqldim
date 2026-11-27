@@ -169,8 +169,9 @@ _ORDERS_SPEC = DatasetSpec(
                 FieldSpec(
                     "placed_at",
                     "TIMESTAMP",
-                    kind="faker",
-                    method="date_time_this_year",
+                    kind="datetime",
+                    low=-365,
+                    high=0,
                     post=lambda v, f, i: str(v),
                 ),
             ],
