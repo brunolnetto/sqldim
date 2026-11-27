@@ -12,13 +12,16 @@ property of that fact, not an edge.
 Grain (§2.4): a session is an event; the balance snapshot is PERIOD, so a SUM
 of balances is valid only within one ``snapshot_date`` (AD2).  No dimension
 holds verb edge types into two fact types, so nothing is Conformed; there is
-no bridge edge type.
+no bridge edge type.  ``balance`` is a state, SEMI_ADDITIVE over TIME
+(Additivity, §2.4); ``account_id`` identifies an account with no node type,
+Degenerate.
 """
 
 from __future__ import annotations
 
 from sqldim.application.datasets.model_decl import (
     ASSESSED_KINDS,
+    measures,
     DATE,
     INTEGER,
     REAL,
@@ -80,6 +83,11 @@ def build_model() -> DGMModel:
             FactlessFact("Session"),
             Grain("Session", GrainKind.EVENT),
             Grain("AccountBalance", GrainKind.PERIOD),
+            *measures(
+                "AccountBalance",
+                semi_over_time=("balance",),
+                degenerate=("account_id",),
+            ),
         ),
         sigma_kinds=ASSESSED_KINDS,
     )

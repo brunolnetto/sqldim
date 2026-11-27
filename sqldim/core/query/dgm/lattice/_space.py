@@ -5,6 +5,10 @@
 :class:`LatticeUnsupported` — what the enumeration cannot decide from the
 declaration: a property whose type is not a §4.1 ``Type``, or a SUM governed
 by AD2 whose period the declaration does not state.
+
+It also resolves what each numeric property may be aggregated by (§2.4): a
+measure of a fact type by its ``Additivity`` or the default of its ``Grain``
+(AD1–AD4), a ``Degenerate`` attribute and a dimension attribute by COUNT only.
 """
 
 from __future__ import annotations
@@ -25,10 +29,14 @@ from sqldim.core.query.dgm.analytical_space import (
     render_annotation,
     validate_anchor_set,
 )
+from sqldim.core.query.dgm.analytical_space import AGG_FNS
 from sqldim.core.query.dgm.annotations import (
+    Additivity,
+    AdditivityKind,
     BridgeSemantics,
     BridgeSemanticsKind,
     Conformed,
+    Degenerate,
     FactlessFact,
     Grain,
     GrainKind,
@@ -73,7 +81,8 @@ def _needed_kinds(schema: DGMSchema, h: int, nodes, edges, props) -> list[type]:
     """Annotation kinds whose declaration decides something in this ``G_𝒜``.
 
     MedallionLayer filters GroupBy keys; FactlessFact restricts aggregates over
-    a fact; Grain decides SUM over a fact with a numeric property (AD1–AD4).
+    a fact; Grain, Additivity and Degenerate decide the aggregates over a fact
+    with a numeric property (AD1–AD4).
     BridgeSemantics and Conformed are read where they decide something — a
     bridge hop of a pattern, a dimension between two facts of a Join — and
     raise there (:meth:`Space.time_ordered`, :meth:`Space.conformed_for`).
@@ -83,6 +92,8 @@ def _needed_kinds(schema: DGMSchema, h: int, nodes, edges, props) -> list[type]:
         (MedallionLayer, True),
         (FactlessFact, bool(facts)),
         (Grain, _numeric(facts, props)),
+        (Additivity, _numeric(facts, props)),
+        (Degenerate, _numeric(facts, props)),
     )
     return [kind for kind, needed in rules if needed]
 
@@ -193,6 +204,7 @@ class Space:
     hops: Mapping[str, tuple[Hop, ...]]
     dist: Mapping[str, Mapping[str, int]]
     version: str
+    measures: Mapping[tuple[str, str], str] = field(default_factory=dict)
     cache: dict = field(default_factory=dict, compare=False, repr=False)
 
     @property
@@ -206,6 +218,19 @@ class Space:
 
     def prop_type(self, type_: str, key: str) -> str | None:
         return dict(self.props.get(type_, ())).get(key)
+
+    def agg_fns(self, type_: str, key: str) -> frozenset[str] | None:
+        """AggFns admitted over the numeric property ``type_.key``.
+
+        ``None`` for a non-numeric property (only §4.2 typing applies).  A
+        dimension attribute is not a measure and carries no Additivity, so
+        AD1–AD4 cannot decide it: COUNT only.
+        """
+        if self.prop_type(type_, key) not in NUMERIC:
+            return None
+        if self.kind(type_) != NodeKind.FACT.value:
+            return _COUNT_ONLY
+        return _BY_KIND[self.measures[(type_, key)]]
 
     def factless(self, type_: str) -> bool:
         return any(isinstance(a, FactlessFact) and a.fact == type_ for a in self.sigma)
@@ -297,8 +322,10 @@ def _scope_edges(schema: DGMSchema, anchors, h: int, dist) -> tuple[EdgeType, ..
 def _named_types(ann: SchemaAnnotation) -> set[str] | None:
     if isinstance(ann, Conformed):
         return {ann.dim, *ann.fact_types}
-    if isinstance(ann, (Grain, FactlessFact)):
+    if isinstance(ann, (Grain, FactlessFact, Additivity)):
         return {ann.fact}
+    if isinstance(ann, Degenerate):
+        return {ann.fact} if ann.fact else None
     if isinstance(ann, MedallionLayer):
         return {ann.node}
     return None
@@ -344,15 +371,80 @@ def _typed_props(schema: DGMSchema, nodes: frozenset[str]):
     return props
 
 
-def _check_additivity(schema: DGMSchema, sigma, props) -> None:
-    for ann in sigma:
-        if not (isinstance(ann, Grain) and ann.grain is GrainKind.PERIOD):
-            continue
-        if any(t in NUMERIC for _, t in props.get(ann.fact, ())):
-            raise LatticeUnsupported(
-                f"Grain({ann.fact}, PERIOD): AD2 decides a SUM by the period of "
-                "the fact, which the declared schema does not state"
-            )
+DEGENERATE = "DEGENERATE"
+"""Resolution of a ``Degenerate`` attribute: not a measure (§2.4)."""
+
+_COUNT_ONLY = frozenset({"COUNT"})
+_BY_KIND: dict[str, frozenset[str]] = {
+    AdditivityKind.ADDITIVE.value: frozenset(AGG_FNS),  # AD1, AD4
+    # AD3 rejects SUM (PROD with it); AVG only with a warning: not enumerated.
+    AdditivityKind.NON_ADDITIVE.value: frozenset({"COUNT", "MIN", "MAX"}),
+    DEGENERATE: _COUNT_ONLY,
+}
+"""AggFns the enumeration admits over a numeric property, by its resolution."""
+
+_GRAIN_DEFAULT = {
+    GrainKind.EVENT: AdditivityKind.ADDITIVE,
+    GrainKind.ACCUMULATING: AdditivityKind.ADDITIVE,
+    GrainKind.PERIOD: AdditivityKind.SEMI_ADDITIVE,
+}
+"""§2.4: the Additivity a measure takes from its grain when it declares none."""
+
+
+def _measures(sigma, props, facts: Iterable[str]) -> dict[tuple[str, str], str]:
+    """Resolve every numeric property of a fact of ``G_𝒜`` (§2.4).
+
+    Raises :class:`LatticeUnsupported` for a SEMI_ADDITIVE measure: AD2
+    decides its SUM by the period or the entity of each axis, which the
+    enumeration does not decide.
+    """
+    grain = {a.fact: a.grain for a in sigma if isinstance(a, Grain)}
+    declared = _declared_measures(sigma)
+    return {
+        (fact, key): _resolve(grain, declared, fact, key)
+        for fact in facts
+        for key, t in props.get(fact, ())
+        if t in NUMERIC
+    }
+
+
+def _declared_measures(sigma) -> dict[tuple[str, str], Any]:
+    """``(fact, key)`` → its AdditivityKind, or DEGENERATE."""
+    out: dict[tuple[str, str], Any] = {}
+    for a in sigma:
+        if isinstance(a, Additivity):
+            out[(a.fact, a.key)] = a.kind
+        elif isinstance(a, Degenerate):
+            out[(a.fact or "", a.key)] = DEGENERATE
+    return out
+
+
+def _resolve(grain, declared, fact: str, key: str) -> str:
+    """The resolution of one numeric fact property; SEMI_ADDITIVE raises."""
+    kind = declared.get((fact, key))
+    if kind is None:
+        kind = _default(grain, fact, key)
+    if kind is AdditivityKind.SEMI_ADDITIVE:
+        how = (
+            f"Grain({fact}, PERIOD)"
+            if (fact, key) not in declared
+            else f"Additivity({fact}, {key}, SEMI_ADDITIVE)"
+        )
+        raise LatticeUnsupported(
+            f"{how}: {fact}.{key} is SEMI_ADDITIVE and AD2 decides its "
+            "SUM by the period or entity of each axis, which the "
+            "enumeration does not decide"
+        )
+    return kind if isinstance(kind, str) else kind.value
+
+
+def _default(grain: Mapping[str, GrainKind], fact: str, key: str) -> AdditivityKind:
+    if fact not in grain:
+        raise LatticeUnsupported(
+            f"{fact}.{key} is a measure of a fact with no Grain: its Additivity "
+            "has no default (§2.4)"
+        )
+    return _GRAIN_DEFAULT[grain[fact]]
 
 
 def build_space(
@@ -368,7 +460,8 @@ def build_space(
     props = _typed_props(schema, nodes)
     for kind in _needed_kinds(schema, h, nodes, edges, props):
         schema.annotations(kind)  # AnnotationNotDeclared if the kind is unstated
-    _check_additivity(schema, sigma, props)
+    facts = _of_kind(schema, nodes, NodeKind.FACT)
+    measures = _measures(sigma, props, facts) if _numeric(facts, props) else {}
     return Space(
         schema=schema,
         anchors=canonical,
@@ -380,4 +473,5 @@ def build_space(
         hops=_hops(nodes, edges),
         dist=dist,
         version=schema_version(schema),
+        measures=measures,
     )

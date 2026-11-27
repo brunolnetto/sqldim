@@ -9,12 +9,17 @@ facts with a measure each (``duration_s``, ``value``) and no foreign key.
 Grain (§2.4): a page view, a span and a metric sample are each one row per
 event.  No dimension holds verb edge types into two fact types, so nothing is
 Conformed; there is no bridge edge type.
+
+Additivity (§2.4): ``duration_s`` is ADDITIVE; ``value`` mixes gauges,
+counter readings and histogram samples of different metrics, NON_ADDITIVE;
+``user_id`` identifies a user with no node type, Degenerate.
 """
 
 from __future__ import annotations
 
 from sqldim.application.datasets.model_decl import (
     ASSESSED_KINDS,
+    measures,
     INTEGER,
     REAL,
     STRING,
@@ -90,6 +95,9 @@ def build_model() -> DGMModel:
             Grain("PageEvent", GrainKind.EVENT),
             Grain("PipelineSpan", GrainKind.EVENT),
             Grain("MetricSample", GrainKind.EVENT),
+            *measures("PageEvent", degenerate=("user_id",)),
+            *measures("PipelineSpan", additive=("duration_s",)),
+            *measures("MetricSample", non_additive=("value",)),
         ),
         sigma_kinds=ASSESSED_KINDS,
     )

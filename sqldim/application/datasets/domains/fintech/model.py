@@ -6,12 +6,14 @@ account (``account_id``) and its counterparty (``counterparty_id``).
 
 Grain (§2.4): a transaction is an event.  No dimension holds verb edge types
 into two fact types, so nothing is Conformed; there is no bridge edge type.
+``amount_usd`` is a flow, ADDITIVE (Additivity, §2.4).
 """
 
 from __future__ import annotations
 
 from sqldim.application.datasets.model_decl import (
     ASSESSED_KINDS,
+    measures,
     BOOLEAN,
     REAL,
     STRING,
@@ -71,6 +73,9 @@ def build_model() -> DGMModel:
                 "Counterparty", "Transaction", "counterparty_of", "counterparty_id"
             ),
         ),
-        sigma=(Grain("Transaction", GrainKind.EVENT),),
+        sigma=(
+            Grain("Transaction", GrainKind.EVENT),
+            *measures("Transaction", additive=("amount_usd",)),
+        ),
         sigma_kinds=ASSESSED_KINDS,
     )

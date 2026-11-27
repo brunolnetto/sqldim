@@ -13,8 +13,9 @@ from __future__ import annotations
 
 import asyncio
 import dataclasses
+import re
 from collections.abc import Iterator
-from datetime import timedelta
+from datetime import datetime, timedelta, timezone
 from typing import Any
 
 import duckdb
@@ -24,7 +25,16 @@ from sqldim.application._pipeline_sources import DatasetPipelineSource
 from sqldim.application.ask import KNOWN_DATASETS, load_dataset
 from sqldim.application.datasets.model_decl import ASSESSED_KINDS
 from sqldim.application.supervisor_host import local_auth_context
-from sqldim.core.query.dgm.annotations import BridgeSemantics, Conformed, Grain
+from sqldim.core.query.dgm.annotations import (
+    Additivity,
+    AdditivityKind,
+    BridgeSemantics,
+    Conformed,
+    Degenerate,
+    Grain,
+)
+from sqldim.core.query.dgm.lattice import QuestionLattice, first
+from sqldim.core.query.dgm.lattice._context import JoinCtx
 from sqldim.core.query.dgm.model import (
     DGMModel,
     EdgeKind,
@@ -205,6 +215,24 @@ def _verb_facts(model: DGMModel, dim: str) -> frozenset[str]:
 def test_every_declaration_assesses_the_bundled_kinds(model: DGMModel) -> None:
     assert model.sigma_kinds >= ASSESSED_KINDS
     assert {"Grain", "Conformed", "BridgeSemantics"} <= ASSESSED_KINDS
+    assert {"Additivity", "Degenerate"} <= ASSESSED_KINDS
+
+
+def test_every_numeric_fact_property_is_a_measure_or_degenerate(
+    model: DGMModel,
+) -> None:
+    """Each has exactly one explicit Additivity or Degenerate (§2.4)."""
+    marked = [
+        (a.fact, a.key) for a in model.sigma if isinstance(a, (Additivity, Degenerate))
+    ]
+    numeric = [
+        (t.name, k)
+        for t in model.node_types
+        if t.kind is NodeKind.FACT
+        for k, v in t.properties.items()
+        if v.name in ("Integer", "Real")
+    ]
+    assert sorted(marked) == sorted(numeric)
 
 
 def test_every_fact_type_has_one_grain(model: DGMModel) -> None:
@@ -241,7 +269,9 @@ def _call(
     assert errors == []
     ctx = tool_context(local_auth_context([dataset]), opener)
     ctx = dataclasses.replace(
-        ctx, budget=dataclasses.replace(ctx.budget, max_wall_time=timedelta(minutes=5))
+        ctx,
+        budget=dataclasses.replace(ctx.budget, max_wall_time=timedelta(minutes=5)),
+        deadline=datetime.now(timezone.utc) + timedelta(minutes=5),
     )
     return asyncio.run(execute_tool(bound.steps[0], build_registry(), ctx))
 
@@ -315,11 +345,59 @@ def test_tools_on_a_dataset_without_a_model_are_unsupported() -> None:
 def test_what_can_i_answer_over_a_numeric_fact(
     dataset: str, anchors: list[str]
 ) -> None:
-    """Grain is declared, so SUM over the fact's measures is decidable (§12.3)."""
-    result = _call("dgm_what_can_i_answer", _anchors(dataset, anchors), dataset)
+    """Grain and Additivity are declared, so SUM is decidable (§12.3)."""
+    args = {**_anchors(dataset, anchors), "limit": 200}
+    result = _call("dgm_what_can_i_answer", args, dataset)
     assert result.status is CallStatus.SUCCEEDED, result.error
     data = WhatCanIAnswerOutput.model_validate(result.data)
-    assert len(data.questions) == 5 and data.complete is False
+    assert len(data.questions) == 200 and data.complete is False
+    model = _open(dataset).dgm_model()
+    for q in data.questions:
+        _assert_only_additive_sums(model, q.skeleton)
+    _assert_aggregate_universe(model, anchors)
+
+
+_SUMMING = ("SUM", "AVG", "PROD")
+_AGG = re.compile(r"\b(SUM|AVG|PROD)\((a\d+)\.(\w+)\)")
+
+
+def _additive(model: DGMModel) -> set[tuple[str, str]]:
+    return {
+        (a.fact, a.key)
+        for a in model.annotations(Additivity)
+        if a.kind is AdditivityKind.ADDITIVE
+    }
+
+
+def _assert_only_additive_sums(model: DGMModel, skeleton: str) -> None:
+    """No SUM, AVG or PROD over anything but an ADDITIVE measure (AD1–AD4)."""
+    head = skeleton.split(" | ")[0].removeprefix("ANCHORS ")
+    alias_type = {a: t for t, a in (part.split() for part in head.split(", "))}
+    for _, alias, key in _AGG.findall(skeleton):
+        assert (alias_type[alias], key) in _additive(model), skeleton
+
+
+def _assert_aggregate_universe(model: DGMModel, anchors: list[str]) -> None:
+    """Every aggregate and running window the enumeration may emit for the
+    first Join: SUM/AVG/PROD only over ADDITIVE measures, never over a
+    Degenerate identifier or a dimension attribute."""
+    lattice = QuestionLattice(model, max_anchors=3, max_hops=1)
+    (question,), _ = first(lattice.enumerate(anchors, max_hops=1), 1)
+    ctx = JoinCtx(lattice.space(anchors, max_hops=1), question.skeleton.join)
+    additive = _additive(model)
+    terms = [(t[1], t[2]) for t in ctx.agg_terms]
+    terms += [
+        (w[1][1], w[1][2])
+        for w in ctx.window_terms(ctx.prop_refs, 2)
+        if w[1][0] == "running"
+    ]
+    summed = [(fn, ref) for fn, ref in terms if fn in _SUMMING and ref[0] == "prop"]
+    for fn, ref in summed:
+        assert (ctx.alias_type[ref[1]], ref[2]) in additive, (fn, ref)
+    degenerate = {(a.fact, a.key) for a in model.annotations(Degenerate)}
+    for fn, ref in terms:
+        if ref[0] == "prop" and (ctx.alias_type[ref[1]], ref[2]) in degenerate:
+            assert fn == "COUNT", (fn, ref)
 
 
 def _open_withholding(kind: str) -> Any:
@@ -343,21 +421,33 @@ def _open_withholding(kind: str) -> Any:
     return opener
 
 
+@pytest.mark.parametrize("kind", ["Grain", "Additivity", "Degenerate"])
 @pytest.mark.parametrize(
     ("dataset", "anchors"),
     [("nba_analytics", ["Game", "Team"]), ("commerce", ["Customer", "Order"])],
 )
-def test_without_grain_a_numeric_fact_is_unsupported(
-    dataset: str, anchors: list[str]
+def test_without_grain_or_additivity_a_numeric_fact_is_unsupported(
+    dataset: str, anchors: list[str], kind: str
 ) -> None:
-    """The same anchor sets fail closed when Grain is not declared (§12.3)."""
+    """The same anchor sets fail closed when a kind deciding SUM is withheld."""
     result = _call(
         "dgm_what_can_i_answer",
         _anchors(dataset, anchors),
         dataset,
-        opener=_open_withholding("Grain"),
+        opener=_open_withholding(kind),
     )
     assert result.status is CallStatus.FAILED and result.data is None
     assert result.error is not None
     assert result.error.kind is ToolErrorKind.UNSUPPORTED
-    assert "Grain" in result.error.message
+    assert kind in result.error.message
+
+
+def test_a_semi_additive_measure_is_unsupported() -> None:
+    """AD2 is not decided by the enumeration: balance is SEMI_ADDITIVE (§12.3)."""
+    from sqldim.core.query.dgm.lattice import LatticeUnsupported
+    from sqldim.core.query.dgm.lattice._space import _measures, _typed_props
+
+    model = _open("growth").dgm_model()
+    props = _typed_props(model, frozenset({"AccountBalance"}))
+    with pytest.raises(LatticeUnsupported, match="SEMI_ADDITIVE"):
+        _measures(model.sigma, props, ["AccountBalance"])

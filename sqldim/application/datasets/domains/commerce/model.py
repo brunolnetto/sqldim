@@ -20,12 +20,18 @@ days.  ``fct_cohort_retention`` is one lifecycle row per cohort whose
 milestone counts fill in as D1, D7 and D30 pass, so ACCUMULATING.  No
 dimension holds verb edge types into two fact types, so nothing is
 Conformed; there is no bridge edge type.
+
+Additivity (§2.4): quantities, revenue and customer counts are flows,
+ADDITIVE; unit prices and costs are NON_ADDITIVE.  ``returning_customers``
+counts the distinct returning customers of one day, so it sums across
+segments but not across days: SEMI_ADDITIVE over TIME.
 """
 
 from __future__ import annotations
 
 from sqldim.application.datasets.model_decl import (
     ASSESSED_KINDS,
+    measures,
     BOOLEAN,
     DATE,
     INTEGER,
@@ -207,6 +213,24 @@ def build_model() -> DGMModel:
             Grain("Receipt", GrainKind.EVENT),
             Grain("DailySales", GrainKind.PERIOD),
             Grain("CohortRetention", GrainKind.ACCUMULATING),
+            *measures(
+                "Order", additive=("quantity",), non_additive=("unit_price_at_order",)
+            ),
+            *measures(
+                "Receipt",
+                additive=("quantity_received",),
+                non_additive=("unit_cost_usd",),
+            ),
+            # Distinct customers of one day: summable across segments, not days.
+            *measures(
+                "DailySales",
+                additive=("total_orders", "total_revenue", "new_customers"),
+                semi_over_time=("returning_customers",),
+            ),
+            *measures(
+                "CohortRetention",
+                additive=("cohort_size", "retained_d1", "retained_d7", "retained_d30"),
+            ),
         ),
         sigma_kinds=ASSESSED_KINDS,
     )

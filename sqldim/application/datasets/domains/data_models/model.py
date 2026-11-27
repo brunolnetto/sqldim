@@ -21,12 +21,16 @@ Grain (§2.4): both sale tables hold one row per sale, an event.  The three
 bridge edge types relate a member to the group or the superior it belongs to,
 with no order in time between them: STRUCTURAL (§2.3).  No dimension holds verb
 edge types into two fact types, so nothing is Conformed.
+
+Additivity (§2.4): revenue and quantity are ADDITIVE; ``sale_year`` is a
+dimensional attribute carried by the sale, Degenerate.
 """
 
 from __future__ import annotations
 
 from sqldim.application.datasets.model_decl import (
     ASSESSED_KINDS,
+    measures,
     INTEGER,
     REAL,
     STRING,
@@ -138,6 +142,10 @@ def build_model() -> DGMModel:
         sigma=(
             Grain("Sale", GrainKind.EVENT),
             Grain("OrgSale", GrainKind.EVENT),
+            *measures(
+                "Sale", additive=("revenue", "quantity"), degenerate=("sale_year",)
+            ),
+            *measures("OrgSale", additive=("revenue",)),
             BridgeSemantics("in_segment", _STRUCTURAL),
             BridgeSemantics("reports_to", _STRUCTURAL),
             BridgeSemantics("ancestor_of", _STRUCTURAL),

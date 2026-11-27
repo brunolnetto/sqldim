@@ -21,12 +21,16 @@ Grain (§2.4): a credit and a reading are events.  Following someone and
 belonging to or liking a genre carry no order in time between their ends:
 STRUCTURAL (§2.3).  No dimension holds verb edge types into two fact types,
 so nothing is Conformed.
+
+Additivity (§2.4): ``nota`` is a score, NON_ADDITIVE; ``movie_id`` identifies
+a film with no node type, Degenerate.
 """
 
 from __future__ import annotations
 
 from sqldim.application.datasets.model_decl import (
     ASSESSED_KINDS,
+    measures,
     DATE,
     INTEGER,
     REAL,
@@ -130,6 +134,8 @@ def build_model() -> DGMModel:
             Grain("CastCredit", GrainKind.EVENT),
             Grain("Leitura", GrainKind.EVENT),
             FactlessFact("CastCredit"),
+            *measures("CastCredit", degenerate=("movie_id",)),
+            *measures("Leitura", non_additive=("nota",)),
             BridgeSemantics("segue", _STRUCTURAL),
             BridgeSemantics("pertence_ao_genero", _STRUCTURAL),
             BridgeSemantics("interesse_em", _STRUCTURAL),

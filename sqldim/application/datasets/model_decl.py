@@ -18,13 +18,25 @@ Conventions of the bundled declarations:
 * every fact type carries one ``Grain`` and every bridge edge type one
   ``BridgeSemantics``; ``Conformed(d, Fs)`` is declared where a dimension
   holds verb edge types into two or more fact types ``Fs`` (§2.4);
-* ``Additivity`` (§2.4) has no implementation yet, so no measure states one.
+* every numeric property of a fact type is either a measure with an explicit
+  ``Additivity`` — flows ADDITIVE; rates, ratios, percentages, unit prices,
+  scores and gauges NON_ADDITIVE; balances and other states SEMI_ADDITIVE
+  over TIME — or a ``Degenerate`` attribute: an identifier with no node type
+  behind it, or a dimensional attribute (a season, a year, an age) carried by
+  the fact (:func:`measures`).
 """
 
 from __future__ import annotations
 
 from collections.abc import Mapping
 
+from sqldim.core.query.dgm.annotations import (
+    TIME,
+    Additivity,
+    AdditivityKind,
+    Degenerate,
+    SchemaAnnotation,
+)
 from sqldim.core.query.dgm.model import (
     EdgeKind,
     EdgeType,
@@ -48,14 +60,17 @@ __all__ = [
     "TIMESTAMP",
     "bridge_fk",
     "bridge_table",
+    "measures",
     "table_node",
     "verb_fk",
 ]
 
 ASSESSED_KINDS = frozenset(
     {
+        "Additivity",
         "BridgeSemantics",
         "Conformed",
+        "Degenerate",
         "FactlessFact",
         "Grain",
         "MedallionLayer",
@@ -154,3 +169,23 @@ def bridge_table(
             props=columns,
         ),
     )
+
+
+def measures(
+    fact: str,
+    *,
+    additive: tuple[str, ...] = (),
+    non_additive: tuple[str, ...] = (),
+    semi_over_time: tuple[str, ...] = (),
+    degenerate: tuple[str, ...] = (),
+) -> tuple[SchemaAnnotation, ...]:
+    """The Additivity and Degenerate annotations of *fact*'s numeric properties."""
+    out: list[SchemaAnnotation] = []
+    out += [Additivity(fact, k, AdditivityKind.ADDITIVE) for k in additive]
+    out += [Additivity(fact, k, AdditivityKind.NON_ADDITIVE) for k in non_additive]
+    out += [
+        Additivity(fact, k, AdditivityKind.SEMI_ADDITIVE, {TIME})
+        for k in semi_over_time
+    ]
+    out += [Degenerate(k, fact=fact) for k in degenerate]
+    return tuple(out)
