@@ -50,7 +50,8 @@ class CypherExporter:
     - UNTIL/SINCE TemporalMode: ✗ (not supported)
     - SignaturePred: partial (approximate)
     - TrailExpr Bound→Bound: native
-    - REACHABLE_FROM/TO approximated via variable-length MATCH patterns
+    - REACHABLE_FROM/TO via variable-length MATCH patterns (cones are
+      defined by reachability, §3.4.2)
     """
 
     def export(self, plan: "ExportPlan") -> str:

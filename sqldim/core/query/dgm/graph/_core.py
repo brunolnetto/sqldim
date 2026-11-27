@@ -264,10 +264,12 @@ class TrimCriterion:
 
 
 class REACHABLE_BETWEEN(TrimCriterion):
-    """Retain only nodes that lie on at least one directed path from *source* to *target*.
+    """Retain only nodes *n* with *source* →* *n* →* *target* (DGM §3.4.2).
 
-    This criterion cannot be expressed as a single ``PathPred`` existence check
-    because it requires global knowledge of all paths in the subgraph.
+    Membership is by reachability, not by simple paths: ``G_AB`` is the
+    intersection of the forward cone of *source* and the backward cone of
+    *target* (§8.7), and an edge is kept when its source is reachable from
+    *source* and *target* is reachable from its target.
     """
 
     def __init__(self, source: str, target: str) -> None:
@@ -282,7 +284,8 @@ class REACHABLE_FROM(TrimCriterion):
     """Restrict context to the forward cone G_A* via BFS on G (Bound→Free).
 
     Retains only nodes reachable from *source* via forward traversal on the
-    schema graph.  Computed as BFS/DFS on G starting from *source*.
+    schema graph, and the edges leaving them (reachability, §3.4.2).
+    Computed as BFS/DFS on G starting from *source*.
     """
 
     def __init__(self, source: str) -> None:
@@ -295,8 +298,9 @@ class REACHABLE_FROM(TrimCriterion):
 class REACHABLE_TO(TrimCriterion):
     """Restrict context to the backward cone G_*B via BFS on G^T (Free→Bound).
 
-    Retains only nodes from which *target* is reachable — computed via BFS on
-    the transposed graph G^T.  Enables ``INCOMING_SIGNATURES`` and SINCE/ONCE
+    Retains only nodes from which *target* is reachable, and the edges
+    entering them (reachability, §3.4.2) — computed via BFS on the transposed
+    graph G^T.  Enables ``INCOMING_SIGNATURES`` and SINCE/ONCE
     temporal modes that require reverse traversal.
     """
 

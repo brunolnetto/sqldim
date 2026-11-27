@@ -198,9 +198,10 @@ NOT_COVERED: list[tuple[str, str]] = [
         "unweighted hops only; no backend executes a non-ALL strategy",
     ),
     (
-        "§8.7 cone intersection theorem",
-        "deferred to #139; under the simple-path "
-        "reading of §3.4.2 the identity needs a proof of its own (see the doc)",
+        "§3.4.2 RelationshipSubgraph cones; §8.7 cone intersection",
+        "sqldim represents REACHABLE_FROM / REACHABLE_TO / REACHABLE_BETWEEN "
+        "symbolically and computes no cone; `CONE-*` run against the oracle only, "
+        "and `docs/reference/dgm-claims.md` checks the identity exhaustively",
     ),
 ]
 
