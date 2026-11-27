@@ -5,6 +5,11 @@ reference semantics of :mod:`tests.conformance.oracle` or with code written
 here from the definitions — never with ``sqldim``.  A passing check is
 evidence on that domain, not a proof; a check named ``…counterexample`` pins a
 counterexample the register records.
+
+One check is a conformance comparison: ``test_claim_question_enumeration``
+compares the lattice's output with an enumeration written from the spec
+(``qvalid.py``).  It reads ``sqldim`` only for the value under test; the
+expected set never comes from it.
 """
 
 from __future__ import annotations
@@ -19,9 +24,9 @@ from itertools import combinations, permutations, product
 
 import pytest
 
-from tests.conformance import claims
+from tests.conformance import claims, datalog, qvalid
 from tests.conformance.cases import all_cases
-from tests.conformance.oracle import allen, cones, ctl, logic, paths
+from tests.conformance.oracle import allen, cones, ctl, kleene, logic, paths
 
 # --------------------------------------------------------------------------
 # Small graph domains
@@ -548,6 +553,123 @@ def test_claim_two_hop_body_breaks_walk_reading() -> None:
 
 
 # --------------------------------------------------------------------------
+# §8.13 Theorem 1: the translation, executed (tests/conformance/datalog.py)
+# --------------------------------------------------------------------------
+
+
+def _kleene(g: dict, n: str, c: tuple):
+    """A Band 1 condition at node *n* by the reference semantics."""
+    props, tag = g["nodes"][n], c[0]
+    if tag == "cmp":
+        return kleene.compare(props.get(c[1]), c[2], c[3])
+    if tag == "cmp2":
+        return kleene.compare(props.get(c[1]), c[2], props.get(c[3]))
+    if tag == "isnull":
+        return props.get(c[1]) is None
+    if tag == "not":
+        return kleene.not_(_kleene(g, n, c[1]))
+    if tag in ("and", "or"):
+        fn = kleene.and_ if tag == "and" else kleene.or_
+        return fn(_kleene(g, n, d) for d in c[1:])
+    memo = g.setdefault("memo", {})  # a PathPred is evaluated once per node
+    if (n, c) not in memo:
+        _, mode, phi, pattern = c
+        case = {"quantifier": "EXISTS", "mode": mode, "phi": phi, "pattern": pattern}
+        memo[(n, c)] = ctl.evaluate(g, n, case)
+    return memo[(n, c)]
+
+
+def _reference(g: dict, q: tuple) -> set[str]:
+    if q[0] == "where":
+        return {n for n in g["nodes"] if kleene.is_true(_kleene(g, n, q[1]))}
+    a, b = _reference(g, q[1]), _reference(g, q[2])
+    return {"union": a | b, "intersect": a & b, "except": a - b}[q[0]]
+
+
+def _agree(graphs, queries, keys) -> int:
+    checked = 0
+    tr = datalog.Translation()
+    heads = [tr.query(q) for q in queries]
+    program = datalog.Program(tr.rules)  # safe and stratified, or it raises
+    for g in graphs:
+        model = program.run(datalog.edb(g, keys))
+        for q, head in zip(queries, heads):
+            got = {t[0] for t in model.get(head, ())}
+            assert got == _reference(g, q), (g, q)
+            checked += 1
+    return checked
+
+
+def _conditions() -> list[tuple]:
+    ops = ("=", "!=", "<", "<=", ">", ">=")
+    atoms = [("cmp", "x", op, 1) for op in ops] + [("cmp2", "x", op, "y") for op in ops]
+    atoms += [("isnull", "x"), ("isnull", "y")]
+    out = atoms + [("not", a) for a in atoms]
+    for a, b in combinations(atoms, 2):
+        for j in (("and", a, b), ("or", a, b)):
+            out += [j, ("not", j)]
+    return out
+
+
+_X1, _X0 = ("prop", "x", "=", 1), ("prop", "x", "=", 0)
+_NOT_X0 = ("not", _X0)  # UNKNOWN where x is NULL
+_PATTERNS = (
+    HOP,
+    (("hop", "e", "fwd", True), ("hop", "e", "fwd", True)),
+    (("repeat", "e", "fwd", 0, None, "SIMPLE"),),
+    (("repeat", "e", "fwd", 1, None, "TRAIL"),),
+    (("repeat", "e", "fwd", 0, 2, "SIMPLE"),),
+    (("repeat", "e", "fwd", 1, 2, "TRAIL"),),
+    (("repeat", "e", "fwd", 0, 2, "WALK"),),
+)
+
+
+def _path_queries() -> list[tuple]:
+    pps = [("pp", "NEXT", _NOT_X0, HOP)]
+    for pat in _PATTERNS:
+        pps += [("pp", "EVENTUALLY", _NOT_X0, pat), ("pp", ("UNTIL", _X0), _X1, pat)]
+    leaves = [("where", p) for p in pps] + [("where", ("not", p)) for p in pps]
+    leaves.append(("where", ("and", pps[3], ("not", ("cmp", "x", "=", 1)))))
+    leaves.append(("where", ("or", ("not", pps[5]), ("isnull", "x"))))
+    ef, ax = ("where", pps[3]), ("where", ("not", pps[0]))
+    return leaves + [(op, ef, ax) for op in ("union", "intersect", "except")]
+
+
+def _up_to_isomorphism(n: int, *, loops: bool) -> list[dict]:
+    """One graph per isomorphism class of x-labelled graphs, x ∈ {NULL, 0, 1}.
+
+    Every query here is invariant under renaming nodes, and the check compares
+    whole result sets, so one representative per class decides the class.
+    """
+    seen, out = set(), []
+    for g in digraphs(n, loops=loops):
+        for v in product((None, 0, 1), repeat=n):
+            nodes = list(g["nodes"])
+            forms = []
+            for perm in permutations(range(n)):
+                ren = {nodes[i]: nodes[perm[i]] for i in range(n)}
+                edges = tuple(sorted((ren[a], ren[b]) for a, b, _l in g["edges"]))
+                labels = tuple(v[perm.index(i)] for i in range(n))
+                forms.append((edges, tuple(map(repr, labels))))
+            canon = min(forms)
+            if canon not in seen:
+                seen.add(canon)
+                out.append(labelled(g, x=v))
+    return out
+
+
+def test_claim_datalog_translation() -> None:
+    vals = (None, 0, 1, 2)
+    single = [
+        {"nodes": {"v0": {"x": x, "y": y}}, "edges": []} for x, y in product(vals, vals)
+    ]
+    checked = _agree(single, [("where", c) for c in _conditions()], ("x", "y"))
+    graphs = _up_to_isomorphism(3, loops=False) + _up_to_isomorphism(2, loops=True)
+    checked += _agree(graphs, _path_queries(), ("x",))
+    assert checked > 0
+
+
+# --------------------------------------------------------------------------
 # §8.16.6 neighbourhood, ADR 0007 d_S
 # --------------------------------------------------------------------------
 
@@ -639,6 +761,162 @@ def test_claim_move_graph() -> None:
 
 
 # --------------------------------------------------------------------------
+# §8.11 Q_valid enumeration (the witness of tests/conformance/qvalid.py)
+# --------------------------------------------------------------------------
+
+
+def _schema(nodes: dict, edge: tuple, measures=None, bronze=()) -> dict:
+    return {"nodes": nodes, "edge": edge, "measures": measures or {},
+            "bronze": set(bronze)}  # fmt: skip
+
+
+_QVALID_SCHEMAS = {
+    "no properties": _schema({"A": ("dim", {}), "B": ("dim", {})}, ("A", "e", "B")),
+    "String on a BRONZE dimension, Boolean": _schema(
+        {"A": ("dim", {"s": "String"}), "B": ("dim", {"f": "Boolean"})},
+        ("A", "e", "B"),
+        bronze="A",
+    ),
+    "additive measure": _schema(
+        {"A": ("dim", {}), "F": ("fact", {"rev": "Real"})},
+        ("A", "placed", "F"),
+        {("F", "rev"): "ADDITIVE"},
+    ),
+    "non-additive measure": _schema(
+        {"A": ("dim", {}), "F": ("fact", {"qty": "Integer"})},
+        ("A", "placed", "F"),
+        {("F", "qty"): "NON_ADDITIVE"},
+    ),
+    "Degenerate attribute": _schema(
+        {"A": ("dim", {}), "F": ("fact", {"ref": "Integer"})},
+        ("A", "placed", "F"),
+        {("F", "ref"): "DEGENERATE"},
+    ),
+}
+
+
+def _lattice_prefix(schema: dict, most: int) -> list[tuple]:
+    """``dgm_what_can_i_answer``'s order, as witness terms, up to grade *most*.
+
+    The only place a claim check reads ``sqldim``: it supplies the value under
+    test, never the expected one.
+    """
+    from sqldim.core.query.dgm.annotations import (
+        Additivity,
+        AdditivityKind,
+        Degenerate,
+        Grain,
+        GrainKind,
+        MedallionLayer,
+        MedallionLayerKind,
+    )
+    from sqldim.core.query.dgm.lattice import QuestionLattice
+    from sqldim.core.query.dgm.lattice._enumerate import skeletons
+    from sqldim.core.query.dgm.model import (
+        DGMModel,
+        EdgeKind,
+        EdgeType,
+        NodeKind,
+        NodeType,
+        PropType,
+    )
+
+    kinds = {"dim": NodeKind.DIM, "fact": NodeKind.FACT}
+    nodes = tuple(
+        NodeType(t, kinds[k], {p: PropType(d) for p, d in props.items()})
+        for t, (k, props) in schema["nodes"].items()
+    )
+    sigma: list = [
+        Grain(t, GrainKind.EVENT)
+        for t, (k, _) in schema["nodes"].items()
+        if k == "fact"
+    ]
+    for (fact, prop), kind in schema["measures"].items():
+        if kind == "NON_ADDITIVE":
+            sigma.append(Additivity(fact, prop, AdditivityKind.NON_ADDITIVE))
+        elif kind == "DEGENERATE":
+            sigma.append(Degenerate(prop, fact=fact))
+    sigma += [MedallionLayer(t, MedallionLayerKind.BRONZE) for t in schema["bronze"]]
+    src, label, dst = schema["edge"]
+    model = DGMModel(
+        node_types=nodes,
+        edge_types=(EdgeType(src, dst, label, EdgeKind.VERB),),
+        sigma=tuple(sigma),
+        sigma_kinds=frozenset(
+            {"Additivity", "BridgeSemantics", "Conformed", "Degenerate",
+             "FactlessFact", "Grain", "MedallionLayer", "RolePlaying"}
+        ),
+    )  # fmt: skip
+    lat = QuestionLattice(model, max_anchors=2, max_hops=1)
+    # ``enumerate`` is this generator with a question_key filter (QH6); the
+    # generator is read directly, so a duplicate it emits is not filtered.
+    out = []
+    for sk in skeletons(lat.space([src, dst], max_hops=1)):
+        assert sk.join == (("a1", ((src, label, dst, "+"),)),)
+        mine = (_fn(sk.where), _band2(sk.band2), _band3(sk.band3))
+        if qvalid.grade(mine) > most:
+            break
+        out.append(mine)
+    return out
+
+
+def _term(t: tuple) -> tuple:
+    kind = t[0]
+    if kind == "agg":
+        return ("agg", t[1], _term(t[2]))
+    if kind == "win":
+        head = t[1][:2] + tuple(None if r is None else _term(r) for r in t[1][2:])
+        order = tuple((_term(r), d) for r, d in t[3])
+        return ("win", head, frozenset(_term(r) for r in t[2]), order)
+    if kind == "cmp" and t[3][0] == "param":
+        return ("cmp", _term(t[1]), t[2], "?")
+    if kind == "cmp":
+        return qvalid.pair(_term(t[1]), t[2], _term(t[3]))
+    return tuple(t)
+
+
+def _fn(flt: tuple) -> tuple:
+    atoms, f = flt
+
+    def value(bits: tuple) -> bool:
+        node = f
+        while not isinstance(node, bool):
+            node = node[2] if bits[node[0]] else node[1]
+        return node
+
+    names = [_term(a) for a in atoms]
+    models = frozenset(
+        frozenset(a for a, b in zip(names, bits) if b)
+        for bits in product((False, True), repeat=len(names))
+        if value(bits)
+    )
+    return frozenset(names), models
+
+
+def _band2(b2):
+    if b2 is None:
+        return None
+    return (frozenset(map(_term, b2[0])), frozenset(map(_term, b2[1])), _fn(b2[2]))
+
+
+def _band3(b3):
+    return None if b3 is None else (frozenset(map(_term, b3[0])), _fn(b3[1]))
+
+
+def test_claim_question_enumeration() -> None:
+    for name, schema in _QVALID_SCHEMAS.items():
+        expected = qvalid.Domain(schema).skeletons()
+        emitted = _lattice_prefix(schema, qvalid.GRADE)
+        grades = [qvalid.grade(s) for s in emitted]
+        assert grades == sorted(grades), name  # §12.3: by grade within a Join
+        assert len(set(emitted)) == len(emitted), name  # each element once
+        missing, extra = expected - set(emitted), set(emitted) - expected
+        assert not missing and not extra, (name, sorted(map(qvalid.key, missing))[:3],
+                                           sorted(map(qvalid.key, extra))[:3])  # fmt: skip
+        assert len(emitted) == len(expected), name
+
+
+# --------------------------------------------------------------------------
 # The register itself
 # --------------------------------------------------------------------------
 
@@ -686,3 +964,11 @@ def test_status_matches_evidence(claim: claims.Claim) -> None:
         assert not claim.artifacts, claim.id
     if claim.status is claims.Status.CITED:
         assert claims.Kind.CITED in claim.kinds and claim.note, claim.id
+
+
+def test_review_table_lists_every_claim_once() -> None:
+    text = claims.DOC.read_text(encoding="utf-8")
+    section = text[text.index("## Independent review") :]
+    rows = [line.split("|")[1].strip() for line in section.splitlines()
+            if line.startswith("| `CLM-")]  # fmt: skip
+    assert sorted(rows) == sorted(f"`{c.id}`" for c in claims.CLAIMS)

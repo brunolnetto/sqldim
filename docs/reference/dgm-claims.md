@@ -11,7 +11,10 @@ and the evidence behind each. It was built for issue #139 (AUD-11).
   the named domain (every directed graph on three nodes, every Boolean function
   of three atoms, …). It uses the reference semantics of
   `tests/conformance/oracle/` (see `dgm-conformance.md`) or code written in
-  the test from the definitions; nothing imports `sqldim`.
+  the test from the definitions; nothing imports `sqldim`. One check,
+  `test_claim_question_enumeration`, compares sqldim's question lattice with
+  an enumeration written from the spec in `tests/conformance/qvalid.py`: it
+  reads `sqldim` only for the output under test.
 - **Values stated by the spec, reproduced by the oracle.** Conformance cases
   whose expected value is a worked example or table of the specification.
 - **Executable witness.** One fixture that exhibits a boundary or a
@@ -38,7 +41,7 @@ not exist, or when a check is not referenced by any claim.
 
 <!-- BEGIN GENERATED: tests/conformance/claims.py -->
 
-26 claims: 18 hold on their checked domain, 0 have a counterexample, 1 only cited, 7 are not independently evidenced.
+28 claims: 20 hold on their checked domain, 0 have a counterexample, 1 only cited, 7 are not independently evidenced.
 
 | Claim | Clause | Evidence | Status | Artifacts |
 |---|---|---|---|---|
@@ -60,9 +63,11 @@ not exist, or when a check is not referenced by any claim.
 | `CLM-8.9-HIER` | §8.9 Temporal property class hierarchy | not independently evidenced | not evidenced | — |
 | `CLM-8.10-ENTROPY` | §8.10 SIGNATURE_ENTROPY | exhaustive check on a bounded domain | holds on the checked domain | `tests/conformance/test_claims.py::test_claim_entropy` |
 | `CLM-8.11-QC` | §8.11 Question completeness theorem | proof in the specification, not checked | not evidenced | — |
+| `CLM-8.11-ENUM` | §8.11 Question completeness, part 1; §12.3 `dgm_what_can_i_answer` enumeration | exhaustive check on a bounded domain | holds on the checked domain | `tests/conformance/test_claims.py::test_claim_question_enumeration` |
 | `CLM-8.13-WALK` | §8.13 Theorem 1 (key step) and Theorem 2 | exhaustive check on a bounded domain | holds on the checked domain | `tests/conformance/test_claims.py::test_claim_walk_equals_simple_one_hop` |
 | `CLM-8.13-D4` | §8.13 Why D4 is needed | executable witness (a single fixture); cited proof from the literature | holds on the checked domain | `tests/conformance/test_claims.py::test_claim_two_hop_body_breaks_walk_reading` |
 | `CLM-8.13-T1` | §8.13 Theorem 1 (F_D ⊆ Datalog¬,≤) | proof in the specification, not checked | not evidenced | — |
+| `CLM-8.13-TRANSL` | §8.13 Theorem 1, the translation of its proof | exhaustive check on a bounded domain | holds on the checked domain | `tests/conformance/test_claims.py::test_claim_datalog_translation` |
 | `CLM-8.13-PTIME` | §8.13 Corollary (data complexity of F_D) and table | cited proof from the literature | rests on the citation | — |
 | `CLM-8.14-CANON` | §8.14 Canonical form theorem (soundness) | proof in the specification, not checked | not evidenced | — |
 | `CLM-8.15-PARAM` | §8.15 Parameter completeness; finite parametric skeleton | proof in the specification, not checked | not evidenced | — |
@@ -110,13 +115,19 @@ not exist, or when a check is not referenced by any claim.
 - **`CLM-8.10-ENTROPY`** — H = 0 iff one signature type occurs; H = log₂ k for k equally frequent types, the maximum over k types.
   *Domain:* every count vector of ≤ 4 types with counts ≤ 4.
 - **`CLM-8.11-QC`** — Under QH1–QH6 Q_valid(A, B) is finite and enumerable from the schema, membership is decidable, and every concrete query over G_AB is q(π).
-  *Note:* the oracle has no skeleton enumerator; sqldim's enumeration is the implementation, not independent evidence.
+  *Note:* the theorem as a whole is not checked: CLM-8.11-ENUM checks that the §12.3 construction lists Q_valid on a bounded domain; membership (part 2) and coverage (part 3) have no independent check.
+- **`CLM-8.11-ENUM`** — The construction (a)–(e) of §12.3, with its Σ rules, lists each skeleton of Q_valid(𝒜) exactly once and in non-decreasing grade.
+  *Domain:* an enumeration written from §8.11, §12.3, §4.1, §4.2 and §5.2.3 in `tests/conformance/qvalid.py` (no `sqldim`), compared as a set and a count with the lattice's generator: every skeleton of grade ≤ 2 over two anchors and one edge type with h = 1 (one Join), for five schemas — no properties; a String property on a BRONZE dimension and a Boolean; an ADDITIVE measure; a NON_ADDITIVE measure; a Degenerate attribute — 4,878 skeletons, none missing, none extra, none twice.
+  *Note:* evidence that sqldim's enumeration meets the definition on this domain. Grade ≤ 2 keeps every filter to two atoms, where the reduced BDD size does not depend on the variable order that §8.14 leaves to the atoms' encoding. Outside the domain: numeric dimension attributes (§2.4 admits MIN, MAX and AVG over them, while the §12.3 sentence on Degenerate attributes reads 'no aggregate other than COUNT'), properties of a FactlessFact, constellations (DA1–DA3), time-ordered bridges and Joins of more than one hop.
 - **`CLM-8.13-WALK`** — For a one-hop body under Repeat(·, 0, UNBOUNDED), SIMPLE, TRAIL and walk semantics (the Datalog rules of Theorem 1, as a least fixpoint) agree on EF φ, EX φ and E(φ U ψ).
   *Domain:* every one-label graph on 3 nodes (self-loops included for EF and EX, excluded for E(φ U ψ)), every two-valued labelling of φ, ψ, start node fixed by symmetry.
 - **`CLM-8.13-D4`** — For a body of two or more hops, walk and simple-path existence differ.
   *Domain:* one witness: (a·a)* from s to t on s→t, t→u, u→v, v→t; NP-completeness of the simple case is cited [19].
 - **`CLM-8.13-T1`** — Every query in F_D has a stratified Datalog program computing it.
-  *Note:* only the walk/simple step is checked (CLM-8.13-WALK); the translation itself is not executed.
+  *Note:* the translation is executed on a bounded sub-fragment (CLM-8.13-TRANSL) and its walk/simple step on its own (CLM-8.13-WALK); F_D as a whole — Joins over several anchors and PathJoins, IN, nested sub_filters, outer Refs, several edge labels, non-recursive WITH — is not.
+- **`CLM-8.13-TRANSL`** — The proof's translation — conditions in the T⁺ form with NULL as an absent fact, a fixed-length path or finite-max Repeat as a union of edge conjunctions with ≠ literals for SIMPLE and TRAIL, the recursion for an UNBOUNDED one-hop Repeat, a negated PathPred and EXCEPT as a negated IDB literal — is a safe, stratified Datalog¬,≤ program whose perfect model is the query's result.
+  *Domain:* unary queries anchored on one node type, against the reference semantics: 392 conditions (comparison with a constant and of two properties under all six operators, IsNull, NOT, AND, OR to depth 2) on a node with x, y ∈ {NULL, 0, 1, 2}; 35 queries — EXISTS with EVENTUALLY, UNTIL and NEXT over one hop, two hops, Repeat(e, 0|1, UNBOUNDED, SIMPLE|TRAIL) and Repeat(e, 0|1, 2, SIMPLE|TRAIL|WALK), with a sub_filter that is UNKNOWN on NULL, their negations, two mixed conditions, UNION, INTERSECT and EXCEPT — on every graph with one edge label and x ∈ {NULL, 0, 1}, on 3 nodes without self-loops and on 2 with them, up to isomorphism (406 graphs). The stratified evaluator is `tests/conformance/datalog.py`, which refuses an unsafe or unstratified program.
+  *Note:* TRAIL distinctness of two edges is a disjunction (source or target differs), so it gives one conjunction of ≠ literals per choice — a union of conjunctions, still Datalog, where the proof writes 'a conjunction'.
 - **`CLM-8.13-PTIME`** — F_D has polynomial data complexity; simple regular paths are NP-complete; counting simple paths is #P-complete; Immerman–Vardi does not make Q_algebra capture PTIME.
   *Note:* Abiteboul, Hull, Vianu [20]; Mendelzon and Wood [19]; Valiant [18]; Immerman [16], Vardi [17].
 - **`CLM-8.14-CANON`** — Two composed queries that reduce to the same query DAG node are equivalent.
@@ -151,3 +162,46 @@ reachable from its target, or both for `G_AB`). The oracle gained
 `oracle/cones.py` and the cases `CONE-*` as a consequence of that change, and
 `test_claim_cone_old_counterexample_now_holds` reproduces the old
 counterexample.
+
+## Independent review
+
+No claim has been reviewed by a second person. Every check above was written
+by the same process that wrote this register, and a check can share a
+misreading with the text it checks. This table records an independent human
+review of each claim: of the statement against the specification, of the
+checked domain and of the check's code. A reviewer fills one row per claim
+reviewed, with their name or handle, the date, a verdict (`agrees`,
+`disagrees` or `partial`) and a note or link; `awaiting` means no one has. The
+table is kept by hand and is not generated; `test_claims.py` fails when a
+claim of the register is missing from it or listed twice.
+
+| Claim | Review | Reviewer | Date | Verdict and note |
+|---|---|---|---|---|
+| `CLM-3.3-ORDER` | awaiting | | | |
+| `CLM-3.4.2-CONE-SUBGRAPH` | awaiting | | | |
+| `CLM-3.4.5-PROJ` | awaiting | | | |
+| `CLM-4.1-DUAL` | awaiting | | | |
+| `CLM-ADR1-VALUES` | awaiting | | | |
+| `CLM-6.3-HOEFF` | awaiting | | | |
+| `CLM-8.1-KRIPKE` | awaiting | | | |
+| `CLM-8.2-PC` | awaiting | | | |
+| `CLM-8.3-CUBE` | awaiting | | | |
+| `CLM-8.4-DIAMOND` | awaiting | | | |
+| `CLM-8.5-COLLAPSE` | awaiting | | | |
+| `CLM-8.6-SIMPLE-BOUND` | awaiting | | | |
+| `CLM-8.6-PATTERNS` | awaiting | | | |
+| `CLM-8.7-CONE` | awaiting | | | |
+| `CLM-8.8-ALLEN` | awaiting | | | |
+| `CLM-8.9-HIER` | awaiting | | | |
+| `CLM-8.10-ENTROPY` | awaiting | | | |
+| `CLM-8.11-QC` | awaiting | | | |
+| `CLM-8.11-ENUM` | awaiting | | | |
+| `CLM-8.13-WALK` | awaiting | | | |
+| `CLM-8.13-D4` | awaiting | | | |
+| `CLM-8.13-T1` | awaiting | | | |
+| `CLM-8.13-TRANSL` | awaiting | | | |
+| `CLM-8.13-PTIME` | awaiting | | | |
+| `CLM-8.14-CANON` | awaiting | | | |
+| `CLM-8.15-PARAM` | awaiting | | | |
+| `CLM-8.16.6-NBHD` | awaiting | | | |
+| `CLM-ADR7-METRIC` | awaiting | | | |

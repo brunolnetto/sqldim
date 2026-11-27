@@ -123,7 +123,7 @@ Declared support per capability, from the profiles the planner reads. A target w
 
 | Status | Claims |
 |---|---|
-| holds on the checked domain | `CLM-3.3-ORDER`, `CLM-3.4.2-CONE-SUBGRAPH`, `CLM-4.1-DUAL`, `CLM-ADR1-VALUES`, `CLM-6.3-HOEFF`, `CLM-8.2-PC`, `CLM-8.3-CUBE`, `CLM-8.4-DIAMOND`, `CLM-8.5-COLLAPSE`, `CLM-8.6-SIMPLE-BOUND`, `CLM-8.6-PATTERNS`, `CLM-8.7-CONE`, `CLM-8.8-ALLEN`, `CLM-8.10-ENTROPY`, `CLM-8.13-WALK`, `CLM-8.13-D4`, `CLM-8.16.6-NBHD`, `CLM-ADR7-METRIC` |
+| holds on the checked domain | `CLM-3.3-ORDER`, `CLM-3.4.2-CONE-SUBGRAPH`, `CLM-4.1-DUAL`, `CLM-ADR1-VALUES`, `CLM-6.3-HOEFF`, `CLM-8.2-PC`, `CLM-8.3-CUBE`, `CLM-8.4-DIAMOND`, `CLM-8.5-COLLAPSE`, `CLM-8.6-SIMPLE-BOUND`, `CLM-8.6-PATTERNS`, `CLM-8.7-CONE`, `CLM-8.8-ALLEN`, `CLM-8.10-ENTROPY`, `CLM-8.11-ENUM`, `CLM-8.13-WALK`, `CLM-8.13-D4`, `CLM-8.13-TRANSL`, `CLM-8.16.6-NBHD`, `CLM-ADR7-METRIC` |
 | **counterexample** | — |
 | rests on the citation | `CLM-8.13-PTIME` |
 | not evidenced | `CLM-3.4.5-PROJ`, `CLM-8.1-KRIPKE`, `CLM-8.9-HIER`, `CLM-8.11-QC`, `CLM-8.13-T1`, `CLM-8.14-CANON`, `CLM-8.15-PARAM` |
