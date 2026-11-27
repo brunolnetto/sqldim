@@ -22,6 +22,11 @@ from sqldim.core.query.dgm.preds._core import (  # noqa: F401
     PathPred,
     PathAgg,
 )
+from sqldim.core.query.dgm.preds._repeat import (  # noqa: F401
+    UNBOUNDED,
+    Repeat,
+    RepeatMode,
+)
 from sqldim.core.query.dgm.preds._signature import (  # noqa: F401
     SAFETY,
     LIVENESS,

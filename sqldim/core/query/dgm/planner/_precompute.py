@@ -5,6 +5,8 @@
 and ``approximation`` — and invents nothing: an undeclared time is unknown
 (the gate rejects), and an approximation exists only when every slow step
 declares one and the plan's cost can be recomputed from declared costs.
+For a plan with an IR the approximated steps replace the exact ones inside
+the IR too, so the approximated plan has its own ``question_key``.
 """
 
 from __future__ import annotations
@@ -32,6 +34,8 @@ def _approximated(pc: PreComputation) -> PreComputation:
         kind=v.kind,
         estimated_time=v.estimated_time,
         cost_estimate=v.cost_estimate,
+        reads=v.reads,
+        accuracy=v.accuracy,
     )
 
 
@@ -83,9 +87,11 @@ class DeclaredPrecomputeProvider:
         if plan.cost_estimate is None or not _declared(slow):
             return None
         steps = _replace_steps(plan.pre_compute, slow)
+        ir = None if plan.ir is None else replace(plan.ir, pre_compute=tuple(steps))
         approx_plan = replace(
             plan,
             pre_compute=steps,
+            ir=ir,
             cost_estimate=_repriced(plan.cost_estimate, slow),
             alternatives=[],
         )

@@ -64,7 +64,20 @@ from sqldim.core.query.dgm.planner._ir import (  # noqa: F401
     UnsupportedConstruct,
     UnsafeFragment,
     UnknownRelation,
+    UndeclaredReads,
     PlanIdentityUnavailable,
+)
+from sqldim.core.query.dgm.planner._ir_emit import MAX_UNROLL  # noqa: F401
+from sqldim.core.query.dgm.planner._rule3 import (  # noqa: F401
+    Placement,
+    GraphExprSchedule,
+    PrecomputeEstimate,
+    PrecomputeCostModel,
+)
+from sqldim.core.query.dgm.planner._deps import (  # noqa: F401
+    PartitionKind,
+    Partition,
+    Partitioning,
 )
 from sqldim.core.query.dgm.planner._ir_emit import emit_sql  # noqa: F401
 from sqldim.core.query.dgm.planner._ir_identity import (  # noqa: F401

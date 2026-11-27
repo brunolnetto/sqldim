@@ -13,6 +13,7 @@ from sqldim.core.query.dgm.refs import _SQLExpr
 from sqldim.core.query.dgm.preds import (
     AND,
     RawPred,
+    Repeat,
     _HopBase,
 )
 from sqldim.core.query.dgm.temporal import TemporalContext
@@ -38,7 +39,7 @@ class DGMQuery:
     def __init__(self, fact_table: "str | None" = None) -> None:
         self._anchor_table: str | None = None
         self._anchor_alias: str | None = None
-        self._joins: list[tuple[str, str, str]] = []
+        self._joins: list[tuple[str, str, str] | Repeat] = []
         self._scd2_joins: list[tuple[str, str, str, str]] = []
         self._as_of: str | None = None
         self._where_pred: "_SQLExpr | None" = None
@@ -106,7 +107,7 @@ class DGMQuery:
 
     def path_join(
         self,
-        hop_or_model: "_HopBase | type",
+        hop_or_model: "_HopBase | type | Repeat",
         *,
         from_alias: str | None = None,
         to_alias: str | None = None,
@@ -130,6 +131,9 @@ class DGMQuery:
         from ``OrderFact``'s FK metadata pointing at the registered
         *from_alias* model.
         """
+        if isinstance(hop_or_model, Repeat):  # §3.2; planned by DGMPlanner only
+            self._joins.append(hop_or_model)
+            return self
         if isinstance(hop_or_model, type):
             table, resolved_alias, on = self._resolve_model_join(
                 hop_or_model, from_alias, to_alias

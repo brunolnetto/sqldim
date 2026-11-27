@@ -5,6 +5,8 @@ from __future__ import annotations
 import enum
 from typing import Callable
 
+from sqldim.exceptions import SemanticError
+
 from sqldim.core.query.dgm.refs import (
     PropRef,
     AggRef,
@@ -282,6 +284,11 @@ def _path_pred_sql(pp: "PathPred") -> str:
     hops = _flatten_path(pp.path)
     if not hops:  # pragma: no cover
         return "TRUE"
+    if any(not isinstance(h, _HopBase) for h in hops):
+        raise SemanticError(
+            "PathPred over a Repeat (§3.2) has no to_sql() rendering; plan the "
+            "query with DGMPlanner.plan_query()"
+        )
     first = hops[0]
     from_clause = f"{first.table} {first.to_alias}"
     join_sql = " ".join(f"JOIN {h.table} {h.to_alias} ON {h.on}" for h in hops[1:])

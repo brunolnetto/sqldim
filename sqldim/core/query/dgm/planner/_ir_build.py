@@ -12,6 +12,7 @@ cannot state exactly raises :class:`UnsupportedConstruct`.
 from __future__ import annotations
 
 import math
+import re
 from typing import TYPE_CHECKING
 
 from sqldim.core.query.dgm.algebra import ComposeOp
@@ -28,12 +29,14 @@ from sqldim.core.query.dgm.planner._ir import (
     Neg,
     PathExists,
     PathHop,
+    PathRepeat,
     PlanIR,
     PlanNode,
     Pred,
     Quantifier,
     RawCondition,
     ReadRole,
+    RepeatJoin,
     Scan,
     UnsupportedConstruct,
     VersionKind,
@@ -46,7 +49,7 @@ from sqldim.core.query.dgm.planner._ir import (
 if TYPE_CHECKING:
     from sqldim.core.query.dgm.algebra import QuestionAlgebra
     from sqldim.core.query.dgm.core import DGMQuery
-    from sqldim.core.query.dgm.preds import PathPred, ScalarPred
+    from sqldim.core.query.dgm.preds import PathPred, Repeat, ScalarPred
 
 __all__ = ["lower_query", "lower_algebra", "lower_pred"]
 
@@ -93,27 +96,64 @@ def _lower_compare(p: "ScalarPred", scope: frozenset[str]) -> Compare:
     return Compare(_ref_fragment(p.ref, scope), p.op, _literal(p.value))
 
 
-def _lower_hops(path: object, scope: frozenset[str]) -> tuple[PathHop, ...]:
-    from sqldim.core.query.dgm.preds import _flatten_path, _HopBase
+def _lower_hop(h: object, visible: set[str], role: ReadRole) -> PathHop:
+    """Lower one hop; its alias joins *visible* (in place)."""
+    from sqldim.core.query.dgm.preds import _HopBase
 
-    hops: list[PathHop] = []
+    if not isinstance(h, _HopBase):
+        raise UnsupportedConstruct(f"{type(h).__name__} is not a path hop")
+    if h.table is None or h.on is None:
+        raise UnsupportedConstruct(
+            f"hop {h.label!r} needs an explicit table and on clause"
+        )
+    alias = check_identifier(h.to_alias, "alias")
+    if alias in visible:
+        raise UnsupportedConstruct(f"path alias {alias!r} shadows an alias in scope")
+    visible.add(alias)
+    scan = Scan(check_relation_name(h.table), alias, role)
+    on = check_fragment(h.on, frozenset(visible))
+    return PathHop(getattr(h, "kind", "hop"), h.label, scan, on)
+
+
+def _lower_repeat(
+    r: "Repeat", visible: set[str], role: ReadRole, start_relation: str | None
+) -> PathRepeat:
+    """Lower a Repeat (§3.2); its body aliases join *visible* (in place)."""
+    from sqldim.core.query.dgm.preds import _flatten_path
+
+    start = check_identifier(r.from_alias, "alias")
+    if start not in visible:
+        raise UnsupportedConstruct(f"Repeat starts from {start!r}, not in scope")
+    body = tuple(_lower_hop(h, visible, role) for h in _flatten_path(r.path))
+    unrolled = re.compile(rf"^{re.escape(body[-1].scan.alias)}__r\d+$")
+    clash = sorted(a for a in visible if unrolled.match(a))
+    if clash:
+        raise UnsupportedConstruct(
+            f"aliases {clash} clash with Repeat iteration aliases"
+        )
+    depth = r.depth_alias
+    if depth is not None:
+        check_identifier(depth, "depth alias")
+    upper = r.max if r.bounded else None
+    return PathRepeat(start, body, r.min, upper, r.mode, depth, start_relation)  # type: ignore[arg-type]
+
+
+def _lower_hops(
+    path: object, scope: frozenset[str]
+) -> tuple[PathHop | PathRepeat, ...]:
+    from sqldim.core.query.dgm.preds import Repeat, _flatten_path
+
+    hops: list[PathHop | PathRepeat] = []
     visible = set(scope)
+    relations: dict[str, str] = {}
     for h in _flatten_path(path):
-        if not isinstance(h, _HopBase):
-            raise UnsupportedConstruct(f"{type(h).__name__} is not a path hop")
-        if h.table is None or h.on is None:
-            raise UnsupportedConstruct(
-                f"hop {h.label!r} needs an explicit table and on clause inside a PathPred"
-            )
-        alias = check_identifier(h.to_alias, "alias")
-        if alias in visible:
-            raise UnsupportedConstruct(
-                f"path alias {alias!r} shadows an alias in scope"
-            )
-        visible.add(alias)
-        scan = Scan(check_relation_name(h.table), alias, ReadRole.EXISTS_PATH)
-        on = check_fragment(h.on, frozenset(visible))
-        hops.append(PathHop(getattr(h, "kind", "hop"), h.label, scan, on))
+        if isinstance(h, Repeat):
+            start = relations.get(h.from_alias)
+            hops.append(_lower_repeat(h, visible, ReadRole.REPEAT, start))
+            continue
+        hop = _lower_hop(h, visible, ReadRole.EXISTS_PATH)
+        relations[hop.scan.alias] = hop.scan.relation
+        hops.append(hop)
     if not hops:
         raise UnsupportedConstruct("a PathPred needs at least one hop")
     return tuple(hops)
@@ -136,9 +176,17 @@ def _lower_path(pp: "PathPred", scope: frozenset[str]) -> PathExists:
         )
     quant = Quantifier.FORALL if pp.quantifier is _Q.FORALL else Quantifier.EXISTS
     hops = _lower_hops(pp.path, scope)
-    inner = scope | {h.scan.alias for h in hops}
+    inner = frozenset(_path_aliases(hops)) | scope
     sub = lower_pred(pp.sub_filter, inner)
     return PathExists(quant, "ALL", hops, sub)
+
+
+def _path_aliases(hops: tuple[PathHop | PathRepeat, ...]) -> list[str]:
+    out: list[str] = []
+    for h in hops:
+        body = h.body if isinstance(h, PathRepeat) else (h,)
+        out += [b.scan.alias for b in body]
+    return out
 
 
 def _lower_list(preds: tuple, scope: frozenset[str], what: str) -> tuple[Pred, ...]:
@@ -176,35 +224,60 @@ def lower_pred(p: object, scope: frozenset[str]) -> Pred:
 class _Scope:
     def __init__(self) -> None:
         self.aliases: list[str] = []
+        self.relations: dict[str, str] = {}
 
-    def add(self, alias: str) -> frozenset[str]:
+    def add(self, alias: str, relation: str | None = None) -> frozenset[str]:
         check_identifier(alias, "alias")
         if alias in self.aliases:
             raise UnsupportedConstruct(f"alias {alias!r} is bound twice")
         self.aliases.append(alias)
+        if relation is not None:
+            self.relations[alias] = relation
         return self.frozen()
 
     def frozen(self) -> frozenset[str]:
         return frozenset(self.aliases)
 
 
-def _path_joins(q: "DGMQuery", scope: _Scope) -> list[Join]:
+def _repeat_join(q: "DGMQuery", r: "Repeat", scope: _Scope) -> RepeatJoin:
+    if q._as_of:
+        raise UnsupportedConstruct(
+            "a Repeat PathJoin under as_of needs version resolution per "
+            "iteration, which this IR version does not emit"
+        )
+    visible = set(scope.aliases)
+    start = scope.relations.get(r.from_alias)
+    repeat = _lower_repeat(r, visible, ReadRole.REPEAT, start)
+    scope.add(repeat.end, repeat.body[-1].scan.relation)  # body-local otherwise
+    return RepeatJoin(repeat)
+
+
+def _path_joins(q: "DGMQuery", scope: _Scope) -> list[Join | RepeatJoin]:
+    from sqldim.core.query.dgm.preds import Repeat
+
     version = VersionResolution(VersionKind.VALID_RANGE, q._as_of) if q._as_of else None
-    out = []
-    for table, alias, on in q._joins:
-        visible = scope.add(alias)
-        scan = Scan(check_relation_name(table), alias, ReadRole.PATH_JOIN)
+    out: list[Join | RepeatJoin] = []
+    for entry in q._joins:
+        if isinstance(entry, Repeat):
+            out.append(_repeat_join(q, entry, scope))
+            continue
+        table, alias, on = entry
+        rel = check_relation_name(table)
+        visible = scope.add(alias, rel)
+        scan = Scan(rel, alias, ReadRole.PATH_JOIN)
         out.append(Join(scan, check_fragment(on, visible), version))
     return out
 
 
-def _dim_joins(q: "DGMQuery", anchor_alias: str, scope: _Scope) -> list[Join]:
+def _dim_joins(
+    q: "DGMQuery", anchor_alias: str, scope: _Scope
+) -> list[Join | RepeatJoin]:
     version = (
         VersionResolution(VersionKind.VALID_RANGE_DATE, q._as_of)
         if q._as_of
         else VersionResolution(VersionKind.IS_CURRENT)
     )
-    out = []
+    out: list[Join | RepeatJoin] = []
     for dim_table, alias, fact_fk, dim_pk in q._scd2_joins:
         visible = scope.add(alias)
         fk = check_identifier(fact_fk, "column")
@@ -239,7 +312,7 @@ def lower_query(q: "DGMQuery") -> BandQuery:
     table = check_relation_name(q._anchor_table)
     anchor_alias = q._anchor_alias or table
     scope = _Scope()
-    scope.add(anchor_alias)
+    scope.add(anchor_alias, table)
     anchor = Scan(table, anchor_alias, ReadRole.ANCHOR)
     joins = _path_joins(q, scope) + _dim_joins(q, anchor_alias, scope)
     s = scope.frozen()
@@ -315,8 +388,10 @@ class _AlgebraLowering:
         return Compose(op, self.node(left), self.node(right), on)
 
 
-def lower_algebra(alg: "QuestionAlgebra", final: str) -> PlanIR:
+def lower_algebra(
+    alg: "QuestionAlgebra", final: str, pre_compute: tuple = ()
+) -> PlanIR:
     """Lower the CTEs *final* depends on; unreferenced CTEs are not emitted."""
     lowering = _AlgebraLowering(alg)
     root = lowering.node(final)
-    return PlanIR(root=root, ctes=tuple(lowering.order))
+    return PlanIR(root=root, ctes=tuple(lowering.order), pre_compute=pre_compute)

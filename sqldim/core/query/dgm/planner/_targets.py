@@ -8,16 +8,18 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 from dataclasses import dataclass, field
-from datetime import timedelta
 from enum import Enum
 from typing import TYPE_CHECKING, Any
 
+from sqldim.core.query.dgm.planner._steps import (
+    ApproximateVariant,
+    CostEstimate,
+    PreComputation,
+)
+
 if TYPE_CHECKING:
+    from sqldim.core.query.dgm.planner._deps import Dependency, RelationCatalog
     from sqldim.core.query.dgm.planner._ir import PlanIR
-    from sqldim.core.query.dgm.planner._ir_identity import (
-        Dependency,
-        RelationCatalog,
-    )
 
 __all__ = [
     "QueryTarget",
@@ -83,113 +85,6 @@ class SinkTarget(Enum):
 
 
 # ---------------------------------------------------------------------------
-# PreComputation
-# ---------------------------------------------------------------------------
-
-
-def _check_duration(value: timedelta | None, what: str) -> None:
-    if value is None:
-        return
-    if not isinstance(value, timedelta) or value < timedelta(0):
-        raise ValueError(f"{what} must be a non-negative timedelta, got {value!r}")
-
-
-@dataclass(frozen=True)
-class ApproximateVariant:
-    """The declared approximate variant of a PreComputation (§6.3 Step 1b).
-
-    Used only under ``Substitution.APPROX_ALGORITHM`` or when the caller picks
-    it from a ``CLARIFY`` option.  Every field is required: an approximation
-    whose time, cost or accuracy is not stated is not an approximation the
-    gate can offer.
-
-    Parameters
-    ----------
-    name, query, kind:
-        The replacement PreComputation step.
-    estimated_time:
-        Estimated duration of the approximate step.
-    cost_estimate:
-        Cost of the approximate step, in the units of the plan's cost.
-    accuracy:
-        The accuracy statement of the approximate algorithm (§6.3, e.g.
-        ``"Monte Carlo approximation (k=200 samples)"``); it becomes the
-        warning of the REWRITE or CLARIFY option.
-    """
-
-    name: str
-    query: str
-    estimated_time: timedelta
-    cost_estimate: "CostEstimate"
-    accuracy: str
-    kind: str = "sql"
-
-    def __post_init__(self) -> None:
-        if self.estimated_time is None:
-            raise ValueError("an approximate variant needs an estimated_time")
-        _check_duration(self.estimated_time, "estimated_time")
-        if not isinstance(self.accuracy, str) or not self.accuracy.strip():
-            raise ValueError("an approximate variant needs an accuracy statement")
-
-
-@dataclass(eq=True)
-class PreComputation:
-    """A named pre-computation step emitted before the main query.
-
-    Parameters
-    ----------
-    name:
-        Identifier for the pre-computation (e.g. ``"gt_bfs"``).
-    query:
-        SQL or Python snippet that materialises the result.
-    kind:
-        ``"sql"`` (default) or ``"py"`` (Python pre-computation).
-    estimated_time:
-        Estimated duration; ``None`` when unknown.  The gate (§6.3 Step 1b)
-        never starts a PreComputation whose time is unknown.
-    cost_estimate:
-        Cost of this step, as included in the plan's cost; needed to price
-        the plan with the step replaced by its approximation.
-    approximation:
-        The declared approximate variant, if the algorithm has one.
-    """
-
-    name: str
-    query: str
-    kind: str = "sql"
-    estimated_time: timedelta | None = None
-    cost_estimate: "CostEstimate | None" = None
-    approximation: ApproximateVariant | None = None
-
-    def __post_init__(self) -> None:
-        _check_duration(self.estimated_time, "estimated_time")
-
-
-# ---------------------------------------------------------------------------
-# CostEstimate
-# ---------------------------------------------------------------------------
-
-
-@dataclass(eq=True)
-class CostEstimate:
-    """Mechanical cost estimate for an ExportPlan.
-
-    Parameters
-    ----------
-    cpu_ops:
-        Estimated CPU operations (dimensionless).
-    io_ops:
-        Estimated I/O operations (dimensionless).
-    note:
-        Optional auditable note (no natural language).
-    """
-
-    cpu_ops: int
-    io_ops: int
-    note: str = ""
-
-
-# ---------------------------------------------------------------------------
 # ExportPlan
 # ---------------------------------------------------------------------------
 
@@ -222,8 +117,8 @@ class ExportPlan:
     ir:
         The physical plan IR the query text was emitted from (issue #148),
         or ``None`` for a plan built from text.  When present, ``query_text``
-        must equal the SQL emitted from it; build such plans with
-        :meth:`from_ir`.
+        must equal the SQL emitted from it and ``pre_compute`` the IR's
+        steps; build such plans with :meth:`from_ir`.
     """
 
     query_target: QueryTarget
@@ -245,15 +140,25 @@ class ExportPlan:
                 raise ValueError(
                     "query_text does not match the SQL emitted from the plan IR"
                 )
+            if tuple(self.pre_compute) != self.ir.pre_compute:
+                raise ValueError("pre_compute does not match the plan IR's steps")
 
     @classmethod
     def from_ir(
         cls, ir: "PlanIR", query_target: QueryTarget, **kwargs: Any
     ) -> "ExportPlan":
-        """Build a plan whose ``query_text`` is emitted from *ir*."""
+        """Build a plan whose ``query_text`` and ``pre_compute`` come from *ir*."""
         from sqldim.core.query.dgm.planner._ir_emit import emit_sql
 
-        return cls(query_target, emit_sql(ir), ir=ir, **kwargs)
+        if "pre_compute" in kwargs:
+            raise TypeError("pre_compute comes from the IR; put the steps in ir")
+        return cls(
+            query_target,
+            emit_sql(ir),
+            pre_compute=list(ir.pre_compute),
+            ir=ir,
+            **kwargs,
+        )
 
     def _identity_ir(self) -> "PlanIR":
         from sqldim.core.query.dgm.planner._ir import PlanIdentityUnavailable
@@ -263,11 +168,11 @@ class ExportPlan:
                 "the plan was built from text and has no IR; it has no "
                 "canonical identity or declared dependencies"
             )
-        if self.pre_compute:
+        if tuple(self.pre_compute) != self.ir.pre_compute:
             raise PlanIdentityUnavailable(
-                "PreComputation steps are not part of the plan IR; a plan "
-                "with pre_compute has no canonical identity or declared "
-                "dependencies in this IR version"
+                "pre_compute was changed after the plan was built and no "
+                "longer matches the plan IR; the plan has no canonical "
+                "identity or declared dependencies"
             )
         return self.ir
 
