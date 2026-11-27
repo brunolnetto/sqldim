@@ -625,7 +625,8 @@ class TestRetrievalThroughTheLattice:
 
 
 class TestBundledDatasets:
-    def test_nba_analytics_needs_grain_it_does_not_declare(self) -> None:
+    def test_nba_analytics_declares_grain_and_enumerates(self) -> None:
+        """#165: Grain is declared, so (Game, Team) is no longer UNSUPPORTED."""
         from sqldim.application.supervisor_host import local_supervisor_runtime
 
         rt = local_supervisor_runtime(["nba_analytics"])
@@ -638,8 +639,8 @@ class TestBundledDatasets:
         bound, _ = bind_plan(plan(step("w", TOOL, args, fraction=1.0)))
         ctx = rt.tool_context()
         r = asyncio.run(execute_tool(bound.steps[0], rt.registry, ctx))
-        assert r.error.kind is ToolErrorKind.UNSUPPORTED
-        assert "Grain" in r.error.message
+        assert r.status is CallStatus.SUCCEEDED, r.error
+        assert len(r.data["questions"]) == 5
 
     def test_growth_enumerates_stores_and_retrieves(self, kb: Any) -> None:
         from sqldim.application.supervisor_host import _open_bundled

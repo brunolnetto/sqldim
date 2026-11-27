@@ -116,6 +116,8 @@ class BaseSource(ABC):
        describes the live data source this simulates.
     6. Optionally override ``setup()`` / ``teardown()`` if the defaults
        (which format ``DIM_DDL``) are insufficient.
+    7. A source whose ``setup()`` creates tables other than the one it is
+       registered under overrides ``tables()`` to name them.
     """
 
     # ── Class-level schema declarations ─────────────────────────────────────
@@ -148,6 +150,13 @@ class BaseSource(ABC):
     def teardown(self, con: duckdb.DuckDBPyConnection, table: str) -> None:
         """Drop the sqldim-managed target table."""
         con.execute(f"DROP TABLE IF EXISTS {table}")
+
+    def tables(self, table: str) -> list[str]:
+        """The tables ``setup(con, table)`` creates, in creation order.
+
+        By default the one table the source is registered under.
+        """
+        return [table]
 
     # ── Data interface ───────────────────────────────────────────────────────
 

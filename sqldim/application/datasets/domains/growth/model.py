@@ -3,11 +3,16 @@
 Written from ``sources/``: ``employees`` and ``saas_users`` are dimensions;
 ``saas_sessions`` records one activity event per row and names its user
 (``user_id``, "FK into saas_users"); it carries no measure, so it is a
-factless fact.  ``accounts`` is a balance snapshot fact.  The bundled
-snapshot holds one row per account and leaves ``snapshot_date`` NULL (the
-source emits ``as_of_date``), so its entity key is ``account_id`` alone and
-``snapshot_date`` is a property.  No account dimension table exists, so
-``account_id`` is a property of that fact, not an edge.
+factless fact.  ``accounts`` is a periodic balance snapshot: one row per
+account per ``snapshot_date`` (the bundled data holds the one date
+``INITIAL_SNAPSHOT_DATE``), so its entity key is ``(account_id,
+snapshot_date)``.  No account dimension table exists, so ``account_id`` is a
+property of that fact, not an edge.
+
+Grain (§2.4): a session is an event; the balance snapshot is PERIOD, so a SUM
+of balances is valid only within one ``snapshot_date`` (AD2).  No dimension
+holds verb edge types into two fact types, so nothing is Conformed; there is
+no bridge edge type.
 """
 
 from __future__ import annotations
@@ -21,7 +26,7 @@ from sqldim.application.datasets.model_decl import (
     table_node,
     verb_fk,
 )
-from sqldim.core.query.dgm.annotations import FactlessFact
+from sqldim.core.query.dgm.annotations import FactlessFact, Grain, GrainKind
 from sqldim.core.query.dgm.model import DGMModel, NodeKind
 
 __all__ = ["build_model"]
@@ -41,7 +46,7 @@ def build_model() -> DGMModel:
                 "AccountBalance",
                 NodeKind.FACT,
                 "accounts",
-                ("account_id",),
+                ("account_id", "snapshot_date"),
                 {
                     "account_id": INTEGER,
                     "account_type": STRING,
@@ -71,6 +76,10 @@ def build_model() -> DGMModel:
             ),
         ),
         edge_types=(verb_fk("SaaSUser", "Session", "started", "user_id"),),
-        sigma=(FactlessFact("Session"),),
+        sigma=(
+            FactlessFact("Session"),
+            Grain("Session", GrainKind.EVENT),
+            Grain("AccountBalance", GrainKind.PERIOD),
+        ),
         sigma_kinds=ASSESSED_KINDS,
     )

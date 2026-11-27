@@ -3,6 +3,9 @@
 Written from ``sources/transactions.py``: ``accounts`` and ``counterparties``
 are dimensions; each ``transactions`` row is one payment event that names its
 account (``account_id``) and its counterparty (``counterparty_id``).
+
+Grain (§2.4): a transaction is an event.  No dimension holds verb edge types
+into two fact types, so nothing is Conformed; there is no bridge edge type.
 """
 
 from __future__ import annotations
@@ -15,6 +18,7 @@ from sqldim.application.datasets.model_decl import (
     table_node,
     verb_fk,
 )
+from sqldim.core.query.dgm.annotations import Grain, GrainKind
 from sqldim.core.query.dgm.model import DGMModel, NodeKind
 
 __all__ = ["build_model"]
@@ -67,5 +71,6 @@ def build_model() -> DGMModel:
                 "Counterparty", "Transaction", "counterparty_of", "counterparty_id"
             ),
         ),
+        sigma=(Grain("Transaction", GrainKind.EVENT),),
         sigma_kinds=ASSESSED_KINDS,
     )

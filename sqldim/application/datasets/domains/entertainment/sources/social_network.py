@@ -280,16 +280,20 @@ class SocialNetworkSource(BaseSource):
         table: str = "social_network",
     ) -> None:
         """Drop all tables (reverse dependency order)."""
-        for tbl in (
-            "pessoa_preferencia",
-            "livro_genero",
-            "conexao_social",
-            "leitura",
-            "genero",
-            "livro",
-            "pessoa",
-        ):
+        for tbl in reversed(self.tables(table)):
             con.execute(f"DROP TABLE IF EXISTS {tbl}")
+
+    def tables(self, table: str = "social_network") -> list[str]:
+        """The seven tables :meth:`setup` creates; their names are fixed."""
+        return [
+            "pessoa",
+            "livro",
+            "genero",
+            "leitura",
+            "conexao_social",
+            "livro_genero",
+            "pessoa_preferencia",
+        ]
 
     def snapshot(self):
         raise NotImplementedError(

@@ -467,6 +467,7 @@ class TestDataset:
         from sqldim.application.datasets.base import SourceProvider
 
         src = MagicMock()
+        src.tables.side_effect = lambda table: [table]  # BaseSource.tables default
         if not has_snapshot:
             src.snapshot.side_effect = NotImplementedError
         else:

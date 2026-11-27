@@ -45,7 +45,10 @@ from sqldim.application.datasets.schema import (
 _TIERS = ["bronze", "bronze", "silver", "gold", "platinum"]
 _CHANNELS = ["organic", "email", "social", "referral", "ads"]
 _CATEGORIES = ["Electronics", "Apparel", "Home", "Sports", "Books"]
-_ORDER_IDS = [f"ORD-{i:05d}" for i in range(1, 201)]
+_N_CUSTOMERS = 80
+"""Customers :class:`LoyaltyCustomersSource` generates by default."""
+_N_PRODUCTS = 40
+"""Products :class:`CatalogProductsSource` generates by default."""
 
 # ── DatasetSpecs ──────────────────────────────────────────────────────────────
 
@@ -138,9 +141,22 @@ _ORDERS_SPEC = DatasetSpec(
         "source": EntitySchema(
             name="orders",
             fields=[
-                FieldSpec("order_id", "VARCHAR", kind="choices", choices=_ORDER_IDS),
-                FieldSpec("customer_id", "INTEGER", kind="randint", low=1, high=100),
-                FieldSpec("product_id", "INTEGER", kind="randint", low=1, high=50),
+                # One row per order: the id is the row's sequence number, so it
+                # is unique.  customer_id and product_id reference rows of the
+                # customers and products sources (ids 1…_N_CUSTOMERS and
+                # 1…_N_PRODUCTS).
+                FieldSpec(
+                    "order_id",
+                    "VARCHAR",
+                    kind="computed",
+                    fn=lambda fake, i: f"ORD-{i + 1:05d}",
+                ),
+                FieldSpec(
+                    "customer_id", "INTEGER", kind="randint", low=1, high=_N_CUSTOMERS
+                ),
+                FieldSpec(
+                    "product_id", "INTEGER", kind="randint", low=1, high=_N_PRODUCTS
+                ),
                 FieldSpec("quantity", "INTEGER", kind="randint", low=1, high=10),
                 FieldSpec(
                     "unit_price_at_order",
@@ -192,7 +208,7 @@ class LoyaltyCustomersSource(SchematicSource):
     spec = _CUSTOMERS_SPEC
     schema_name = "source"
 
-    def __init__(self, n_entities: int = 80, *, seed: int = 42) -> None:
+    def __init__(self, n_entities: int = _N_CUSTOMERS, *, seed: int = 42) -> None:
         super().__init__(
             spec=_CUSTOMERS_SPEC, schema_name="source", n_entities=n_entities, seed=seed
         )
@@ -205,7 +221,7 @@ class CatalogProductsSource(SchematicSource):
     spec = _PRODUCTS_SPEC
     schema_name = "source"
 
-    def __init__(self, n_entities: int = 40, *, seed: int = 42) -> None:
+    def __init__(self, n_entities: int = _N_PRODUCTS, *, seed: int = 42) -> None:
         super().__init__(
             spec=_PRODUCTS_SPEC, schema_name="source", n_entities=n_entities, seed=seed
         )

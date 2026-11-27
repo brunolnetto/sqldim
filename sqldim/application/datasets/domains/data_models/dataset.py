@@ -14,6 +14,7 @@ Instantiate and use with a DuckDB connection:
 """
 
 from sqldim.application.datasets.dataset import Dataset
+from sqldim.application.datasets.domains.data_models.model import build_model
 from sqldim.application.datasets.domains.data_models.sources import (
     DGMShowcaseSource,
     OrgChartSource,
@@ -25,6 +26,7 @@ data_models_dataset = Dataset(
         (DGMShowcaseSource(), "dgm_showcase"),
         (OrgChartSource(), "org_dim"),
     ],
+    model=build_model,
 )
 
 DATASET_METADATA = {

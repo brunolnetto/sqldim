@@ -89,9 +89,7 @@ class DatasetPipelineSource(PipelineSource):
             try:
                 # Skip sources that already populated their table in setup()
                 # (e.g. static-fixture sources that self-insert on creation).
-                row = self._con.execute(f"SELECT COUNT(*) FROM {table}").fetchone()
-                already_loaded = row is not None and row[0] > 0
-                if already_loaded:
+                if self._already_loaded(src.tables(table)):
                     continue
                 snap_sql = src.snapshot().as_sql(self._con)
                 self._con.execute(
@@ -99,6 +97,14 @@ class DatasetPipelineSource(PipelineSource):
                 )
             except NotImplementedError:
                 pass  # Static-fixture sources that don't expose snapshot()
+
+    def _already_loaded(self, tables: list[str]) -> bool:  # pragma: no cover
+        con = self.get_connection()
+        for table in tables:
+            row = con.execute(f"SELECT COUNT(*) FROM {table}").fetchone()
+            if row is not None and row[0] > 0:
+                return True
+        return False
 
     def get_connection(self) -> duckdb.DuckDBPyConnection:
         if self._con is None:

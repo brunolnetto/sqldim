@@ -14,7 +14,11 @@ Conventions of the bundled declarations:
 * a foreign-key column is an edge type, not a property;
 * :data:`ASSESSED_KINDS` are the annotation kinds each declaration states
   completely: for these, a type without the annotation does not have it.
-  Other kinds are left undeclared, and a tool that needs one fails.
+  Other kinds are left undeclared, and a tool that needs one fails;
+* every fact type carries one ``Grain`` and every bridge edge type one
+  ``BridgeSemantics``; ``Conformed(d, Fs)`` is declared where a dimension
+  holds verb edge types into two or more fact types ``Fs`` (§2.4);
+* ``Additivity`` (§2.4) has no implementation yet, so no measure states one.
 """
 
 from __future__ import annotations
@@ -31,6 +35,7 @@ from sqldim.core.query.dgm.model import (
     NodeType,
     PropType,
     Reference,
+    RelationTable,
 )
 
 __all__ = [
@@ -42,12 +47,22 @@ __all__ = [
     "STRING",
     "TIMESTAMP",
     "bridge_fk",
+    "bridge_table",
     "table_node",
     "verb_fk",
 ]
 
 ASSESSED_KINDS = frozenset(
-    {"FactlessFact", "MedallionLayer", "PipelineArtifact", "RolePlaying", "SCDType"}
+    {
+        "BridgeSemantics",
+        "Conformed",
+        "FactlessFact",
+        "Grain",
+        "MedallionLayer",
+        "PipelineArtifact",
+        "RolePlaying",
+        "SCDType",
+    }
 )
 
 STRING = PropType("String")
@@ -100,4 +115,42 @@ def bridge_fk(source: str, target: str, label: str, column: str) -> EdgeType:
         label,
         EdgeKind.BRIDGE,
         mapping=ForeignKey(Holder.SOURCE, (column,), Reference.ENTITY_KEY),
+    )
+
+
+def bridge_table(
+    source: tuple[str, str],
+    target: tuple[str, str],
+    label: str,
+    relation: str,
+    props: Mapping[str, PropType] | None = None,
+    *,
+    weight: str | None = None,
+) -> EdgeType:
+    """An N:N bridge edge type held as a bridge table (§2.6, M4).
+
+    *source* and *target* are ``(node type, column)`` pairs: the column of
+    *relation* that holds the entity key of that endpoint.  *props* are edge
+    properties by column name; *weight* names the column holding the weight.
+    """
+    declared = dict(props or {})
+    columns = {key: key for key in declared}
+    if weight is not None:
+        declared["weight"] = PropType("Real")
+        columns["weight"] = weight
+    return EdgeType(
+        source[0],
+        target[0],
+        label,
+        EdgeKind.BRIDGE,
+        properties=declared,
+        weighted=weight is not None,
+        many_to_many=True,
+        mapping=RelationTable(
+            relation,
+            (source[1],),
+            (target[1],),
+            Reference.ENTITY_KEY,
+            props=columns,
+        ),
     )

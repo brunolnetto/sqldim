@@ -5,6 +5,10 @@ row is one page view that names its device (``device_id``) and carries no
 measure, so it is a factless fact.  Its ``user_id`` names no table of the
 dataset and is a property.  ``pipeline_spans`` and ``metric_samples`` are
 facts with a measure each (``duration_s``, ``value``) and no foreign key.
+
+Grain (§2.4): a page view, a span and a metric sample are each one row per
+event.  No dimension holds verb edge types into two fact types, so nothing is
+Conformed; there is no bridge edge type.
 """
 
 from __future__ import annotations
@@ -18,7 +22,7 @@ from sqldim.application.datasets.model_decl import (
     table_node,
     verb_fk,
 )
-from sqldim.core.query.dgm.annotations import FactlessFact
+from sqldim.core.query.dgm.annotations import FactlessFact, Grain, GrainKind
 from sqldim.core.query.dgm.model import DGMModel, NodeKind
 
 __all__ = ["build_model"]
@@ -81,6 +85,11 @@ def build_model() -> DGMModel:
             ),
         ),
         edge_types=(verb_fk("Device", "PageEvent", "generated", "device_id"),),
-        sigma=(FactlessFact("PageEvent"),),
+        sigma=(
+            FactlessFact("PageEvent"),
+            Grain("PageEvent", GrainKind.EVENT),
+            Grain("PipelineSpan", GrainKind.EVENT),
+            Grain("MetricSample", GrainKind.EVENT),
+        ),
         sigma_kinds=ASSESSED_KINDS,
     )

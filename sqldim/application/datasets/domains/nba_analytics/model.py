@@ -14,6 +14,12 @@ Written from ``sources/``:
   property;
 * ``player_seasons`` is one fact row per player per season, with no foreign
   key.
+
+Grain (§2.4): a game and a player's line in a game are events; a player
+season is one row per player per season, PERIOD.  ``Team`` holds verb edge
+types into ``Game`` and ``GameDetail``, the same teams for both, so it is
+Conformed for the two.  A detail row belongs to its game with no order in
+time between them, so ``in_game`` is STRUCTURAL (§2.3).
 """
 
 from __future__ import annotations
@@ -28,7 +34,14 @@ from sqldim.application.datasets.model_decl import (
     table_node,
     verb_fk,
 )
-from sqldim.core.query.dgm.annotations import RolePlaying
+from sqldim.core.query.dgm.annotations import (
+    BridgeSemantics,
+    BridgeSemanticsKind,
+    Conformed,
+    Grain,
+    GrainKind,
+    RolePlaying,
+)
 from sqldim.core.query.dgm.model import DGMModel, NodeKind, NodeType, PropType
 
 __all__ = ["build_model"]
@@ -156,6 +169,13 @@ def build_model() -> DGMModel:
             verb_fk("Team", "GameDetail", "played_for", "team_id"),
             bridge_fk("GameDetail", "Game", "in_game", "game_id"),
         ),
-        sigma=(RolePlaying("Team", ["home", "visitor"]),),
+        sigma=(
+            RolePlaying("Team", ["home", "visitor"]),
+            Conformed("Team", {"Game", "GameDetail"}),
+            Grain("Game", GrainKind.EVENT),
+            Grain("GameDetail", GrainKind.EVENT),
+            Grain("PlayerSeason", GrainKind.PERIOD),
+            BridgeSemantics("in_game", BridgeSemanticsKind.STRUCTURAL),
+        ),
         sigma_kinds=ASSESSED_KINDS,
     )

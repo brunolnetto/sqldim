@@ -167,8 +167,12 @@ class OrgChartSource(BaseSource):
         table: str = "org_dim",
     ) -> None:
         """Drop all three fixture tables."""
-        for tbl in ("org_dim_closure", "sales_fact", "org_dim"):
+        for tbl in reversed(self.tables(table)):
             con.execute(f"DROP TABLE IF EXISTS {tbl}")
+
+    def tables(self, table: str = "org_dim") -> list[str]:
+        """The three tables :meth:`setup` creates; their names are fixed."""
+        return ["org_dim", "sales_fact", "org_dim_closure"]
 
     # ── Data interface ───────────────────────────────────────────────────────
 
