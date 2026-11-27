@@ -1,39 +1,68 @@
 # Pattern: The Dual-Paradigm Model
 
-The most common architectural friction in data engineering is the choice between a **Star Schema** (for BI/aggregations) and a **Graph Schema** (for network analysis). `sqldim` eliminates this choice by projecting your Dimensions as Graph Vertices.
+A star schema serves aggregation; a graph serves questions about
+relationships ("friends of friends", "shared supply-chain paths"). sqldim
+lets one relational schema serve both: a `VertexModel` is a `DimensionModel`
+and an `EdgeModel` is a `FactModel`, so the same tables are queried with SQL
+and traversed with `GraphModel`.
 
-## The Pain Point: The "Join-Depth" Tax
-In traditional SQL, finding "Friends of Friends" or "Shared Supply Chain Paths" requires recursive queries that are notoriously difficult to write and maintain. Many teams export data to Neo4j just to solve this, introducing sync lag and infrastructure overhead.
-
-## The Solution: Seamless Projection
-With `sqldim`, your existing `DimensionModel` is already a graph vertex. By adding an `EdgeModel`, you can traverse relationships using a native Graph API without leaving your SQL database.
+## Vertices and edges
 
 ```python
-from sqldim import VertexModel, EdgeModel
+import asyncio
+from typing import Optional
 
-# 1. Any Dimension is a Vertex
+from sqlmodel import Session, SQLModel, create_engine
+
+from sqldim import EdgeModel, Field, GraphModel, VertexModel
+
+
 class Player(VertexModel, table=True):
+    __tablename__ = "player"
     __vertex_type__ = "player"
+
+    id: Optional[int] = Field(default=None, primary_key=True)
     name: str
 
-# 2. Any Fact is an Edge
+
 class TeammateEdge(EdgeModel, table=True):
+    __tablename__ = "teammate"
     __edge_type__ = "is_teammate_with"
     __subject__ = Player
     __object__ = Player
-    __directed__ = False # Undirected graph support
+    __directed__ = False
+
+    id: Optional[int] = Field(default=None, primary_key=True)
+    subject_id: int = Field(foreign_key="player.id")
+    object_id: int = Field(foreign_key="player.id")
+
+
+engine = create_engine("sqlite://")
+SQLModel.metadata.create_all(engine, tables=[Player.__table__, TeammateEdge.__table__])
+with Session(engine) as session:
+    session.add_all([Player(id=23, name="Jordan"), Player(id=33, name="Pippen"),
+                     Player(id=91, name="Rodman")])
+    session.add_all([TeammateEdge(subject_id=23, object_id=33),
+                     TeammateEdge(subject_id=91, object_id=23)])
+    session.commit()
+
+    graph = GraphModel(Player, TeammateEdge, session=session)
+    jordan = asyncio.run(graph.get_vertex(Player, 23))
+    teammates = asyncio.run(graph.neighbors(jordan, edge_type=TeammateEdge))
+    print(sorted(p.name for p in teammates))  # ['Pippen', 'Rodman']
 ```
 
-## Traversal in 3 Lines
-```python
-graph = GraphModel(Player, TeammateEdge, session=session)
-jordan = await graph.get_vertex(Player, id=23)
+`GraphModel` generates the SQL: `neighbors()` is one hop (`direction="out"`,
+`"in"` or `"both"`, the default), and `paths(source, target, max_hops=3)` is a
+recursive CTE bounded by `max_hops`, written for DuckDB and PostgreSQL (SQLite has no arrays for it). `paths()` awaits `session.execute`, so it
+needs an `AsyncSession`; `get_vertex()` and `neighbors()` accept either kind.
 
-# Recursive CTE generated under the hood
-teammates = await graph.neighbors(jordan, edge_type=TeammateEdge)
-```
+## What it does and does not give you
 
-## Why it matters
-- **No Data Movement**: Your graph queries run directly on your relational data.
-- **Transactional Consistency**: If your dimension updates via SCD2, your graph reflects the latest state immediately.
-- **Hybrid Power**: Use SQL for "Total Points Scored" and Graph for "Shortest Path between Teammates" in the same script.
+- **No data movement.** The traversal SQL runs on the tables your loaders
+  write; there is no separate graph store.
+- **SCD2 versions are rows.** A `VertexModel` with `SCD2Mixin` has one row per
+  version, and the traversal SQL does not filter on `is_current`; filter the
+  versions you mean.
+- **One script, two paradigms.** Aggregate with SQL (or `DimensionalQuery`)
+  and traverse with `GraphModel` over the same session.

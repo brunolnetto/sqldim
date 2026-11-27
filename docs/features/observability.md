@@ -1,271 +1,166 @@
 # Feature: Observability
 
-The observability plane provides full-stack visibility into pipeline runs using an OTel-compatible model for distributed tracing and metrics.
+`sqldim.observability` records spans and metrics in memory with an
+OTel-compatible model, and can hand each one to an exporter. Nothing in
+sqldim instruments itself: you open the spans and record the metrics.
 
 ## Quick Start
 
 ```python
-from sqldim.observability import OTelCollector, MetricSample
-from sqldim.observability.metrics import MetricKind
+from sqldim.observability import MetricKind, MetricSample, OTelCollector
 
 collector = OTelCollector()
 
-# Trace a pipeline step
-with collector.start_span("scd_process", table="dim_customer", processor="LazySCDProcessor") as span:
-    result = processor.process(source, "dim_customer")
-    # span.duration_s and span.status are set automatically on exit
+# Trace a pipeline step: duration and status are set when the block exits.
+with collector.start_span("scd_process", table="dim_customer") as span:
+    rows = sum(range(1_000))
 
-# Record metrics
-collector.record_metric(MetricSample(
-    name="sqldim.throughput",
-    value=1240.0,
-    kind=MetricKind.GAUGE,
-    labels={"table": "dim_customer", "processor": "LazySCDProcessor"},
-))
+collector.record_metric(
+    MetricSample(
+        name="sqldim.rows_inserted",
+        value=1_000,
+        kind=MetricKind.COUNTER,
+        labels={"table": "dim_customer"},
+    )
+)
+print(span.status.value, span.duration_s >= 0)  # ok True
+print([m.name for m in collector.metrics()])     # ['sqldim.rows_inserted']
 ```
 
 ## OTelCollector
 
-The central collector for traces and metrics.
+`OTelCollector(span_exporter=None, metric_exporter=None)` keeps every span
+and metric in memory and, when an exporter is given, passes each one to it as
+it is recorded.
+
+| Method | Description |
+|---|---|
+| `start_span(name, **attributes)` | Context manager yielding a `PipelineSpan`. On an exception the span's status is `ERROR`, `error` holds the message, and the exception propagates. |
+| `record_metric(sample)` | Store a `MetricSample` and export it. |
+| `spans()` / `metrics()` | Everything recorded, in order. |
+| `clear()` | Drop everything recorded. |
 
 ```python
-from sqldim.observability import OTelCollector
-
-collector = OTelCollector()
-```
-
-### start_span()
-
-Create a traced pipeline span. Returns a context manager that records duration and status.
-
-```python
-with collector.start_span(name, **attributes) as span:
-    # do work
+try:
+    with collector.start_span("bronze_to_silver", layer="silver"):
+        raise RuntimeError("boom")
+except RuntimeError:
     pass
-
-# span.duration_s  — elapsed time in seconds
-# span.status      — "OK" or "ERROR" (ERROR if exception raised)
+failed = collector.spans()[-1]
+print(failed.status.value, failed.error)  # error boom
 ```
 
-| Parameter | Type | Description |
-|---|---|---|
-| `name` | `str` | Span name (e.g., `"scd_process"`, `"bronze_to_silver"`) |
-| `**attributes` | `str -> Any` | Key-value pairs attached to the span (table, processor, layer, etc.) |
+## MetricSample and PipelineSpan
 
-### record_metric()
-
-Record a metric sample.
-
-```python
-collector.record_metric(MetricSample(
-    name="sqldim.throughput",
-    value=1240.0,
-    kind=MetricKind.GAUGE,
-    labels={"table": "dim_customer"},
-))
-```
-
-## MetricSample
-
-```python
-from sqldim.observability import MetricSample
-from sqldim.observability.metrics import MetricKind
-
-MetricSample(
-    name="sqldim.throughput",    # metric name
-    value=1240.0,                # numeric value
-    kind=MetricKind.GAUGE,       # GAUGE, COUNTER, or HISTOGRAM
-    labels={"table": "dim_customer", "processor": "scd2"},
-)
-```
-
-| Field | Type | Description |
+| `MetricSample` field | Type | Description |
 |---|---|---|
 | `name` | `str` | Metric name |
 | `value` | `float` | Numeric value |
-| `kind` | `MetricKind` | `GAUGE` (point-in-time), `COUNTER` (cumulative), `HISTOGRAM` (distribution) |
-| `labels` | `dict` | Key-value dimensions for grouping and filtering |
+| `kind` | `MetricKind` | `GAUGE`, `COUNTER` or `HISTOGRAM` |
+| `labels` | `dict[str, str]` | Dimensions for grouping and filtering |
+| `timestamp` | `datetime` | When it was recorded (UTC) |
 
-## PipelineSpan
-
-Returned by `start_span()`. A dataclass with timing and status metadata.
-
-| Field | Type | Description |
+| `PipelineSpan` field | Type | Description |
 |---|---|---|
-| `duration_s` | `float` | Elapsed time in seconds |
-| `status` | `str` | `"OK"` or `"ERROR"` |
-| `attributes` | `dict` | Attributes passed to `start_span()` |
+| `name`, `attributes` | `str`, `dict` | What `start_span()` was given |
+| `status` | `SpanStatus` | `OK` or `ERROR` |
+| `duration_s` | `float` | Elapsed seconds |
+| `start_time`, `end_time` | `datetime` | UTC |
+| `error` | `str \| None` | The exception message, if any |
 
-## Instrumenting a Pipeline
-
-Wrap every processor call with a span and record throughput metrics:
-
-```python
-from sqldim.observability import OTelCollector, MetricSample
-from sqldim.observability.metrics import MetricKind
-
-collector = OTelCollector()
-
-def load_dimension(processor, source, table_name):
-    with collector.start_span("scd_process", table=table_name, processor=type(processor).__name__) as span:
-        result = processor.process(source, table_name)
-
-    collector.record_metric(MetricSample(
-        name="sqldim.rows_inserted",
-        value=result.inserted,
-        kind=MetricKind.COUNTER,
-        labels={"table": table_name},
-    ))
-    collector.record_metric(MetricSample(
-        name="sqldim.throughput",
-        value=result.inserted / span.duration_s if span.duration_s > 0 else 0,
-        kind=MetricKind.GAUGE,
-        labels={"table": table_name},
-    ))
-    return result
-```
-
-## Standard Metric Names
-
-| Metric | Kind | Unit | Description |
-|---|---|---|---|
-| `sqldim.throughput` | GAUGE | rows/s | Processing rate per table |
-| `sqldim.duration` | HISTOGRAM | s | Pipeline step wall time |
-| `sqldim.memory.rss` | GAUGE | GiBy | Peak resident set size |
-| `sqldim.spill` | COUNTER | GiBy | Total disk spill |
-| `sqldim.rows_inserted` | COUNTER | rows | Total rows written |
-| `sqldim.rows_versioned` | COUNTER | rows | SCD version rows created |
+Metric names are yours to choose; sqldim defines no standard set and emits
+none by itself.
 
 ## Exporters
 
-By default `OTelCollector` stores spans and metrics in memory. To ship data to external backends, attach one or more exporters. All exporters are **opt-in** — zero dependencies unless you choose an OTLP backend.
-
-### ConsoleExporter (zero-dep)
-
-Writes spans and metrics as JSON lines to stderr. Ideal for local development and CI.
+`ConsoleExporter(stream=None)` writes each span or metric as a JSON line (to
+stderr by default) and has no dependency. `OTLPSpanExporter(endpoint=...)`
+and `OTLPMetricExporter(endpoint=...)` send to an OTLP collector over gRPC;
+they need `pip install sqldim[otel]` and raise `ImportError` without it.
 
 ```python
-from sqldim.observability import OTelCollector
-from sqldim.observability.exporters import ConsoleExporter
+import io
 
-collector = OTelCollector(exporters=[ConsoleExporter()])
+from sqldim.observability import ConsoleExporter
+
+stream = io.StringIO()
+console = ConsoleExporter(stream=stream)
+exported = OTelCollector(span_exporter=console, metric_exporter=console)
+with exported.start_span("scd_process"):
+    pass
+print(len(stream.getvalue().splitlines()))  # 1
 ```
 
-### OTLP Exporters (requires `sqldim[otel]`)
-
-Ship to any OTLP-compatible collector (Jaeger, Tempo, Prometheus, Grafana Cloud, etc.).
-
-```python
-from sqldim.observability import OTelCollector
-from sqldim.observability.exporters import OTLPSpanExporter, OTLPMetricExporter
-
-collector = OTelCollector(exporters=[
-    OTLPSpanExporter(endpoint="http://localhost:4317"),       # gRPC (default)
-    OTLPMetricExporter(endpoint="http://localhost:4318", protocol="http"),  # HTTP
-])
-```
-
-| Exporter | Dependency | Protocol | Use case |
-|---|---|---|---|
-| `ConsoleExporter` | None | stderr JSON | Development, CI |
-| `OTLPSpanExporter` | `sqldim[otel]` | gRPC / HTTP | Distributed tracing backends |
-| `OTLPMetricExporter` | `sqldim[otel]` | gRPC / HTTP | Prometheus, Grafana |
-
-### Custom exporters
-
-Implement the `SpanExporter` or `MetricExporter` protocol:
+A custom exporter is any object with `export(item)`; the `SpanExporter` and
+`MetricExporter` protocols describe it:
 
 ```python
-from sqldim.observability.exporters import SpanExporter, MetricExporter
+class ListExporter:
+    def __init__(self) -> None:
+        self.items: list = []
 
-class MySpanExporter(SpanExporter):
-    def export(self, spans: list) -> None:
-        ...  # send to your backend
+    def export(self, item) -> None:
+        self.items.append(item)
 
-    def flush(self) -> None:
-        ...
+
+sink = ListExporter()
+with OTelCollector(span_exporter=sink).start_span("noop"):
+    pass
+print(len(sink.items))  # 1
 ```
 
 ## Decorators
 
-For opt-in auto-instrumentation without manual span/metric calls:
-
-### @traced
-
-Wraps a sync or async function in a `PipelineSpan`:
+`@traced(collector, name=None)` wraps a sync or async function in a span
+named after the function. `@metered(collector, name=None, kind=COUNTER,
+labels=None, value=1.0)` records a sample after each call; `value` may be a
+callable that receives the return value.
 
 ```python
-from sqldim.observability import OTelCollector
-from sqldim.observability.decorators import traced
+from sqldim.observability import metered, traced
 
-collector = OTelCollector(exporters=[ConsoleExporter()])
 
 @traced(collector)
-def process(source, table_name):
-    ...
-    # span is recorded automatically with duration and status
-```
+@metered(collector, name="sqldim.rows_inserted", value=lambda n: n)
+def load(rows: list) -> int:
+    return len(rows)
 
-### @metered
 
-Records a `MetricSample` after each call:
-
-```python
-from sqldim.observability.decorators import metered
-from sqldim.observability.metrics import MetricKind
-
-@metered(collector, name="sqldim.rows_inserted", kind=MetricKind.COUNTER)
-def process(source, table_name):
-    ...
-    return result  # result.inserted (or result itself if numeric) is recorded
+load([1, 2, 3])
+print(collector.metrics()[-1].value)  # 3.0
 ```
 
 ## Instruments
 
-Ergonomic wrappers for common metric patterns — each holds a reference to a named metric and provides a domain-specific API:
+Wrappers that record a sample of a fixed name, kind and labels:
 
 ```python
-from sqldim.observability.instruments import Counter, Gauge, Histogram
+from sqldim.observability import Counter, Gauge, Histogram
 
-rows_counter = Counter(collector, "sqldim.rows_inserted", labels={"table": "orders"})
-rows_counter.increment(50)
-
-latency = Histogram(collector, "sqldim.duration", labels={"step": "scd"})
-latency.record(0.342)
-
-backlog = Gauge(collector, "sqldim.backlog", labels={"topic": "events"})
-backlog.set(1_200)
+Counter(collector, "sqldim.rows_inserted", labels={"table": "orders"}).increment(50)
+Histogram(collector, "sqldim.duration", labels={"step": "scd"}).record(0.342)
+Gauge(collector, "sqldim.backlog", labels={"topic": "events"}).set(1_200)
+print([m.kind.value for m in collector.metrics()[-3:]])  # ['counter', 'histogram', 'gauge']
 ```
 
-| Instrument | Method | Description |
+| Instrument | Method | Kind |
 |---|---|---|
-| `Counter` | `.increment(value=1)` | Cumulative count |
-| `Gauge` | `.set(value)` | Point-in-time value |
-| `Histogram` | `.record(value)` | Distribution observation |
+| `Counter` | `.increment(amount=1.0)` | `COUNTER` |
+| `Gauge` | `.set(value)` | `GAUGE` |
+| `Histogram` | `.record(value)` | `HISTOGRAM` |
 
-## Integration with Notifications
+## With Notifications
 
-Feed observability data into the [Notifications](notifications.md) system for anomaly-triggered alerts:
-
-```python
-from sqldim.notifications import NotificationRouter, Severity, NotificationEvent
-
-def check_latency_anomaly(collector, threshold_s=5.0):
-    for span in collector.recent_spans:
-        if span.duration_s > threshold_s:
-            router.route(NotificationEvent(
-                title=f"Latency anomaly: {span.attributes.get('table')}",
-                severity=Severity.P3,
-                event_type="otel_latency_drift",
-                attributes={"duration_s": span.duration_s, **span.attributes},
-            ))
-```
+The two are not connected. To alert on a slow span, read the spans and route
+an event yourself — see [Notifications](notifications.md) for the router.
 
 ---
 
 ## DriftObservatory
 
-`DriftObservatory` is a higher-level observability component that models **schema evolution and data-quality drift as first-class Kimball facts**. The library dog-foods itself: the star schema is declared using `DimensionModel` / `TransactionFact` base classes and materialised into DuckDB.
+`DriftObservatory` stores schema evolution and data-quality results as a
+Kimball star schema in DuckDB. The schema is declared with sqldim's own
+`DimensionModel` and `TransactionFact` classes.
 
 ### Star Schema
 
@@ -280,87 +175,68 @@ def check_latency_anomaly(collector, threshold_s=5.0):
 
 ### Quick Start
 
+The evolution report comes from `ContractEngine.check_evolution_safety` and
+the quality report from `ContractEngine.validate` (see
+[Data Contracts](data_contracts.md)).
+
 ```python
+import duckdb
+
+from sqldim.contracts import ColumnSpec, ContractEngine, NotNull, SourceContract
 from sqldim.observability.drift import DriftObservatory
 
-# In-memory (testing / one-shot analysis)
-obs = DriftObservatory.in_memory()
+evo_report = ContractEngine.check_evolution_safety(
+    [ColumnSpec("id", "INTEGER"), ColumnSpec("email", "VARCHAR")],
+    [ColumnSpec("id", "BIGINT")],
+)
+con = duckdb.connect()
+con.execute("CREATE TABLE orders AS SELECT * FROM (VALUES (1), (NULL)) t(id)")
+quality_report = ContractEngine().validate(
+    con, "orders", SourceContract(rules=[NotNull("id")])
+)
 
-# File-backed (persistent across runs)
-obs = DriftObservatory.from_path("./drift.duckdb")
-
-# Ingest a schema-evolution report (silver layer)
+obs = DriftObservatory.in_memory()  # or DriftObservatory.from_path("./drift.duckdb")
 obs.ingest_evolution(evo_report, dataset="orders_dim", run_id="run-001", layer="silver")
-
-# Ingest a contract-check report (silver layer)
 obs.ingest_quality(quality_report, dataset="orders_dim", run_id="run-001", layer="silver")
 
-# Gold-layer queries
-obs.breaking_change_rate().fetchdf()
-obs.worst_quality_datasets(top_n=5).fetchdf()
-obs.drift_velocity(bucket="week").fetchdf()
-obs.quality_score_trend("orders_dim").fetchdf()
-obs.migration_backlog().fetchdf()
-obs.rule_failure_heatmap().fetchdf()
+print(obs.breaking_change_rate().fetchall())
+print(obs.worst_quality_datasets(top_n=5).fetchall())
 ```
 
-### Bulk Ingest with `transaction()`
+### Bulk ingest with `transaction()`
 
-For high-volume scenarios, wrap all ingest calls in a single explicit transaction.
-Without this wrapper each call auto-commits, making bulk loads significantly slower.
+Each ingest call commits on its own. Wrap many calls in one transaction:
 
 ```python
 with obs.transaction():
-    for report in evolution_reports:
-        obs.ingest_evolution(report, dataset="orders_dim", run_id="run-001")
-    for report in quality_reports:
-        obs.ingest_quality(report, dataset="orders_dim", run_id="run-001")
+    for i, report in enumerate([evo_report, evo_report]):
+        obs.ingest_evolution(report, dataset="orders_dim", run_id=f"run-{i + 2:03}")
 ```
 
-### `ingest_evolution(report, *, dataset, run_id, layer, pipeline_name, domain, detected_at)`
+### `ingest_evolution(report, *, dataset, run_id, layer="", pipeline_name="", domain="", detected_at=None)`
 
-Convert an `EvolutionReport` into `ObsSchemaEvolutionFact` rows. Returns the number of rows inserted.
+Converts an `EvolutionReport` into `obs_schema_evolution_fact` rows and
+returns how many it inserted. `ingest_quality(report, ...)` does the same for
+a `ContractReport` (with `checked_at` in place of `detected_at`); a report
+with no violation inserts nothing and returns `0`.
 
-| Parameter | Type | Description |
-|---|---|---|
-| `report` | `EvolutionReport` | Schema diff report from `SchemaGraph.diff()` |
-| `dataset` | `str` | Logical table/view name |
-| `run_id` | `str` | Pipeline run identifier |
-| `layer` | `str` | Medallion layer (`"bronze"`, `"silver"`, `"gold"`) |
-| `pipeline_name` | `str` | Human-readable pipeline label |
-| `domain` | `str` | Business domain (optional) |
-| `detected_at` | `datetime \| None` | Override detection timestamp |
+### Analytical queries
 
-### `ingest_quality(report, *, dataset, run_id, layer, pipeline_name, domain, checked_at)`
-
-Convert a `ContractReport` into `ObsQualityDriftFact` rows. Returns the number of rows inserted.
-A clean run (no violations) returns `0`.
-
-### Gold-Layer Analytical Queries
-
-| Method | Returns | Description |
-|---|---|---|
-| `breaking_change_rate()` | relation | Breaking vs. total schema changes, grouped by dataset |
-| `worst_quality_datasets(top_n=10)` | relation | Datasets with highest cumulative violation counts |
-| `drift_velocity(bucket="day")` | relation | Schema-change events bucketed by day/week/month |
-| `quality_score_trend(dataset, bucket="day")` | relation | Rolling 0–1 quality score for a dataset over time |
-| `migration_backlog()` | relation | Columns requiring migration or backfill |
-| `rule_failure_heatmap()` | relation | Dataset × rule violation matrix |
-
-All methods return a DuckDB relation — call `.fetchdf()` for a Pandas DataFrame or `.fetchall()` for a list of tuples.
-
-### Medallion Mapping
-
-| Medallion Layer | Activity |
+| Method | Description |
 |---|---|
-| **Bronze** | Raw `EvolutionReport` / `ContractReport` objects arrive as events |
-| **Silver** | `ingest_evolution()` / `ingest_quality()` explode them into the star schema |
-| **Gold** | Analytical queries (`breaking_change_rate()`, `drift_velocity()`, etc.) |
+| `breaking_change_rate()` | Breaking vs. total schema changes, grouped by dataset |
+| `worst_quality_datasets(top_n=10)` | Datasets with the highest cumulative violation counts |
+| `drift_velocity(bucket="day")` | Schema-change events bucketed by day, week or month |
+| `quality_score_trend(dataset, bucket="day")` | A 0–1 quality score for a dataset over time |
+| `migration_backlog()` | Columns requiring migration or backfill |
+| `rule_failure_heatmap()` | Dataset × rule violation matrix |
+
+Each returns a DuckDB relation: `.fetchall()` for tuples, `.fetchdf()` for a
+pandas DataFrame.
 
 ---
 
 ## Dependencies
 
-- **[Data Contracts](data_contracts.md)** — observability contracts enforced at OTel Bronze/Silver/Gold promotion gates
-- **[Notifications](notifications.md)** — OTel anomalies trigger P3 notifications; ingestion lag triggers P4
-- **[Medallion Layers](medallion_layers.md)** — OTel signals stored in their own medallion structure
+- **[Data Contracts](data_contracts.md)** — the source of the `EvolutionReport` and `ContractReport` that `DriftObservatory` ingests
+- **[Notifications](notifications.md)** — not wired to observability; route events yourself

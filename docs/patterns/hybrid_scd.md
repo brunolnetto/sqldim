@@ -1,32 +1,61 @@
-# Pattern: Hybrid SCD (Typed Columns + JSONB)
+# Pattern: Hybrid SCD (Typed Columns + JSON)
 
-One of the greatest frictions in dimensional modeling is "Homogenization"—the loss of flexibility as you force diverse source data into a rigid table structure.
+Most products of a `Product` dimension share `name` and `sku`, but a few carry
+their own attributes (`fabric_density` for textiles, `octane_rating` for
+fuel). A hundred nullable columns is messy; a JSON blob alone loses typing
+and easy filtering.
 
-## The Problem
-You have a `Product` dimension. 90% of products share `name` and `sku`, but the other 10% have unique metadata (e.g., `fabric_density` for textiles, `octane_rating` for fuel). Creating 100 nullable columns is messy; using only a JSON blob prevents easy filtering and type safety.
+## The hybrid model
 
-## The Solution: The Hybrid Model
-`sqldim` allows you to define core "High-Density" attributes as columns and "Low-Density" sparse attributes in a `properties` JSONB bag. Crucially, **changes inside the JSON bag trigger SCD2 versioning.**
+Keep the dense attributes as typed columns and the sparse ones in a JSON
+`properties` column. When `properties` is a tracked column, a change inside
+it creates a new SCD2 version. Declare the JSON column with SQLModel's
+`Field(sa_column=...)`: sqldim's `Field` adds column metadata of its own and
+cannot be combined with `sa_column`.
 
 ```python
-from sqldim import DimensionModel, SCD2Mixin, Field
-from sqlalchemy import JSON, Column
+import asyncio
+from typing import Any, Optional
+
+from sqlmodel import JSON, Column, Field, Session, SQLModel, create_engine, select
+
+from sqldim import DimensionModel, SCD2Mixin, SCDHandler
+
 
 class ProductDim(DimensionModel, SCD2Mixin, table=True):
-    # Typed Columns (BI friendly, high performance)
-    sku: str = Field(primary_key=True)
-    name: str
-    category: str
+    __tablename__ = "dim_product_hybrid"
+    __natural_key__ = ["sku"]
 
-    # Property Bag (Flexible, sparse data)
-    # track_columns=["properties"] ensures versioning on any JSON change
-    properties: dict = Field(
-        default_factory=dict,
-        sa_column=Column(JSON, info={"scd": 2})
+    id: Optional[int] = Field(default=None, primary_key=True)
+    sku: str
+    name: str
+    properties: dict[str, Any] = Field(
+        default_factory=dict, sa_column=Column(JSON, info={"scd": 2})
     )
+
+
+engine = create_engine("sqlite://")
+SQLModel.metadata.create_all(engine, tables=[ProductDim.__table__])
+with Session(engine) as session:
+    handler = SCDHandler(ProductDim, session, track_columns=["name", "properties"])
+    load = lambda props: asyncio.run(  # noqa: E731
+        handler.process([{"sku": "T-1", "name": "Tent", "properties": props}])
+    )
+    load({"fabric_density": 210, "colour": "green"})
+    same = load({"colour": "green", "fabric_density": 210})  # keys reordered
+    changed = load({"fabric_density": 300, "colour": "green"})
+    print(same.unchanged, changed.versioned)  # 1 1
+    rows = session.exec(select(ProductDim).order_by(ProductDim.id)).all()
+    print([(r.properties["fabric_density"], r.is_current) for r in rows])
+    # [(210, False), (300, True)]
 ```
 
 ## Why this works
-1. **Deterministic Hashing**: `sqldim` sorts JSON keys before hashing. Changing `{"a": 1, "b": 2}` to `{"b": 2, "a": 1}` does **not** trigger a new version.
-2. **Indexing**: You get the speed of B-Tree indexes on your core columns while keeping the flexibility of GIN indexes (on Postgres) for your metadata.
-3. **Clean ETL**: Your ingestion pipeline doesn't need to break every time a new attribute appears in the source JSON.
+
+1. **Deterministic hashing.** The checksum serialises JSON with sorted keys,
+   so reordering the keys of `properties` is not a change.
+2. **Typed core, flexible rest.** The typed columns can be indexed and
+   filtered as usual; what you index inside the JSON (a GIN index on
+   PostgreSQL, for example) is your database's choice, not sqldim's.
+3. **New attributes do not break the load.** A key that appears in the source
+   JSON is a change to `properties`, not a schema change.

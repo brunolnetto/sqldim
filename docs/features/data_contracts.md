@@ -1,184 +1,217 @@
 # Feature: Data Contracts
 
-Data Contracts enforce schema rules, quality checks, and SLAs at layer promotion boundaries. Every dataset crossing a layer boundary must satisfy its contract before being promoted.
+sqldim has three contract pieces. They are separate, and nothing wires them
+together for you:
 
-## Quick Start
+- **Schema contracts** (`DataContract`, `ColumnSpec`, `SLASpec`,
+  `ContractVersion`, `ContractRegistry`) describe a dataset and detect
+  breaking schema changes. They are metadata: nothing enforces an `SLASpec`
+  against data.
+- **SQL rules** (`NotNull`, `NoDuplicates`, `NullRate`, `Freshness`, …) are
+  run against a DuckDB view by `ContractEngine.validate`, in one round trip.
+- **Quality gates** (`QualityGate`) run callables that return a
+  `CheckResult` before a promotion between two adjacent layers, and can emit
+  lineage events.
+
+## Schema contracts
 
 ```python
-from sqldim.contracts import DataContract, ColumnSpec, SLASpec, QualityGate
-from sqldim.contracts.rules import NotNull, NoDuplicates, NullRate, Freshness
-from sqldim.contracts.layer import Layer
+from sqldim.contracts import ColumnSpec, ContractVersion, DataContract, SLASpec
+from sqldim.medallion import Layer
 
-# Define a contract
+columns = [
+    ColumnSpec("order_id", "UUID", nullable=False, primary_key=True),
+    ColumnSpec("customer_id", "UUID"),
+    ColumnSpec("amount", "DECIMAL(18,2)"),
+    ColumnSpec("created_at", "TIMESTAMP"),
+]
 contract = DataContract(
     name="orders",
-    version="2.1.0",
+    version=ContractVersion.parse("2.1.0"),
     owner="data-platform",
     layer=Layer.SILVER,
-    columns=[
-        ColumnSpec("order_id", "uuid"),
-        ColumnSpec("customer_id", "uuid"),
-        ColumnSpec("amount", "decimal(18,2)"),
-        ColumnSpec("created_at", "timestamp"),
-    ],
-    sla=SLASpec(freshness="< 30m", completeness="> 99.5%"),
+    columns=columns,
+    sla=SLASpec(freshness_minutes=30, completeness_pct=99.5),
 )
 
-# Check for breaking changes when evolving
-contract.is_breaking_change_from(previous_contract)  # → True/False
+# Breaking: a column removed, a dtype changed, or a nullable column made required.
+v3 = DataContract(
+    name="orders",
+    version=ContractVersion.parse("3.0.0"),
+    owner="data-platform",
+    layer=Layer.SILVER,
+    columns=columns[:-1],  # drops created_at
+)
+print(v3.is_breaking_change_from(contract))              # True
+print(contract.version.classify_change(v3.version).value)  # major
+print(contract.sla.is_freshness_met(actual_minutes=12))    # True
 ```
 
-## Quality Gates
+## SQL rules
 
-A `QualityGate` enforces checks at a specific layer transition (e.g., Bronze → Silver). It validates rules as DuckDB SQL queries and aggregates results.
+Each rule implements `.as_sql(view)`, a DuckDB `SELECT` that returns no row
+when the rule passes. `ContractEngine.validate` runs every rule of a
+contract (`SourceContract`, `StateContract` or `OutputContract`) as one
+`UNION ALL`.
 
 ```python
-from sqldim.contracts import QualityGate
-from sqldim.contracts.rules import NotNull, NoDuplicates, NullRate, Freshness
-from sqldim.contracts.layer import Layer
+import duckdb
 
-gate = QualityGate("bronze_to_silver", Layer.BRONZE, Layer.SILVER)
+from sqldim.contracts import ContractEngine, NoDuplicates, NotNull, NullRate, SourceContract
 
-# Add built-in rules
-gate.add_check(NotNull("order_id"))
-gate.add_check(NoDuplicates("order_id"))
-gate.add_check(NullRate("customer_id", max_pct=0.1))
-gate.add_check(Freshness("created_at", max_age_hours=0.5))
-
-# Run the gate against a DuckDB view
-result = gate.run(view="bronze.raw_orders")
-print(result.ok)       # True if all checks pass
-print(result.violations)  # list of failed check details
+con = duckdb.connect()
+con.execute(
+    "CREATE TABLE raw_orders AS SELECT * FROM (VALUES "
+    "(1, 10), (2, NULL), (2, 11)) t(order_id, customer_id)"
+)
+rules = SourceContract(
+    rules=[NotNull("order_id"), NoDuplicates("order_id"), NullRate("customer_id", max_pct=0.1)]
+)
+report = ContractEngine().validate(con, "raw_orders", rules)
+print(sorted(v.rule for v in report.violations))  # ['NO_DUPLICATES', 'NULL_RATE']
+print(report.has_errors())                          # True
 ```
 
-### Built-in Rules
-
-All rules extend `Rule` and implement `.as_sql(view) -> str` to produce DuckDB-native validation queries.
-
-| Rule | Parameters | Severity | SQL Logic |
+| Rule | Parameters | Severity | Fails when |
 |---|---|---|---|
-| `NotNull(column)` | Column name | ERROR | `WHERE column IS NULL` |
-| `NoDuplicates(column)` | Column name | ERROR | `GROUP BY HAVING COUNT(*) > 1` |
-| `NullRate(column, max_pct)` | Column, max null percentage | WARNING | Null rate exceeds threshold |
-| `Freshness(ts_col, max_age_hours)` | Timestamp column, max age | WARNING | `NOW() - ts_col > interval` |
-| `RowCountDelta(baseline, max_pct)` | Expected row count, max deviation | WARNING | Row count drift from baseline |
+| `NotNull(column)` | column | ERROR | a value is NULL |
+| `NoDuplicates(column)` | column | ERROR | a value occurs more than once |
+| `NullRate(column, max_pct)` | column, maximum NULL fraction | WARNING | the NULL fraction exceeds `max_pct` |
+| `Freshness(ts_col, max_age_hours)` | timestamp column, maximum age | WARNING | the newest value is older than `max_age_hours` |
+| `RowCountDelta(baseline, max_pct)` | expected row count, maximum deviation | WARNING | the row count drifts from `baseline` by more than `max_pct` |
 
-### Custom Rules
+`TypeMatch`, `ColumnExists`, `RowCount`, `ValueRange`, `RegexMatch` and the
+SCD2 rules (`SCD2Invariants`, `NoOrphanVersions`, `MonotonicValidFrom`,
+`NoGapPeriods`, `HashConsistency`) follow the same protocol.
 
-Implement the `Rule` protocol to add domain-specific checks:
+### Custom rules
+
+Subclass `Rule`. The `SELECT` must return the columns `rule`, `severity`,
+`violations` and `detail`, and no row when the rule passes:
 
 ```python
-from sqldim.contracts import Rule
+from sqldim.contracts import Rule, Severity
+
 
 class ReferentialIntegrity(Rule):
-    def __init__(self, fk_col: str, ref_table: str, ref_col: str):
-        self.fk_col = fk_col
-        self.ref_table = ref_table
-        self.ref_col = ref_col
+    severity = Severity.ERROR
+
+    def __init__(self, fk_col: str, ref_table: str, ref_col: str) -> None:
+        self.fk_col, self.ref_table, self.ref_col = fk_col, ref_table, ref_col
+        self.name = "REFERENTIAL_INTEGRITY"
 
     def as_sql(self, view: str) -> str:
-        return f"""
-            SELECT '{self.fk_col}' as violation
-            FROM {view} f
-            LEFT JOIN {self.ref_table} r ON f.{self.fk_col} = r.{self.ref_col}
-            WHERE r.{self.ref_col} IS NULL
-        """
+        return (
+            f"SELECT '{self.name}' AS rule, '{self.severity.value}' AS severity,"
+            f" COUNT(*) AS violations, 'column={self.fk_col}' AS detail"
+            f" FROM {view} f LEFT JOIN {self.ref_table} r"
+            f" ON f.{self.fk_col} = r.{self.ref_col}"
+            f" WHERE f.{self.fk_col} IS NOT NULL AND r.{self.ref_col} IS NULL"
+            f" HAVING COUNT(*) > 0"
+        )
 ```
 
-## Layer Promotion Flow
+## Quality gates
 
-```
-Source → [Bronze] --gate: bronze_to_silver-→ [Silver] --gate: silver_to_gold-→ [Gold]
-            ↓                                  ↓                                    ↓
-      Contract registered                Strictest checks              Business-logic checks
-      (permissive)                      (structural + SLA)            (drift + integrity)
-```
-
-- **Bronze**: `schema_on_read` is permissive. The contract is registered but enforcement is deferred.
-- **Silver**: All structural rules run — null rates, duplicates, schema match, SLA freshness.
-- **Gold**: Business-logic rules — referential integrity, statistical drift, completeness.
-
-## Versioning
-
-| Change type | Example | Action |
-|---|---|---|
-| **Additive** | New nullable column | Minor bump (`2.1.0 → 2.2.0`) |
-| **Compatible rename** | Column alias | Minor bump + deprecation notice |
-| **Breaking** | Remove column / type change | Major bump (`2.x.x → 3.0.0`) + fork |
-| **SLA relaxation** | Raise freshness to 60 min | Minor bump + owner approval |
-| **SLA tightening** | Lower latency SLA | Major bump (consumers must re-validate) |
+A `QualityGate` runs between two adjacent layers (`BRONZE → SILVER`,
+`SILVER → GOLD`, `GOLD → SEMANTIC`); any other pair raises `ValueError`. A
+check is a callable that returns a `CheckResult`. `gate.run(**kwargs)` passes
+each check the keyword arguments its signature accepts, and records an
+exception as a failing check.
 
 ```python
-# Detect breaking changes programmatically
-new_contract = DataContract(name="orders", version="3.0.0", ...)
-if new_contract.is_breaking_change_from(old_contract):
-    # Alert consumers, fork dataset, require migration plan
-    ...
+from sqldim.contracts import CheckResult, QualityGate
+from sqldim.medallion import Layer
+
+
+def orders_not_empty(con) -> CheckResult:
+    n = con.execute("SELECT COUNT(*) FROM raw_orders").fetchone()[0]
+    return CheckResult("orders_not_empty", n > 0, f"{n} rows")
+
+
+def no_rule_errors(con) -> CheckResult:
+    found = ContractEngine().validate(con, "raw_orders", rules)
+    return CheckResult("no_rule_errors", not found.has_errors())
+
+
+gate = QualityGate("bronze_to_silver", Layer.BRONZE, Layer.SILVER)
+gate.add_check(orders_not_empty).add_check(no_rule_errors)
+result = gate.run(con=con)
+print(result.ok)                          # False
+print([r.name for r in result.failing])   # ['no_rule_errors']
 ```
+
+Layer policies — what each layer should check, and when to bump a contract's
+major or minor version — are conventions for you to apply. sqldim does not
+enforce them: `ContractVersion.classify_change` reports the kind of a version
+change, and `is_breaking_change_from` reports a breaking schema change.
 
 ## Lineage
 
-sqldim emits structured lineage events at contract enforcement points (quality gates) and pipeline runs. Lineage is opt-in — install the extra and wire an emitter.
+sqldim emits lineage events from quality gates and from `DimensionalLoader`
+when you give them an emitter. Lineage is opt-in.
 
 ### Event model
 
 ```python
-from sqldim.lineage import LineageEvent, RunState, DatasetRef
+from sqldim.lineage import LineageEvent, RunState
+from sqldim.lineage.events import DatasetRef
 
 event = LineageEvent(
     run_id="run-abc-123",
     job_name="bronze_to_silver",
-    inputs=[DatasetRef(name="bronze.raw_orders", namespace="sqldim")],
-    outputs=[DatasetRef(name="silver.orders", namespace="sqldim")],
+    inputs=[DatasetRef(namespace="sqldim", name="bronze.raw_orders")],
+    outputs=[DatasetRef(namespace="sqldim", name="silver.orders")],
     state=RunState.COMPLETE,
 )
+print(event.to_dict()["eventType"])  # COMPLETE
 ```
 
 | Class | Description |
 |---|---|
-| `LineageEvent` | Run lifecycle event with `run_id`, `job_name`, `inputs`, `outputs`, `state`, `facets` |
+| `LineageEvent` | Run lifecycle event with `run_id`, `job_name`, `namespace`, `state`, `inputs`, `outputs`, `facets` |
 | `RunState` | Enum: `START`, `RUNNING`, `COMPLETE`, `FAIL`, `ABORT` |
-| `DatasetRef` | Logical reference to a table/topic with optional namespace and facets |
+| `DatasetRef` (`sqldim.lineage.events`) | A dataset: `namespace`, `name` and optional `facets` |
 
 ### Emitters
 
-Two emitters are provided — a zero-dependency console logger and an OpenLineage transmitter:
+`ConsoleLineageEmitter` writes JSON lines to a stream (stderr by default) and
+has no dependency. `OpenLineageEmitter(url=..., namespace=...)` sends events
+through the OpenLineage client; it needs `pip install sqldim[lineage]` and
+raises `ImportError` without it.
 
 ```python
-from sqldim.lineage import ConsoleLineageEmitter, OpenLineageEmitter
+import io
 
-# Zero-dep: JSON lines to stderr (default for development)
-console = ConsoleLineageEmitter()
-console.emit(event)
+from sqldim.lineage import ConsoleLineageEmitter
 
-# OpenLineage: requires pip install sqldim[lineage]
-ol = OpenLineageEmitter(url="http://marquez:5000", namespace="sqldim")
-ol.emit(event)  # translates to official OpenLineage RunEvent
+stream = io.StringIO()
+ConsoleLineageEmitter(stream=stream).emit(event)
+print('"COMPLETE"' in stream.getvalue())  # True
 ```
 
 ### Quality Gate integration
 
-`QualityGate.run()` automatically emits lineage events when an emitter is provided:
+Pass the emitter to the gate's constructor. `run()` then emits `START`
+before the checks and `COMPLETE` or `FAIL` after them, with check counts in
+the facets:
 
 ```python
-from sqldim.lineage import ConsoleLineageEmitter
-
-gate = QualityGate("bronze_to_silver", Layer.BRONZE, Layer.SILVER)
-gate.add_check(NotNull("order_id"))
-
-result = gate.run(
-    view="bronze.raw_orders",
-    lineage_emitter=ConsoleLineageEmitter(),  # opt-in
-    job_name="bronze_to_silver",
-    inputs=[DatasetRef(name="bronze.raw_orders")],
-    outputs=[DatasetRef(name="silver.orders")],
+stream = io.StringIO()
+gate = QualityGate(
+    "bronze_to_silver",
+    Layer.BRONZE,
+    Layer.SILVER,
+    lineage_emitter=ConsoleLineageEmitter(stream=stream),
 )
-# Emits START → COMPLETE (or FAIL) events automatically
+gate.add_check(orders_not_empty)
+gate.run(con=con)
+print(len(stream.getvalue().splitlines()))  # 2: START, then COMPLETE
 ```
 
 ### DimensionalLoader integration
 
-`DimensionalLoader.run()` also accepts a `lineage_emitter` to track per-model pipeline runs with input/output dataset references.
+`DimensionalLoader(..., lineage_emitter=...)` emits an event per loaded model.
 
 ### Static metadata
 
@@ -186,7 +219,6 @@ For schema-level documentation (ER diagrams, data dictionaries), use [`SchemaGra
 
 ## Dependencies
 
-- **[Medallion Layers](medallion_layers.md)** — contracts are anchored to a specific layer (`bronze`, `silver`, `gold`)
-- **[Observability](observability.md)** — SLA breach events feed into the OTel metrics pipeline
-- **[Notifications](notifications.md)** — contract violations trigger P1 (Gold) or P2 (Silver) alerts
+- **[Medallion Layers](medallion_layers.md)** — a `DataContract` names its `Layer`; a `QualityGate` runs between two adjacent layers
+- **[Observability](observability.md)** and **[Notifications](notifications.md)** — not wired to contracts: nothing emits a metric or a notification for an SLA breach or a violation. Route a `ContractReport` or `GateResult` yourself.
 - **[Lineage](../reference/lineage.md)** — structured event emission and OpenLineage integration

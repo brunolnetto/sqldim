@@ -6,10 +6,10 @@ sqldim provides two families of SCD processors: **lazy** (pure SQL inside DuckDB
 
 | Factor | Lazy Processors | NarwhalsSCDProcessor |
 |---|---|---|
-| Scale | Billions of rows | Up to ~100M rows |
+| Scale | What DuckDB can process (no published benchmark) | What fits in memory |
 | Memory | Zero Python rows | DataFrame in memory |
 | Backend | DuckDB only | Polars, Pandas, Arrow |
-| Use with | `DuckDBSink` + `SourceAdapter` | `DimensionalLoader` + DataFrames |
+| Use with | A sink + `SourceAdapter` (see [Big Data](../guides/big_data.md)) | DataFrames you write yourself |
 | SCD Types | 1, 2, 3, 4, 5, 6 | 2 (with T1/T6 columns handled by Field metadata) |
 
 ---

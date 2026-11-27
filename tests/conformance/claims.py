@@ -289,8 +289,34 @@ CLAIMS: tuple[Claim, ...] = (
         (P,),
         Status.UNCHECKED,
         (),
-        note="the oracle has no skeleton enumerator; sqldim's enumeration is the "
-        "implementation, not independent evidence",
+        note="the theorem as a whole is not checked: CLM-8.11-ENUM checks that "
+        "the §12.3 construction lists Q_valid on a bounded domain; membership "
+        "(part 2) and coverage (part 3) have no independent check",
+    ),
+    Claim(
+        "CLM-8.11-ENUM",
+        "§8.11 Question completeness, part 1; §12.3 `dgm_what_can_i_answer` "
+        "enumeration",
+        "The construction (a)–(e) of §12.3, with its Σ rules, lists each skeleton "
+        "of Q_valid(𝒜) exactly once and in non-decreasing grade.",
+        (E,),
+        Status.HOLDS,
+        ("check:test_claim_question_enumeration",),
+        "an enumeration written from §8.11, §12.3, §4.1, §4.2 and §5.2.3 in "
+        "`tests/conformance/qvalid.py` (no `sqldim`), compared as a set and a "
+        "count with the lattice's generator: every skeleton of grade ≤ 2 over "
+        "two anchors and one edge type with h = 1 (one Join), for five schemas "
+        "— no properties; a String property on a BRONZE dimension and a "
+        "Boolean; an ADDITIVE measure; a NON_ADDITIVE measure; a Degenerate "
+        "attribute — 4,878 skeletons, none missing, none extra, none twice",
+        "evidence that sqldim's enumeration meets the definition on this "
+        "domain. Grade ≤ 2 keeps every filter to two atoms, where the reduced "
+        "BDD size does not depend on the variable order that §8.14 leaves to "
+        "the atoms' encoding. Outside the domain: numeric dimension attributes "
+        "(§2.4 admits MIN, MAX and AVG over them, while the §12.3 sentence on "
+        "Degenerate attributes reads 'no aggregate other than COUNT'), "
+        "properties of a FactlessFact, constellations (DA1–DA3), time-ordered "
+        "bridges and Joins of more than one hop",
     ),
     Claim(
         "CLM-8.13-WALK",
@@ -322,8 +348,40 @@ CLAIMS: tuple[Claim, ...] = (
         (P,),
         Status.UNCHECKED,
         (),
-        note="only the walk/simple step is checked (CLM-8.13-WALK); the "
-        "translation itself is not executed",
+        note="the translation is executed on a bounded sub-fragment "
+        "(CLM-8.13-TRANSL) and its walk/simple step on its own (CLM-8.13-WALK); "
+        "F_D as a whole — Joins over several anchors and PathJoins, IN, nested "
+        "sub_filters, outer Refs, several edge labels, non-recursive WITH — "
+        "is not",
+    ),
+    Claim(
+        "CLM-8.13-TRANSL",
+        "§8.13 Theorem 1, the translation of its proof",
+        "The proof's translation — conditions in the T⁺ form with NULL as an "
+        "absent fact, a fixed-length path or finite-max Repeat as a union of "
+        "edge conjunctions with ≠ literals for SIMPLE and TRAIL, the recursion "
+        "for an UNBOUNDED one-hop Repeat, a negated PathPred and EXCEPT as a "
+        "negated IDB literal — is a safe, stratified Datalog¬,≤ program whose "
+        "perfect model is the query's result.",
+        (E,),
+        Status.HOLDS,
+        ("check:test_claim_datalog_translation",),
+        "unary queries anchored on one node type, against the reference "
+        "semantics: 392 conditions (comparison with a constant and of two "
+        "properties under all six operators, IsNull, NOT, AND, OR to depth 2) "
+        "on a node with x, y ∈ {NULL, 0, 1, 2}; 35 queries — EXISTS with "
+        "EVENTUALLY, UNTIL and NEXT over one hop, two hops, Repeat(e, 0|1, "
+        "UNBOUNDED, SIMPLE|TRAIL) and Repeat(e, 0|1, 2, SIMPLE|TRAIL|WALK), with "
+        "a sub_filter that is UNKNOWN on NULL, their negations, two mixed "
+        "conditions, UNION, INTERSECT and EXCEPT — on every graph with one edge "
+        "label and x ∈ {NULL, 0, 1}, on 3 nodes without self-loops and on 2 "
+        "with them, up to isomorphism (406 graphs). The stratified evaluator "
+        "is `tests/conformance/datalog.py`, which refuses an unsafe or "
+        "unstratified program",
+        "TRAIL distinctness of two edges is a disjunction (source or target "
+        "differs), so it gives one conjunction of ≠ literals per choice — a "
+        "union of conjunctions, still Datalog, where the proof writes 'a "
+        "conjunction'",
     ),
     Claim(
         "CLM-8.13-PTIME",

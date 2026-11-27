@@ -1,9 +1,10 @@
 # Big Data with sqldim
 
-sqldim is designed as a **SQL-first, zero-copy dimensional engine**.  All
-heavy transformation work stays inside DuckDB; Python is the coordinator, not
-the data carrier.  This lets a single laptop process billions of rows with the
-same code that runs on MotherDuck or a distributed Iceberg lake.
+The lazy part of sqldim keeps the transformation work inside DuckDB: a source
+is a SQL reference, a processor or loader issues SQL statements, and a sink
+writes with SQL. Python coordinates and does not hold the rows. How large a
+workload this handles depends on DuckDB and on your machine; sqldim publishes
+no benchmark that states a row count.
 
 ---
 
@@ -11,82 +12,95 @@ same code that runs on MotherDuck or a distributed Iceberg lake.
 
 ```
 ┌─────────────────────────────────────────────────────────────────────┐
-│  Layer 1 — SOURCES                                                  │
-│  CSVSource · ParquetSource · DeltaSource · DuckDBSource · PGSource  │
+│  SOURCES      ParquetSource · CSVSource · DeltaSource · DuckDBSource │
+│               PostgreSQLSource · IcebergSource · …                   │
 └────────────────────────────┬────────────────────────────────────────┘
-                             │  lazy SQL reference (no data in Python)
+                             │  a SQL reference (no data in Python)
 ┌────────────────────────────▼────────────────────────────────────────┐
-│  Layer 2 — PROCESSORS                                               │
-│  LazySCDProcessor (T1-T6) · NarwhalsSCDProcessor                    │
+│  PROCESSORS   LazySCDProcessor · LazyType1/3/4/5/6Processor          │
+│  LOADERS      LazyCumulativeLoader · LazyBitmaskLoader · …           │
 └────────────────────────────┬────────────────────────────────────────┘
-                             │  SQL INSERT / MERGE (single statement)
+                             │  SQL statements over one connection
 ┌────────────────────────────▼────────────────────────────────────────┐
-│  Layer 3 — LOADERS                                                  │
-│  AccumulatingLoader · CumulativeLoader · BitmaskerLoader            │
-│  ArrayMetricLoader  · SnapshotLoader                                │
-└────────────────────────────┬────────────────────────────────────────┘
-                             │  batched writes (default 100 k rows)
-┌────────────────────────────▼────────────────────────────────────────┐
-│  Layer 4 — SINKS                                                    │
-│  DuckDBSink · MotherDuckSink · ParquetSink · DeltaLakeSink          │
-│  IcebergSink · PostgreSQLSink                                       │
+│  SINKS        DuckDBSink · PostgreSQLSink · MotherDuckSink           │
+│               ParquetSink · DeltaLakeSink · IcebergSink              │
 └─────────────────────────────────────────────────────────────────────┘
 ```
 
 ---
 
-## Layer 1 — Sources
+## Sources
 
-Sources are **lazy SQL references**, not in-memory DataFrames.  They produce
-a SQL string that runs inside DuckDB; Python never sees individual rows.
+A source produces the SQL a DuckDB connection reads it with:
 
 ```python
-from sqldim.sources import ParquetSource, DuckDBSource
+from sqldim.sources import DuckDBSource, ParquetSource
 
-# Read a 10 GB Parquet file — zero Python memory
 events = ParquetSource("s3://my-bucket/events/*.parquet")
-
-# Read from an existing DuckDB database
-products = DuckDBSource("analytics.duckdb", query="SELECT * FROM products")
+products = DuckDBSource("products")  # a table or view of the connection
+print(events.as_sql(None))    # read_parquet('s3://my-bucket/events/*.parquet')
+print(products.as_sql(None))  # SELECT * FROM products
 ```
 
-Available sources:
-
-| Class | Backend | Use case |
+| Class | Reads with | Use case |
 |---|---|---|
 | `CSVSource` | DuckDB `read_csv` | Local or S3 CSV/TSV files |
 | `ParquetSource` | DuckDB `read_parquet` | Columnar files, object storage |
-| `DeltaSource` | delta-kernel-python | Delta Lake tables |
-| `DuckDBSource` | DuckDB SQL | Existing DuckDB / MotherDuck |
-| `PostgreSQLSource` | psycopg2 streaming | Operational databases |
+| `DeltaSource` | DuckDB `delta` extension | Delta Lake tables |
+| `DuckDBSource` | DuckDB SQL | A table or view of the connection |
+| `PostgreSQLSource` | DuckDB's postgres extension | Operational databases |
 
 ---
 
-## Layer 2 — Processors
+## An SCD2 load end to end
 
-Processors implement dimensional patterns entirely in SQL.  A billion-row
-SCD2 diff is **one JOIN** — no row-by-row Python loop.
+`LazySCDProcessor` classifies incoming rows against the current table by a
+checksum of the tracked columns and writes new rows and new versions with
+SQL. Two things it needs that are easy to miss:
 
-### Lazy SCD processors (pure SQL)
+- **the sink's connection.** A sink attaches its storage to its own DuckDB
+  connection on `__enter__`; pass that connection as `con=`. There is no
+  public accessor yet, so this reads `sink._con`.
+- **an existing target table**, with the source columns first and then
+  `valid_from`, `valid_to`, `is_current`, `checksum`. `DuckDBSink.write`
+  inserts by position.
 
 ```python
-from sqldim.core.processors import LazySCDProcessor
-from sqldim.sinks import DuckDBSink
 import duckdb
 
-con = duckdb.connect("analytics.duckdb")
-with DuckDBSink(con) as sink:
+from sqldim import DuckDBSink
+from sqldim.core.kimball.dimensions.scd.processors import LazySCDProcessor
+from sqldim.sources import ParquetSource
+
+for version, tier in (("v1", "free"), ("v2", "pro")):
+    duckdb.sql(
+        f"COPY (SELECT * FROM (VALUES ('c1', '{tier}', 'BR'), ('c2', 'pro', 'US'))"
+        f" t(customer_id, plan_tier, country)) TO 'customers_{version}.parquet'"
+    )
+duckdb.connect("analytics.duckdb").execute(
+    "CREATE TABLE dim_customer (customer_id VARCHAR, plan_tier VARCHAR,"
+    " country VARCHAR, valid_from VARCHAR, valid_to VARCHAR,"
+    " is_current BOOLEAN, checksum VARCHAR)"
+).close()
+
+with DuckDBSink("analytics.duckdb") as sink:
     proc = LazySCDProcessor(
         natural_key="customer_id",
         track_columns=["plan_tier", "country"],
         sink=sink,
-        con=con,
+        con=sink._con,
     )
-    proc.process(customers.snapshot(), "dim_customer")   # initial load
-    proc.process(customers.event_batch(1), "dim_customer")  # incremental
+    first = proc.process(ParquetSource("customers_v1.parquet"), "dim_customer")
+    second = proc.process(ParquetSource("customers_v2.parquet"), "dim_customer")
+    print(first.inserted, second.versioned, second.unchanged)  # 2 1 1
+    rows = sink._con.execute(
+        "SELECT customer_id, plan_tier, is_current"
+        " FROM sqldim_ddb.dim_customer ORDER BY 1, 3"
+    ).fetchall()
+    print(rows)  # [('c1', 'free', False), ('c1', 'pro', True), ('c2', 'pro', True)]
 ```
 
-All SCD types share the same interface:
+The other SCD types share the constructor and `process(source, table)`:
 
 | Class | SCD Type | Description |
 |---|---|---|
@@ -97,114 +111,34 @@ All SCD types share the same interface:
 | `LazyType5Processor` | Type 5 | Extends Type 4 with current key |
 | `LazyType6Processor` | Type 6 | Hybrid T1 + T2 + T3 |
 
-### Narwhals vectorised processor
-
-For single-process scale (up to ~100 M rows) where you want a Pandas or
-Polars backend:
-
-```python
-from sqldim.core.processors.scd_engine import NarwhalsSCDProcessor
-
-proc = NarwhalsSCDProcessor(
-    natural_key=["email"],
-    track_columns=["plan_tier", "meta"],
-)
-# Pass any Narwhals-compatible DataFrame (Pandas, Polars, Arrow …)
-changed = proc.detect_changes(old_df, new_df)
-```
+All are importable from `sqldim.core.kimball.dimensions.scd.processors`.
+`NarwhalsSCDProcessor` (`from sqldim import NarwhalsSCDProcessor`) is the
+eager variant over a pandas or Polars DataFrame; it holds the data in
+Python.
 
 ---
 
-## Layer 3 — Loaders
+## Loaders
 
-Loaders consume a Source and write dimension or fact tables, always in
-`batch_size` chunks so Python memory stays bounded.
+The lazy loaders (`LazyCumulativeLoader`, `LazyBitmaskLoader`,
+`LazyArrayMetricLoader`, `LazyAccumulatingLoader`, `LazySnapshotLoader`,
+`LazyTransactionLoader`, `LazyEdgeProjectionLoader`, all exported by
+`sqldim`) follow the same pattern: a target table, a sink and a connection.
+[Lazy Loaders](lazy_loaders.md) documents each one.
 
-```python
-from sqldim.loaders import CumulativeLoader, BitmaskerLoader
+---
 
-# Dense-history array loader — builds the "players_cumulated" pattern
-loader = CumulativeLoader(
-    source_model=PlayerSeasons,
-    target_model=Player,
-    session=session,
-    batch_size=100_000,   # default; tune for your workload
-)
-loader.load()
-```
+## Sinks
 
-| Loader | Pattern | When to use |
+| Sink | Constructor | Support (generated) |
 |---|---|---|
-| `AccumulatingLoader` | Accumulating snapshot | Multi-milestone fact (order lifecycle) |
-| `CumulativeLoader` | Dense history arrays | "All seasons so far" per entity |
-| `BitmaskerLoader` | 32-bit bitmask datelist | L7/L28 retention metrics |
-| `ArrayMetricLoader` | Month-partitioned arrays | Monthly cohort arrays |
-| `SnapshotLoader` | Periodic snapshot | Daily/weekly dim snapshots |
+| `DuckDBSink` | `DuckDBSink(path, schema="main")` | append, SCD2 close, merge — executed in CI |
+| `PostgreSQLSink` | `PostgreSQLSink(dsn, schema="public")` | append, SCD2 close, merge — executed in CI against PostgreSQL |
+| `MotherDuckSink` | `MotherDuckSink(db, token=None)` | supported; storage not executed in CI |
+| `ParquetSink` | `ParquetSink(base_path, partition_by=None)` | append supported (new files, never an overwrite); SCD2 close and merge partial; not a context manager |
+| `DeltaLakeSink` | `DeltaLakeSink(path, natural_key="id")` | append only — closing an SCD2 version or a merge raises `SinkUnsupported`; executed in CI on an empty Delta table |
+| `IcebergSink` | `IcebergSink(catalog_name, namespace, catalog_config=None)` | partial; needs `pyiceberg` and a catalog; storage not executed in CI |
 
----
-
-## Layer 4 — Sinks
-
-Sinks are context managers that buffer writes and flush in `batch_size` chunks.
-
-```python
-from sqldim.sinks import ParquetSink, MotherDuckSink
-
-# Local Parquet — ideal for data-lake landing zones
-with ParquetSink("output/dim_customer/", partition_by="country") as sink:
-    proc = LazySCDProcessor("customer_id", ["plan_tier"], sink, con=con)
-    proc.process(customers.snapshot(), "dim_customer")
-
-# MotherDuck — cloud-scale DuckDB
-with MotherDuckSink("md:analytics") as sink:
-    proc.process(customers.event_batch(1), "dim_customer")
-```
-
-| Sink | Storage | Notes |
-|---|---|---|
-| `DuckDBSink` | Local DuckDB file | Development, CI |
-| `MotherDuckSink` | Cloud DuckDB | Production analytics |
-| `ParquetSink` | Columnar files | Data-lake, export |
-| `DeltaLakeSink` | Delta Lake | ACID lakehouse; APPEND only (closing SCD2 versions raises `SinkUnsupported`) |
-| `IcebergSink` | Apache Iceberg | Open table format |
-| `PostgreSQLSink` | PostgreSQL | Operational BI |
-
----
-
-## Scale characteristics
-
-| Characteristic | Approach |
-|---|---|
-| **1 B-row SCD diff** | Single SQL JOIN — database handles it |
-| **Memory ceiling** | `batch_size` rows max in Python at any time |
-| **Columnar reads** | ParquetSource / DeltaSource stream columns, not full rows |
-| **Parallel ingestion** | Multiple `LazySCDProcessor` instances share one DuckDB connection |
-| **Cloud scale** | MotherDuckSink routes the same SQL to the cloud |
-| **Backend swap** | Narwhals lets you switch Pandas ↔ Polars with one import |
-
----
-
-## Quick start — big-data pipeline
-
-```python
-import duckdb
-from sqldim.sources import ParquetSource
-from sqldim.core.processors import LazySCDProcessor
-from sqldim.sinks import DuckDBSink
-
-con = duckdb.connect()
-customers = ParquetSource("s3://raw/customers/*.parquet")
-
-with DuckDBSink("warehouse.duckdb") as sink:  # SCD2 closes versions in place
-    proc = LazySCDProcessor(
-        natural_key="customer_id",
-        track_columns=["plan_tier", "country", "email"],
-        sink=sink,
-        con=con,
-        batch_size=500_000,
-    )
-    proc.process(customers, "dim_customer")
-```
-
-Run `sqldim bigdata features` from the command line for a quick in-terminal
-summary of every layer.
+The support levels come from the generated
+[capability page](../reference/capabilities.md#write-sinks-62-rule-8); the
+[backend matrix](../reference/dgm-backend-matrix.md) says what ran.
