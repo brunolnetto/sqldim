@@ -30,6 +30,7 @@ from sqldim.core.query.dgm.nl.supervisor._types import (
     ToolErrorKind,
     zero_cost,
 )
+from sqldim.core.query.dgm.planner._gate import BudgetDecisionKind
 from sqldim.core.query.dgm.planner._targets import CostEstimate
 
 __all__ = [
@@ -210,7 +211,7 @@ class DemoQueryTool(BaseTool):
         except AccessDenied as exc:
             return _demo_failure(request, ToolErrorKind.UNAUTHORIZED, str(exc))
         except _DemoTurnFailed as exc:
-            return _demo_failure(request, exc.kind, exc.message)
+            return _demo_failure(request, exc.kind, exc.message, decision=exc.decision)
         except Exception as exc:  # noqa: BLE001 — reported, never swallowed
             return _demo_failure(
                 request,
@@ -293,6 +294,9 @@ class _DemoTurnFailed(Exception):
         except ValueError:
             self.kind = ToolErrorKind.TOOL_FAILURE
         self.message = str(error.get("message"))
+        # A gate REJECT or CLARIFY is a budget rejection (§12.11).
+        raw = error.get("decision")
+        self.decision = BudgetDecisionKind(raw) if raw else None
         super().__init__(self.message)
 
 
@@ -301,9 +305,12 @@ def _demo_failure(
     kind: ToolErrorKind,
     message: str,
     context: dict[str, Any] | None = None,
+    *,
+    decision: BudgetDecisionKind | None = None,
 ) -> ToolCallResult:
+    status = CallStatus.REJECTED if decision is not None else CallStatus.FAILED
     result = ToolCallResult.failure(
-        request, CallStatus.FAILED, kind, message, context=context
+        request, status, kind, message, context=context, decision=decision
     )
     return result.model_copy(update={"demo": True})
 

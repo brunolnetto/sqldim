@@ -29,7 +29,15 @@ from sqldim.core.query.dgm.nl._agents import (
     make_sql_agent,
     make_temporal_agent,
 )
-from sqldim.core.query.dgm.planner._gate import ExecutionGate
+from sqldim.core.query.dgm.planner._gate import (
+    AsyncNotConfigured,
+    ClarifyDecision,
+    ExecutionGate,
+    RejectDecision,
+    RewriteDecision,
+    SampleDecision,
+    cost_total,
+)
 
 __all__ = ["make_llm_nodes", "make_operational_nodes"]
 
@@ -132,6 +140,25 @@ def _agent_error(failure: _AgentFailed) -> dict[str, Any]:
         "kind": "TOOL_FAILURE",
         "message": f"the {failure.key} agent failed: {type(exc).__name__}: {exc}",
     }
+
+
+def _gate_outcome(decision: Any) -> dict[str, Any]:
+    """State changes a decision implies (§6.3).
+
+    REWRITE and SAMPLE hand over the plan to execute under ``then`` — it is
+    not gated again.  REJECT ends the turn with a typed error.
+    """
+    if isinstance(decision, (RewriteDecision, SampleDecision)):
+        return {"q_current": decision.plan.query_text}
+    if isinstance(decision, RejectDecision):
+        return {
+            "error": {
+                "kind": "BUDGET_REJECTED",
+                "message": decision.reason,
+                "decision": "REJECT",
+            }
+        }
+    return {}
 
 
 def _failure_text(error: dict[str, Any]) -> str:
@@ -951,9 +978,19 @@ def make_operational_nodes(context: Any, model: Any = None) -> dict[str, _NodeFn
             query_text=sql,
             cost_estimate=CostEstimate(cpu_ops=cpu_ops, io_ops=100),
         )
+        # The demo gate has no rewrite, sampling, refinement or async provider:
+        # it never reduces a plan, and a DEFERRED plan cannot be enqueued.
         gate = ExecutionGate()
-        decision = gate.gate(plan, context.budget)  # type: ignore[union-attr]
-        return {"budget_decision": decision}
+        try:
+            decision = gate.gate(plan, context.budget)  # type: ignore[union-attr]
+        except AsyncNotConfigured as exc:
+            return {
+                "error": {
+                    "kind": "NOT_IMPLEMENTED",
+                    "message": f"asynchronous execution is not available: {exc}",
+                }
+            }
+        return {"budget_decision": decision, **_gate_outcome(decision)}
 
     def _execution_node(state: NLInterfaceState) -> dict[str, Any]:
         sql = state.q_current
@@ -990,13 +1027,25 @@ def make_operational_nodes(context: Any, model: Any = None) -> dict[str, _NodeFn
             }
 
     def _clarification_node(state: NLInterfaceState) -> dict[str, Any]:
-        if state.candidates:
-            return {
-                "confirmed": True,
-                "user_selection": 0,
-                "want_more_options": False,
+        """CLARIFY returns to the caller with the options; nothing runs (§6.3)."""
+        decision = state.budget_decision
+        if isinstance(decision, ClarifyDecision):
+            options = "; ".join(
+                f"{o.kind.value}"
+                + (f" {o.substitution.value}" if o.substitution else "")
+                + f" (cost {cost_total(o.cost):g}): {o.plan.query_text}"
+                for o in decision.options
+            )
+            message = f"the budget gate asks the caller to choose: {options}"
+        else:
+            message = "the question needs clarification"
+        return {
+            "error": {
+                "kind": "NEEDS_CLARIFICATION",
+                "message": message,
+                "decision": "CLARIFY",
             }
-        return {"confirmed": True, "want_more_options": False}
+        }
 
     return {
         "candidate_generation": _candidate_generation_node,

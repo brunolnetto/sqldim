@@ -2417,7 +2417,8 @@ BudgetDecision ::= PROCEED                      -- SYNC zone; execute synchronou
                            substitution: Substitution,
                            warning: string,
                            then: Delivery)       -- allowed substitution + transparency note
-                 | SAMPLE(fraction: ℝ,
+                 | SAMPLE(plan: ExportPlan,
+                          fraction: ℝ,
                           method: RANDOM | STRATIFIED | RESERVOIR,
                           error_bound: ℝ,
                           confidence: ℝ,
@@ -2435,7 +2436,7 @@ ClarifyOption = (plan:    ExportPlan,
                  warning: string | None)          -- present iff kind = SUBSTITUTION; for SAMPLE it states the bound
 ```
 
-`REWRITE.then` and `SAMPLE.then` carry the delivery decision the gate has already taken for the rewritten or sampled plan. The caller executes that plan under `then`; it does **not** submit it to `gate()` again, so a rewrite can never trigger another rewrite.
+`SAMPLE.plan` is the sampled plan. `REWRITE.then` and `SAMPLE.then` carry the delivery decision the gate has already taken for the rewritten or sampled plan. The caller executes that plan under `then`; it does **not** submit it to `gate()` again, so a rewrite can never trigger another rewrite.
 
 **Pre-execution decision procedure:**
 
@@ -2443,6 +2444,8 @@ ClarifyOption = (plan:    ExportPlan,
 gate(plan: ExportPlan, budget: ExecutionBudget) → BudgetDecision:
   -- Precondition: budget satisfies I1–I3.
 
+  if plan.cost_estimate is unknown:                    -- an unknown cost is never admitted
+    return REJECT("The plan has no cost estimate.")
   est = plan.cost_estimate
   z   = zone(est, budget)
 
@@ -2453,6 +2456,8 @@ gate(plan: ExportPlan, budget: ExecutionBudget) → BudgetDecision:
 
   -- Step 1b — PreComputation time guard. An exact PreComputation that would
   -- exceed max_precompute_time is never started; its approximation is a substitution.
+  if any(estimated_time(pc) is unknown for pc in plan.pre_compute):
+    return REJECT("A PreComputation has no time estimate.")   -- never started
   slow = [pc for pc in plan.pre_compute if estimated_time(pc) > budget.max_precompute_time]
   if slow ≠ []:
     a = approximate(plan, slow)                         -- NONE unless every pc in slow has an
@@ -2509,10 +2514,12 @@ deliver(plan: ExportPlan, budget: ExecutionBudget) → Delivery:
     STREAMING: return STREAM
     SYNC:
       -- Result size guard: the exact result, delivered in pages
-      if estimated_rows(plan) > budget.max_result_rows:
+      if estimated_rows(plan) is unknown or estimated_rows(plan) > budget.max_result_rows:
         return PAGINATE(page_size=default_page_size)
       return PROCEED
 ```
+
+`default_sink` and `user_endpoint` are configuration of the host that runs the gate, not built-in values. A gate without them cannot deliver the DEFERRED zone and reports that as an error; it never picks a sink or a callback on its own. An unknown row estimate paginates, which still delivers the exact result.
 
 **Rewrite precedence.** A rewrite is *viable* only when it moves the plan to a strictly cheaper zone, and *allowed* only when its substitution is in `budget.substitutions`. Only allowed rewrites are returned as `REWRITE`; viable rewrites that are not allowed matter only in the OVER zone, where they become `CLARIFY` options. This fixes every case:
 
@@ -4380,7 +4387,7 @@ Version history of this specification. Earlier versions than v0.16 are not recor
 
 **v0.26** — §8.16 Vocabulary decomposition and analytical space characterisation — six vocabularies (`V_N`, `V_E`, `V_P`, `V_Pred`, `V_Op`, `V_Par`); factored size estimate via multiplicative decomposition; four-level hierarchy (see the superseded note at the end of this entry); semantic sparsity and effective analytical space `A_eff`; semantic basis as minimal generating set; polynomial neighbourhood bound; per-level navigation strategies for recommender and NL interface; worked example for BookClub `social_network` domain. *Superseded:* this entry originally described a hierarchy "term → phrase → sentence → paragraph" and gave a 14-element semantic basis and ~2.3 k effective questions; the body of v0.26 uses the Structure / Predicate / Parameter / Operator hierarchy of §8.16.3 and estimates ~6.0 × 10⁵ effective questions (§8.16.8), which are the figures in force. §8.11 cross-reference to §8.16.6–8.16.7 for size characterisation. §7.7 cross-reference to §8.16.5–8.16.6 for formal basis justification. §12 Supervisor Agent Architecture — six agent-safe properties; five-point tool contract (`BaseTool` ABC: `capability_schema`, `cost_estimate`, `execute`, `compose`, `explain`); nine core tools (`dgm_query`, `what_can_i_answer`, `correlate`, `explore_from`, `sensitivity_sweep`, `validate_invariant`, `store_finding`, `retrieve_related`, `map_analytical_space`); `TOOL_REGISTRY` dict; five-node LangGraph supervisor graph (plan → select_tool → execute_tool → synthesize → respond); budget propagation via `budget_fraction` on `ToolCallRequest`; six supervisor workflows (single-domain, cross-domain, hypothesis-driven, exhaustive-survey, validation, meta-analytical); knowledge base with lattice-adjacent retrieval keyed by `(A, B, q, π)`; meta-tool operationalising §8.11 question completeness; relationship to §7 recommender as supplier of `Q_valid`/lattice to supervisor navigation.
 
-**v0.27 (in progress)** — Revision of v0.26 in response to the review tracked in issues #21–#96. Decisions are recorded as D31–D39 (§10.4) and in `docs/adr/0001`–`0009`; each change is linked to its issue in the pull request that made it. The conformance audit tracked in issue #141 adds the fail-closed rules: gate substitutions are opt-in (D40), unversioned cache entries are opt-in (D41), and the supervisor and NL interface fail closed without a degrade route (D42); `docs/adr/0010`–`0012`. It also closes specification gaps found by the audit: per-tool contracts (D43), authorization at every entry point (D44), watermark reading (D45) and the PipelineArtifact execution protocol (D46), and confines the existing heuristic path to an explicit demo mode (D47). Implementing the §12.2 contract clarified two definitions: an argument that holds a `call_id` reads the datasets of the referenced result (§12.2 `reads`, §12.3 *Reads*), and a step cancelled before dispatch has no attempt. Implementing the scheduler of ADR 0008 closed a liveness gap: a step whose reservation can no longer fit is rejected before dispatch instead of waiting forever (§12.4 *Budget reservation*). Applying D44 outside the supervisor clarified what an entry point is: a function that opens data by identifier, not one that receives an open handle (§12.10 *Scope*).
+**v0.27 (in progress)** — Revision of v0.26 in response to the review tracked in issues #21–#96. Decisions are recorded as D31–D39 (§10.4) and in `docs/adr/0001`–`0009`; each change is linked to its issue in the pull request that made it. The conformance audit tracked in issue #141 adds the fail-closed rules: gate substitutions are opt-in (D40), unversioned cache entries are opt-in (D41), and the supervisor and NL interface fail closed without a degrade route (D42); `docs/adr/0010`–`0012`. It also closes specification gaps found by the audit: per-tool contracts (D43), authorization at every entry point (D44), watermark reading (D45) and the PipelineArtifact execution protocol (D46), and confines the existing heuristic path to an explicit demo mode (D47). Implementing the §12.2 contract clarified two definitions: an argument that holds a `call_id` reads the datasets of the referenced result (§12.2 `reads`, §12.3 *Reads*), and a step cancelled before dispatch has no attempt. Implementing the scheduler of ADR 0008 closed a liveness gap: a step whose reservation can no longer fit is rejected before dispatch instead of waiting forever (§12.4 *Budget reservation*). Implementing the gate of D40 fixed three unstated cases: an unknown cost or PreComputation time is rejected, an unknown row estimate paginates, and the async sink and callback are host configuration; `SAMPLE` carries the sampled plan (§6.3). Applying D44 outside the supervisor clarified what an entry point is: a function that opens data by identifier, not one that receives an open handle (§12.10 *Scope*).
 
 ---
 
