@@ -24,11 +24,14 @@ from sqldim.application.datasets.domains.telemetry.sources import (
     MetricSampleSource,
 )
 
+_devices = DevicesSource()
+
 telemetry_dataset = Dataset(
     "telemetry",
     [
-        (DevicesSource(), "devices"),
-        (EventsSource(), "page_events"),
+        (_devices, "devices"),
+        # Every page event references a generated device.
+        (EventsSource(n_devices=len(_devices.initial)), "page_events"),
         (PipelineSpanSource(), "pipeline_spans"),
         (MetricSampleSource(), "metric_samples"),
     ],

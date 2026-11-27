@@ -23,12 +23,22 @@ from sqldim.application.datasets.domains.fintech.sources import (
     TransactionsSource,
 )
 
+_accounts = AccountsSource()
+_counterparties = CounterpartiesSource()
+
 fintech_dataset = Dataset(
     "fintech",
     [
-        (AccountsSource(), "accounts"),
-        (CounterpartiesSource(), "counterparties"),
-        (TransactionsSource(), "transactions"),
+        (_accounts, "accounts"),
+        (_counterparties, "counterparties"),
+        # Every transaction references a generated account and counterparty.
+        (
+            TransactionsSource(
+                n_accounts=len(_accounts.initial),
+                n_counterparties=len(_counterparties.initial),
+            ),
+            "transactions",
+        ),
     ],
     model=build_model,
 )

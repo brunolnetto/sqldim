@@ -171,6 +171,158 @@ def _references(model: DGMModel, edge: EdgeType) -> list[tuple[str, tuple, str]]
     return [(dict(_mapped(model))[holder].relation, mapping.columns, referenced)]
 
 
+INTENTIONAL_DANGLING: dict[tuple[str, tuple[str, ...]], str] = {}
+"""``(relation, columns) → reason`` for references that may name no entity.
+
+Empty: every bundled reference resolves (#168).  A dangling reference is
+accepted only when it is recorded here with the reason it is intentional.
+"""
+
+
+def _dangling(
+    con: duckdb.DuckDBPyConnection,
+    relation: str,
+    columns: tuple[str, ...],
+    referenced: NodeTable,
+) -> int:
+    """Rows of *relation* whose non-NULL *columns* name no *referenced* row."""
+    on = " AND ".join(
+        f'h."{c}" = t."{k}"' for c, k in zip(columns, referenced.entity_key)
+    )
+    present = " AND ".join(f'h."{c}" IS NOT NULL' for c in columns)
+    row = con.execute(
+        f'SELECT COUNT(*) FROM "{relation}" h WHERE {present} AND NOT EXISTS '
+        f'(SELECT 1 FROM "{referenced.relation}" t WHERE {on})'
+    ).fetchone()
+    assert row is not None
+    return int(row[0])
+
+
+def test_no_declared_reference_dangles(opened: Any) -> None:
+    """Every stored reference of every declared edge names an entity (#168)."""
+    model, con = opened
+    tables = dict(_mapped(model))
+    dangling = {}
+    for edge in model.edge_types:
+        for relation, columns, referenced in _references(model, edge):
+            count = _dangling(con, relation, tuple(columns), tables[referenced])
+            if count and (relation, tuple(columns)) not in INTENTIONAL_DANGLING:
+                dangling[f"{edge.key} {relation}.{columns}"] = count
+    assert dangling == {}
+
+
+def test_the_dangling_measure_counts_unresolved_references() -> None:
+    con = duckdb.connect()
+    con.execute("CREATE TABLE p AS SELECT * FROM range(1, 4) t(id)")
+    con.execute("CREATE TABLE c AS SELECT * FROM (VALUES (1), (3), (7), (NULL)) t(p)")
+    parent = NodeTable(relation="p", entity_key=("id",))
+    assert _dangling(con, "c", ("p",), parent) == 1
+
+
+# ---------------------------------------------------------------------------
+# Generation does not depend on the day it runs (#168)
+# ---------------------------------------------------------------------------
+
+OBSERVED: dict[str, frozenset[str]] = {
+    "telemetry": frozenset({"pipeline_spans", "metric_samples"}),
+}
+"""Relations that record a real run of the pipelines (spans, OTel samples),
+not generated data: their timestamps and durations are observations."""
+
+
+def _shift_faker_clock(monkeypatch: pytest.MonkeyPatch, days: int) -> None:
+    """Move the clock Faker's date providers read by *days*."""
+    import faker.providers.date_time as faker_dt
+
+    real_datetime, real_date = faker_dt.datetime, faker_dt.dtdate
+    delta = timedelta(days=days)
+
+    class _Datetime(real_datetime):  # type: ignore[misc,valid-type]
+        @classmethod
+        def now(cls, tz: Any = None) -> Any:
+            moved = real_datetime.now(tz) + delta
+            return cls.combine(moved.date(), moved.timetz())
+
+    class _Date(real_date):  # type: ignore[misc,valid-type]
+        @classmethod
+        def today(cls) -> Any:
+            return cls.fromordinal((real_date.today() + delta).toordinal())
+
+    monkeypatch.setattr(faker_dt, "datetime", _Datetime)
+    monkeypatch.setattr(faker_dt, "dtdate", _Date)
+
+
+def _fresh_dataset(name: str) -> Any:
+    """Build *name*'s dataset again, outside the cached module singleton."""
+    import importlib
+    import importlib.util
+
+    mod_path, attr = KNOWN_DATASETS[name]
+    origin = importlib.import_module(mod_path).__file__
+    assert origin is not None
+    spec = importlib.util.spec_from_file_location(f"_fresh_{name}", origin)
+    assert spec is not None and spec.loader is not None
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return getattr(module, attr)
+
+
+def _sql(make: Any) -> str | None:
+    try:
+        return str(make().as_sql(None))
+    except NotImplementedError:
+        return None
+
+
+def _generated(src: Any, table: str) -> dict[str, Any]:
+    """What *src* generates: its snapshot and event SQL or, for a source
+    that fills its own tables in ``setup()``, the rows of those tables."""
+    snapshot = _sql(src.snapshot)
+    if snapshot is not None:
+        return {"snapshot": snapshot, "events": _sql(lambda: src.event_batch(1))}
+    con = duckdb.connect()
+    try:
+        src.setup(con, table)
+        return {
+            t: con.execute(f'SELECT * FROM "{t}" ORDER BY ALL').fetchall()
+            for t in src.tables(table)
+        }
+    finally:
+        con.close()
+
+
+def _contents(dataset: Any) -> dict[str, Any]:
+    skip = OBSERVED.get(dataset.name, frozenset())
+    return {
+        table: _generated(src, table)
+        for src, table in dataset.sources
+        if table not in skip
+    }
+
+
+@pytest.mark.parametrize("name", DECLARED)
+def test_generation_does_not_depend_on_the_day(
+    name: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A dataset generated 400 days later is the same dataset."""
+    today = _contents(load_dataset(name))
+    _shift_faker_clock(monkeypatch, days=400)
+    later = _contents(_fresh_dataset(name))
+    assert later == today
+
+
+def test_the_clock_shift_moves_faker_dates(monkeypatch: pytest.MonkeyPatch) -> None:
+    """The probe above would catch a generator that read Faker's clock."""
+    from faker import Faker
+
+    fake = Faker()
+    Faker.seed(0)
+    before = fake.date_this_year()
+    _shift_faker_clock(monkeypatch, days=400)
+    Faker.seed(0)
+    assert fake.date_this_year() != before
+
+
 def test_every_edge_column_exists_with_the_key_type(opened: Any) -> None:
     model, con = opened
     tables = dict(_mapped(model))

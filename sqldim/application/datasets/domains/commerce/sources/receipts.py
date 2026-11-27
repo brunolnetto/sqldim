@@ -29,8 +29,9 @@ _RECEIPTS_SPEC = DatasetSpec(
                 FieldSpec(
                     "receipt_date",
                     "VARCHAR",
-                    kind="faker",
-                    method="date",
+                    kind="date",
+                    low=-365,
+                    high=0,
                     post=lambda v, f, i: str(v),
                 ),
                 FieldSpec(
