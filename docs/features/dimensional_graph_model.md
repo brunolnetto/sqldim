@@ -429,13 +429,13 @@ alg.add("retail", DGMQuery().anchor("sale_fact", "s")
 alg.add("premium", DGMQuery().anchor("sale_fact", "s")
         .where(ScalarPred(PropRef("s", "tier"), "=", "premium")))
 
-# Compose with UNION — generates a new CTE that is UNION ALL of both
+# Compose with UNION — generates a new CTE that is the set UNION of both
 alg.compose("retail", ComposeOp.UNION, "premium", name="combined")
 
 print(alg.to_sql(final="combined"))
 # WITH retail AS (...),
 #      premium AS (...),
-#      combined AS (SELECT * FROM retail  UNION ALL  SELECT * FROM premium)
+#      combined AS (SELECT * FROM retail  UNION  SELECT * FROM premium)
 # SELECT * FROM combined
 ```
 
@@ -443,7 +443,7 @@ print(alg.to_sql(final="combined"))
 
 | Operator | SQL emitted | Use when |
 |---|---|---|
-| `UNION` | `UNION ALL` | Disjunctive queries — merge independent answer sets |
+| `UNION` | `UNION` (set) | Disjunctive queries — merge independent answer sets |
 | `INTERSECT` | `INTERSECT` | Conjunctive queries — rows in both answer sets |
 | `EXCEPT` | `EXCEPT` | Set difference — rows in left but not right |
 | `WITH` | _right_ CTE uses left as its scope | Dependent chain — `right` references `left` |
@@ -460,8 +460,8 @@ For queries with the same result schema, read as *sets* of tuples,
   that returns all rows with no filter.
 
 This algebraic structure underpins the Query DAG Minimisation optimiser. The
-emitted SQL is not set-valued: `UNION` is `UNION ALL`, so the set laws do not
-hold for the multiplicity of rows (see the caveat under
+emitted set operations are SQL `UNION`, `INTERSECT` and `EXCEPT`, so the set
+laws hold for the emitted SQL (see
 [Query DAG Minimisation](#query-dag-minimisation-rule-11-extended)).
 
 ---
@@ -535,10 +535,15 @@ Band 2 composition can have a smaller equivalent that the rules do not find
 equivalent, `CLM-8.14-CANON`) is proved in the specification but not
 independently evidenced ([claims register](../reference/dgm-claims.md)).
 
-**Caveat — multiplicity.** The elimination laws are set laws, but `UNION`
-emits `UNION ALL`. In the example above, `q_dup` returns every row of `orders`
-twice, and the minimised algebra returns it once. Do not minimise an algebra
-whose result is read as a bag (counts, sums over the union).
+**Set semantics.** The elimination laws are set laws, and the algebra is a
+Boolean algebra of sets (§8.13): `UNION`, `INTERSECT` and `EXCEPT` are emitted
+as the SQL set operations, never `UNION ALL`. When an eliminated set operation
+is replaced by a leaf, JOIN or WITH CTE, whose SQL can return a row twice, the
+minimised algebra reads that CTE's distinct rows: `to_sql(final=...)` accepts
+the eliminated name and selects `DISTINCT`, and a JOIN or WITH over it reads a
+`SELECT DISTINCT` CTE. A minimised algebra returns the rows of the original.
+Containment (`Q₁ ⊆ Q₂` by `bdd.implies`) is applied only between compositions
+over one Band 1 skeleton (same anchor, joins and projection).
 
 ### QueryDAGManager — intern-table for the DAG
 

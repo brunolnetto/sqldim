@@ -15,6 +15,7 @@ from tests.conformance.cases.anchors import SCHEMAS
 from tests.conformance.cases.fixtures import GRAPHS, GRID_VALUES, INPUTS, POINT_VALUES
 from tests.conformance.oracle import (
     aggregation,
+    algebra,
     allen,
     anchors,
     cones,
@@ -131,6 +132,7 @@ _AREAS: dict[str, Callable[[Case], Any]] = {
     "sink_sql": lambda c: export.emits_duckdb_sql(c.input),
     "write_plan": lambda c: export.write_plan(c.input),
     "cone": lambda c: cones.subgraph(GRAPHS[c.fixture], c.input),
+    "algebra": lambda c: algebra.evaluate(c.input),
 }
 
 AREAS = frozenset(_AREAS)

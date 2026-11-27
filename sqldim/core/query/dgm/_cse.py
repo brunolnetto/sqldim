@@ -150,7 +150,15 @@ def _rebuild_algebra_with_cse(
                 )
                 inserted_cse.add(cse_name)
         new_alg._ctes[name] = cq
+    _copy_meta(algebra, new_alg)
     return new_alg
+
+
+def _copy_meta(src: QuestionAlgebra, dst: QuestionAlgebra) -> None:
+    """Carry compositions, JOIN conditions and minimisation aliases over."""
+    dst._composition.update(src._composition)
+    dst._on.update(src._on)
+    dst._aliases.update(src._aliases)
 
 
 def apply_cse(
@@ -198,6 +206,7 @@ def apply_cse(
         new_alg = QuestionAlgebra()
         for name, cq in algebra._ctes.items():
             new_alg._ctes[name] = cq
+        _copy_meta(algebra, new_alg)
         return new_alg
 
     name_to_cse, cse_sql = _build_cse_lookup(algebra, shared)

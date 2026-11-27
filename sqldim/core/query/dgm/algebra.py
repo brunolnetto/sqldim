@@ -19,6 +19,11 @@ This module provides:
 
 Semiring structure (§8.13)
 --------------------------
+Every element denotes a *set* of tuples (§8.13): ``UNION``, ``INTERSECT`` and
+``EXCEPT`` are emitted as the SQL set operations, never ``UNION ALL``, so the
+elimination laws of :func:`~sqldim.core.query.dgm._dag.apply_semiring_minimisation`
+hold for the emitted SQL.
+
 ``(Q_algebra(A,B), UNION, INTERSECT, ∅, Q_top)`` forms a semiring where:
 
 * ``EMPTY_Q`` (∅) is the additive identity — a query that returns no rows.
@@ -57,7 +62,7 @@ class ComposeOp(Enum):
     """The five CTE composition operators (§8.13).
 
     * ``JOIN``      — Cross-question correlation (most expressive).
-    * ``UNION``     — Disjunctive answering; ``UNION ALL`` SQL semantics.
+    * ``UNION``     — Disjunctive answering; SQL ``UNION`` (set) semantics.
     * ``INTERSECT`` — Conjunctive answering.
     * ``EXCEPT``    — Set difference.
     * ``WITH``      — Dependent chain: right CTE uses left CTE as its scope.
@@ -147,6 +152,12 @@ class QuestionAlgebra:
         # Maps composed CTE name → (left_name, op, right_name).
         # Leaf CTEs added via add() are NOT recorded here.
         self._composition: dict[str, tuple[str, "ComposeOp", str]] = {}
+        # JOIN conditions of composed CTEs, by name.
+        self._on: dict[str, str] = {}
+        # Names eliminated by minimisation → (survivor, read as a set).  When
+        # the flag is set the survivor may hold duplicate rows and the
+        # eliminated name denotes its set of distinct rows (§8.13).
+        self._aliases: dict[str, tuple[str, bool]] = {}
 
     # -- Container interface -------------------------------------------------
 
@@ -219,6 +230,8 @@ class QuestionAlgebra:
         composed = ComposedQuery(name=name, sql=sql)
         self._ctes[name] = composed
         self._composition[name] = (left, op, right)
+        if on is not None and op is ComposeOp.JOIN:
+            self._on[name] = on
         return composed
 
     # -- Minimisation --------------------------------------------------------
@@ -244,11 +257,19 @@ class QuestionAlgebra:
 
         Complexity: O(|CTEs|) — one pass over the ordered dict.
 
+        A *final* that minimisation eliminated resolves to its survivor; when
+        the survivor may hold duplicate rows the statement selects its
+        distinct rows, which is what the eliminated set operation returned.
+
         Raises
         ------
         KeyError
             If *final* is not registered.
         """
+        distinct = False
+        while final in self._aliases:
+            final, bag = self._aliases[final]
+            distinct = distinct or bag
         # Validate *final* exists (KeyError propagates).
         _ = self._ctes[final]
 
@@ -262,7 +283,8 @@ class QuestionAlgebra:
                 break
 
         with_block = ",\n".join(cte_defs)
-        return f"WITH\n{with_block}\nSELECT * FROM {final}"
+        select = "SELECT DISTINCT *" if distinct else "SELECT *"
+        return f"WITH\n{with_block}\n{select} FROM {final}"
 
     # -- Internal SQL builders -----------------------------------------------
 
@@ -279,7 +301,7 @@ class QuestionAlgebra:
         ensures those names are defined earlier in the WITH block.
         """
         _set_ops = {
-            ComposeOp.UNION: f"SELECT * FROM {left.name}\nUNION ALL\nSELECT * FROM {right.name}",
+            ComposeOp.UNION: f"SELECT * FROM {left.name}\nUNION\nSELECT * FROM {right.name}",
             ComposeOp.INTERSECT: f"SELECT * FROM {left.name}\nINTERSECT\nSELECT * FROM {right.name}",
             ComposeOp.EXCEPT: f"SELECT * FROM {left.name}\nEXCEPT\nSELECT * FROM {right.name}",
             ComposeOp.WITH: f"SELECT * FROM {right.name}",

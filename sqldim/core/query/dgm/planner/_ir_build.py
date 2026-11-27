@@ -348,7 +348,7 @@ def lower_query(q: "DGMQuery") -> BandQuery:
 # ---------------------------------------------------------------------------
 
 _SET_BODIES = {
-    ComposeOp.UNION: "SELECT * FROM {l}\nUNION ALL\nSELECT * FROM {r}",
+    ComposeOp.UNION: "SELECT * FROM {l}\nUNION\nSELECT * FROM {r}",
     ComposeOp.INTERSECT: "SELECT * FROM {l}\nINTERSECT\nSELECT * FROM {r}",
     ComposeOp.EXCEPT: "SELECT * FROM {l}\nEXCEPT\nSELECT * FROM {r}",
     ComposeOp.WITH: "SELECT * FROM {r}",
