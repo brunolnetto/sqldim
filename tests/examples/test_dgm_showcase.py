@@ -549,7 +549,7 @@ class TestDemoQuestionAlgebra:
     def test_union_sql_emitted(self, capsys):
         demo_question_algebra()
         out = capsys.readouterr().out
-        assert "UNION ALL" in out
+        assert "UNION" in out and "UNION ALL" not in out
 
     def test_join_sql_emitted(self, capsys):
         demo_question_algebra()
@@ -583,7 +583,7 @@ class TestDemoQuestionAlgebra:
         qa.compose("q1", ComposeOp.UNION, "q2", name="q_union")
         sql = qa.to_sql("q_union")
         assert sql.startswith("WITH")
-        assert "UNION ALL" in sql
+        assert "UNION" in sql and "UNION ALL" not in sql
         assert "SELECT * FROM q_union" in sql
 
 

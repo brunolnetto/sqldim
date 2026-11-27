@@ -21,7 +21,7 @@ These tests cover the semiring elimination laws applied during query DAG make():
     Q₁ ⊆ Q₂  iff  bdd.implies(Q₁.where_bdd, Q₂.where_bdd)  [Band 1]
 
 After elimination, canonical query DAG is topologically sorted.
-Minimum CTE count = number of nodes in canonical DAG (tight lower bound).
+CTE count = number of nodes in canonical DAG (minimal within the canonical form, §8.14).
 """
 
 from __future__ import annotations
@@ -376,7 +376,7 @@ class TestDistributivity:
 
 
 class TestMinimumCTECount:
-    """Minimum CTE count = number of nodes in canonical DAG (tight lower bound)."""
+    """CTE count = number of nodes in canonical DAG (minimal within the canonical form, §8.14)."""
 
     def test_no_compositions_unchanged(self):
         """Fast path: no compositions → result is structurally identical."""
@@ -410,7 +410,7 @@ class TestMinimumCTECount:
         alg.compose("q2", ComposeOp.UNION, "q2", name="dup2")
 
         result = apply_semiring_minimisation(alg, bdd)
-        assert len(result) == 2  # tight lower bound: exactly 2 leaves needed
+        assert len(result) == 2  # exactly the 2 leaves remain
 
     def test_chain_of_idempotent_unions_collapses_to_leaf(self):
         """q, q∪q, (q∪q)∪q → all collapse to q (1 CTE)."""
@@ -693,7 +693,7 @@ class TestUnionSurvivorRightSubsetLeft:
 
         alg = QuestionAlgebra()
         alg.add("q1", _leaf_query("t1", p1))
-        alg.add("q2", _leaf_query("t2", p2))
+        alg.add("q2", _leaf_query("t1", p2))  # one skeleton: containment applies
         # q2 ⊆ q1, so q1 ∪ q2 = q1
         alg.compose("q1", ComposeOp.UNION, "q2", name="q_union")
 
@@ -792,10 +792,118 @@ class TestIntersectSurvivorRightSubsetLeft:
 
         alg = QuestionAlgebra()
         alg.add("q1", _leaf_query("t1", p1))
-        alg.add("q2", _leaf_query("t2", p2))
+        alg.add("q2", _leaf_query("t1", p2))  # one skeleton: containment applies
         # q2 ⊆ q1, so q1 ∩ q2 = q2
         alg.compose("q1", ComposeOp.INTERSECT, "q2", name="q_inter")
 
         result = apply_semiring_minimisation(alg, bdd)
         assert len(result) < len(alg)
         assert "q2" in result.names
+
+
+# ===========================================================================
+# #186: the laws are set laws, and the emitted SQL is a set operation
+# ===========================================================================
+
+
+def _orders_db():
+    import duckdb
+
+    con = duckdb.connect()
+    con.execute("CREATE TABLE orders (id INTEGER, x VARCHAR)")
+    # (1, 'a') is stored twice: a leaf CTE over orders returns a bag
+    con.execute(
+        "INSERT INTO orders VALUES (1, 'a'), (1, 'a'), (2, 'b'), (3, 'only_match')"
+    )
+    con.execute("CREATE TABLE returns (id INTEGER, x VARCHAR)")
+    con.execute("INSERT INTO returns VALUES (1, 'a'), (9, 'z')")
+    return con
+
+
+def _rows(con, alg: QuestionAlgebra, final: str) -> list:
+    return sorted(con.execute(alg.to_sql(final)).fetchall())
+
+
+def _same_rows(alg: QuestionAlgebra, final: str) -> tuple[list, list]:
+    con = _orders_db()
+    try:
+        minimised = alg.minimize(_make_bdd())
+        return _rows(con, alg, final), _rows(con, minimised, final)
+    finally:
+        con.close()
+
+
+class TestMinimisedQueriesReturnTheSameRows:
+    """DuckDB: a minimised algebra returns the rows of the original (§8.13)."""
+
+    def test_union_is_emitted_as_a_set_operation(self):
+        alg = QuestionAlgebra()
+        alg.add("q", _leaf_query("orders"))
+        alg.compose("q", ComposeOp.UNION, "q", name="qq")
+        assert "UNION ALL" not in alg.to_sql("qq")
+
+    def test_self_union(self):
+        alg = QuestionAlgebra()
+        alg.add("q", _leaf_query("orders"))
+        alg.compose("q", ComposeOp.UNION, "q", name="qq")
+        before, after = _same_rows(alg, "qq")
+        assert before == after == [(1, "a"), (2, "b"), (3, "only_match")]
+        assert len(alg.minimize(_make_bdd())) == 1
+
+    def test_self_intersect(self):
+        alg = QuestionAlgebra()
+        alg.add("q", _leaf_query("orders"))
+        alg.compose("q", ComposeOp.INTERSECT, "q", name="qq")
+        before, after = _same_rows(alg, "qq")
+        assert before == after
+
+    def test_containment_absorption(self):
+        strict = ScalarPred(PropRef("t", "x"), "=", "only_match")
+        alg = QuestionAlgebra()
+        alg.add("strict", _leaf_query("orders", strict))
+        alg.add("wide", _leaf_query("orders"))
+        alg.compose("strict", ComposeOp.UNION, "wide", name="u")
+        alg.compose("strict", ComposeOp.INTERSECT, "wide", name="i")
+        for final in ("u", "i"):
+            before, after = _same_rows(alg, final)
+            assert before == after, final
+        assert "u" not in alg.minimize(_make_bdd()).names
+
+    def test_a_join_over_an_eliminated_union_reads_its_distinct_rows(self):
+        alg = QuestionAlgebra()
+        alg.add("q", _leaf_query("orders"))
+        alg.add("r", _leaf_query("returns"))
+        alg.compose("q", ComposeOp.UNION, "q", name="qq")
+        alg.compose("qq", ComposeOp.JOIN, "r", name="j", on="l.id = r.id")
+        before, after = _same_rows(alg, "j")
+        assert before == after == [(1, "a", 1, "a")]
+
+    def test_a_consumer_of_an_eliminated_cte_references_the_survivor(self):
+        alg = QuestionAlgebra()
+        alg.add("q", _leaf_query("orders"))
+        alg.add("r", _leaf_query("returns"))
+        alg.compose("q", ComposeOp.UNION, "q", name="qq")
+        alg.compose("qq", ComposeOp.EXCEPT, "r", name="e")
+        before, after = _same_rows(alg, "e")
+        assert before == after == [(2, "b"), (3, "only_match")]
+
+    def test_no_containment_between_different_anchors(self):
+        """Two leaves without a Where over different tables: TRUE ⇒ TRUE does
+        not make one result contain the other."""
+        alg = QuestionAlgebra()
+        alg.add("q", _leaf_query("orders"))
+        alg.add("r", _leaf_query("returns"))
+        alg.compose("q", ComposeOp.UNION, "r", name="u")
+        assert "u" in alg.minimize(_make_bdd()).names
+        before, after = _same_rows(alg, "u")
+        assert before == after
+
+    def test_no_containment_for_a_band2_leaf(self):
+        a = DGMQuery().anchor("orders", "t").group_by("t.x").agg(n="COUNT(*)")
+        b = DGMQuery().anchor("orders", "t").group_by("t.x").agg(n="COUNT(*)")
+        b.where(ScalarPred(PropRef("t", "x"), "=", "a"))
+        alg = QuestionAlgebra()
+        alg.add("a", a)
+        alg.add("b", b)
+        alg.compose("b", ComposeOp.UNION, "a", name="u")
+        assert "u" in alg.minimize(_make_bdd()).names

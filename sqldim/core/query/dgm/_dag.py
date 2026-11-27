@@ -20,10 +20,21 @@ Semiring elimination rules applied during ``QueryDAGManager.make()``:
   Containment check:
     Q₁ ⊆ Q₂  iff  bdd.implies(Q₁.where_bdd, Q₂.where_bdd)  [Band 1]
 
-After elimination the canonical query DAG is topologically sorted.  Each node
-becomes exactly one CTE in the SQL output — the minimum CTE count equals the
-number of nodes in the canonical DAG (tight lower bound: no correct query with
-fewer CTEs exists).
+Containment is applied only between compositions over one Band 1 skeleton
+(same anchor, joins and projection; no GroupBy, aggregate, Having, window or
+Qualify): only there does implication of the Where predicates prove
+containment of the results (§8.14 ``contains``).
+
+The laws are set laws (§8.13): the algebra emits SQL ``UNION``, ``INTERSECT``
+and ``EXCEPT``.  When an eliminated set operation's survivor may hold
+duplicate rows (a leaf, JOIN or WITH CTE), the eliminated name denotes the
+survivor's distinct rows: a JOIN/WITH consumer reads a ``SELECT DISTINCT``
+CTE and a final read selects ``DISTINCT``, so a minimised algebra returns the
+same rows as the original.
+
+After elimination each node becomes one CTE.  The CTE count is minimal within
+the canonical form — no composition reachable by these rules has fewer nodes —
+not over every equivalent query (§8.14).
 
 API
 ---
@@ -34,6 +45,7 @@ API
 
 from __future__ import annotations
 
+import copy
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
@@ -200,33 +212,73 @@ def _leaf_bdd_id(cq: ComposedQuery, bdd: "DGMPredicateBDD") -> int:
     return bdd.compile(pred)
 
 
+_BAND23_ATTRS = (
+    "_group_by_cols",
+    "_agg_exprs",
+    "_having_pred",
+    "_window_exprs",
+    "_qualify_pred",
+    "_branches",
+    "_temporal_context",
+)
+
+
+def _band1_skeleton(cq: ComposedQuery) -> str | None:
+    """The SQL of a Band 1 leaf without its Where, or None if not Band 1.
+
+    Two leaves with one skeleton differ only in their Where, so implication
+    of the Where predicates is containment of their results.
+    """
+    q = cq.query
+    if q is None or any(getattr(q, a, None) for a in _BAND23_ATTRS):
+        return None
+    bare = copy.copy(q)
+    bare._where_pred = None
+    try:
+        return bare.to_sql()
+    except Exception:  # an unrenderable leaf has no skeleton to compare
+        return None
+
+
+def _composed_skeleton(
+    op: ComposeOp, left: str | None, right: str | None
+) -> str | None:
+    """A UNION/INTERSECT of two compositions over one skeleton keeps it."""
+    if op in (ComposeOp.UNION, ComposeOp.INTERSECT) and left == right:
+        return left
+    return None
+
+
 def _build_bdd_ids(
     algebra: QuestionAlgebra,
     composition: dict[str, tuple[str, ComposeOp, str]],
     bdd: "DGMPredicateBDD",
-) -> dict[str, int]:
-    """Build ``{name: bdd_id}`` for every CTE in *algebra* (topological pass).
+) -> tuple[dict[str, int], dict[str, str | None]]:
+    """Build ``{name: bdd_id}`` and ``{name: skeleton}`` (topological pass).
 
     Leaf CTEs: compiled from their WHERE predicate (or TRUE_NODE_ID if none).
     Composed UNION CTEs: OR of operands' BDD IDs.
     Composed INTERSECT CTEs: AND of operands' BDD IDs.
-    Other ops: TRUE_NODE_ID (no Band-1 containment check).
+    Other ops: TRUE_NODE_ID and no skeleton, so no containment check.
     """
     bdd_ids: dict[str, int] = {}
+    skel: dict[str, str | None] = {}
     for name, cq in algebra._ctes.items():
         if name not in composition:
             bdd_ids[name] = _leaf_bdd_id(cq, bdd)
+            skel[name] = _band1_skeleton(cq)
+            continue
+        left_name, op, right_name = composition[name]
+        l_id = bdd_ids.get(left_name, TRUE_NODE_ID)
+        r_id = bdd_ids.get(right_name, TRUE_NODE_ID)
+        if op is ComposeOp.UNION:
+            bdd_ids[name] = bdd.manager.apply("OR", l_id, r_id)
+        elif op is ComposeOp.INTERSECT:
+            bdd_ids[name] = bdd.manager.apply("AND", l_id, r_id)
         else:
-            left_name, op, right_name = composition[name]
-            l_id = bdd_ids.get(left_name, TRUE_NODE_ID)
-            r_id = bdd_ids.get(right_name, TRUE_NODE_ID)
-            if op is ComposeOp.UNION:
-                bdd_ids[name] = bdd.manager.apply("OR", l_id, r_id)
-            elif op is ComposeOp.INTERSECT:
-                bdd_ids[name] = bdd.manager.apply("AND", l_id, r_id)
-            else:
-                bdd_ids[name] = TRUE_NODE_ID
-    return bdd_ids
+            bdd_ids[name] = TRUE_NODE_ID
+        skel[name] = _composed_skeleton(op, skel.get(left_name), skel.get(right_name))
+    return bdd_ids, skel
 
 
 # ---------------------------------------------------------------------------
@@ -266,21 +318,64 @@ def _intersect_survivor(
     return None
 
 
+def _contained(x: str, y: str, eff: dict[str, tuple[str, ComposeOp, str]]) -> bool:
+    """``x ⊆ y`` by structure alone: y is a UNION with x below it, or x an
+    INTERSECT with y below it (set semantics, §8.13)."""
+    if x == y:
+        return True
+    if y in eff and eff[y][1] is ComposeOp.UNION:
+        if _contained(x, eff[y][0], eff) or _contained(x, eff[y][2], eff):
+            return True
+    if x in eff and eff[x][1] is ComposeOp.INTERSECT:
+        return _contained(eff[x][0], y, eff) or _contained(eff[x][2], y, eff)
+    return False
+
+
+def _absorbed(
+    left: str, right: str, op: ComposeOp, eff: dict[str, tuple[str, ComposeOp, str]]
+) -> str | None:
+    """The survivor of a structural containment, or None."""
+    if _contained(left, right, eff):
+        return right if op is ComposeOp.UNION else left
+    if _contained(right, left, eff):
+        return left if op is ComposeOp.UNION else right
+    return None
+
+
 def _try_eliminate(
     left_eff: str,
     right_eff: str,
     op: ComposeOp,
     bdd_ids: dict[str, int],
     bdd: "DGMPredicateBDD",
+    skel: dict[str, str | None] | None = None,
+    eff: dict[str, tuple[str, ComposeOp, str]] | None = None,
 ) -> str | None:
-    """Return the surviving CTE if any elimination rule fires, else None."""
+    """Return the surviving CTE if any elimination rule fires, else None.
+
+    *eff* holds the kept compositions over their surviving operands; with it
+    the absorption laws ``Q ∩ (Q ∪ R) = Q`` and ``Q ∪ (Q ∩ R) = Q`` apply to
+    any operands, since containment is then structural.
+
+    Idempotence applies to UNION and INTERSECT only.  Containment applies
+    only when *skel* gives both operands one Band 1 skeleton; without
+    *skel* the BDD ids are taken to be over one skeleton.
+    """
+    if op not in (ComposeOp.UNION, ComposeOp.INTERSECT):
+        return None
     if left_eff == right_eff:  # structural idempotence
         return left_eff
+    if eff is not None:
+        structural = _absorbed(left_eff, right_eff, op, eff)
+        if structural is not None:
+            return structural
+    if skel is not None and (
+        skel.get(left_eff) is None or skel.get(left_eff) != skel.get(right_eff)
+    ):
+        return None
     if op is ComposeOp.UNION:
         return _union_survivor(left_eff, right_eff, bdd_ids, bdd)
-    if op is ComposeOp.INTERSECT:
-        return _intersect_survivor(left_eff, right_eff, bdd_ids, bdd)
-    return None
+    return _intersect_survivor(left_eff, right_eff, bdd_ids, bdd)
 
 
 # ---------------------------------------------------------------------------
@@ -310,22 +405,73 @@ def _copy_algebra(algebra: QuestionAlgebra) -> QuestionAlgebra:
     for name, cq in algebra._ctes.items():
         new_alg._ctes[name] = cq
     new_alg._composition.update(algebra._composition)
+    new_alg._on.update(algebra._on)
+    new_alg._aliases.update(algebra._aliases)
     return new_alg
 
 
-def _rebuild(
-    algebra: QuestionAlgebra,
-    eliminated: set[str],
-) -> QuestionAlgebra:
-    """Return a new algebra with all *eliminated* CTEs removed."""
-    new_alg = QuestionAlgebra()
-    for name, cq in algebra._ctes.items():
-        if name not in eliminated:
-            new_alg._ctes[name] = cq
-    new_alg._composition.update(
-        {k: v for k, v in algebra._composition.items() if k not in eliminated}
-    )
-    return new_alg
+_SET_OPS = (ComposeOp.UNION, ComposeOp.INTERSECT, ComposeOp.EXCEPT)
+
+
+class _Rebuild:
+    """Rebuild *algebra* without the names in *subs* (eliminated → survivor).
+
+    A survivor that is not a set operation may hold duplicate rows, while the
+    eliminated set operation returned distinct rows.  A set-operation
+    consumer is insensitive to that and reads the survivor; a JOIN or WITH
+    consumer reads a ``SELECT DISTINCT`` CTE kept under the eliminated name.
+    """
+
+    def __init__(self, algebra: QuestionAlgebra, subs: dict[str, str]) -> None:
+        self.alg = algebra
+        self.subs = subs
+        self.comp = algebra._composition
+        self.coerced = {
+            operand
+            for name, (left, op, right) in self.comp.items()
+            if name not in subs and op not in _SET_OPS
+            for operand in (left, right)
+            if operand in subs and self._bag(_resolve(operand, subs))
+        }
+
+    def _bag(self, name: str) -> bool:
+        """True when *name*'s rows may repeat (not a set operation)."""
+        return name not in self.comp or self.comp[name][1] not in _SET_OPS
+
+    def _ref(self, operand: str, consumer_op: ComposeOp) -> str:
+        if operand not in self.subs:
+            return operand
+        if consumer_op not in _SET_OPS and operand in self.coerced:
+            return operand
+        return _resolve(operand, self.subs)
+
+    def run(self) -> QuestionAlgebra:
+        new_alg = QuestionAlgebra()
+        new_alg._aliases.update(self.alg._aliases)
+        for name, cq in self.alg._ctes.items():
+            if name in self.coerced:
+                body = f"SELECT DISTINCT * FROM {_resolve(name, self.subs)}"
+                new_alg._ctes[name] = ComposedQuery(name=name, sql=body)
+            elif name in self.subs:
+                survivor = _resolve(name, self.subs)
+                new_alg._aliases[name] = (survivor, self._bag(survivor))
+            elif name not in self.comp:
+                new_alg._ctes[name] = cq
+            else:
+                self._recompose(new_alg, name)
+        return new_alg
+
+    def _recompose(self, new_alg: QuestionAlgebra, name: str) -> None:
+        left, op, right = self.comp[name]
+        left, right = self._ref(left, op), self._ref(right, op)
+        on = self.alg._on.get(name)
+        sql = QuestionAlgebra._compose_sql(
+            new_alg._ctes[left], new_alg._ctes[right], op, on=on
+        )
+        new_alg._ctes[name] = ComposedQuery(name=name, sql=sql)
+        new_alg._composition[name] = (left, op, right)
+        if on is not None:
+            new_alg._on[name] = on
 
 
 # ---------------------------------------------------------------------------
@@ -364,19 +510,22 @@ def apply_semiring_minimisation(
     if not composition:
         return _copy_algebra(algebra)  # fast path: no compositions
 
-    bdd_ids = _build_bdd_ids(algebra, composition, bdd)
+    bdd_ids, skel = _build_bdd_ids(algebra, composition, bdd)
 
     # cascade substitution: eliminated_name → canonical_name
     substitutions: dict[str, str] = {}
+    eff: dict[str, tuple[str, ComposeOp, str]] = {}
 
     for name, (left_name, op, right_name) in composition.items():
         left_eff = _resolve(left_name, substitutions)
         right_eff = _resolve(right_name, substitutions)
-        survivor = _try_eliminate(left_eff, right_eff, op, bdd_ids, bdd)
+        survivor = _try_eliminate(left_eff, right_eff, op, bdd_ids, bdd, skel, eff)
         if survivor is not None:
             substitutions[name] = survivor
+        else:
+            eff[name] = (left_eff, op, right_eff)
 
     if not substitutions:
         return _copy_algebra(algebra)
 
-    return _rebuild(algebra, set(substitutions.keys()))
+    return _Rebuild(algebra, substitutions).run()

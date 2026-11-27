@@ -53,7 +53,8 @@ class Backend:
 
 
 def _backends() -> tuple[Backend, ...]:
-    from tests.conformance.runners import bdd_impl, duckdb_sql, model_impl, ordering
+    from tests.conformance.runners import algebra, bdd_impl, duckdb_sql, model_impl
+    from tests.conformance.runners import ordering
     from tests.conformance.runners import postgres, refusals, sinks, write_plan
 
     return (
@@ -61,6 +62,7 @@ def _backends() -> tuple[Backend, ...]:
         duckdb_sql.PLAN_IR,
         ordering.BACKEND,
         bdd_impl.BACKEND,
+        algebra.BACKEND,
         model_impl.MODEL,
         model_impl.ANNOTATIONS,
         postgres.PG_DUCKDB,

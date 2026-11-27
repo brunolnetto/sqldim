@@ -236,8 +236,9 @@ When multiple CTEs share an identical `WHERE` predicate (same canonical BDD node
 Applies the semiring elimination laws to a `QuestionAlgebra` before SQL
 emission. The result is minimal within the canonical form, not over every
 equivalent query (§8.14), and its soundness (`CLM-8.14-CANON`) is not
-independently evidenced. The laws are set laws while `UNION` emits `UNION ALL`,
-so minimising can change the multiplicity of rows:
+independently evidenced. The laws are set laws, and `UNION`, `INTERSECT` and
+`EXCEPT` emit the SQL set operations (§8.13), so a minimised algebra returns
+the rows of the original; an eliminated name stays valid as `final=`:
 
 | Law | Rule |
 |---|---|

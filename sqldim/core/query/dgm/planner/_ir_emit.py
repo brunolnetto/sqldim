@@ -207,7 +207,7 @@ def _band_sql(q: BandQuery) -> str:
 
 
 _SET_OPS = {
-    ComposeOp.UNION: "UNION ALL",
+    ComposeOp.UNION: "UNION",
     ComposeOp.INTERSECT: "INTERSECT",
     ComposeOp.EXCEPT: "EXCEPT",
 }

@@ -50,59 +50,60 @@ implement the area.
 
 <!-- BEGIN GENERATED: tests/conformance/matrix.py -->
 
-390 cases; 196 carry a value stated by the specification, the others are derived by the oracle from the definitions. Every case is checked against the oracle.
+398 cases; 196 carry a value stated by the specification, the others are derived by the oracle from the definitions. Every case is checked against the oracle.
 
-| Clause | Cases | `duckdb-dgmquery` | `duckdb-plan-ir` | `duckdb-ordering` | `dgm-bdd` | `dgm-model` | `dgm-annotations` | `pg-duckdb-plan-ir` | `planner-refusals` | `dgm-write-plan` | `sink-duckdb` | `sink-parquet` | `sink-postgresql` | `sink-motherduck` | `sink-delta` |
-|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
-| ADR 0001 Empty-domain policy; §4.1 Empty domain | `CTL-A-c0-AF-REQ` … `CTL-B-a2-AX-VAC` (12) | 3 pass, 3 refused, 6 n/e | 3 pass, 3 refused, 6 n/e | — | — | — | — | 3 pass, 3 refused, 6 n/e | 6 refused, 6 n/e | — | — | — | — | — | — |
-| ADR 0001 Truth conditions (UNTIL is strong) | `PP-UNTIL-01`, `PP-UNTIL-02` | 2 pass | 2 pass | — | — | — | — | 2 pass | 2 refused | — | — | — | — | — | — |
-| ADR 0001 Truth conditions (UNTIL is strong); §4.1 | `CTL-U-01` … `CTL-U-05` (5) | 5 refused | 5 refused | — | — | — | — | 5 refused | 5 refused | — | — | — | — | — | — |
-| ADR 0001 Truth conditions; §4.1 Path semantics | `CTL-A-c-EF` … `CTL-B-a2-EX-VAC` (30) | 9 pass, 15 refused, 6 n/e | 9 pass, 15 refused, 6 n/e | — | — | — | — | 9 pass, 15 refused, 6 n/e | 24 refused, 6 n/e | — | — | — | — | — | — |
-| ADR 0003 / §5.1 one reference instant τ | `SCD-TAU-01` | 1 refused | 1 refused | — | — | — | — | 1 refused | 1 refused | — | — | — | — | — | — |
-| §2.1 Structural invariants (V_S ⊆ D_S × F_S) | `MOD-08`, `MOD-09`, `MOD-10`, `MOD-11` | — | — | — | — | 4 pass | — | — | — | — | — | — | — | — | — |
-| §2.4 Additivity AD1–AD4 and grain defaults | `ADD-01` … `ADD-13` (13) | — | — | — | — | — | 9 pass, 4 refused | — | — | — | — | — | — | — | — |
-| §2.5 SCD resolution: as-was and as-is | `SCD-01` … `SCD-05` (5) | 5 pass | 5 pass | — | — | — | — | 5 pass | 5 refused | — | — | — | — | — | — |
-| §2.5 SCD2 versions; §2.6 M2 (a closed version has valid_to set) | `SINK-CL-01`, `SINK-CL-02`, `SINK-CL-03`, `SINK-CL-04` | — | — | — | — | — | — | — | — | — | 4 pass | 4 pass | 4 pass | — | 4 refused |
-| §2.6 Declared model (well-formedness at construction); §2.4 argument kinds | `MOD-01` … `MOD-07` (7) | — | — | — | — | 7 pass | — | — | — | — | — | — | — | — | — |
-| §2.6 Declared model: §2.1 invariants are not construction checks | `MOD-12` | — | — | — | — | 1 pass | — | — | — | — | — | — | — | — | — |
-| §2.6 Version and validity at an instant (half-open windows) | `SCD-V-01` … `SCD-E-06` (13) | 11 pass, 2 refused | 11 pass, 2 refused | — | — | — | — | 11 pass, 2 refused | 13 refused | — | — | — | — | — | — |
-| §3.2 Alias uniqueness (C ∩ L ≠ ∅ rejected) | `PP-ALIAS-04` | 1 pass | 1 pass | — | — | — | — | 1 pass | 1 refused | — | — | — | — | — | — |
-| §3.2 Repeat well-formedness | `CON-R2-01` … `CON-R-02` (7) | 7 pass | 7 pass | — | — | — | — | — | — | — | — | — | — | — | — |
-| §3.2 Repetition and RepeatMode; PathJoin under ALL | `RJ-01` … `RJ-06` (6) | 6 refused | 3 pass, 3 refused | — | — | — | — | 3 pass, 3 refused | 6 refused | — | — | — | — | — | — |
-| §3.2 TemporalOrdering semantics (Allen, half-open, NULL bounds) | `TO-PRECEDES-proper` … `TO-EQUALS-degenerate` (39) | — | — | 39 pass | — | — | — | — | — | — | — | — | — | — | — |
-| §3.2 Typing of TemporalOrdering (TO1–TO4) | `TO-TYPE-01`, `TO-TYPE-02`, `TO-TYPE-03`, `TO-TYPE-04` | — | — | 3 pass, 1 n/e | — | — | — | — | — | — | — | — | — | — | — |
-| §3.2 point relations (NULL TimePoint is UNKNOWN) | `TO-BEFORE-pt`, `TO-AFTER-pt`, `TO-CONCURRENT-pt`, `TO-CONCURRENT-tol1` | — | — | 4 pass | — | — | — | — | — | — | — | — | — | — | — |
-| §3.3 Strategy (deterministic ≺ order) | `PP-STR-01`, `PP-STR-02`, `PP-STR-03`, `PP-STR-04` | 1 pass, 3 refused | 1 pass, 3 refused | — | — | — | — | 1 pass, 3 refused | 4 refused | — | — | — | — | — | — |
-| §3.4.2 RelationshipSubgraph by reachability | `CONE-01`, `CONE-02`, `CONE-05`, `CONE-06` | — | — | — | — | — | — | — | — | — | — | — | — | — | — |
-| §3.4.6 Anchor sets (AS1–AS3, N_𝒜, E_𝒜, Σ|_𝒜) | `AS-01` … `AS-GEN-11-edges` (50) | — | — | — | — | 50 pass | — | — | — | — | — | — | — | — | — |
-| §3.5 Evaluation contexts (Refs in C ∪ L) | `PP-ALIAS-01`, `PP-ALIAS-02`, `PP-ALIAS-03` | 3 pass | 3 pass | — | — | — | — | 3 pass | 3 refused | — | — | — | — | — | — |
-| §3.5 L-promotion | `PP-PROM-01` | 1 pass | 1 pass | — | — | — | — | 1 pass | 1 n/e | — | — | — | — | — | — |
-| §4.1 AF and AG are distinct; FORALL elimination | `CTL-G1-AF` … `CTL-G2-NOT-EF` (8) | 8 n/e | 8 n/e | — | — | — | — | 8 n/e | 8 n/e | — | — | — | — | — | — |
-| §4.1 Band table (B3: window, QUALIFY); §4.1 NULL rules | `WIN-01`, `WIN-02`, `WIN-03` | 3 pass | 3 pass | — | — | — | — | 1 pass, 2 refused | 3 refused | — | — | — | — | — | — |
-| §4.1 Band table; §5.2 cross-band Ref rules | `CON-B-01` … `CON-B-10` (10) | 10 pass | 10 pass | — | — | — | — | — | — | — | — | — | — | — | — |
-| §4.1 Empty domain; ADR 0001 Empty-domain policy | `PP-EX-02`, `PP-FA-02`, `PP-FA-03`, `PP-NOT-03` | 3 pass, 1 n/e | 3 pass, 1 n/e | — | — | — | — | 3 pass, 1 n/e | 3 refused, 1 n/e | — | — | — | — | — | — |
-| §4.1 FORALL elimination (CTL duality, NotTrue, REQUIRE_WITNESS guard) | `BDD-F-01`, `BDD-F-02`, `BDD-F-03` | — | — | — | 3 pass | — | — | — | — | — | — | — | — | — | — |
-| §4.1 FORALL with ONCE/SINCE; past-time modes need a time-ordered path | `PP-PAST-01`, `PP-PAST-02`, `PP-PAST-03` | 3 pass | 3 pass | — | — | — | — | 3 pass | 3 n/e | — | — | — | — | — | — |
-| §4.1 NULL rules (NULL is not a literal) | `CON-N-01`, `CON-N-02` | 2 pass | 2 pass | — | — | — | — | — | — | — | — | — | — | — | — |
-| §4.1 PathPred; FORALL elimination with NotTrue; ADR 0001 | `PP-EX-01` … `PP-NULL-04` (8) | 8 pass | 8 pass | — | — | — | — | 8 pass | 8 refused | — | — | — | — | — | — |
-| §4.1 Recorded traces and monitoring verdicts | `MON-01` … `MON-15` (15) | — | — | — | — | — | — | — | — | — | — | — | — | — | — |
-| §4.2 TemporalWindow LATEST / EARLIEST | `TAGG-01`, `TAGG-02` | — | — | — | — | — | — | — | — | — | — | — | — | — | — |
-| §4.2 What an aggregate counts (ENTITIES / PATHS) | `AGG-OVER-01`, `AGG-OVER-02`, `AGG-OVER-03`, `AGG-OVER-04` | 4 pass | 4 pass | — | — | — | — | 4 pass | 4 refused | — | — | — | — | — | — |
-| §5.2.2 Drill-across (steps 1–3, DA4) | `DA-01`, `DA-02` | 2 pass | 2 refused | — | — | — | — | 2 refused | 2 refused | — | — | — | — | — | — |
-| §5.2.2 Well-formedness of a constellation (DA1–DA3) | `DA-WF-01`, `DA-WF-02`, `DA-WF-03`, `DA-WF-04` | 4 pass | 3 pass, 1 refused | — | — | — | — | — | — | — | — | — | — | — | — |
-| §6.1 / §8.3 propositional equivalence, tautology, implication | `BDD-P-01` … `BDD-P-GEN-23` (31) | — | — | — | 31 pass | — | — | — | — | — | — | — | — | — | — |
-| §6.1 Order theory of atoms (Δ_ord, O1–O6) | `BDD-O-01` … `BDD-O-08` (8) | — | — | — | 8 pass | — | — | — | — | — | — | — | — | — | — |
-| §6.1 Three-valued logic (T⁺/T⁻ encoding, Δ_excl, Δ_null) | `BDD-K-01` … `BDD-K-08` (8) | — | — | — | 8 pass | — | — | — | — | — | — | — | — | — | — |
-| §6.1 Variables (canonical form of atoms) | `BDD-C-01`, `BDD-C-02`, `BDD-C-03` | — | — | — | 3 pass | — | — | — | — | — | — | — | — | — | — |
-| §6.2 Rule 10 with Delta and Iceberg writes (MERGE) | `WP-DELTA-merge`, `WP-ICEBERG-merge` | — | — | — | — | — | — | — | — | 2 pass | — | — | — | — | — |
-| §6.2 Rule 8 APPEND (INSERT INTO); §2.4 write_mode | `SINK-RT-01`, `SINK-RT-02`, `SINK-RT-03` | — | — | — | — | — | — | — | — | — | 3 pass | 3 pass | 3 pass | — | 3 pass |
-| §6.2 Rule 8 sink-aware write planning; Delta and Iceberg writes | `WP-DUCKDB-target` … `WP-ICEBERG-catalog` (14) | — | — | — | — | — | — | — | — | 14 pass | — | — | — | — | — |
-| §6.2 Rule 8, §6.4 sink write semantics: statements executed by DuckDB | `SINK-SQL-W`, `SINK-SQL-C` | — | — | — | — | — | — | — | — | — | 2 pass | 2 pass | 2 pass | 2 pass | 1 pass, 1 refused |
-| §8.2 Propositional completeness (proof by minterm construction) | `THM-PC-0000` … `THM-PC-1111` (16) | — | — | — | 16 pass | — | — | — | — | — | — | — | — | — | — |
-| §8.3 A BDD's paths to TRUE are disjoint cubes covering its minterms | `THM-CUBE-00` … `THM-CUBE-07` (8) | — | — | — | 8 pass | — | — | — | — | — | — | — | — | — | — |
-| §8.7 Cone intersection theorem (G_A* ∩ G_*B = G_AB) | `CONE-03` … `CONE-09` (5) | — | — | — | — | — | — | — | — | — | — | — | — | — | — |
-| §8.8 Allen exhaustiveness theorem | `TO-THM-01` | — | — | 1 pass | — | — | — | — | — | — | — | — | — | — | — |
-| §8.8 Outside the domain | `TO-THM-02` | — | — | 1 pass | — | — | — | — | — | — | — | — | — | — | — |
+| Clause | Cases | `duckdb-dgmquery` | `duckdb-plan-ir` | `duckdb-ordering` | `dgm-bdd` | `duckdb-question-algebra` | `dgm-model` | `dgm-annotations` | `pg-duckdb-plan-ir` | `planner-refusals` | `dgm-write-plan` | `sink-duckdb` | `sink-parquet` | `sink-postgresql` | `sink-motherduck` | `sink-delta` |
+|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
+| ADR 0001 Empty-domain policy; §4.1 Empty domain | `CTL-A-c0-AF-REQ` … `CTL-B-a2-AX-VAC` (12) | 3 pass, 3 refused, 6 n/e | 3 pass, 3 refused, 6 n/e | — | — | — | — | — | 3 pass, 3 refused, 6 n/e | 6 refused, 6 n/e | — | — | — | — | — | — |
+| ADR 0001 Truth conditions (UNTIL is strong) | `PP-UNTIL-01`, `PP-UNTIL-02` | 2 pass | 2 pass | — | — | — | — | — | 2 pass | 2 refused | — | — | — | — | — | — |
+| ADR 0001 Truth conditions (UNTIL is strong); §4.1 | `CTL-U-01` … `CTL-U-05` (5) | 5 refused | 5 refused | — | — | — | — | — | 5 refused | 5 refused | — | — | — | — | — | — |
+| ADR 0001 Truth conditions; §4.1 Path semantics | `CTL-A-c-EF` … `CTL-B-a2-EX-VAC` (30) | 9 pass, 15 refused, 6 n/e | 9 pass, 15 refused, 6 n/e | — | — | — | — | — | 9 pass, 15 refused, 6 n/e | 24 refused, 6 n/e | — | — | — | — | — | — |
+| ADR 0003 / §5.1 one reference instant τ | `SCD-TAU-01` | 1 refused | 1 refused | — | — | — | — | — | 1 refused | 1 refused | — | — | — | — | — | — |
+| §2.1 Structural invariants (V_S ⊆ D_S × F_S) | `MOD-08`, `MOD-09`, `MOD-10`, `MOD-11` | — | — | — | — | — | 4 pass | — | — | — | — | — | — | — | — | — |
+| §2.4 Additivity AD1–AD4 and grain defaults | `ADD-01` … `ADD-13` (13) | — | — | — | — | — | — | 9 pass, 4 refused | — | — | — | — | — | — | — | — |
+| §2.5 SCD resolution: as-was and as-is | `SCD-01` … `SCD-05` (5) | 5 pass | 5 pass | — | — | — | — | — | 5 pass | 5 refused | — | — | — | — | — | — |
+| §2.5 SCD2 versions; §2.6 M2 (a closed version has valid_to set) | `SINK-CL-01`, `SINK-CL-02`, `SINK-CL-03`, `SINK-CL-04` | — | — | — | — | — | — | — | — | — | — | 4 pass | 4 pass | 4 pass | — | 4 refused |
+| §2.6 Declared model (well-formedness at construction); §2.4 argument kinds | `MOD-01` … `MOD-07` (7) | — | — | — | — | — | 7 pass | — | — | — | — | — | — | — | — | — |
+| §2.6 Declared model: §2.1 invariants are not construction checks | `MOD-12` | — | — | — | — | — | 1 pass | — | — | — | — | — | — | — | — | — |
+| §2.6 Version and validity at an instant (half-open windows) | `SCD-V-01` … `SCD-E-06` (13) | 11 pass, 2 refused | 11 pass, 2 refused | — | — | — | — | — | 11 pass, 2 refused | 13 refused | — | — | — | — | — | — |
+| §3.2 Alias uniqueness (C ∩ L ≠ ∅ rejected) | `PP-ALIAS-04` | 1 pass | 1 pass | — | — | — | — | — | 1 pass | 1 refused | — | — | — | — | — | — |
+| §3.2 Repeat well-formedness | `CON-R2-01` … `CON-R-02` (7) | 7 pass | 7 pass | — | — | — | — | — | — | — | — | — | — | — | — | — |
+| §3.2 Repetition and RepeatMode; PathJoin under ALL | `RJ-01` … `RJ-06` (6) | 6 refused | 3 pass, 3 refused | — | — | — | — | — | 3 pass, 3 refused | 6 refused | — | — | — | — | — | — |
+| §3.2 TemporalOrdering semantics (Allen, half-open, NULL bounds) | `TO-PRECEDES-proper` … `TO-EQUALS-degenerate` (39) | — | — | 39 pass | — | — | — | — | — | — | — | — | — | — | — | — |
+| §3.2 Typing of TemporalOrdering (TO1–TO4) | `TO-TYPE-01`, `TO-TYPE-02`, `TO-TYPE-03`, `TO-TYPE-04` | — | — | 3 pass, 1 n/e | — | — | — | — | — | — | — | — | — | — | — | — |
+| §3.2 point relations (NULL TimePoint is UNKNOWN) | `TO-BEFORE-pt`, `TO-AFTER-pt`, `TO-CONCURRENT-pt`, `TO-CONCURRENT-tol1` | — | — | 4 pass | — | — | — | — | — | — | — | — | — | — | — | — |
+| §3.3 Strategy (deterministic ≺ order) | `PP-STR-01`, `PP-STR-02`, `PP-STR-03`, `PP-STR-04` | 1 pass, 3 refused | 1 pass, 3 refused | — | — | — | — | — | 1 pass, 3 refused | 4 refused | — | — | — | — | — | — |
+| §3.4.2 RelationshipSubgraph by reachability | `CONE-01`, `CONE-02`, `CONE-05`, `CONE-06` | — | — | — | — | — | — | — | — | — | — | — | — | — | — | — |
+| §3.4.6 Anchor sets (AS1–AS3, N_𝒜, E_𝒜, Σ|_𝒜) | `AS-01` … `AS-GEN-11-edges` (50) | — | — | — | — | — | 50 pass | — | — | — | — | — | — | — | — | — |
+| §3.5 Evaluation contexts (Refs in C ∪ L) | `PP-ALIAS-01`, `PP-ALIAS-02`, `PP-ALIAS-03` | 3 pass | 3 pass | — | — | — | — | — | 3 pass | 3 refused | — | — | — | — | — | — |
+| §3.5 L-promotion | `PP-PROM-01` | 1 pass | 1 pass | — | — | — | — | — | 1 pass | 1 n/e | — | — | — | — | — | — |
+| §4.1 AF and AG are distinct; FORALL elimination | `CTL-G1-AF` … `CTL-G2-NOT-EF` (8) | 8 n/e | 8 n/e | — | — | — | — | — | 8 n/e | 8 n/e | — | — | — | — | — | — |
+| §4.1 Band table (B3: window, QUALIFY); §4.1 NULL rules | `WIN-01`, `WIN-02`, `WIN-03` | 3 pass | 3 pass | — | — | — | — | — | 1 pass, 2 refused | 3 refused | — | — | — | — | — | — |
+| §4.1 Band table; §5.2 cross-band Ref rules | `CON-B-01` … `CON-B-10` (10) | 10 pass | 10 pass | — | — | — | — | — | — | — | — | — | — | — | — | — |
+| §4.1 Empty domain; ADR 0001 Empty-domain policy | `PP-EX-02`, `PP-FA-02`, `PP-FA-03`, `PP-NOT-03` | 3 pass, 1 n/e | 3 pass, 1 n/e | — | — | — | — | — | 3 pass, 1 n/e | 3 refused, 1 n/e | — | — | — | — | — | — |
+| §4.1 FORALL elimination (CTL duality, NotTrue, REQUIRE_WITNESS guard) | `BDD-F-01`, `BDD-F-02`, `BDD-F-03` | — | — | — | 3 pass | — | — | — | — | — | — | — | — | — | — | — |
+| §4.1 FORALL with ONCE/SINCE; past-time modes need a time-ordered path | `PP-PAST-01`, `PP-PAST-02`, `PP-PAST-03` | 3 pass | 3 pass | — | — | — | — | — | 3 pass | 3 n/e | — | — | — | — | — | — |
+| §4.1 NULL rules (NULL is not a literal) | `CON-N-01`, `CON-N-02` | 2 pass | 2 pass | — | — | — | — | — | — | — | — | — | — | — | — | — |
+| §4.1 PathPred; FORALL elimination with NotTrue; ADR 0001 | `PP-EX-01` … `PP-NULL-04` (8) | 8 pass | 8 pass | — | — | — | — | — | 8 pass | 8 refused | — | — | — | — | — | — |
+| §4.1 Recorded traces and monitoring verdicts | `MON-01` … `MON-15` (15) | — | — | — | — | — | — | — | — | — | — | — | — | — | — | — |
+| §4.2 TemporalWindow LATEST / EARLIEST | `TAGG-01`, `TAGG-02` | — | — | — | — | — | — | — | — | — | — | — | — | — | — | — |
+| §4.2 What an aggregate counts (ENTITIES / PATHS) | `AGG-OVER-01`, `AGG-OVER-02`, `AGG-OVER-03`, `AGG-OVER-04` | 4 pass | 4 pass | — | — | — | — | — | 4 pass | 4 refused | — | — | — | — | — | — |
+| §5.2.2 Drill-across (steps 1–3, DA4) | `DA-01`, `DA-02` | 2 pass | 2 refused | — | — | — | — | — | 2 refused | 2 refused | — | — | — | — | — | — |
+| §5.2.2 Well-formedness of a constellation (DA1–DA3) | `DA-WF-01`, `DA-WF-02`, `DA-WF-03`, `DA-WF-04` | 4 pass | 3 pass, 1 refused | — | — | — | — | — | — | — | — | — | — | — | — | — |
+| §6.1 / §8.3 propositional equivalence, tautology, implication | `BDD-P-01` … `BDD-P-GEN-23` (31) | — | — | — | 31 pass | — | — | — | — | — | — | — | — | — | — | — |
+| §6.1 Order theory of atoms (Δ_ord, O1–O6) | `BDD-O-01` … `BDD-O-08` (8) | — | — | — | 8 pass | — | — | — | — | — | — | — | — | — | — | — |
+| §6.1 Three-valued logic (T⁺/T⁻ encoding, Δ_excl, Δ_null) | `BDD-K-01` … `BDD-K-08` (8) | — | — | — | 8 pass | — | — | — | — | — | — | — | — | — | — | — |
+| §6.1 Variables (canonical form of atoms) | `BDD-C-01`, `BDD-C-02`, `BDD-C-03` | — | — | — | 3 pass | — | — | — | — | — | — | — | — | — | — | — |
+| §6.2 Rule 10 with Delta and Iceberg writes (MERGE) | `WP-DELTA-merge`, `WP-ICEBERG-merge` | — | — | — | — | — | — | — | — | — | 2 pass | — | — | — | — | — |
+| §6.2 Rule 8 APPEND (INSERT INTO); §2.4 write_mode | `SINK-RT-01`, `SINK-RT-02`, `SINK-RT-03` | — | — | — | — | — | — | — | — | — | — | 3 pass | 3 pass | 3 pass | — | 3 pass |
+| §6.2 Rule 8 sink-aware write planning; Delta and Iceberg writes | `WP-DUCKDB-target` … `WP-ICEBERG-catalog` (14) | — | — | — | — | — | — | — | — | — | 14 pass | — | — | — | — | — |
+| §6.2 Rule 8, §6.4 sink write semantics: statements executed by DuckDB | `SINK-SQL-W`, `SINK-SQL-C` | — | — | — | — | — | — | — | — | — | — | 2 pass | 2 pass | 2 pass | 2 pass | 1 pass, 1 refused |
+| §8.13 Semiring structure (elements are sets); §6.2 Rule 11 extended | `ALG-01` … `ALG-08` (8) | — | — | — | — | 8 pass | — | — | — | — | — | — | — | — | — | — |
+| §8.2 Propositional completeness (proof by minterm construction) | `THM-PC-0000` … `THM-PC-1111` (16) | — | — | — | 16 pass | — | — | — | — | — | — | — | — | — | — | — |
+| §8.3 A BDD's paths to TRUE are disjoint cubes covering its minterms | `THM-CUBE-00` … `THM-CUBE-07` (8) | — | — | — | 8 pass | — | — | — | — | — | — | — | — | — | — | — |
+| §8.7 Cone intersection theorem (G_A* ∩ G_*B = G_AB) | `CONE-03` … `CONE-09` (5) | — | — | — | — | — | — | — | — | — | — | — | — | — | — | — |
+| §8.8 Allen exhaustiveness theorem | `TO-THM-01` | — | — | 1 pass | — | — | — | — | — | — | — | — | — | — | — | — |
+| §8.8 Outside the domain | `TO-THM-02` | — | — | 1 pass | — | — | — | — | — | — | — | — | — | — | — | — |
 
 ### Non-conformances (strict xfail)
 

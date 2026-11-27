@@ -206,8 +206,8 @@ The resulting CTE count is minimal *within the canonical form*: no rewrite by
 these rules gives fewer CTEs. It is not a lower bound over every equivalent
 query (§8.14), and the soundness of the canonical form (`CLM-8.14-CANON`) is
 proved in the specification but not independently evidenced. The laws are set
-laws, while `UNION` emits `UNION ALL`: minimising `Q ∪ Q` to `Q` removes the
-duplicate rows that the unminimised SQL returns.
+laws, and `UNION`, `INTERSECT` and `EXCEPT` emit the SQL set operations, so a
+minimised algebra returns the rows of the original.
 
 #### Natural-language interface — demo only
 
