@@ -80,7 +80,7 @@ implement the area.
 | §4.1 Band table (B3: window, QUALIFY); §4.1 NULL rules | `WIN-01`, `WIN-02`, `WIN-03` | 3 pass | 3 pass | — | — | — | — | 1 pass, 2 **non-conf.** | 3 refused | — | — | — | — | — | — |
 | §4.1 Band table; §5.2 cross-band Ref rules | `CON-B-01` … `CON-B-10` (10) | 10 pass | 10 pass | — | — | — | — | — | — | — | — | — | — | — | — |
 | §4.1 Empty domain; ADR 0001 Empty-domain policy | `PP-EX-02`, `PP-FA-02`, `PP-FA-03`, `PP-NOT-03` | 3 pass, 1 n/e | 3 pass, 1 n/e | — | — | — | — | 3 pass, 1 n/e | 3 refused, 1 n/e | — | — | — | — | — | — |
-| §4.1 FORALL elimination (CTL duality, NotTrue, REQUIRE_WITNESS guard) | `BDD-F-01`, `BDD-F-02`, `BDD-F-03` | — | — | — | 3 **non-conf.** | — | — | — | — | — | — | — | — | — | — |
+| §4.1 FORALL elimination (CTL duality, NotTrue, REQUIRE_WITNESS guard) | `BDD-F-01`, `BDD-F-02`, `BDD-F-03` | — | — | — | 3 pass | — | — | — | — | — | — | — | — | — | — |
 | §4.1 FORALL with ONCE/SINCE; past-time modes need a time-ordered path | `PP-PAST-01`, `PP-PAST-02`, `PP-PAST-03` | 3 pass | 3 pass | — | — | — | — | 3 pass | 3 n/e | — | — | — | — | — | — |
 | §4.1 NULL rules (NULL is not a literal) | `CON-N-01`, `CON-N-02` | 2 pass | 2 pass | — | — | — | — | — | — | — | — | — | — | — | — |
 | §4.1 PathPred; FORALL elimination with NotTrue; ADR 0001 | `PP-EX-01` … `PP-NULL-04` (8) | 8 pass | 8 pass | — | — | — | — | 8 pass | 8 refused | — | — | — | — | — | — |
@@ -90,9 +90,9 @@ implement the area.
 | §5.2.2 Drill-across (steps 1–3, DA4) | `DA-01`, `DA-02` | 2 pass | 2 refused | — | — | — | — | 2 refused | 2 refused | — | — | — | — | — | — |
 | §5.2.2 Well-formedness of a constellation (DA1–DA3) | `DA-WF-01`, `DA-WF-02`, `DA-WF-03`, `DA-WF-04` | 4 pass | 3 pass, 1 refused | — | — | — | — | — | — | — | — | — | — | — | — |
 | §6.1 / §8.3 propositional equivalence, tautology, implication | `BDD-P-01` … `BDD-P-GEN-23` (31) | — | — | — | 31 pass | — | — | — | — | — | — | — | — | — | — |
-| §6.1 Order theory of atoms (Δ_ord, O1–O6) | `BDD-O-01` … `BDD-O-08` (8) | — | — | — | 3 pass, 5 **non-conf.** | — | — | — | — | — | — | — | — | — | — |
-| §6.1 Three-valued logic (T⁺/T⁻ encoding, Δ_excl, Δ_null) | `BDD-K-01` … `BDD-K-08` (8) | — | — | — | 4 pass, 3 **non-conf.**, 1 n/e | — | — | — | — | — | — | — | — | — | — |
-| §6.1 Variables (canonical form of atoms) | `BDD-C-01`, `BDD-C-02`, `BDD-C-03` | — | — | — | 3 **non-conf.** | — | — | — | — | — | — | — | — | — | — |
+| §6.1 Order theory of atoms (Δ_ord, O1–O6) | `BDD-O-01` … `BDD-O-08` (8) | — | — | — | 8 pass | — | — | — | — | — | — | — | — | — | — |
+| §6.1 Three-valued logic (T⁺/T⁻ encoding, Δ_excl, Δ_null) | `BDD-K-01` … `BDD-K-08` (8) | — | — | — | 8 pass | — | — | — | — | — | — | — | — | — | — |
+| §6.1 Variables (canonical form of atoms) | `BDD-C-01`, `BDD-C-02`, `BDD-C-03` | — | — | — | 3 pass | — | — | — | — | — | — | — | — | — | — |
 | §6.2 Rule 10 with Delta and Iceberg writes (MERGE) | `WP-DELTA-merge`, `WP-ICEBERG-merge` | — | — | — | — | — | — | — | — | 1 pass, 1 **non-conf.** | — | — | — | — | — |
 | §6.2 Rule 8 APPEND (INSERT INTO); §2.4 write_mode | `SINK-RT-01`, `SINK-RT-02`, `SINK-RT-03` | — | — | — | — | — | — | — | — | — | 3 pass | 3 **non-conf.** | 3 pass | — | — |
 | §6.2 Rule 8 sink-aware write planning; Delta and Iceberg writes | `WP-DUCKDB-target` … `WP-ICEBERG-catalog` (14) | — | — | — | — | — | — | — | — | 11 pass, 3 **non-conf.** | — | — | — | — | — |
@@ -106,20 +106,6 @@ implement the area.
 
 | Case | Backend | Observed vs. specified |
 |---|---|---|
-| `BDD-K-01` | `dgm-bdd` | the BDD is two-valued over every atom: no p⁺/p⁻ encoding for nullable atoms, no Δ_null |
-| `BDD-K-06` | `dgm-bdd` | the BDD is two-valued over every atom: no p⁺/p⁻ encoding for nullable atoms, no Δ_null |
-| `BDD-K-08` | `dgm-bdd` | the BDD is two-valued over every atom: no p⁺/p⁻ encoding for nullable atoms, no Δ_null |
-| `BDD-O-01` | `dgm-bdd` | no order theory Δ_ord: atoms over one expression are unrelated |
-| `BDD-O-02` | `dgm-bdd` | no order theory Δ_ord: atoms over one expression are unrelated |
-| `BDD-O-06` | `dgm-bdd` | no order theory Δ_ord: atoms over one expression are unrelated |
-| `BDD-O-07` | `dgm-bdd` | no order theory Δ_ord: atoms over one expression are unrelated |
-| `BDD-O-08` | `dgm-bdd` | no order theory Δ_ord: atoms over one expression are unrelated |
-| `BDD-C-01` | `dgm-bdd` | atoms are BDD variables by Python object identity, not by canonical form (§6.1 Variables), and comparisons are not normalised |
-| `BDD-C-02` | `dgm-bdd` | atoms are BDD variables by Python object identity, not by canonical form (§6.1 Variables), and comparisons are not normalised |
-| `BDD-C-03` | `dgm-bdd` | atoms are BDD variables by Python object identity, not by canonical form (§6.1 Variables), and comparisons are not normalised |
-| `BDD-F-01` | `dgm-bdd` | FORALL is eliminated as NOT EXISTS(mode, NOT φ): the temporal mode is not dualised, NOT is Kleene NOT instead of NotTrue, and the REQUIRE_WITNESS guard is missing |
-| `BDD-F-02` | `dgm-bdd` | FORALL is eliminated as NOT EXISTS(mode, NOT φ): the temporal mode is not dualised, NOT is Kleene NOT instead of NotTrue, and the REQUIRE_WITNESS guard is missing |
-| `BDD-F-03` | `dgm-bdd` | FORALL is eliminated as NOT EXISTS(mode, NOT φ): the temporal mode is not dualised, NOT is Kleene NOT instead of NotTrue, and the REQUIRE_WITNESS guard is missing |
 | `SINK-RT-01` | `sink-parquet` | is_current, ParquetSink's default hive partition column, is read back as VARCHAR ('true'/'false'), not as the BOOLEAN written |
 | `SINK-RT-02` | `sink-parquet` | is_current, ParquetSink's default hive partition column, is read back as VARCHAR ('true'/'false'), not as the BOOLEAN written; and a second write() replaces the files of every partition it writes (COPY … OVERWRITE_OR_IGNORE), so the first write's rows there are lost |
 | `SINK-RT-03` | `sink-parquet` | is_current, ParquetSink's default hive partition column, is read back as VARCHAR ('true'/'false'), not as the BOOLEAN written |
@@ -466,7 +452,6 @@ implement the area.
 | `DA-02` | `pg-duckdb-plan-ir` | refused | the plan IR raises UnsupportedConstruct for a declared constellation: it has no node for per-branch aggregation aligned by FULL OUTER JOIN (fail-closed) |
 | `DA-02` | `planner-refusals` | refused | every target without an emitter (SQL_POSTGRESQL, CYPHER, SPARQL, DGM_JSON, DGM_YAML) raises UnsupportedCapability |
 | `DA-WF-04` | `duckdb-plan-ir` | refused | the plan IR raises UnsupportedConstruct for a declared constellation: it has no node for per-branch aggregation aligned by FULL OUTER JOIN (fail-closed) |
-| `BDD-K-05` | `dgm-bdd` | n/e | sqldim has no NotTrue filter node |
 | `WIN-01` | `planner-refusals` | refused | every target without an emitter (SQL_POSTGRESQL, CYPHER, SPARQL, DGM_JSON, DGM_YAML) raises UnsupportedCapability |
 | `WIN-02` | `planner-refusals` | refused | every target without an emitter (SQL_POSTGRESQL, CYPHER, SPARQL, DGM_JSON, DGM_YAML) raises UnsupportedCapability |
 | `WIN-03` | `planner-refusals` | refused | every target without an emitter (SQL_POSTGRESQL, CYPHER, SPARQL, DGM_JSON, DGM_YAML) raises UnsupportedCapability |

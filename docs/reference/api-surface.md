@@ -201,6 +201,21 @@ of the public DGM API for users who build custom optimisation passes.
 | `BDDManager` | class | Raw BDD: `make()`, `apply()`, `negate()`, `restrict()` |
 | `DGMPredicateBDD` | class | Higher-level BDD manager: `compile(pred)`, `implies(u, v)`, `equivalent(u, v)` |
 | `TRUE_NODE_ID` | `int` | BDD ID for the tautology node (`1`) |
+| `NotTrue` | predicate | `(φ) IS NOT TRUE`; two-valued; produced by FORALL elimination |
+
+`DGMPredicateBDD` follows §6.1. A variable is an atom in canonical form, so two
+separately built `x > 5` are one variable and `x ≥ 5` is `NOT (x < 5)`.
+`compile(pred)` returns `T⁺(pred)`, the BDD of "pred is TRUE". Every Ref is nullable
+unless it is passed in `DGMPredicateBDD(manager, non_nullable={"t.x", …})`. The
+questions are decided relative to the axioms Δ of the atoms compiled so far:
+
+- Δ_excl;
+- Δ_null;
+- the order theory over numbers, dates and timestamps.
+
+Strings get no order axiom, because their order depends on the collation. FORALL is
+eliminated by CTL duality with `NotTrue` and the REQUIRE_WITNESS guard. A FORALL
+with PREVIOUSLY or a non-ALL strategy stays an opaque atom.
 
 ### CSE — Common Sub-expression Elimination
 

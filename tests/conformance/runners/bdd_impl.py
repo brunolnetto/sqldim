@@ -3,6 +3,8 @@
 An atom of the case becomes one ``sqldim`` predicate object per atom *name*,
 so two occurrences of one name are one object; two names with the same
 definition are two objects built separately (the canonical-form cases).
+An expression or opaque atom the case declares non-nullable is passed to the
+BDD as ``non_nullable``; every other Ref is nullable for it.
 """
 
 from __future__ import annotations
@@ -18,6 +20,7 @@ from sqldim.core.query.dgm import (
     NEXT,
     NOT,
     OR,
+    NotTrue,
     PathPred,
     PropRef,
     Quantifier,
@@ -59,11 +62,19 @@ def _tree(f: Sequence, atoms: Mapping[str, Any]) -> Any:
         return AND(*(_tree(g, atoms) for g in f[1:]))
     if tag == "or":
         return OR(*(_tree(g, atoms) for g in f[1:]))
+    if tag == "nottrue":
+        return NotTrue(_tree(f[1], atoms))
     raise NotExpressible(f"sqldim has no {tag!r} filter node")
 
 
-def _bdd() -> DGMPredicateBDD:
-    return DGMPredicateBDD(BDDManager())
+def _bdd(non_nullable: Sequence[str] = ()) -> DGMPredicateBDD:
+    return DGMPredicateBDD(BDDManager(), non_nullable=non_nullable)
+
+
+def _non_nullable(i: Mapping[str, Any]) -> list[str]:
+    exprs = [f"t.{e}" for e, d in i.get("exprs", {}).items() if not d["nullable"]]
+    opaque = [f"t.{n}" for n, s in i["atoms"].items() if s[0] == "opaque" and not s[1]]
+    return exprs + opaque
 
 
 def _decide(case: Case) -> Any:
@@ -71,7 +82,7 @@ def _decide(case: Case) -> Any:
     atoms = {n: _atom(s, n) for n, s in i["atoms"].items()}
     f = _tree(i["formula"], atoms)
     g = _tree(i["other"], atoms) if "other" in i else None
-    bdd = _bdd()
+    bdd = _bdd(_non_nullable(i))
     u = bdd.compile(f)
     q = i["question"]
     if q == "tautology":
@@ -93,7 +104,7 @@ def _value(bdd: DGMPredicateBDD, uid: int, env: Mapping[int, bool]) -> bool:
 
 def _with_vars(names: Sequence[str]) -> tuple[DGMPredicateBDD, dict[str, Any]]:
     """A BDD whose variables 0…n-1 are the atoms *names*, in order."""
-    bdd = _bdd()
+    bdd = _bdd([f"t.{n}" for n in names])  # two-valued, as §8.2/§8.3 read them
     atoms = {n: ScalarPred(PropRef(f"t.{n}"), "=", True) for n in names}
     for n in names:
         bdd.compile(atoms[n])
@@ -134,6 +145,8 @@ def _sub(sub: Any, phi: Any) -> str:
         return "φ"
     if isinstance(sub, NOT) and sub.pred is phi:
         return "NOT(φ)"
+    if isinstance(sub, NotTrue) and sub.pred is phi:
+        return "NotTrue(φ)"
     if isinstance(sub, RawPred) and sub.to_sql().upper() == "TRUE":
         return "TRUE"
     return repr(sub)

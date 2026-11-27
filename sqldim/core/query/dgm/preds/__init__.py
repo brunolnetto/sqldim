@@ -5,6 +5,7 @@ from sqldim.core.query.dgm.preds._core import (  # noqa: F401
     AND,
     OR,
     NOT,
+    NotTrue,
     RawPred,
     Strategy,
     ALL,

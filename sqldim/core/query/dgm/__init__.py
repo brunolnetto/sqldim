@@ -20,6 +20,7 @@ from sqldim.core.query.dgm.preds import (  # noqa: F401
     AND,
     OR,
     NOT,
+    NotTrue,
     RawPred,
     Strategy,
     ALL,
