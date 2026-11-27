@@ -211,9 +211,7 @@ class DemoQueryTool(BaseTool):
         except AccessDenied as exc:
             return _demo_failure(request, ToolErrorKind.UNAUTHORIZED, str(exc))
         except _DemoTurnFailed as exc:
-            return _demo_failure(
-                request, exc.kind, exc.message, decision=exc.decision
-            )
+            return _demo_failure(request, exc.kind, exc.message, decision=exc.decision)
         except Exception as exc:  # noqa: BLE001 — reported, never swallowed
             return _demo_failure(
                 request,
