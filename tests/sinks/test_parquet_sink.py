@@ -7,6 +7,7 @@ Coverage target: sqldim/sinks/parquet.py  41% → ~95%
 from __future__ import annotations
 import duckdb
 import pyarrow as pa
+import pytest
 
 from sqldim.sinks.file.parquet import ParquetSink
 
@@ -42,28 +43,18 @@ def _seed_parquet(path: str, rows: list[dict]) -> None:
     os.makedirs(f"{path}/is_current=False", exist_ok=True)
     import pyarrow.parquet as pq
 
-    current = [r for r in rows if r["is_current"]]
-    old = [r for r in rows if not r["is_current"]]
-    if current:
-        cur_table = pa.table(
-            {
-                k: pa.array([r[k] for r in current], type=schema.field(k).type)
-                for k in schema.names
-                if k != "is_current"
-            },
-            schema=pa.schema([f for f in schema if f.name != "is_current"]),
-        )
-        pq.write_table(cur_table, f"{path}/is_current=True/part0.parquet")
-    if old:
-        old_table = pa.table(
-            {
-                k: pa.array([r[k] for r in old], type=schema.field(k).type)
-                for k in schema.names
-                if k != "is_current"
-            },
-            schema=pa.schema([f for f in schema if f.name != "is_current"]),
-        )
-        pq.write_table(old_table, f"{path}/is_current=False/part0.parquet")
+    # partition columns are written into the files as well (#178)
+    for flag, part in ((True, "True"), (False, "False")):
+        chosen = [r for r in rows if r["is_current"] is flag]
+        if chosen:
+            table = pa.table(
+                {
+                    k: pa.array([r[k] for r in chosen], type=schema.field(k).type)
+                    for k in schema.names
+                },
+                schema=schema,
+            )
+            pq.write_table(table, f"{path}/is_current={part}/part0.parquet")
 
 
 def _fresh_parquet(tmp_path, rows: list[dict]) -> tuple[str, duckdb.DuckDBPyConnection]:
@@ -87,7 +78,7 @@ class TestParquetSinkCurrentStateSql:
         sql = sink.current_state_sql("dim_product")
         assert "read_parquet" in sql
         assert "dim_product" in sql
-        assert "hive_partitioning=true" in sql
+        assert "hive_partitioning=false" in sql
 
     def test_table_path_uses_glob(self, tmp_path):
         sink = ParquetSink(str(tmp_path))
@@ -277,6 +268,7 @@ class TestParquetSinkRotateAttributes:
                 ("curr_label", pa.string()),
                 ("prev_label", pa.string()),
                 ("checksum", pa.string()),
+                ("is_current", pa.bool_()),
                 ("valid_from", pa.string()),
                 ("valid_to", pa.string()),
             ]
@@ -288,6 +280,7 @@ class TestParquetSinkRotateAttributes:
                     "curr_label": ["Electronics"],
                     "prev_label": [None],
                     "checksum": ["h1"],
+                    "is_current": [True],
                     "valid_from": ["2024-01-01"],
                     "valid_to": pa.array([None], type=pa.string()),
                 },
@@ -330,6 +323,7 @@ class TestParquetSinkUpdateMilestones:
                 ("approved_at", pa.string()),
                 ("shipped_at", pa.string()),
                 ("checksum", pa.string()),
+                ("is_current", pa.bool_()),
                 ("valid_from", pa.string()),
                 ("valid_to", pa.string()),
             ]
@@ -341,6 +335,7 @@ class TestParquetSinkUpdateMilestones:
                     "approved_at": [None],
                     "shipped_at": [None],
                     "checksum": ["hx"],
+                    "is_current": [True],
                     "valid_from": ["2024-01-01"],
                     "valid_to": pa.array([None], type=pa.string()),
                 },
@@ -454,3 +449,104 @@ class TestParquetSinkHelperBranches:
         sink = ParquetSink("/tmp/x", zorder_by=["col1", "col2"])
         result = sink._order_clause()
         assert "ORDER BY col1, col2" in result
+
+
+# ---------------------------------------------------------------------------
+# Contract (#178): append, typed read-back, versions kept, typed refusal
+# ---------------------------------------------------------------------------
+
+
+def _rows(con, sink, table):
+    return sorted(
+        con.execute(
+            f"SELECT id, is_current, valid_to FROM {sink.current_state_sql(table)}"
+        ).fetchall()
+    )
+
+
+def _scd_view(con, name, rows):
+    values = ", ".join(
+        f"('{i}', {str(c).upper()}, {'NULL' if t is None else repr(t)}::DATE)"
+        for i, c, t in rows
+    )
+    con.execute(
+        f"CREATE OR REPLACE TABLE {name} (id VARCHAR, is_current BOOLEAN, "
+        f"valid_to DATE)"
+    )
+    con.execute(f"INSERT INTO {name} VALUES {values}")
+
+
+class TestParquetSinkContract:
+    def test_is_current_reads_back_as_boolean(self, tmp_path):
+        con = duckdb.connect()
+        sink = ParquetSink(str(tmp_path))
+        _scd_view(con, "v", [("a", True, None), ("b", False, "2024-01-01")])
+        sink.write(con, "v", "dim")
+        desc = con.execute(
+            f"DESCRIBE SELECT is_current FROM {sink.current_state_sql('dim')}"
+        ).fetchall()
+        assert desc[0][1] == "BOOLEAN"
+        assert _rows(con, sink, "dim")[0][1] is True
+
+    def test_second_write_appends(self, tmp_path):
+        con = duckdb.connect()
+        sink = ParquetSink(str(tmp_path))
+        _scd_view(con, "v1", [("a", True, None)])
+        _scd_view(con, "v2", [("b", True, None)])
+        sink.write(con, "v1", "dim")
+        sink.write(con, "v2", "dim")
+        assert [r[0] for r in _rows(con, sink, "dim")] == ["a", "b"]
+
+    def test_unpartitioned_second_write_appends(self, tmp_path):
+        con = duckdb.connect()
+        sink = ParquetSink(str(tmp_path), partition_by=[])
+        _scd_view(con, "v1", [("a", True, None)])
+        sink.write(con, "v1", "dim")
+        sink.write(con, "v1", "dim")
+        assert len(_rows(con, sink, "dim")) == 2
+
+    def test_close_versions_keeps_history_and_leaves_no_stale_file(self, tmp_path):
+        con = duckdb.connect()
+        sink = ParquetSink(str(tmp_path))
+        _scd_view(
+            con,
+            "v",
+            [("a", True, None), ("b", False, "2023-06-01"), ("b", True, None)],
+        )
+        sink.write(con, "v", "dim")
+        con.execute("CREATE TABLE nk AS SELECT 'a' AS id UNION ALL SELECT 'b'")
+        assert sink.close_versions(con, "dim", "id", "nk", "2024-12-31") == 2
+        import datetime as dt
+
+        closed = dt.date(2024, 12, 31)
+        assert _rows(con, sink, "dim") == [
+            ("a", False, closed),
+            ("b", False, dt.date(2023, 6, 1)),
+            ("b", False, closed),
+        ]
+        assert not list(tmp_path.glob("dim/is_current=true/*.parquet"))
+        assert not list(tmp_path.glob("dim.sqldim-*"))
+
+    def test_close_versions_without_match_changes_nothing(self, tmp_path):
+        con = duckdb.connect()
+        sink = ParquetSink(str(tmp_path))
+        _scd_view(con, "v", [("a", True, None)])
+        sink.write(con, "v", "dim")
+        before = sorted(p.name for p in tmp_path.glob("dim/**/*.parquet"))
+        con.execute("CREATE TABLE nk AS SELECT 'z' AS id")
+        assert sink.close_versions(con, "dim", "id", "nk", "2024-12-31") == 0
+        assert sorted(p.name for p in tmp_path.glob("dim/**/*.parquet")) == before
+
+    def test_rewrite_on_remote_uri_is_refused(self):
+        from sqldim.sinks import SinkUnsupported
+
+        con = duckdb.connect()
+        sink = ParquetSink("s3://bucket/dims")
+        with pytest.raises(SinkUnsupported, match="local filesystem"):
+            sink._rewrite(con, "dim", "SELECT 1", "close_versions")
+
+    def test_zorder_write_is_valid_sql(self, tmp_path):
+        con = duckdb.connect()
+        sink = ParquetSink(str(tmp_path), zorder_by=["id"])
+        _scd_view(con, "v", [("b", True, None), ("a", True, None)])
+        assert sink.write(con, "v", "dim") == 2

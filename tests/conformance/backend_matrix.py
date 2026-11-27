@@ -96,9 +96,9 @@ SINK_ROWS: tuple[Row, ...] = (
         "captured SQL and write plan only; storage **not executed** (needs "
         "`MOTHERDUCK_TOKEN`)", "MOTHERDUCK"),
     Row("Delta", _s(SinkTarget.DELTA), ("sink-delta", "dgm-write-plan"),
-        "captured SQL and write plan only; storage **not executed**: DuckDB "
-        "1.5.0 cannot create a Delta table and `deltalake` is an optional "
-        "extra, so CI has no Delta table to write to", "DELTA"),
+        "yes — an empty Delta table built in a temporary directory (DuckDB "
+        "1.5.0 cannot create one), appended to through the `delta` "
+        "extension", "DELTA"),
     Row("Iceberg", _s(SinkTarget.ICEBERG), ("dgm-write-plan",),
         "write plan only; storage **not executed**: `IcebergSink` needs "
         "`pyiceberg` and an Iceberg REST catalog, and §6.2 writes need DuckDB "
@@ -124,6 +124,9 @@ SELECTORS: dict[Capability, Callable[[Case], bool]] = {
     Capability.AGGREGATION: _areas("fanout", "drill_across"),
     Capability.CTE: _areas("repeat_join"),
     Capability.WINDOW: lambda c: c.area == "window" or fnmatch(c.id, "CON-B-*"),
+    Capability.WINDOW_AGGREGATE: lambda c: (
+        c.area == "window" and c.input["window"][0] != "ROW_NUMBER"
+    ),
     Capability.PATHPRED: _areas("ctl", "pathpred"),
     Capability.APPEND: _ids("SINK-RT-*", "SINK-SQL-W", "WP-*-target",
                             "WP-*-partition", "WP-*-append", "WP-*-catalog"),
@@ -138,6 +141,7 @@ QUERY_CAPS = (
     Capability.AGGREGATION,
     Capability.CTE,
     Capability.WINDOW,
+    Capability.WINDOW_AGGREGATE,
     Capability.PATHPRED,
 )
 SINK_CAPS = (Capability.APPEND, Capability.SCD2_CLOSE, Capability.MERGE)

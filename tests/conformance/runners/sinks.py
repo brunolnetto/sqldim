@@ -8,18 +8,24 @@ Three areas, one backend per sink:
   listed keys, and the rows are read back;
 * ``sink_sql`` — every statement ``write()`` / ``close_versions()`` sends is
   captured by a recording connection and parsed by DuckDB's parser.  Nothing
-  is executed, so this runs for every sink that speaks SQL, MotherDuck and
-  Delta included; it validates the statements, not their effect.
+  is executed, so this runs for every sink that speaks SQL, MotherDuck
+  included; it validates the statements, not their effect.
+
+A sink that refuses the operation with :class:`SinkUnsupported` (#178) is
+:data:`REJECTED`.
 
 Executed against storage: DuckDB (a temporary file), Parquet (a temporary
-directory) and PostgreSQL (a fresh schema of the server of
-:mod:`tests.conformance.runners.postgres`).  MotherDuck, Delta and Iceberg
-are not executed against storage; ``docs/reference/dgm-backend-matrix.md``
-gives the reason for each.
+directory), Delta (an empty Delta table built in a temporary directory, since
+DuckDB 1.5.0 cannot create one) and PostgreSQL (a fresh schema of the server
+of :mod:`tests.conformance.runners.postgres`).  MotherDuck and Iceberg are
+not executed against storage; ``docs/reference/dgm-backend-matrix.md`` gives
+the reason for each.
 """
 
 from __future__ import annotations
 
+import json
+import os
 import tempfile
 from collections.abc import Callable, Iterator, Mapping, Sequence
 from contextlib import AbstractContextManager, contextmanager
@@ -33,11 +39,12 @@ from sqldim.sinks import (
     MotherDuckSink,
     ParquetSink,
     PostgreSQLSink,
+    SinkUnsupported,
 )
 from tests.conformance.cases import Case
 from tests.conformance.cases.export import TYPES
 from tests.conformance.oracle.export import rows_of
-from tests.conformance.runners import Backend
+from tests.conformance.runners import REJECTED, Backend
 from tests.conformance.runners import postgres
 from tests.conformance.runners.duckdb_sql import insert_rows
 
@@ -82,6 +89,52 @@ def _parquet(columns: Sequence[str]) -> Iterator[Opened]:
             con.close()
 
 
+#: Delta Lake primitive types of the fixture columns.
+_DELTA_TYPES = {"VARCHAR": "string", "BIGINT": "long", "DOUBLE": "double",
+                "TIMESTAMP": "timestamp_ntz", "BOOLEAN": "boolean", "DATE": "date"}  # fmt: skip
+
+
+def _delta_table(path: str, columns: Sequence[str]) -> None:
+    """An empty Delta table at *path*: one empty Parquet file and its commit."""
+    os.makedirs(f"{path}/_delta_log")
+    nulls = ", ".join(f"NULL::{TYPES[c]} AS {c}" for c in columns)
+    con = duckdb.connect()
+    try:
+        con.execute(f"COPY (SELECT {nulls} WHERE false) "
+                    f"TO '{path}/part-0.parquet' (FORMAT parquet)")  # fmt: skip
+    finally:
+        con.close()
+    schema = {"type": "struct", "fields": [
+        {"name": c, "type": _DELTA_TYPES[TYPES[c]], "nullable": True, "metadata": {}}
+        for c in columns]}  # fmt: skip
+    size = os.path.getsize(f"{path}/part-0.parquet")
+    actions = [
+        {"protocol": {"minReaderVersion": 3, "minWriterVersion": 7,
+                      "readerFeatures": ["timestampNtz"],
+                      "writerFeatures": ["timestampNtz"]}},
+        {"metaData": {"id": "00000000-0000-0000-0000-000000000000",
+                      "format": {"provider": "parquet", "options": {}},
+                      "schemaString": json.dumps(schema), "partitionColumns": [],
+                      "configuration": {}, "createdTime": 0}},
+        {"add": {"path": "part-0.parquet", "partitionValues": {}, "size": size,
+                 "modificationTime": 0, "dataChange": True}},
+    ]  # fmt: skip
+    with open(f"{path}/_delta_log/{0:020d}.json", "w", encoding="utf-8") as f:
+        f.writelines(json.dumps(a) + "\n" for a in actions)
+
+
+@contextmanager
+def _delta(columns: Sequence[str]) -> Iterator[Opened]:
+    with tempfile.TemporaryDirectory() as d:
+        _delta_table(f"{d}/{TABLE}", columns)
+        con = duckdb.connect()
+        try:
+            con.execute("INSTALL delta; LOAD delta")
+            yield DeltaLakeSink(d), con, TABLE
+        finally:
+            con.close()
+
+
 @contextmanager
 def _postgresql(columns: Sequence[str]) -> Iterator[Opened]:
     schema = postgres.new_schema()
@@ -109,9 +162,12 @@ def _roundtrip(harness: Harness) -> Callable[[Case], Any]:
     def run(case: Case) -> Any:
         cols = case.input["columns"]
         with harness(cols) as (sink, con, table):
-            for n, batch in enumerate(case.input["writes"]):
-                _source(con, f"batch_{n}", cols, batch)
-                sink.write(con, f"memory.main.batch_{n}", table)
+            try:
+                for n, batch in enumerate(case.input["writes"]):
+                    _source(con, f"batch_{n}", cols, batch)
+                    sink.write(con, f"memory.main.batch_{n}", table)
+            except SinkUnsupported:
+                return REJECTED
             return _read(sink, con, table, cols)
 
     return run
@@ -124,7 +180,12 @@ def _close(harness: Harness) -> Callable[[Case], Any]:
             _source(con, "batch", cols, i["rows"])
             sink.write(con, "memory.main.batch", table)
             _source(con, "nk", ("id",), [{"id": k} for k in i["close"]])
-            sink.close_versions(con, table, "id", "memory.main.nk", str(i["valid_to"]))
+            try:
+                sink.close_versions(
+                    con, table, "id", "memory.main.nk", str(i["valid_to"])
+                )
+            except SinkUnsupported:
+                return REJECTED
             return _read(sink, con, table, cols)
 
     return run
@@ -164,10 +225,13 @@ def _sql(make: Callable[[str], Any]) -> Callable[[Case], Any]:
         rec = Recorder()
         with tempfile.TemporaryDirectory() as d:
             sink = make(d)
-            if case.input["operation"] == "write":
-                sink.write(rec, "batch", TABLE)
-            else:
-                sink.close_versions(rec, TABLE, "id", "nk", "2024-12-31")
+            try:
+                if case.input["operation"] == "write":
+                    sink.write(rec, "batch", TABLE)
+                else:
+                    sink.close_versions(rec, TABLE, "id", "nk", "2024-12-31")
+            except SinkUnsupported:
+                return REJECTED
         return bool(rec.statements) and all(parses(s) for s in rec.statements)
 
     return run
@@ -206,4 +270,4 @@ DUCKDB = _sink_backend("DUCKDB", _duckdb)
 PARQUET = _sink_backend("PARQUET", _parquet)
 POSTGRESQL = _sink_backend("POSTGRESQL", _postgresql, requires=postgres.unavailable)
 MOTHERDUCK = _sink_backend("MOTHERDUCK", None)
-DELTA = _sink_backend("DELTA", None)
+DELTA = _sink_backend("DELTA", _delta)

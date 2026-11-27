@@ -105,3 +105,9 @@ from sqldim.core.query.dgm.planner._ir_identity import (  # noqa: F401
     deps,
 )
 from sqldim.core.query.dgm.planner._rule10 import ArtifactTarget  # noqa: F401
+from sqldim.core.query.dgm.planner._rule8 import (  # noqa: F401
+    ICEBERG_DOCUMENTED_VERSIONS,
+    IcebergCatalog,
+    SinkWritePlan,
+    WriteStatement,
+)

@@ -118,7 +118,7 @@ class DGMJSONExporter:
                 for pc in plan.pre_compute
             ],
             "sink_target": plan.sink_target.value if plan.sink_target else None,
-            "write_plan": plan.write_plan,
+            "write_plan": plan.write_plan.to_dict() if plan.write_plan else None,
             "cost_estimate": self._serialize_cost(plan.cost_estimate),
             "cone_containment_applied": plan.cone_containment_applied,
             "alternatives": self._serialize_alternatives(plan),

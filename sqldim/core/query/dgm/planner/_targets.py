@@ -8,6 +8,7 @@ from __future__ import annotations
 
 from sqldim.exceptions import SemanticError
 
+import re
 from collections.abc import Mapping
 from dataclasses import dataclass, field
 from enum import Enum
@@ -26,6 +27,10 @@ if TYPE_CHECKING:
 __all__ = [
     "QueryTarget",
     "SinkTarget",
+    "SinkWritePlan",
+    "WriteStatement",
+    "IcebergCatalog",
+    "ICEBERG_DOCUMENTED_VERSIONS",
     "PreComputation",
     "ApproximateVariant",
     "CostEstimate",
@@ -91,6 +96,123 @@ class SinkTarget(Enum):
 
 
 # ---------------------------------------------------------------------------
+# Rule 8 write plan types (§6.2, #178); planned by planner._rule8
+# ---------------------------------------------------------------------------
+
+#: The DuckDB versions the §6.2 Iceberg capability table was read for.
+ICEBERG_DOCUMENTED_VERSIONS: frozenset[str] = frozenset({"2.0", "2.0.1"})
+
+_IDENT = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
+_SCAN = re.compile(r"\b\w+_scan\b", re.I)
+
+
+class WriteStatement(str, Enum):
+    """The statement form of a Rule 8 write (§6.2 Rule 8)."""
+
+    CREATE_TABLE_AS_OR_INSERT = "CREATE TABLE AS / INSERT INTO"
+    POSTGRES_INSERT = "ATTACH … (TYPE postgres); CREATE TABLE / INSERT INTO via COPY"
+    COPY_TO_PARQUET = "COPY TO (FORMAT PARQUET)"
+    DELTA_ATTACHED_INSERT = "ATTACH … (TYPE delta); INSERT INTO <attached table>"
+    ICEBERG_CATALOG_INSERT = "INSERT INTO <catalog>.<schema>.<table>"
+
+
+_STATEMENT: dict[SinkTarget, WriteStatement] = {
+    SinkTarget.DUCKDB: WriteStatement.CREATE_TABLE_AS_OR_INSERT,
+    SinkTarget.MOTHERDUCK: WriteStatement.CREATE_TABLE_AS_OR_INSERT,
+    SinkTarget.POSTGRESQL: WriteStatement.POSTGRES_INSERT,
+    SinkTarget.PARQUET: WriteStatement.COPY_TO_PARQUET,
+    SinkTarget.DELTA: WriteStatement.DELTA_ATTACHED_INSERT,
+    SinkTarget.ICEBERG: WriteStatement.ICEBERG_CATALOG_INSERT,
+}
+
+
+@dataclass(frozen=True)
+class IcebergCatalog:
+    """An Iceberg REST catalog attached in the session (§6.2 *Iceberg writes*).
+
+    ``name`` is the alias it is attached under (``ATTACH … AS name (TYPE
+    iceberg, …)``); ``engine_version`` the DuckDB version the plan targets;
+    ``merge_on_read`` whether the target table's ``write.update.mode``,
+    ``write.delete.mode`` and ``write.merge.mode`` are merge-on-read.
+    """
+
+    name: str
+    engine_version: str
+    merge_on_read: bool = False
+
+    def __post_init__(self) -> None:
+        if not isinstance(self.name, str) or not _IDENT.match(self.name):
+            raise UnsupportedSink(f"invalid Iceberg catalog name {self.name!r}")
+        if not isinstance(self.engine_version, str) or not self.engine_version:
+            raise UnsupportedSink("an Iceberg catalog needs the engine version")
+        if not isinstance(self.merge_on_read, bool):
+            raise UnsupportedSink("merge_on_read must be a bool")
+
+    @property
+    def documented(self) -> bool:
+        """Whether §6.2's Iceberg capability table covers ``engine_version``."""
+        return self.engine_version in ICEBERG_DOCUMENTED_VERSIONS
+
+
+@dataclass(frozen=True)
+class SinkWritePlan:
+    """The typed Rule 8 write plan for one sink (§6.2).
+
+    ``target`` is the form of the relation written (``<attached Delta
+    table>``, ``iceberg_cat.<schema>.<table>``); it never names a read-only
+    ``*_scan`` function.  ``append_only`` is set when the sink admits no
+    other write (Delta).
+    """
+
+    sink: SinkTarget
+    statement: WriteStatement
+    target: str
+    partition_by_time_unit: bool = False
+    append_only: bool = False
+    catalog: IcebergCatalog | None = None
+
+    def __post_init__(self) -> None:
+        if not isinstance(self.sink, SinkTarget):
+            raise UnsupportedSink(f"unknown sink {self.sink!r}")
+        if _STATEMENT[self.sink] is not self.statement:
+            raise UnsupportedSink(
+                f"{self.sink.value} is not written with {self.statement.value!r}"
+            )
+        if _SCAN.search(self.target) or _SCAN.search(self.statement.value):
+            raise UnsupportedSink(
+                f"{self.target!r}: a read-only *_scan function is never a write "
+                "target (§6.2)"
+            )
+        if (self.sink is SinkTarget.ICEBERG) != (self.catalog is not None):
+            raise UnsupportedSink("an ICEBERG write plan, and only one, has a catalog")
+
+    def describe(self) -> str:
+        """A one-line description, for logs and exports."""
+        text = self.statement.value
+        if self.partition_by_time_unit:
+            text += "; PARTITION_BY timestamp_unit"
+        if self.append_only:
+            text += "; APPEND only"
+        return text
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "sink": self.sink.value,
+            "statement": self.statement.value,
+            "target": self.target,
+            "partition_by_time_unit": self.partition_by_time_unit,
+            "append_only": self.append_only,
+            "catalog": None
+            if self.catalog is None
+            else {
+                "name": self.catalog.name,
+                "engine_version": self.catalog.engine_version,
+                "merge_on_read": self.catalog.merge_on_read,
+            },
+        }
+
+
+# ---------------------------------------------------------------------------
 # ExportPlan
 # ---------------------------------------------------------------------------
 
@@ -110,7 +232,7 @@ class ExportPlan:
     sink_target:
         Optional write sink.
     write_plan:
-        Optional write-plan string (CREATE TABLE AS, COPY TO, …).
+        Optional typed Rule 8 write plan (:class:`SinkWritePlan`, §6.2).
     cost_estimate:
         Optional mechanical cost estimate.
     alternatives:
@@ -131,7 +253,7 @@ class ExportPlan:
     query_text: str
     pre_compute: list[PreComputation] = field(default_factory=list)
     sink_target: SinkTarget | None = None
-    write_plan: str | None = None
+    write_plan: SinkWritePlan | None = None
     cost_estimate: CostEstimate | None = None
     alternatives: list[tuple[ExportPlan, CostEstimate]] = field(default_factory=list)
     cone_containment_applied: bool = False
@@ -250,31 +372,3 @@ def _r6_degenerate(ann: Any, _c: "set[str]") -> list[str]:
         f"Degenerate({key}): no join — the key is read from the fact row; "
         "GroupBy and Where on it are valid"
     ]
-
-
-# ---------------------------------------------------------------------------
-# Rule 8 static helpers (sink-aware write planning)
-# ---------------------------------------------------------------------------
-
-
-def _r8_partition_flag(
-    plan: str, sink_target: SinkTarget, has_temporal_agg: bool
-) -> str:
-    _file_sinks = (SinkTarget.PARQUET, SinkTarget.DELTA, SinkTarget.ICEBERG)
-    if has_temporal_agg and sink_target in _file_sinks:
-        plan += "; PARTITION_BY timestamp_unit"
-    return plan
-
-
-def _r8_delta_append_flag(plan: str, sink_target: SinkTarget, has_q_delta: bool) -> str:
-    if has_q_delta and sink_target is SinkTarget.DELTA:
-        plan += "; APPEND mode"
-    return plan
-
-
-def _r8_grain_append_flag(
-    plan: str, sink_target: SinkTarget, grain_kind: object, GrainKind: Any
-) -> str:
-    if grain_kind is GrainKind.ACCUMULATING and sink_target is SinkTarget.DELTA:
-        plan += "; APPEND mode"
-    return plan

@@ -34,27 +34,27 @@ Sinks are the write boundary between sqldim's DuckDB execution engine and your s
 
 | Capability | DuckDB | PostgreSQL | MotherDuck | Parquet | Iceberg | Delta |
 |:-----------|:------:|:----------:|:----------:|:-------:|:-------:|:-----:|
-| `write` | ✅ | ✅ | ✅ | ✅ | ✅ | ❌ see below |
+| `write` | ✅ | ✅ | ✅ | ✅ append | ✅ | ✅ append |
 | `write_named` | ✅ | ✅ | — | ✅ | — | — |
-| `close_versions` | ✅ UPDATE | ✅ UPDATE | ✅ UPDATE | ✅ rewrite | ✅ overwrite | ⚠️ no-op |
-| `update_attributes` | ✅ UPDATE | ✅ UPDATE | ✅ UPDATE | ✅ rewrite | ✅ overwrite | ❌ MERGE |
-| `rotate_attributes` | ✅ UPDATE | ✅ UPDATE | ✅ UPDATE | ✅ rewrite | ✅ overwrite | ❌ MERGE |
-| `update_milestones` | ✅ UPDATE | ✅ UPDATE | ✅ UPDATE | ✅ rewrite | ✅ overwrite | ❌ MERGE |
+| `close_versions` | ✅ UPDATE | ✅ UPDATE | ✅ UPDATE | ⚠️ rewrite | ✅ overwrite | ❌ refused |
+| `update_attributes` | ✅ UPDATE | ✅ UPDATE | ✅ UPDATE | ⚠️ rewrite | ✅ overwrite | ❌ refused |
+| `rotate_attributes` | ✅ UPDATE | ✅ UPDATE | ✅ UPDATE | ⚠️ rewrite | ✅ overwrite | ❌ refused |
+| `update_milestones` | ✅ UPDATE | ✅ UPDATE | ✅ UPDATE | ⚠️ rewrite | ✅ overwrite | ❌ refused |
 | `prefetch_hashes` | ✅ | ✅ | ✅ | — | — | — |
 | `upsert` | ✅ | — | ✅ | — | — | — |
 | Context manager | ✅ | ✅ | ✅ | — | ✅ | ✅ |
 | S3/GCS/Azure | — | — | — | ✅ | ✅ | ✅ |
-| Mutation strategy | In-place UPDATE | In-place UPDATE via pg extension | In-place UPDATE via ATTACH | Partition rewrite | Read-modify-write (Arrow) | MERGE INTO |
+| Mutation strategy | In-place UPDATE | In-place UPDATE via pg extension | In-place UPDATE via ATTACH | Whole-table rewrite, local only | Read-modify-write (Arrow) | None: APPEND only |
 
-**Legend**: ✅ = implemented, — = not implemented, ⚠️ = handled differently (see notes below), ❌ = implemented but known not to work on DuckDB (see the Delta notes)
+**Legend**: ✅ = implemented, — = not implemented, ⚠️ = with a restriction (see notes below), ❌ refused = raises `SinkUnsupported` (`code = "UNSUPPORTED"`) and writes nothing
 
 This table says what each sink implements. What was *executed* against real
 storage is in the generated [backend matrix](dgm-backend-matrix.md): DuckDB,
-PostgreSQL and Parquet are written and read back in CI. MotherDuck and Delta
-are checked only as captured SQL, and Iceberg only as a write plan. Parquet
-`close_versions` keeps only the current rows, so historical versions are
-lost. The [capability page](capabilities.md) gives the declared support per
-sink.
+PostgreSQL, Parquet and Delta are written and read back in CI. MotherDuck is
+checked only as captured SQL, and Iceberg only as a write plan. A sink never
+degrades in silence: an operation it cannot execute exactly raises
+`SinkUnsupported` before anything is written. The
+[capability page](capabilities.md) gives the declared support per sink.
 
 ## Sink Details
 
@@ -134,7 +134,7 @@ with MotherDuckSink(db="/tmp/local.duckdb") as sink:
 
 ### ParquetSink
 
-Immutable file-based storage. Supports local disk and cloud object storage (S3, GCS, Azure) via URIs. Because Parquet is immutable, every mutation is a **full partition rewrite** expressed as a DuckDB `COPY` statement.
+Immutable file-based storage. Supports local disk and cloud object storage (S3, GCS, Azure) via URIs. `write()` appends new files (`COPY … APPEND`) and never replaces a written file. Because Parquet is immutable, every mutation **rewrites the whole table** inside DuckDB into a staging directory that then replaces the table's directory, so every version is kept.
 
 ```python
 from sqldim.sinks import ParquetSink
@@ -154,9 +154,9 @@ sink.write(con, "new_rows", "dim_customer")  # no context manager needed
 
 **Strengths**: Cloud-native, works with any downstream engine (Spark, Trino, DuckDB, etc.), no database process to manage.
 
-**Limitations**: No context manager. Partition rewrites are expensive for large datasets — every `close_versions` or `update_attributes` rewrites the entire `is_current=TRUE` partition. No `prefetch_hashes` or `upsert`. Not suitable for high-frequency incremental updates.
+**Limitations**: No context manager. Rewrites are expensive for large datasets — every `close_versions` or `update_attributes` rewrites the whole table — and are not atomic for a concurrent reader. They need a local filesystem: on a remote URI they raise `SinkUnsupported` (appending works everywhere). No `prefetch_hashes` or `upsert`. Not suitable for high-frequency incremental updates.
 
-**Partitioning**: Data is automatically partitioned by `is_current` (each table gets `.../table_name/is_current=true/` and `.../table_name/is_current=false/` subdirectories).
+**Partitioning**: Data is partitioned by `is_current` by default (`.../table_name/is_current=true/` and `.../is_current=false/`). Partition columns are also written into the files and read back from them (`hive_partitioning=false`), so `is_current` reads back as a BOOLEAN. Files written before #178 lack those columns and must be rewritten once.
 
 ---
 
@@ -189,13 +189,13 @@ with IcebergSink(
 
 **Dependencies**: `pip install "pyiceberg[hive,s3]" pyarrow`
 
-**Important**: For SCD-heavy workloads on large tables, prefer DuckDB, PostgreSQL, or Delta sinks where mutations are SQL-native. Use Iceberg when you need its catalog/time-travel features and your dimension tables fit within the `max_python_rows` limit.
+**Important**: For SCD-heavy workloads on large tables, prefer DuckDB or PostgreSQL sinks, where mutations are SQL-native (Delta is APPEND only). Use Iceberg when you need its catalog/time-travel features and your dimension tables fit within the `max_python_rows` limit.
 
 ---
 
 ### DeltaLakeSink
 
-Delta Lake via DuckDB's `delta` extension. Its writes send a Spark-style `MERGE INTO delta.`<path>`` statement. **DuckDB's parser rejects that statement**, and the DGM specification allows only APPEND for a Delta write on DuckDB (§6.2 *Delta writes*). As shipped, `write()` and the attribute updates do not work on DuckDB (conformance case `SINK-SQL-W` in the [backend matrix](dgm-backend-matrix.md)). Reading through `delta_scan` is unaffected.
+Delta Lake via DuckDB's `delta` extension, APPEND only (§6.2 *Delta writes*). `write()` attaches the table (`ATTACH … (TYPE delta)`) and appends with `INSERT INTO`; `delta_scan` is used for reads only. The table must already exist: DuckDB 1.5.0 cannot create a Delta table.
 
 ```python
 from sqldim.sinks import DeltaLakeSink
@@ -207,11 +207,9 @@ with DeltaLakeSink("/data/delta_warehouse", natural_key="email") as sink:
 | Parameter | Type | Default | Description |
 |-----------|------|---------|-------------|
 | `path` | `str` | required | Base directory for Delta tables |
-| `natural_key` | `str` | `"id"` | Column used for MERGE match condition |
+| `natural_key` | `str` | `"id"` | Kept for compatibility; an append does not use it |
 
-**Limitations**: the `MERGE INTO` above is not accepted by DuckDB. `close_versions()` is a **no-op**: it sends no statement and returns 0 (`SINK-SQL-C`), because version closing was meant to happen inside `write()`'s MERGE, so the source view must include an `_scd_class` column (`'new'`, `'changed'`, `'unchanged'`). No `write_named`, `prefetch_hashes`, or `upsert`.
-
-**Important**: The `write()` method expects the source view to contain an `_scd_class` column that classifies each row. This is produced by `LazySCDProcessor` — if you're using `DimensionalLoader` (the standard path), use a different sink.
+**Limitations**: DuckDB's delta extension rejects `UPDATE`, `DELETE` and `MERGE INTO`, so `close_versions()`, `update_attributes()`, `rotate_attributes()` and `update_milestones()` raise `SinkUnsupported` and send nothing. An SCD2 load that closes versions needs another sink. No `write_named`, `prefetch_hashes`, or `upsert`.
 
 ## Choosing a Sink
 

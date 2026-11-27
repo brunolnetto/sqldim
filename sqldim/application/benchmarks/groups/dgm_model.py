@@ -354,6 +354,7 @@ def group_s_exporter(
 ) -> list[BenchmarkResult]:
     """Group S — DGM multi-target exporter throughput (JSON / YAML x simple / complex)."""
     from sqldim.core.query.dgm.planner import QueryTarget, SinkTarget, ExportPlan
+    from sqldim.core.query.dgm.planner._rule8 import plan_rule_8
     from sqldim.core.query.dgm.exporters import DGMJSONExporter, DGMYAMLExporter
 
     tier_map = {"xs": 500, "s": 5_000, "m": 20_000}
@@ -369,7 +370,7 @@ def group_s_exporter(
             "GROUP BY 1"
         ),
         sink_target=SinkTarget.PARQUET,
-        write_plan="COPY (SELECT 1) TO 'out.parquet'",
+        write_plan=plan_rule_8(SinkTarget.PARQUET, temporal_agg=False),
     )
 
     exporters = [

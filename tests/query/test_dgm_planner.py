@@ -780,87 +780,72 @@ class TestRule7:
 
 
 class TestRule8:
+    """Rule 8 returns a typed SinkWritePlan (#178)."""
+
+    def _plan(self, sink, temporal_agg=False, q_delta=False, grain=None, **kw):
+        p = DGMPlanner(None, None, None, None, QueryTarget.SQL_DUCKDB, **kw)  # type: ignore[arg-type]
+        return p.apply_rule_8(sink, temporal_agg, q_delta, grain)
+
     def test_duckdb_create_table_as(self):
-        p = _make_planner()
-        result = p.apply_rule_8(
-            sink_target=SinkTarget.DUCKDB,
-            has_temporal_agg=False,
-            has_q_delta=False,
-            grain_kind=None,
-        )
-        assert "create table" in result.lower() or "insert into" in result.lower()
+        from sqldim.core.query.dgm.planner import WriteStatement
+
+        plan = self._plan(SinkTarget.DUCKDB)
+        assert plan.statement is WriteStatement.CREATE_TABLE_AS_OR_INSERT
+        assert not plan.append_only and not plan.partition_by_time_unit
 
     def test_postgresql_copy(self):
-        p = _make_planner()
-        result = p.apply_rule_8(
-            sink_target=SinkTarget.POSTGRESQL,
-            has_temporal_agg=False,
-            has_q_delta=False,
-            grain_kind=None,
-        )
-        assert (
-            "copy" in result.lower()
-            or "attach" in result.lower()
-            or "insert" in result.lower()
-        )
+        assert "postgres" in self._plan(SinkTarget.POSTGRESQL).statement.value
 
     def test_parquet_copy_to(self):
-        p = _make_planner()
-        result = p.apply_rule_8(
-            sink_target=SinkTarget.PARQUET,
-            has_temporal_agg=False,
-            has_q_delta=False,
-            grain_kind=None,
-        )
-        assert "copy to" in result.lower()
+        assert self._plan(SinkTarget.PARQUET).describe() == "COPY TO (FORMAT PARQUET)"
 
-    def test_delta_create_or_replace(self):
-        p = _make_planner()
-        result = p.apply_rule_8(
-            sink_target=SinkTarget.DELTA,
-            has_temporal_agg=False,
-            has_q_delta=False,
-            grain_kind=None,
-        )
-        assert (
-            "delta" in result.lower()
-            or "create or replace" in result.lower()
-            or "insert into" in result.lower()
-        )
+    def test_delta_inserts_into_an_attached_table(self):
+        plan = self._plan(SinkTarget.DELTA)
+        assert "TYPE delta" in plan.statement.value
+        assert "delta_scan" not in plan.describe() + plan.target
+        assert plan.append_only
 
     def test_parquet_temporal_agg_partition_by(self):
-        p = _make_planner()
-        result = p.apply_rule_8(
-            sink_target=SinkTarget.PARQUET,
-            has_temporal_agg=True,
-            has_q_delta=False,
-            grain_kind=None,
-        )
-        assert "partition_by" in result.lower()
+        assert self._plan(SinkTarget.PARQUET, temporal_agg=True).partition_by_time_unit
+        assert not self._plan(
+            SinkTarget.DUCKDB, temporal_agg=True
+        ).partition_by_time_unit
 
     def test_delta_q_delta_append(self):
-        p = _make_planner()
-        result = p.apply_rule_8(
-            sink_target=SinkTarget.DELTA,
-            has_temporal_agg=False,
-            has_q_delta=True,
-            grain_kind=None,
-        )
-        assert "append" in result.lower()
+        assert self._plan(SinkTarget.DELTA, q_delta=True).append_only
 
     def test_accumulating_append(self):
-        p = _make_planner()
-        result = p.apply_rule_8(
-            sink_target=SinkTarget.DELTA,
-            has_temporal_agg=False,
-            has_q_delta=False,
-            grain_kind=GrainKind.ACCUMULATING,
-        )
-        assert "append" in result.lower()
+        assert self._plan(SinkTarget.DELTA, grain=GrainKind.ACCUMULATING).append_only
 
-    def test_returns_string(self):
-        p = _make_planner()
-        assert isinstance(p.apply_rule_8(SinkTarget.DUCKDB, False, False, None), str)
+    def test_iceberg_without_catalog_is_rejected(self):
+        from sqldim.core.query.dgm.planner import UnsupportedSink
+
+        with pytest.raises(UnsupportedSink, match="REST catalog"):
+            self._plan(SinkTarget.ICEBERG)
+
+    def test_iceberg_targets_the_catalog_table(self):
+        from sqldim.core.query.dgm.planner import IcebergCatalog
+
+        plan = self._plan(
+            SinkTarget.ICEBERG, iceberg_catalog=IcebergCatalog("ice", "2.0")
+        )
+        assert plan.target == "ice.<schema>.<table>"
+        assert "iceberg_scan" not in plan.describe()
+        assert plan.to_dict()["catalog"]["name"] == "ice"
+
+    def test_a_scan_target_cannot_be_built(self):
+        from sqldim.core.query.dgm.planner import (
+            SinkWritePlan,
+            UnsupportedSink,
+            WriteStatement,
+        )
+
+        with pytest.raises(UnsupportedSink, match="_scan"):
+            SinkWritePlan(
+                SinkTarget.DELTA,
+                WriteStatement.DELTA_ATTACHED_INSERT,
+                "delta_scan('/x')",
+            )
 
     def test_unknown_sink_is_a_typed_error(self):
         """No silent INSERT INTO fallback for a sink Rule 8 does not know (#173)."""

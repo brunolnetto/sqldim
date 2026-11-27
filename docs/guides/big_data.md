@@ -165,7 +165,7 @@ with MotherDuckSink("md:analytics") as sink:
 | `DuckDBSink` | Local DuckDB file | Development, CI |
 | `MotherDuckSink` | Cloud DuckDB | Production analytics |
 | `ParquetSink` | Columnar files | Data-lake, export |
-| `DeltaLakeSink` | Delta Lake | ACID lakehouse |
+| `DeltaLakeSink` | Delta Lake | ACID lakehouse; APPEND only (closing SCD2 versions raises `SinkUnsupported`) |
 | `IcebergSink` | Apache Iceberg | Open table format |
 | `PostgreSQLSink` | PostgreSQL | Operational BI |
 
@@ -190,12 +190,12 @@ with MotherDuckSink("md:analytics") as sink:
 import duckdb
 from sqldim.sources import ParquetSource
 from sqldim.core.processors import LazySCDProcessor
-from sqldim.sinks import DeltaLakeSink
+from sqldim.sinks import DuckDBSink
 
 con = duckdb.connect()
 customers = ParquetSource("s3://raw/customers/*.parquet")
 
-with DeltaLakeSink("s3://lakehouse/dim_customer/") as sink:
+with DuckDBSink("warehouse.duckdb") as sink:  # SCD2 closes versions in place
     proc = LazySCDProcessor(
         natural_key="customer_id",
         track_columns=["plan_tier", "country", "email"],

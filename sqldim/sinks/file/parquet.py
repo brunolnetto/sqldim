@@ -2,20 +2,42 @@
 sqldim/sinks/parquet.py
 
 Parquet sink — immutable storage on local disk, S3, GCS, or Azure.
-close_versions(), update_attributes(), rotate_attributes(), and
-update_milestones() all rewrite the affected partition entirely inside
-DuckDB — never a Python loop over rows.
+
+Contract (#178)
+---------------
+* ``write()`` appends: every call adds new files (``COPY … APPEND``) and
+  never replaces a file already written.
+* Partition columns are also written into the files
+  (``WRITE_PARTITION_COLUMNS``) and read back from them, never from the
+  directory names, so ``is_current`` reads back as the BOOLEAN written.
+* ``close_versions()``, ``update_attributes()``, ``rotate_attributes()`` and
+  ``update_milestones()`` rewrite the whole table inside DuckDB into a
+  staging directory, which then replaces the table's directory.  Every row
+  is kept, historical versions included, and no file of the old state
+  remains.  Replacing a directory needs a local filesystem: on a remote URI
+  these operations raise :class:`~sqldim.sinks.SinkUnsupported` before
+  anything is written.
 
 Physical Partitioning ADR
 --------------------------
-``partition_by`` is now configurable (default ``["is_current"]`` preserves
-backward compatibility).  Pass ``zorder_by`` columns to enable sort-based
-Z-ORDER approximation — rows are sorted by those columns before writing,
-which co-locates them within Parquet row groups for predicate-pushdown wins.
+``partition_by`` is configurable (default ``["is_current"]``).  Pass
+``zorder_by`` columns to enable sort-based Z-ORDER approximation — rows are
+sorted by those columns before writing, which co-locates them within Parquet
+row groups for predicate-pushdown wins.
 """
 
+import os
+import shutil
 from pathlib import Path
+from uuid import uuid4
+
 import duckdb
+
+from sqldim.sinks._errors import SinkUnsupported
+
+
+def _count(con: duckdb.DuckDBPyConnection, sql: str) -> int:
+    return (con.execute(sql).fetchone() or (0,))[0]
 
 
 class ParquetSink:
@@ -24,17 +46,15 @@ class ParquetSink:
 
     Compatible with S3/GCS/Azure by passing a URI as base_path:
         ParquetSink("s3://my-bucket/dimensions/")
-
-    Because Parquet is immutable, every mutation is a partition rewrite
-    expressed as a single DuckDB COPY statement.
+    (appends only; a rewrite on a remote URI raises ``SinkUnsupported``).
 
     Parameters
     ----------
     base_path:
         Root directory or URI for Parquet output.
     partition_by:
-        Hive partition columns.  Defaults to ``["is_current"]`` (backward-
-        compatible).  Pass an empty list to skip partitioning.
+        Hive partition columns.  Defaults to ``["is_current"]``.  Pass an
+        empty list to skip partitioning.
     zorder_by:
         Columns to sort by before writing (Z-ORDER approximation).
         ``None`` (default) skips sorting and preserves current row order.
@@ -64,11 +84,11 @@ class ParquetSink:
     # ------------------------------------------------------------------
 
     def _partition_clause(self) -> str:
-        """Return the DuckDB ``PARTITION_BY (...)`` clause or empty string."""
+        """The ``PARTITION_BY`` options of a COPY, or an empty string."""
         if not self._partition_by:
             return ""
         cols = ", ".join(self._partition_by)
-        return f", PARTITION_BY ({cols})"
+        return f", PARTITION_BY ({cols}), WRITE_PARTITION_COLUMNS true"
 
     def _order_clause(self) -> str:
         """Return the ``ORDER BY ...`` clause for Z-ORDER or empty string."""
@@ -85,15 +105,51 @@ class ParquetSink:
         """Return the root output directory for Parquet partitions of *table_name*."""
         return f"{self._base}/{table_name}"
 
+    def _copy(self, con: duckdb.DuckDBPyConnection, select: str, out: str) -> None:
+        """Add the rows of *select* to directory *out* as new files."""
+        if "://" not in out:
+            Path(out).mkdir(parents=True, exist_ok=True)
+        if self._partition_by:
+            target = f"'{out}' (FORMAT parquet{self._partition_clause()}, APPEND true)"
+        else:
+            target = f"'{out}/data_{uuid4().hex}.parquet' (FORMAT parquet)"
+        con.execute(f"COPY ({select}) TO {target}")
+
+    def _rewrite(
+        self, con: duckdb.DuckDBPyConnection, table_name: str, select: str, op: str
+    ) -> None:
+        """Replace the table's files by the rows of *select* (which reads them)."""
+        out = self._table_out(table_name)
+        if "://" in out:
+            raise SinkUnsupported(
+                f"ParquetSink.{op} on {out!r}: replacing the table's files needs "
+                "a local filesystem; nothing was written"
+            )
+        tag = uuid4().hex
+        stage, old = f"{out}.sqldim-stage-{tag}", f"{out}.sqldim-old-{tag}"
+        os.makedirs(stage)
+        try:
+            self._copy(con, select, stage)
+        except BaseException:
+            shutil.rmtree(stage, ignore_errors=True)
+            raise
+        if os.path.exists(out):
+            os.replace(out, old)
+        os.replace(stage, out)
+        shutil.rmtree(old, ignore_errors=True)
+
     # ── SinkAdapter core ──────────────────────────────────────────────────
 
     def current_state_sql(self, table_name: str) -> str:
         """Return a DuckDB FROM-source expression for the current Parquet table.
 
-        Uses ``read_parquet`` with hive partitioning and a recursive glob so
-        DuckDB streams data without loading the entire dataset into memory.
+        Every column, partition columns included, is read from the files with
+        the type written; directory names are not read
+        (``hive_partitioning=false``).
         """
-        return f"read_parquet('{self._table_path(table_name)}', hive_partitioning=true)"
+        return (
+            f"read_parquet('{self._table_path(table_name)}', hive_partitioning=false)"
+        )
 
     def write(
         self,
@@ -102,22 +158,10 @@ class ParquetSink:
         table_name: str,
         batch_size: int = 100_000,
     ) -> int:
-        """Write *view_name* rows to Parquet using configured partitioning + Z-ORDER.
-
-        Executes a single ``COPY … TO`` statement so DuckDB handles
-        partitioning and file creation without any Python-side buffering.
-        """
-        out = self._table_out(table_name)
-        if "://" not in out:
-            Path(out).mkdir(parents=True, exist_ok=True)
-        order_clause = self._order_clause()
-        partition_clause = self._partition_clause()
-        con.execute(f"""
-            COPY (SELECT *{order_clause} FROM {view_name})
-            TO '{out}'
-            (FORMAT parquet{partition_clause}, OVERWRITE_OR_IGNORE true)
-        """)
-        return (con.execute(f"SELECT count(*) FROM {view_name}").fetchone() or (0,))[0]
+        """Append the rows of *view_name* as new Parquet files; returns their count."""
+        self._copy(con, f"SELECT * FROM {view_name}{self._order_clause()}",
+                   self._table_out(table_name))  # fmt: skip
+        return _count(con, f"SELECT count(*) FROM {view_name}")
 
     def write_named(
         self,
@@ -127,17 +171,11 @@ class ParquetSink:
         columns: list[str],
         batch_size: int = 100_000,
     ) -> int:
-        """Write only the listed *columns* from *view_name* to Parquet."""
+        """Append only the listed *columns* of *view_name*."""
         cols = ", ".join(columns)
-        out = self._table_out(table_name)
-        order_clause = self._order_clause()
-        partition_clause = self._partition_clause()
-        con.execute(f"""
-            COPY (SELECT {cols}{order_clause} FROM {view_name})
-            TO '{out}'
-            (FORMAT parquet{partition_clause}, OVERWRITE_OR_IGNORE true)
-        """)
-        return (con.execute(f"SELECT count(*) FROM {view_name}").fetchone() or (0,))[0]
+        self._copy(con, f"SELECT {cols} FROM {view_name}{self._order_clause()}",
+                   self._table_out(table_name))  # fmt: skip
+        return _count(con, f"SELECT count(*) FROM {view_name}")
 
     def close_versions(
         self,
@@ -147,29 +185,26 @@ class ParquetSink:
         nk_view: str,
         valid_to: str,
     ) -> int:
+        """Close the current version of each key in *nk_view*; returns rows closed.
+
+        Every other row — historical versions and other keys — is kept as
+        it was.  The table is rewritten inside DuckDB, never in Python.
         """
-        Immutable rewrite: read current partition, flip matching rows, write back.
-        Entirely inside DuckDB — no Python loop.
-        """
-        out = self._table_out(table_name)
-        con.execute(f"""
-            COPY (
-                SELECT
-                    * EXCLUDE (is_current, valid_to),
-                    CASE WHEN {nk_col} IN (SELECT {nk_col} FROM {nk_view})
-                         THEN FALSE
-                         ELSE TRY_CAST(is_current AS BOOLEAN)
-                    END AS is_current,
-                    CASE WHEN {nk_col} IN (SELECT {nk_col} FROM {nk_view})
-                         THEN '{valid_to}' ELSE valid_to END AS valid_to
-                FROM read_parquet('{self._table_path(table_name)}',
-                                  hive_partitioning=true)
-                WHERE TRY_CAST(is_current AS BOOLEAN) = TRUE
-            )
-            TO '{out}'
-            (FORMAT parquet{self._partition_clause()}, OVERWRITE_OR_IGNORE true)
-        """)
-        return (con.execute(f"SELECT count(*) FROM {nk_view}").fetchone() or (0,))[0]
+        src = self.current_state_sql(table_name)
+        match = f"({nk_col} IN (SELECT {nk_col} FROM {nk_view}) AND is_current = TRUE)"
+        closed = _count(con, f"SELECT count(*) FROM {src} WHERE {match}")
+        if not closed:
+            return 0
+        self._rewrite(
+            con,
+            table_name,
+            f"SELECT * REPLACE ("
+            f"CASE WHEN {match} THEN FALSE ELSE is_current END AS is_current, "
+            f"CASE WHEN {match} THEN '{valid_to}' ELSE valid_to END AS valid_to"
+            f") FROM {src}",
+            "close_versions",
+        )
+        return closed
 
     # ── SinkAdapter extended ───────────────────────────────────────
 
@@ -181,34 +216,21 @@ class ParquetSink:
         updates_view: str,
         update_cols: list[str],
     ) -> int:
-        """Rewrite current partition with overwritten attribute columns.
+        """Overwrite *update_cols* on the current rows matched in *updates_view*.
 
-        Reads the current Parquet partition, applies the overwrite via
-        ``COALESCE(new, old)`` for each tracked column, and re-writes the
-        full partition in a single ``COPY`` statement.
+        ``COALESCE(new, old)`` per column; the table is rewritten in one COPY.
         """
-        out = self._table_out(table_name)
-        col_exprs = ",\n                    ".join(
-            f"COALESCE(u.{c}, t.{c}) AS {c}" for c in update_cols
+        exprs = ", ".join(f"COALESCE(u.{c}, t.{c}) AS {c}" for c in update_cols)
+        self._rewrite(
+            con,
+            table_name,
+            f"SELECT t.* REPLACE ({exprs}) "
+            f"FROM {self.current_state_sql(table_name)} t "
+            f"LEFT JOIN {updates_view} u "
+            f"ON t.{nk_col} = u.{nk_col} AND t.is_current = TRUE",
+            "update_attributes",
         )
-        other_cols = f"t.* EXCLUDE ({', '.join(update_cols)})"
-        con.execute(f"""
-            COPY (
-                SELECT
-                    {other_cols},
-                    {col_exprs}
-                FROM read_parquet('{self._table_path(table_name)}',
-                                  hive_partitioning=true) t
-                LEFT JOIN {updates_view} u
-                       ON t.{nk_col} = u.{nk_col}
-                      AND TRY_CAST(t.is_current AS BOOLEAN) = TRUE
-            )
-            TO '{out}'
-            (FORMAT parquet{self._partition_clause()}, OVERWRITE_OR_IGNORE true)
-        """)
-        return (con.execute(f"SELECT count(*) FROM {updates_view}").fetchone() or (0,))[
-            0
-        ]
+        return _count(con, f"SELECT count(*) FROM {updates_view}")
 
     def rotate_attributes(
         self,
@@ -218,31 +240,23 @@ class ParquetSink:
         rotations_view: str,
         column_pairs: list[tuple[str, str]],
     ) -> int:
-        """Rewrite current partition rotating current → previous columns."""
-        out = self._table_out(table_name)
-        rotate_exprs = ",\n                    ".join(
-            f"CASE WHEN u.{nk_col} IS NOT NULL THEN t.{curr} ELSE t.{prev} END AS {prev},\n"
-            f"                    CASE WHEN u.{nk_col} IS NOT NULL THEN u.{curr} ELSE t.{curr} END AS {curr}"
+        """Rotate current → previous columns on the current rows matched."""
+        hit = f"u.{nk_col} IS NOT NULL"
+        exprs = ", ".join(
+            f"CASE WHEN {hit} THEN t.{curr} ELSE t.{prev} END AS {prev}, "
+            f"CASE WHEN {hit} THEN u.{curr} ELSE t.{curr} END AS {curr}"
             for curr, prev in column_pairs
         )
-        exclude_cols = ", ".join(col for pair in column_pairs for col in pair)
-        con.execute(f"""
-            COPY (
-                SELECT
-                    t.* EXCLUDE ({exclude_cols}),
-                    {rotate_exprs}
-                FROM read_parquet('{self._table_path(table_name)}',
-                                  hive_partitioning=true) t
-                LEFT JOIN {rotations_view} u
-                       ON t.{nk_col} = u.{nk_col}
-                      AND TRY_CAST(t.is_current AS BOOLEAN) = TRUE
-            )
-            TO '{out}'
-            (FORMAT parquet{self._partition_clause()}, OVERWRITE_OR_IGNORE true)
-        """)
-        return (
-            con.execute(f"SELECT count(*) FROM {rotations_view}").fetchone() or (0,)
-        )[0]
+        self._rewrite(
+            con,
+            table_name,
+            f"SELECT t.* REPLACE ({exprs}) "
+            f"FROM {self.current_state_sql(table_name)} t "
+            f"LEFT JOIN {rotations_view} u "
+            f"ON t.{nk_col} = u.{nk_col} AND t.is_current = TRUE",
+            "rotate_attributes",
+        )
+        return _count(con, f"SELECT count(*) FROM {rotations_view}")
 
     def update_milestones(
         self,
@@ -252,25 +266,14 @@ class ParquetSink:
         updates_view: str,
         milestone_cols: list[str],
     ) -> int:
-        """Rewrite partition patching non-null milestone columns."""
-        out = self._table_out(table_name)
-        col_exprs = ",\n                    ".join(
-            f"COALESCE(u.{c}, t.{c}) AS {c}" for c in milestone_cols
+        """Patch the non-null milestone columns of the rows matched."""
+        exprs = ", ".join(f"COALESCE(u.{c}, t.{c}) AS {c}" for c in milestone_cols)
+        self._rewrite(
+            con,
+            table_name,
+            f"SELECT t.* REPLACE ({exprs}) "
+            f"FROM {self.current_state_sql(table_name)} t "
+            f"LEFT JOIN {updates_view} u ON t.{match_col} = u.{match_col}",
+            "update_milestones",
         )
-        exclude = ", ".join(milestone_cols)
-        con.execute(f"""
-            COPY (
-                SELECT
-                    t.* EXCLUDE ({exclude}),
-                    {col_exprs}
-                FROM read_parquet('{self._table_path(table_name)}',
-                                  hive_partitioning=true) t
-                LEFT JOIN {updates_view} u
-                       ON t.{match_col} = u.{match_col}
-            )
-            TO '{out}'
-            (FORMAT parquet{self._partition_clause()}, OVERWRITE_OR_IGNORE true)
-        """)
-        return (con.execute(f"SELECT count(*) FROM {updates_view}").fetchone() or (0,))[
-            0
-        ]
+        return _count(con, f"SELECT count(*) FROM {updates_view}")
