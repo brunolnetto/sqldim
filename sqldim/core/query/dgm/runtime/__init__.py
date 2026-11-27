@@ -53,6 +53,28 @@ from sqldim.core.query.dgm.runtime._executor import (  # noqa: F401
     ExecutionResult,
     PlanExecutor,
 )
+from sqldim.core.query.dgm.runtime._artifact_plan import (  # noqa: F401
+    ArtifactState,
+    TransitionKind,
+    TransitionCondition,
+    WriteOperation,
+    TransitionPlan,
+    WritePlan,
+    ArtifactSnapshot,
+    ArtifactPlan,
+    plan_artifact_run,
+    transition_key,
+    ArtifactConflict,
+    MaterialisationFailed,
+    TransitionNotRecorded,
+    RunCancelled,
+)
+from sqldim.core.query.dgm.runtime._artifact import (  # noqa: F401
+    SinkWrite,
+    WriteIdSink,
+    ArtifactOutcome,
+    ArtifactRuntime,
+)
 from sqldim.core.query.dgm.runtime._recommender import (  # noqa: F401
     Grounding,
     ProposedQuestion,

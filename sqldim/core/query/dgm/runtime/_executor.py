@@ -20,9 +20,10 @@ touched.
 
 Authorization: ``READ`` on the dataset of every relation in ``deps(plan)``;
 an ASYNC job materialises its result in the sink (§6.3 Strategy 4), so
-``submit`` also needs ``WRITE`` on the sink's dataset.  A plan that carries a
-``WritePlan`` or sink target of its own is a PipelineArtifact write (§2.4,
-D46), which this executor does not perform (#135).
+``submit`` also needs ``WRITE`` on the sink's dataset.  A PipelineArtifact
+write (§2.4, D46) is a typed ``ArtifactPlan`` executed by ``materialise``
+through the host's :class:`ArtifactRuntime`; ``run`` refuses an
+``ExportPlan`` that carries a sink target or a text write plan.
 """
 
 from __future__ import annotations
@@ -31,7 +32,7 @@ import asyncio
 from collections.abc import Callable, Iterator, Mapping
 from dataclasses import dataclass
 from datetime import timedelta
-from typing import Any, Protocol
+from typing import TYPE_CHECKING, Any, Protocol
 
 from sqldim.core.query.dgm.nl.supervisor._auth import Action, AuthContext
 from sqldim.core.query.dgm.planner._gate import (
@@ -59,6 +60,13 @@ from sqldim.core.query.dgm.runtime._errors import (
     UnknownIdentifier,
     UnsupportedOperation,
 )
+
+if TYPE_CHECKING:
+    from sqldim.core.query.dgm.runtime._artifact import (
+        ArtifactOutcome,
+        ArtifactRuntime,
+    )
+    from sqldim.core.query.dgm.runtime._artifact_plan import ArtifactPlan
 
 __all__ = [
     "DatasetResolver",
@@ -302,6 +310,7 @@ class PlanExecutor:
         backend: QueryBackend,
         job_sinks: Mapping[str, JobSink],
         stream_batch_size: int,
+        artifacts: ArtifactRuntime | None = None,
     ) -> None:
         if not isinstance(auth, AuthContext):
             raise Unauthorized()
@@ -321,6 +330,9 @@ class PlanExecutor:
         self._batch = _positive(stream_batch_size, "stream_batch_size")
         self._tickets: dict[tuple[str, str], JobTicket] = {}
         self._lock = asyncio.Lock()
+        if artifacts is not None and artifacts.auth != auth:
+            raise NotConfigured("the ArtifactRuntime acts for another principal")
+        self._artifacts = artifacts
 
     # -- checks --------------------------------------------------------------
 
@@ -364,9 +376,9 @@ class PlanExecutor:
         datasets = self._plan_datasets(plan)
         self._require(datasets, Action.READ)
         if plan.write_plan is not None or plan.sink_target is not None:
-            raise NotImplementedCapability(
-                "the plan writes to a sink; PipelineArtifact WritePlan execution "
-                "(§2.4, D46) is issue #135"
+            raise InvalidRuntimeArgument(
+                "the plan writes to a sink; a PipelineArtifact write is an "
+                "ArtifactPlan executed by materialise (§2.4, D46)"
             )
         if plan.pre_compute:
             raise NotImplementedCapability(
@@ -402,6 +414,12 @@ class PlanExecutor:
         result.chunks = _chunks(cur, size)
         result.chunk_size = size
         return result
+
+    def materialise(self, plan: ArtifactPlan, *, cancel: Any = None) -> ArtifactOutcome:
+        """Execute a PipelineArtifact plan by D46 (§2.4); no runtime, no write."""
+        if self._artifacts is None:
+            raise NotConfigured("no ArtifactRuntime is configured; nothing is written")
+        return self._artifacts.execute(plan, cancel=cancel)
 
     def cancel(self) -> None:
         """Interrupt the statement the backend is running."""
