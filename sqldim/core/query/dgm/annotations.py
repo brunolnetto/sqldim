@@ -13,7 +13,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from enum import Enum
-from typing import Iterator, Sequence, Type, TypeVar
+from typing import Iterable, Iterator, Sequence, Type, TypeVar
 
 __all__ = [
     # Enum types
@@ -187,19 +187,36 @@ class Conformed(SchemaAnnotation):
 class Grain(SchemaAnnotation):
     """Declares the measurement grain for a fact table.
 
-    Rule 1b consequences:
-    - PERIOD   → SUM is invalid; LAST is suggested.
-    - ACCUMULATING → cross-row agg warns; NULL → COALESCE.
-    - EVENT    → fully additive; no restrictions.
+    The grain fixes the default additivity of the fact's measures (§2.4):
+    ADDITIVE under EVENT and ACCUMULATING, SEMI_ADDITIVE({TIME}) under PERIOD.
     """
 
     fact: str
     grain: GrainKind
 
-    @property
-    def sum_invalid(self) -> bool:
-        """True when SUM aggregation must be rejected at construction (PERIOD only)."""
-        return self.grain is GrainKind.PERIOD
+    def rejects_sum(
+        self,
+        *,
+        group_by_axes: "Iterable[str]" = (),
+        where_pins: "Iterable[str]" = (),
+        window: str | None = None,
+    ) -> bool:
+        """Is a SUM over a measure with the grain default rejected (AD1, AD2)?
+
+        Under PERIOD the SUM is valid only if each tuple set it sums over is
+        confined to one period: the GroupBy contains the period of the fact
+        (:data:`TIME` in *group_by_axes*), a Where pins one period (:data:`TIME`
+        in *where_pins*), or the aggregate is a TemporalAgg with *window*
+        ``LATEST`` or ``EARLIEST``.
+        """
+        if self.grain is not GrainKind.PERIOD:
+            return False  # AD1: the default is ADDITIVE
+        confined = (
+            TIME in set(group_by_axes)
+            or TIME in set(where_pins)
+            or window in ("LATEST", "EARLIEST")
+        )
+        return not confined
 
 
 @dataclass(frozen=True, eq=True)
@@ -257,11 +274,11 @@ class Degenerate(SchemaAnnotation):
 
     §2.4 writes it ``Degenerate(f, key)``: ``dim`` is the property ``key`` and
     ``fact`` the fact type ``f`` that carries it.  A declared model
-    (``DGMModel``) requires ``fact``; the planner and recommender read ``dim``
-    alone.  A degenerate attribute is not a measure: it carries no
-    ``Additivity`` and is not the argument of an aggregate (§2.4).
-
-    GroupBy planning excludes degenerate dims unless explicitly requested.
+    (``DGMModel``) requires ``fact``.  A degenerate attribute is not a
+    measure: it carries no ``Additivity`` and is not the argument of an
+    aggregate other than COUNT (§2.4).  It stays a GroupBy and filter key like
+    any other fact property: the planner reads it from the fact row with no
+    join, and the recommender suppresses nothing for it (§6.2, §7.4).
     """
 
     dim: str

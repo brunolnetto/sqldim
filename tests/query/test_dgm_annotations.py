@@ -547,18 +547,33 @@ class TestGraphSchemaAnnotations:
 class TestAnnotationConsequences:
     """Annotation objects enforce consequences described in spec §2.4 / Rule 1b."""
 
-    def test_grain_period_sum_invalid(self):
-        """Grain(PERIOD) declares SUM invalid — check via Grain.sum_invalid property."""
+    def test_grain_period_sum_across_periods_rejected(self):
+        """Grain(PERIOD): a SUM over many periods is rejected (AD2)."""
         g = Grain(fact="balance", grain=GrainKind.PERIOD)
-        assert g.sum_invalid is True
+        assert g.rejects_sum() is True
+        assert g.rejects_sum(group_by_axes=["Branch"]) is True
+
+    @pytest.mark.parametrize(
+        "confinement",
+        [
+            {"group_by_axes": ["Branch", "TIME"]},
+            {"where_pins": ["TIME"]},
+            {"window": "LATEST"},
+            {"window": "EARLIEST"},
+        ],
+    )
+    def test_grain_period_sum_confined_to_one_period_valid(self, confinement):
+        """AD2 exceptions: GroupBy period, pinned period, LATEST / EARLIEST."""
+        g = Grain(fact="balance", grain=GrainKind.PERIOD)
+        assert g.rejects_sum(**confinement) is False
 
     def test_grain_event_sum_valid(self):
         g = Grain(fact="sale", grain=GrainKind.EVENT)
-        assert g.sum_invalid is False
+        assert g.rejects_sum() is False
 
-    def test_grain_accumulating_sum_invalid(self):
+    def test_grain_accumulating_sum_valid(self):
         g = Grain(fact="order_ls", grain=GrainKind.ACCUMULATING)
-        assert g.sum_invalid is False  # warn, not reject per spec
+        assert g.rejects_sum() is False  # ADDITIVE by default (§2.4)
 
     def test_factless_measures_invalid(self):
         """FactlessFact declares all aggregation-measures invalid."""

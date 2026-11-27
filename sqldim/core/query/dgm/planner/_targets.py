@@ -239,7 +239,11 @@ def _r6_bridge_semantics(ann: Any, _c: "set[str]") -> list[str]:
 
 
 def _r6_degenerate(ann: Any, _c: "set[str]") -> list[str]:
-    return [f"Degenerate({ann.dim}): exclusion from GroupBy candidates"]  # type: ignore[attr-defined]
+    key = f"{ann.fact}.{ann.dim}" if ann.fact else ann.dim
+    return [
+        f"Degenerate({key}): no join — the key is read from the fact row; "
+        "GroupBy and Where on it are valid"
+    ]
 
 
 # ---------------------------------------------------------------------------

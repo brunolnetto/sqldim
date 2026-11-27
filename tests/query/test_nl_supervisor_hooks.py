@@ -85,11 +85,14 @@ class TestEquippedSupervisorAnnotationHook:
         assert apply_annotation_suggestions([]) == []
 
     def test_degenerate_suppresses_groupby_in_template(self):
-        """Degenerate annotation → SUPPRESS → group_col cleared → no GROUP BY."""
+        """A GroupBy SUPPRESS (MedallionLayer BRONZE) → group_col cleared."""
         import duckdb
 
         from sqldim.application.ask import make_default_budget
-        from sqldim.core.query.dgm.annotations import Degenerate
+        from sqldim.core.query.dgm.annotations import (
+            MedallionLayer,
+            MedallionLayerKind,
+        )
         from sqldim.core.query.dgm.nl._agent_types import (
             DGMContext,
             NLInterfaceState,
@@ -106,7 +109,11 @@ class TestEquippedSupervisorAnnotationHook:
         r.register_prop("s_region", "sales.region")
         r.register_prop("s_amount", "sales.amount")
 
-        recom = DGMRecommender(sigma=[Degenerate(dim="region")])
+        # MedallionLayer(BRONZE) suppresses GroupBy; Degenerate suppresses
+        # nothing (§7.4), so it no longer drives this hook.
+        recom = DGMRecommender(
+            sigma=[MedallionLayer("sales", MedallionLayerKind.BRONZE)]
+        )
         ctx = DGMContext(
             entity_registry=r,
             budget=make_default_budget(),

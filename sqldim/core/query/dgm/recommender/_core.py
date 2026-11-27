@@ -141,20 +141,24 @@ class DGMRecommender:
             handler(ann, out)
 
     def _ann_degenerate(self, ann: object, out: list[Suggestion]) -> None:
+        """§7.4: nothing is suppressed — a degenerate attribute is not a
+        measure but stays a GroupBy and filter key of its fact."""
+        fact = getattr(ann, "fact", None)
+        key = f"{fact}.{ann.dim}" if fact else ann.dim  # type: ignore[attr-defined]
         out.append(
             Suggestion(
-                kind=SuggestionKind.SUPPRESS,
-                band="suppress",
-                text=f"Suppress GroupBy({ann.dim}); Suppress PathPred from {ann.dim}",  # type: ignore[attr-defined]
-                priority=70,
+                kind=SuggestionKind.GROUP_BY,
+                band="B2",
+                text=f"GroupBy({key}) for per-transaction roll-ups (Degenerate)",
+                priority=60,
             )
         )
         out.append(
             Suggestion(
                 kind=SuggestionKind.SCALAR_PRED,
                 band="B1",
-                text=f"Add ScalarPred({ann.dim}.key) instead of GroupBy",  # type: ignore[attr-defined]
-                priority=60,
+                text=f"Add ScalarPred({key}) to filter on the degenerate attribute",
+                priority=55,
             )
         )
 
