@@ -43,7 +43,13 @@ from sqldim.core.query.dgm.annotations import (
     MedallionLayer,
     SchemaAnnotation,
 )
-from sqldim.core.query.dgm.model import EdgeKind, EdgeType, NodeKind, PropType
+from sqldim.core.query.dgm.model import (
+    EdgeKind,
+    EdgeType,
+    NodeKind,
+    PropType,
+    sigma_refs,
+)
 from sqldim.core.query.dgm.planner._canon import canonical_hash
 
 __all__ = [
@@ -319,28 +325,20 @@ def _scope_edges(schema: DGMSchema, anchors, h: int, dist) -> tuple[EdgeType, ..
     )
 
 
-def _named_types(ann: SchemaAnnotation) -> set[str] | None:
-    if isinstance(ann, Conformed):
-        return {ann.dim, *ann.fact_types}
-    if isinstance(ann, (Grain, FactlessFact, Additivity)):
-        return {ann.fact}
-    if isinstance(ann, Degenerate):
-        return {ann.fact} if ann.fact else None
-    if isinstance(ann, MedallionLayer):
-        return {ann.node}
-    return None
-
-
 def _restrict_sigma(schema: DGMSchema, nodes, edges) -> tuple[SchemaAnnotation, ...]:
+    """``Σ|_𝒜``: every annotation whose type arguments all lie in ``G_𝒜`` (§3.4.6).
+
+    A node type argument must be in ``N_𝒜`` and a bridge edge type argument
+    must label a bridge edge of ``E_𝒜``, whatever the annotation kind.
+    """
     labels = {e.label for e in edges if e.kind.value == "bridge"}
     out: list[SchemaAnnotation] = []
     for ann in schema.sigma:
-        if isinstance(ann, BridgeSemantics):
-            keep = ann.bridge in labels
-        else:
-            named = _named_types(ann)
-            keep = named is not None and named <= nodes
-        if keep:
+        refs = sigma_refs(ann)
+        if refs is not None and all(
+            (name in labels) if kind == "bridge" else (name in nodes)
+            for kind, name in refs
+        ):
             out.append(ann)
     return tuple(out)
 
@@ -461,7 +459,8 @@ def build_space(
     for kind in _needed_kinds(schema, h, nodes, edges, props):
         schema.annotations(kind)  # AnnotationNotDeclared if the kind is unstated
     facts = _of_kind(schema, nodes, NodeKind.FACT)
-    measures = _measures(sigma, props, facts) if _numeric(facts, props) else {}
+    # a measure is resolved by its fact's declaration, whatever else Σ|_𝒜 keeps
+    measures = _measures(schema.sigma, props, facts) if _numeric(facts, props) else {}
     return Space(
         schema=schema,
         anchors=canonical,

@@ -359,6 +359,14 @@ _SIGMA_REFS: dict[type, Callable[[Any], list[_Ref]]] = {
 }
 """The type arguments of each annotation and the kind §2.4 requires of them."""
 
+
+def sigma_refs(ann: SchemaAnnotation) -> list[tuple[str, str]] | None:
+    """The type arguments of *ann* as ``(kind, name)``; ``None`` for an
+    annotation kind whose arguments §2.4 does not state here."""
+    refs = _SIGMA_REFS.get(type(ann))
+    return None if refs is None else refs(ann)
+
+
 _UNIQUE_PER: dict[type, Callable[[Any], str]] = {
     SCDType: lambda a: a.dim,
     MedallionLayer: lambda a: a.node,
