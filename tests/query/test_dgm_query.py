@@ -159,10 +159,10 @@ class TestScalarPred:
         p = ScalarPred(AggRef("score"), ">=", 0.5)
         assert "0.5" in p.to_sql()
 
-    def test_none_value_equality(self):
-        # _format_value(None) branch: operator is not IS/IS NOT
-        p = ScalarPred(PropRef("x", "val"), "=", None)
-        assert p.to_sql() == "x.val = NULL"
+    def test_none_value_equality_rejected(self):
+        # §4.1: NULL is not a literal; `= NULL` is never emitted (#173)
+        with pytest.raises(SemanticError, match="NULL is not a literal"):
+            ScalarPred(PropRef("x", "val"), "=", None)
 
 
 # ---------------------------------------------------------------------------
