@@ -19,6 +19,7 @@ violate them, so they are reported UNSUPPORTED rather than ``holds = true``.
 from __future__ import annotations
 
 from collections.abc import Callable
+from functools import partial
 from typing import Any
 
 from sqldim.core.query.dgm.nl.supervisor._invariant_core import (
@@ -252,6 +253,14 @@ def _check_bags(
     ev.violate_many(count, witnesses)
 
 
+def _node_instance(name: str, row: tuple[Any, ...]) -> dict[str, Any]:
+    return {"node_type": name, "instance": plain(list(row))}
+
+
+def _edge_witness(key: str, es: EdgeSql, row: tuple[Any, ...]) -> dict[str, Any]:
+    return {"edge": key, **_edge_instance(es, row)}
+
+
 def h3(ev: Evaluator) -> None:
     """H3: P(x)(k) ∈ K_S(h(x))(k) ∪ {NULL} for every declared key."""
     for node, table in ev.mapped_nodes():
@@ -264,7 +273,7 @@ def h3(ev: Evaluator) -> None:
             (_keys("x", table), len(table.entity_key)),
             checks,
             dict(node.properties),
-            lambda r, name=node.name: {"node_type": name, "instance": plain(list(r))},
+            partial(_node_instance, node.name),
         )
     for edge in ev.model.edge_types:
         es = ev.edge_sql(edge)
@@ -285,7 +294,7 @@ def h3(ev: Evaluator) -> None:
             (_edge_keys(es), es.n_source + es.n_target),
             checks,
             dict(edge.properties),
-            lambda r, e=edge, s=es: {"edge": e.key, **_edge_instance(s, r)},
+            partial(_edge_witness, edge.key, es),
         )
 
 

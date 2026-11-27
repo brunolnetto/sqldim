@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import dataclasses
+from datetime import datetime, timedelta, timezone
 from typing import Any
 
 import duckdb
@@ -255,7 +256,15 @@ def _validate(
     bound, errors = bind_plan(plan(request))
     assert errors == []
     opener = SourceOpener(source)
-    ctx = tool_context(auth(grants), opener=opener)  # type: ignore[arg-type]
+    ctx = tool_context(
+        auth(grants),
+        opener=opener,  # type: ignore[arg-type]
+        deadline=datetime.now(timezone.utc) + timedelta(minutes=5),
+    )
+    # Generous wall time: these tests check results, not the deadline.
+    ctx = dataclasses.replace(
+        ctx, budget=dataclasses.replace(ctx.budget, max_wall_time=timedelta(minutes=5))
+    )
     result = asyncio.run(execute_tool(bound.steps[0], build_registry(), ctx))
     return result, opener
 
