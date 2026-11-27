@@ -43,12 +43,14 @@ from sqldim.core.query.dgm.planner._ir import (
     Neg,
     PathExists,
     PathHop,
+    PathRepeat,
     PlanIR,
     PlanNode,
     Pred,
     Quantifier,
     RawCondition,
     ReadRole,
+    RepeatJoin,
     Scan,
     UnsupportedConstruct,
     VersionKind,
@@ -101,13 +103,24 @@ def _scan_out(s: Scan) -> dict:
     return {"relation": s.relation, "alias": s.alias, "role": s.role.value}
 
 
-def _join_out(j: Join) -> dict:
+def _no_repeat(item: object) -> InvalidSpec:
+    return InvalidSpec(
+        f"{type(item).__name__} (Repeat, §3.2) has no form in spec format "
+        f"{SPEC_FORMAT}; a question with Repeat cannot be carried as a spec yet"
+    )
+
+
+def _join_out(j: Join | RepeatJoin) -> dict:
+    if not isinstance(j, Join):
+        raise _no_repeat(j)
     v = j.version
     ver = None if v is None else {"kind": v.kind.value, "as_of": v.as_of}
     return {"scan": _scan_out(j.scan), "on": j.on.sql, "version": ver}
 
 
-def _hop_out(h: PathHop) -> dict:
+def _hop_out(h: PathHop | PathRepeat) -> dict:
+    if not isinstance(h, PathHop):
+        raise _no_repeat(h)
     return {"kind": h.kind, "label": h.label, "scan": _scan_out(h.scan), "on": h.on.sql}
 
 
@@ -169,6 +182,11 @@ class _Encoder:
 
 def encode_spec(ir: PlanIR, params: Mapping[str, object] | None = None) -> dict:
     """The spec of *ir* with parameters *params*."""
+    if ir.pre_compute:
+        raise InvalidSpec(
+            f"PreComputation steps have no form in spec format {SPEC_FORMAT}; "
+            "a plan with pre_compute cannot be carried as a spec yet"
+        )
     enc = _Encoder()
     ctes = [[c.name, enc.node(c.node)] for c in ir.ctes]
     root = enc.node(ir.root)

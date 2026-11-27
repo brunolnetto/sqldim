@@ -37,6 +37,7 @@ from sqldim.core.query.dgm.planner._ir import (
     BandQuery,
     Compose,
     Conj,
+    Join,
     PlanIdentityUnavailable,
     PlanIR,
     PlanNode,
@@ -471,7 +472,10 @@ class DeclaredQuestionSpace:
         root = ir.root
         if not isinstance(root, BandQuery) or ir.ctes:
             return []
-        scope = frozenset([root.anchor.alias, *(j.scan.alias for j in root.joins)])
+        joins = [j for j in root.joins if isinstance(j, Join)]
+        if len(joins) != len(root.joins):  # a Repeat join has no spec form yet
+            return []
+        scope = frozenset([root.anchor.alias, *(j.scan.alias for j in joins)])
         base = _conjuncts(root.where)
         out = []
         for i, a in enumerate(self.atoms):

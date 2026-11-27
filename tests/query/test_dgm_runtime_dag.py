@@ -395,3 +395,27 @@ class TestRegistry:
             reg.register_node("product", "p")
         with pytest.raises(InvalidRuntimeArgument):
             SchemaVocabulary(object())  # type: ignore[arg-type]
+
+
+class TestSpecLimits:
+    """Constructs added by #148 that spec format 1 does not carry (fail closed)."""
+
+    def test_repeat_is_refused(self) -> None:
+        from sqldim.core.query.dgm import DGMQuery
+        from sqldim.core.query.dgm.preds import Repeat, RepeatMode
+        from tests.query.test_dgm_plan_ir_complete import reports_to
+
+        r = Repeat(reports_to(), 1, 2, mode=RepeatMode.WALK)
+        q = DGMQuery().anchor("employee", "e").path_join(r)
+        plan = plan_of(q)
+        assert plan.ir is not None
+        with pytest.raises(InvalidSpec, match="Repeat"):
+            encode_spec(plan.ir)
+
+    def test_pre_compute_is_refused(self) -> None:
+        from tests.query.test_dgm_plan_ir_complete import _step, events, planner
+
+        plan = planner().plan_query(events(), pre_compute=[_step()])
+        assert plan.ir is not None and plan.ir.pre_compute
+        with pytest.raises(InvalidSpec, match="PreComputation"):
+            encode_spec(plan.ir)
