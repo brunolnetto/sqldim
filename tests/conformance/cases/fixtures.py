@@ -68,6 +68,13 @@ GRAPH_CYCLE: dict[str, Any] = {
               ("x3", "x4", "next")],
 }  # fmt: skip
 
+# §3.4.2 / §8.7: the cycle on which the simple-path reading of the cones broke
+# the intersection identity — A → X → B → n → X.
+GRAPH_CONE_CYCLE: dict[str, Any] = {
+    "nodes": {n: {"type": "T"} for n in ("A", "X", "B", "n")},
+    "edges": [("A", "X", "e"), ("X", "B", "e"), ("B", "n", "e"), ("n", "X", "e")],
+}
+
 GRAPHS: dict[str, dict[str, Any]] = {
     "graph_a": GRAPH_A,
     "graph_a2": GRAPH_A2,
@@ -75,6 +82,7 @@ GRAPHS: dict[str, dict[str, Any]] = {
     "graph_g1": GRAPH_G1,
     "graph_g2": GRAPH_G2,
     "graph_cycle": GRAPH_CYCLE,
+    "graph_cone_cycle": GRAPH_CONE_CYCLE,
 }
 
 ONE_HOP = (("hop", "placed", "fwd", True),)

@@ -13,8 +13,16 @@ from typing import Any
 from tests.conformance.cases import Case
 from tests.conformance.cases.anchors import SCHEMAS
 from tests.conformance.cases.fixtures import GRAPHS, GRID_VALUES, INPUTS, POINT_VALUES
-from tests.conformance.oracle import aggregation, allen, anchors, ctl, logic, model, scd
-from tests.conformance.oracle import export, paths, structure, window
+from tests.conformance.oracle import (
+    aggregation,
+    allen,
+    anchors,
+    cones,
+    ctl,
+    logic,
+    model,
+)
+from tests.conformance.oracle import export, paths, scd, structure, window
 
 
 def interval_pairs() -> list[tuple[tuple, tuple]]:
@@ -122,6 +130,7 @@ _AREAS: dict[str, Callable[[Case], Any]] = {
     "sink_close": lambda c: export.closed(c.input),
     "sink_sql": lambda c: export.emits_duckdb_sql(c.input),
     "write_plan": lambda c: export.write_plan(c.input),
+    "cone": lambda c: cones.subgraph(GRAPHS[c.fixture], c.input),
 }
 
 AREAS = frozenset(_AREAS)

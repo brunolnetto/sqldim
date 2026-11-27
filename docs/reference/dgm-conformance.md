@@ -13,7 +13,7 @@ per-backend matrix (#138) and the theoretical claims (#139).
   `NotTrue` (§4.1, §6.1), the Allen relations with open and degenerate
   intervals (§3.2, §8.8), `version`/`valid` and AS_WAS/AS_IS (§2.5, §2.6),
   AD1–AD4, fan-out and drill-across (§2.4, §4.2, §5.2.2), anchor sets by walk
-  enumeration (§3.4.6), and the §6.1 BDD questions decided by enumerating the
+  enumeration (§3.4.6), the RelationshipSubgraph cones by reachability (§3.4.2), and the §6.1 BDD questions decided by enumerating the
   atoms' meaning. It imports nothing from `sqldim`; a test enforces this.
 - **Cases** (`tests/conformance/cases/`). Data: id, clause, rule, fixture,
   inputs and, where the specification states one (a worked example or table),
@@ -50,7 +50,7 @@ implement the area.
 
 <!-- BEGIN GENERATED: tests/conformance/matrix.py -->
 
-381 cases; 191 carry a value stated by the specification, the others are derived by the oracle from the definitions. Every case is checked against the oracle.
+390 cases; 196 carry a value stated by the specification, the others are derived by the oracle from the definitions. Every case is checked against the oracle.
 
 | Clause | Cases | `duckdb-dgmquery` | `duckdb-plan-ir` | `duckdb-ordering` | `dgm-bdd` | `dgm-model` | `dgm-annotations` | `pg-duckdb-plan-ir` | `planner-refusals` | `dgm-write-plan` | `sink-duckdb` | `sink-parquet` | `sink-postgresql` | `sink-motherduck` | `sink-delta` |
 |---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
@@ -73,6 +73,7 @@ implement the area.
 | §3.2 Typing of TemporalOrdering (TO1–TO4) | `TO-TYPE-01`, `TO-TYPE-02`, `TO-TYPE-03`, `TO-TYPE-04` | — | — | 3 pass, 1 n/e | — | — | — | — | — | — | — | — | — | — | — |
 | §3.2 point relations (NULL TimePoint is UNKNOWN) | `TO-BEFORE-pt`, `TO-AFTER-pt`, `TO-CONCURRENT-pt`, `TO-CONCURRENT-tol1` | — | — | 4 pass | — | — | — | — | — | — | — | — | — | — | — |
 | §3.3 Strategy (deterministic ≺ order) | `PP-STR-01`, `PP-STR-02`, `PP-STR-03`, `PP-STR-04` | 1 pass, 3 refused | 1 pass, 3 refused | — | — | — | — | 1 pass, 3 refused | 4 refused | — | — | — | — | — | — |
+| §3.4.2 RelationshipSubgraph by reachability | `CONE-01`, `CONE-02`, `CONE-05`, `CONE-06` | — | — | — | — | — | — | — | — | — | — | — | — | — | — |
 | §3.4.6 Anchor sets (AS1–AS3, N_𝒜, E_𝒜, Σ|_𝒜) | `AS-01` … `AS-GEN-11-edges` (50) | — | — | — | — | 50 pass | — | — | — | — | — | — | — | — | — |
 | §3.5 Evaluation contexts (Refs in C ∪ L) | `PP-ALIAS-01`, `PP-ALIAS-02`, `PP-ALIAS-03` | 3 pass | 3 pass | — | — | — | — | 3 pass | 3 refused | — | — | — | — | — | — |
 | §3.5 L-promotion | `PP-PROM-01` | 1 pass | 1 pass | — | — | — | — | 1 pass | 1 n/e | — | — | — | — | — | — |
@@ -99,6 +100,7 @@ implement the area.
 | §6.2 Rule 8, §6.4 sink write semantics: statements executed by DuckDB | `SINK-SQL-W`, `SINK-SQL-C` | — | — | — | — | — | — | — | — | — | 2 pass | 2 pass | 2 pass | 2 pass | 2 **non-conf.** |
 | §8.2 Propositional completeness (proof by minterm construction) | `THM-PC-0000` … `THM-PC-1111` (16) | — | — | — | 16 pass | — | — | — | — | — | — | — | — | — | — |
 | §8.3 A BDD's paths to TRUE are disjoint cubes covering its minterms | `THM-CUBE-00` … `THM-CUBE-07` (8) | — | — | — | 8 pass | — | — | — | — | — | — | — | — | — | — |
+| §8.7 Cone intersection theorem (G_A* ∩ G_*B = G_AB) | `CONE-03` … `CONE-09` (5) | — | — | — | — | — | — | — | — | — | — | — | — | — | — |
 | §8.8 Allen exhaustiveness theorem | `TO-THM-01` | — | — | 1 pass | — | — | — | — | — | — | — | — | — | — | — |
 | §8.8 Outside the domain | `TO-THM-02` | — | — | 1 pass | — | — | — | — | — | — | — | — | — | — | — |
 
@@ -426,14 +428,15 @@ implement the area.
 | §4.1 typing rules of ScalarPred (Int/String/Enum mixes) | PropRef and ScalarPred carry no property types; a typing error cannot be posed |
 | §5.1 Q_delta, §2.5 SCD3/SCD6, TRAILING/ROLLING/YTD at τ | DeltaQuery and the windows render placeholders only; nothing is executable to compare |
 | §3.3 K_SHORTEST / MIN_WEIGHT over weighted bridges | covered by the oracle on unweighted hops only; no backend executes a non-ALL strategy |
-| §8.7 cone intersection theorem | deferred to #139; under the simple-path reading of §3.4.2 the identity needs a proof of its own (see the doc) |
+| §3.4.2 RelationshipSubgraph cones; §8.7 cone intersection | sqldim represents REACHABLE_FROM / REACHABLE_TO / REACHABLE_BETWEEN symbolically and computes no cone; `CONE-*` run against the oracle only, and `docs/reference/dgm-claims.md` checks the identity exhaustively |
 
 <!-- END GENERATED -->
 
-## Note for #139
+## Cones (#139)
 
-§8.7 proves `G_A* ∩ G_*B = G_AB` by reachability, while §3.4.2 defines the
-three subgraphs by *simple* paths. With edges `A→X, X→B, B→n, n→X`, the node
-`n` is on a simple path from `A` and on a simple path to `B`, but on no simple
-path `A →* n →* B`. The identity therefore needs either the reachability
-reading or a separate argument; no case asserts it here.
+§3.4.2 now defines the three RelationshipSubgraph cases by reachability, the
+reading the §8.7 proof uses; the earlier simple-path definition broke the cone
+intersection identity on `A→X, X→B, B→n, n→X`. As a consequence of that
+specification change, and only of it, the oracle gained `oracle/cones.py` and
+the cases `CONE-*`. The theorem itself is checked exhaustively in
+`docs/reference/dgm-claims.md`.
