@@ -6,7 +6,8 @@ returns ``NOT_IMPLEMENTED`` without running anything (D42, ADR 0012).  The
 knowledge-base tools (``_tools_kb``) are available only when the deployment
 configures a knowledge base (and, for retrieval, a move graph).
 ``dgm_validate_invariant`` is implemented in ``_tools_invariants``.
-``dgm_map_analytical_space`` is a contract tool (``_tools_space``).
+``dgm_map_analytical_space`` is a contract tool (``_tools_space``), and so is
+``dgm_what_can_i_answer`` (``_tools_lattice``).
 
 The explicit demo mode (D47, ADR 0013) adds one heuristic stand-in:
 ``dgm_query`` answered by the current NL graph.  It is registered only by
@@ -51,12 +52,7 @@ TOOL_VERSION = "0.1.0"
 # The component each tool still lacks (context of its NOT_IMPLEMENTED error).
 _MISSING: dict[str, str] = {
     "dgm_query": "run_ask_from_source: the non-interactive NL turn of §11.10",
-    "dgm_what_can_i_answer": (
-        "bounded enumeration of Q_valid skeletons (§8.11): no enumerator of "
-        "Join skeletons, typed structural atoms (§4.1), canonical Where "
-        "functions and Band 2/3 components, and no persistent question_key "
-        "(§8.14); AS1-AS3 checks exist in dgm.analytical_space"
-    ),
+    "dgm_what_can_i_answer": "bounded enumeration of Q_valid skeletons (§8.11)",
     "dgm_correlate": "drill-across over conformed keys (§5.2.2, Rule 12)",
     "dgm_explore_from": "structural moves from a question key (§8.16.6)",
     "dgm_sensitivity_sweep": (
@@ -337,15 +333,27 @@ def _demo_failure(
 
 
 def build_registry(
-    *, demo: bool = False, model: Any = None, kb: Any = None, moves: Any = None
+    *,
+    demo: bool = False,
+    model: Any = None,
+    kb: Any = None,
+    moves: Any = None,
+    skeletons: Any = None,
+    policy: Any = None,
 ) -> Mapping[str, BaseTool]:
     """The immutable registry for one run (§12.2, *Registry*).
 
     ``demo=True`` must come from the caller's explicit selection (D47); it is
     never chosen because a component is missing.  The KB tools are available
     only with a configured knowledge base *kb*; retrieval also needs the move
-    graph *moves* of ADR 0007.
+    graph *moves* of ADR 0007.  *skeletons* is the ``SkeletonIndex`` the
+    enumeration fills so that the move graph can resolve its keys, and
+    *policy* the deployment's ``SupervisorPolicy`` (default policy if
+    omitted).
     """
+    from sqldim.core.query.dgm.nl.supervisor._tools_lattice import (
+        WhatCanIAnswerTool,
+    )
     from sqldim.core.query.dgm.nl.supervisor._tools_space import (
         MapAnalyticalSpaceTool,
     )
@@ -357,6 +365,11 @@ def build_registry(
 
     tools["dgm_validate_invariant"] = ValidateInvariantTool()
     tools["dgm_map_analytical_space"] = MapAnalyticalSpaceTool()
+    tools["dgm_what_can_i_answer"] = (
+        WhatCanIAnswerTool(index=skeletons)
+        if policy is None
+        else WhatCanIAnswerTool(policy, index=skeletons)
+    )
     if demo:
         tools["dgm_query"] = DemoQueryTool(model=model)
     if kb is not None:

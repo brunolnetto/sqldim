@@ -58,6 +58,9 @@ from sqldim.core.query.dgm.planner._steps import PreComputation
 
 __all__ = [
     "Dependency",
+    "bdd_node_hash",
+    "bdd_terminal_hash",
+    "key_from_dag_hash",
     "RelationCatalog",
     "StaticCatalog",
     "predicate_hash",
@@ -173,21 +176,34 @@ class _CanonicalBDD:
 
     def merkle(self) -> str:
         memo: dict[int, str] = {
-            FALSE_NODE_ID: canonical_hash("bdd", "FALSE"),
-            TRUE_NODE_ID: canonical_hash("bdd", "TRUE"),
+            FALSE_NODE_ID: bdd_terminal_hash(False),
+            TRUE_NODE_ID: bdd_terminal_hash(True),
         }
         return self._hash(self.root, memo)
 
     def _hash(self, uid: int, memo: dict[int, str]) -> str:
         if uid not in memo:
             n = self.mgr.get_node(uid)
-            memo[uid] = canonical_hash(
-                "bdd",
+            memo[uid] = bdd_node_hash(
                 self.order[n.var],
                 self._hash(n.low, memo),
                 self._hash(n.high, memo),
             )
         return memo[uid]
+
+
+def bdd_terminal_hash(value: bool) -> str:
+    """Hash of a BDD terminal (§8.14 ``predicate_hash``)."""
+    return canonical_hash("bdd", "TRUE" if value else "FALSE")
+
+
+def bdd_node_hash(atom: bytes, low: str, high: str) -> str:
+    """``H(atom, hash(low), hash(high))`` of one BDD node (§8.14).
+
+    *atom* is the canonical encoding of the node's variable; the canonical
+    variable order is the byte order of these encodings.
+    """
+    return canonical_hash("bdd", atom, low, high)
 
 
 def predicate_hash(p: Pred) -> str:
@@ -267,6 +283,16 @@ def question_key(
     supplied by the caller; it has no default, so a key is never computed
     against an unstated schema.  *params* are the resolved π bindings.
     """
+    return key_from_dag_hash(dag_hash(ir), schema_version=schema_version, params=params)
+
+
+def key_from_dag_hash(
+    root_hash: str,
+    *,
+    schema_version: str,
+    params: Mapping[str, object] | None = None,
+) -> str:
+    """``question_key`` of §8.14 from an already computed ``dag_hash(root)``."""
     if not isinstance(schema_version, str) or not schema_version:
         raise ValueError("question_key needs a non-empty schema_version")
-    return canonical_hash(CANON_VERSION, schema_version, dag_hash(ir), _params(params))
+    return canonical_hash(CANON_VERSION, schema_version, root_hash, _params(params))

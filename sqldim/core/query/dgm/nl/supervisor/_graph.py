@@ -155,12 +155,22 @@ def make_runtime(
     policy: SupervisorPolicy = DEFAULT_POLICY,
     kb: Any = None,
     moves: Any = None,
+    skeletons: Any = None,
 ) -> SupervisorRuntime:
     """Assemble a runtime.  ``demo`` must be the caller's explicit choice.
 
-    *kb* is the deployment's knowledge base (``_kb.KnowledgeBase``) and
-    *moves* the move graph of ADR 0007; without them the KB tools are
-    unavailable."""
+    *kb* is the deployment's knowledge base (``_kb.KnowledgeBase``); without
+    it the KB tools are unavailable.  *moves* is the move graph of ADR 0007;
+    when a KB is configured and no graph is given, the runtime builds it from
+    each dataset's declared schema graph (``LatticeMoveGraph``), opened
+    through the runtime's own grants.  *skeletons* is the ``SkeletonIndex``
+    shared by ``dgm_what_can_i_answer`` and that graph (in memory by
+    default)."""
+    from sqldim.core.query.dgm.nl.supervisor._tools_lattice import (
+        SkeletonIndex,
+        lattice_move_graph,
+    )
+
     # Demo mode always plans with the keyword heuristic; the model, if any,
     # then only drives the demo dgm_query.  Outside demo mode a model is the
     # only planner, and without one the run fails closed.
@@ -171,12 +181,23 @@ def make_runtime(
         planner = LLMPlanner(model)
     else:
         planner = None
+    data = DataAccess(auth, opener)
+    index = skeletons if skeletons is not None else SkeletonIndex()
+    if kb is not None and moves is None:
+        moves = lattice_move_graph(data, index, policy)
     return SupervisorRuntime(
         auth=auth,
         budget=budget,
-        registry=build_registry(demo=demo, model=model, kb=kb, moves=moves),
+        registry=build_registry(
+            demo=demo,
+            model=model,
+            kb=kb,
+            moves=moves,
+            skeletons=index,
+            policy=policy,
+        ),
         planner=planner,
-        data=DataAccess(auth, opener),
+        data=data,
         deadline=datetime.now(timezone.utc) + timeout,
         kb=kb,
         demo=demo,

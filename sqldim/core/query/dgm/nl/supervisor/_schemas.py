@@ -150,6 +150,8 @@ class WhatCanIAnswerOutput(BaseModel):
     complete: bool
     max_hops: int
     limit: int
+    expr_depth: int
+    pred_depth: int
 
 
 class MapAnalyticalSpaceOutput(BaseModel):

@@ -281,6 +281,7 @@ class TestAvailability:
                 "dgm_retrieve_related",
                 "dgm_validate_invariant",  # needs no KB (#134)
                 "dgm_map_analytical_space",  # needs no KB (#132)
+                "dgm_what_can_i_answer",  # needs no KB (#132)
             }
         ]
         assert others == []
@@ -296,8 +297,10 @@ class TestAvailability:
         names = [s.name for s in rt.available_tools()]
         assert names == [
             "dgm_map_analytical_space",
+            "dgm_retrieve_related",  # the runtime builds the move graph (#131)
             "dgm_store_finding",
             "dgm_validate_invariant",
+            "dgm_what_can_i_answer",
         ]
         handle = rt.tool_context().kb
         assert isinstance(handle, TenantKnowledgeBase) and handle.tenant_id == "t9"
