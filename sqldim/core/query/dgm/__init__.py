@@ -136,6 +136,8 @@ from sqldim.core.query.dgm.temporal import (  # noqa: F401
     BEFORE,
     AFTER,
     CONCURRENT,
+    PRECEDES,
+    PRECEDED_BY,
     MEETS,
     MET_BY,
     OVERLAPS,
