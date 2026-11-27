@@ -119,11 +119,13 @@ def _agg_moves(ctx: JoinCtx, sk: Skeleton) -> Iterator[Skeleton | None]:
 
 
 def _replace(value: Any, old: Term, new: Term) -> Any:
+    """Replace the Ref *old* by *new*; a GroupBy key inside an aggregate's
+    argument is the aggregate's, not the key's, and is left alone."""
     if value == old:
         return new
-    if isinstance(value, tuple):
-        return tuple(_replace(v, old, new) for v in value)
-    return value
+    if not isinstance(value, tuple) or (old[0] != "agg" and value[:1] == ("agg",)):
+        return value
+    return tuple(_replace(v, old, new) for v in value)
 
 
 def _canon_ref(ref: Term) -> Term:

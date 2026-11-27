@@ -399,7 +399,7 @@ class _Branches:
 
     def _reach(self, start: str) -> set[str]:
         """Fact aliases reached from *start* without a constellation pass."""
-        seen = {(None, start)}
+        seen: set[tuple[str | None, str]] = {(None, start)}
         queue: deque[tuple[str | None, str]] = deque(seen)
         while queue:
             prev, cur = queue.popleft()

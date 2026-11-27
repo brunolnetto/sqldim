@@ -575,7 +575,7 @@ class TestRetrievalThroughTheLattice:
             for q in qs
             if q.skeleton.where[1] == (0, False, True) and q.skeleton.band2 is None
         ).question_key
-        enumerate_step = step("w", TOOL, _args(limit=20), fraction=0.3)
+        enumerate_step = step("w", TOOL, _args(limit=20), fraction=1.0)
         store = step(
             "s",
             "dgm_store_finding",
@@ -587,29 +587,30 @@ class TestRetrievalThroughTheLattice:
                     "content": "filtered customers",
                 }
             },
-            depends_on=["w"],
-            fraction=0.3,
+            fraction=0.5,
         )
         retrieve = step(
             "r",
             "dgm_retrieve_related",
             {"dataset": "sales", "question_key": top, "parameters": {}, "k": 1},
             depends_on=["s"],
-            fraction=0.3,
-        )
-        planner = ScriptedPlanner(
-            lambda view: plan(
-                enumerate_step,
-                store,
-                retrieve,
-                plan_id=view.plan_id,
-                version=view.version,
-            )
+            fraction=0.5,
         )
         opener = Opener({"sales": Source(shop())})
         rt = make_runtime(auth({"sales": RW}), opener, budget(), kb=kb)
-        rt = dataclasses.replace(rt, planner=planner)
-        state = run_supervisor("what can I ask, remember one, recall", rt)
+
+        def run(*steps: ToolCallRequest) -> Any:
+            planner = ScriptedPlanner(
+                lambda view: plan(*steps, plan_id=view.plan_id, version=view.version)
+            )
+            return run_supervisor("g", dataclasses.replace(rt, planner=planner))
+
+        # what_can_i_answer composes only with dgm_query (P4): its own run.
+        listed = run(enumerate_step)
+        assert listed.outcome is Outcome.COMPLETE, listed
+        keys = [q["question_key"] for q in listed.results["w"].data["questions"]]
+        assert top in keys and one_atom in keys
+        state = run(store, retrieve)
         assert state.outcome is Outcome.COMPLETE, state
         stored = state.results["s"].data["finding_id"]
         assert state.results["r"].data["findings"] == [
