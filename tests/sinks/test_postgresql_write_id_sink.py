@@ -180,6 +180,13 @@ class CrashMidWrite(PostgreSQLWriteIdSink):
         return super().write(_CrashOnCommitRecord(con), request)
 
 
+def later() -> Clock:
+    """A clock for a second process, past every instant the first one used."""
+    c = Clock()
+    c.calls = 10
+    return c
+
+
 def pg_plan(rt: Any, op: WriteOperation = WriteOperation.APPEND) -> Any:
     return plan_for(rt, w=write(op, sink=PG))
 
@@ -233,7 +240,7 @@ class TestMaterialisation:
         assert pg.rows() == 0 and pg.commits() == 0
         healthy = PostgreSQLWriteIdSink(pg.dsn)
         with pytest.raises(MaterialisationFailed):
-            runtime(con, sinks={PG: healthy}).recover(p)
+            runtime(con, sinks={PG: healthy}, clock=later()).recover(p)
         assert state(con) == "Failed" and pg.rows() == 0
         assert_pa_holds(con)
         con.execute("DETACH sqldim_pg_wid")
@@ -289,7 +296,7 @@ class TestRecovery:
             rt.execute(p)  # committed in PostgreSQL, succeeded not appended
         assert state(con) == "In-flight" and pg.rows() == 2
         fresh = PostgreSQLWriteIdSink(pg.dsn)  # no attach: recovery only reads
-        out = runtime(con, sinks={PG: fresh}).recover(p)
+        out = runtime(con, sinks={PG: fresh}, clock=later()).recover(p)
         assert out.recovered and state(con) == "Complete"
         assert pg.rows() == 2 and pg.commits() == 1
         assert_pa_holds(con)
