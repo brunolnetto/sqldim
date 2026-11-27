@@ -43,6 +43,10 @@ ADDITIVITY = [
         grain="PERIOD", fn="SUM", window="EARLIEST"),
     _ad("ADD-13", "Grain(ACCUMULATING) defaults to ADDITIVE", DERIVED,
         grain="ACCUMULATING", fn="SUM"),
+    _ad("ADD-14", "SEMI_ADDITIVE({Account}): AVG is valid (AD4)", DERIVED,
+        grain="EVENT", kind=("SEMI_ADDITIVE", ["Account"]), fn="AVG"),
+    _ad("ADD-15", "SEMI_ADDITIVE({TIME}): MAX is valid (AD4)", DERIVED,
+        grain="EVENT", kind=("SEMI_ADDITIVE", ["TIME"]), fn="MAX"),
 ]  # fmt: skip
 
 TAGG = "§4.2 TemporalWindow LATEST / EARLIEST"

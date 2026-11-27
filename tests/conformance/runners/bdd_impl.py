@@ -4,7 +4,8 @@ An atom of the case becomes one ``sqldim`` predicate object per atom *name*,
 so two occurrences of one name are one object; two names with the same
 definition are two objects built separately (the canonical-form cases).
 An expression or opaque atom the case declares non-nullable is passed to the
-BDD as ``non_nullable``; every other Ref is nullable for it.
+BDD as ``non_nullable``; every other Ref is nullable for it.  An expression's
+declared collation is passed as ``collations``.
 """
 
 from __future__ import annotations
@@ -15,6 +16,8 @@ from typing import Any
 
 from sqldim.core.query.dgm import (
     AND,
+    PREVIOUSLY,
+    BridgeHop,
     EVENTUALLY,
     GLOBALLY,
     NEXT,
@@ -67,8 +70,17 @@ def _tree(f: Sequence, atoms: Mapping[str, Any]) -> Any:
     raise NotExpressible(f"sqldim has no {tag!r} filter node")
 
 
-def _bdd(non_nullable: Sequence[str] = ()) -> DGMPredicateBDD:
-    return DGMPredicateBDD(BDDManager(), non_nullable=non_nullable)
+def _bdd(
+    non_nullable: Sequence[str] = (), collations: Mapping[str, str] | None = None
+) -> DGMPredicateBDD:
+    return DGMPredicateBDD(
+        BDDManager(), non_nullable=non_nullable, collations=collations
+    )
+
+
+def _collations(i: Mapping[str, Any]) -> dict[str, str]:
+    exprs = i.get("exprs", {})
+    return {f"t.{e}": d["collation"] for e, d in exprs.items() if d.get("collation")}
 
 
 def _non_nullable(i: Mapping[str, Any]) -> list[str]:
@@ -82,7 +94,7 @@ def _decide(case: Case) -> Any:
     atoms = {n: _atom(s, n) for n, s in i["atoms"].items()}
     f = _tree(i["formula"], atoms)
     g = _tree(i["other"], atoms) if "other" in i else None
-    bdd = _bdd(_non_nullable(i))
+    bdd = _bdd(_non_nullable(i), _collations(i))
     u = bdd.compile(f)
     q = i["question"]
     if q == "tautology":
@@ -137,7 +149,12 @@ def _cubes(case: Case) -> Any:
     return sorted(covered)
 
 
-_MODES = {"GLOBALLY": GLOBALLY, "EVENTUALLY": EVENTUALLY, "NEXT": NEXT}
+_MODES = {
+    "GLOBALLY": GLOBALLY,
+    "EVENTUALLY": EVENTUALLY,
+    "NEXT": NEXT,
+    "PREVIOUSLY": PREVIOUSLY,
+}
 
 
 def _sub(sub: Any, phi: Any) -> str:
@@ -155,7 +172,9 @@ def _sub(sub: Any, phi: Any) -> str:
 def _forall_elim(case: Case) -> Any:
     """The literals the BDD holds for ``PathPred(FORALL, mode, φ)``."""
     phi = ScalarPred(PropRef("fs.revenue"), ">", 500)
-    hop = VerbHop("c", "placed", "fs", table="t_sale", on="fs.placed_src = c.id")
+    hop: Any = VerbHop("c", "placed", "fs", table="t_sale", on="fs.placed_src = c.id")
+    if case.input["mode"] == "PREVIOUSLY":  # a past mode needs a time-ordered path
+        hop = BridgeHop("c", "next", "fs", table="t_sale", on="fs.prev_id = c.id")
     pp = PathPred("c", hop, phi, quantifier=Quantifier.FORALL,
                   temporal_mode=_MODES[case.input["mode"]])  # fmt: skip
     bdd = _bdd()

@@ -24,7 +24,7 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
-    from collections.abc import Iterable
+    from collections.abc import Iterable, Mapping
 
     from sqldim.core.query.dgm._bdd_theory import Formula
     from sqldim.core.query.dgm.preds import PathPred
@@ -215,19 +215,40 @@ class DGMPredicateBDD:
     (``"t.x"``); every other Ref is nullable, so nothing is inferred from
     the absence of NULL unless it is declared.
 
+    *collations* maps a String Ref, by its SQL, to its declared collation
+    (only ``"binary"``, code point order, is known).  Equality on a String
+    always gets its axioms (``x = 'a' ∧ x = 'b'`` is unsatisfiable); its
+    order comparisons get Δ_ord only under a declared collation and are
+    opaque atoms otherwise (§6.1).
+
     FORALL is eliminated by CTL duality with ``NotTrue`` and the
-    REQUIRE_WITNESS guard (§4.1).  A FORALL whose dual the specification
-    does not state (a PREVIOUSLY or a strategy other than ALL) stays an
-    opaque atom: no inference is made about it.
+    REQUIRE_WITNESS guard (§4.1), PREVIOUSLY included (self-dual, guarded by
+    ``EXISTS PREVIOUSLY TRUE``).  A FORALL with a strategy other than ALL
+    stays an opaque atom: no inference is made about it.
     """
 
     MINTERM_THRESHOLD = 8  # UNION ALL below; CASE expression above
 
     def __init__(
-        self, manager: BDDManager, *, non_nullable: "Iterable[str]" = ()
+        self,
+        manager: BDDManager,
+        *,
+        non_nullable: "Iterable[str]" = (),
+        collations: "Mapping[str, str] | None" = None,
     ) -> None:
+        from sqldim.core.query.dgm._bdd_theory import COLLATIONS
+
+        unknown = {
+            ref: c for ref, c in (collations or {}).items() if c not in COLLATIONS
+        }
+        if unknown:
+            raise ValueError(
+                f"unknown collation(s) {unknown}: the order of a String is known "
+                f"only under {sorted(COLLATIONS)}"
+            )
         self.manager = manager
         self._non_nullable = frozenset(non_nullable)
+        self._collated = frozenset(collations or {})
         self._atoms: dict[tuple, tuple[int, int | None]] = {}  # key → (v⁺, v⁻)
         self._var_to_atom: dict[int, object] = {}  # var index → atom
         self._next_var: int = 0  # variable index counter
@@ -291,7 +312,7 @@ class DGMPredicateBDD:
         from sqldim.core.query.dgm._bdd_theory import canonical
         from sqldim.core.query.dgm.preds import PathPred, Quantifier, SignaturePred
 
-        f = canonical(pred)
+        f = canonical(pred, self._collated)
         if f is not None:
             return self._tr_formula(f, pred)
         if isinstance(pred, PathPred):
@@ -331,7 +352,7 @@ class DGMPredicateBDD:
     def _register(self, key: tuple, atom: object, two_valued: bool) -> None:
         from sqldim.core.query.dgm._bdd_theory import basis_companions
 
-        for k in basis_companions(key):
+        for k in basis_companions(key, self._collated):
             if k not in self._atoms:
                 pos = self._new_var(atom)
                 null = not two_valued and self._nullable(k)
@@ -399,6 +420,7 @@ class DGMPredicateBDD:
             EVENTUALLY,
             GLOBALLY,
             NEXT,
+            PREVIOUSLY,
             UntilMode,
         )
 
@@ -416,10 +438,14 @@ class DGMPredicateBDD:
             GLOBALLY: EVENTUALLY,
             EVENTUALLY: GLOBALLY,
             NEXT: NEXT,
+            PREVIOUSLY: PREVIOUSLY,
         }
+        # the guard: some evaluation position exists (one hop for NEXT and
+        # PREVIOUSLY, whose domain is a single hop; §4.1)
+        one_hop = mode is NEXT or mode is PREVIOUSLY
         if mode in dual:
             guard = exists(
-                NEXT if mode is NEXT else (None if mode is None else EVENTUALLY), true
+                mode if one_hop else (None if mode is None else EVENTUALLY), true
             )
             return AND(guard, NOT(exists(dual[mode], NotTrue(phi))))
         if isinstance(mode, UntilMode):
@@ -453,7 +479,9 @@ class DGMPredicateBDD:
         if self._delta_cache is not None and self._delta_cache[0] == size:
             return self._delta_cache[1]
         out = TRUE_NODE_ID
-        clauses = delta_clauses(self._atoms, self._nullable, self._expr_nullable)
+        clauses = delta_clauses(
+            self._atoms, self._nullable, self._expr_nullable, self._collated
+        )
         for clause in clauses:
             out = self.manager.apply("AND", out, self._clause(clause))
         self._delta_cache = (size, out)

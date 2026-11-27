@@ -22,9 +22,11 @@ never the same.  Comparisons with a constant are rewritten over L and E
 :func:`delta_clauses` yields Δ = Δ_excl ∧ Δ_null ∧ Δ_ord as implications
 over the literals ``(key, sign)``.  Δ_ord is instantiated for adjacent
 constants of one expression.  It is stated for numbers, dates and
-timestamps; a Bool admits the equality axioms only.  Strings get **no**
-order or equality axiom: their order and equality depend on the backend's
-collation, so no inference is made (sound, incomplete).
+timestamps; a Bool admits the equality axioms only.  A String always gets
+the equality axioms (``x = 'a'`` and ``x = 'b'`` exclude each other), which
+do not depend on the collation; its order comparisons get the order axioms
+only when the expression declares a collation (*collated*), and otherwise
+stay opaque atoms (§6.1).
 """
 
 from __future__ import annotations
@@ -33,7 +35,14 @@ import datetime
 from collections.abc import Iterable, Iterator
 from typing import Any
 
-__all__ = ["Formula", "canonical", "delta_clauses", "expr_key", "theory_group"]
+__all__ = [
+    "COLLATIONS",
+    "Formula",
+    "canonical",
+    "delta_clauses",
+    "expr_key",
+    "theory_group",
+]
 
 Formula = tuple[Any, ...]
 """``("atom", key)``, ``("not", f)``, ``("and", f, …)``, ``("or", f, …)``,
@@ -51,10 +60,19 @@ def expr_key(ref: Any) -> tuple[str, str] | None:
     return (type(ref).__name__, to_sql())
 
 
-def theory_group(c: Any) -> str | None:
-    """Which Δ_ord applies to a constant: ``ordered``, ``eq`` or none."""
+COLLATIONS = frozenset({"binary"})
+"""Collations whose order the theory knows: ``binary`` compares by code point."""
+
+
+def theory_group(c: Any, collated: bool = False) -> str | None:
+    """Which Δ_ord applies to a constant: ``ordered``, ``eq`` or none.
+
+    A String is ordered only under a declared collation (*collated*).
+    """
     if isinstance(c, bool):
         return "eq"
+    if isinstance(c, str):
+        return "ordered:str" if collated else "eq:str"
     if isinstance(c, (int, float)):
         return "ordered:num"
     if isinstance(c, datetime.datetime):
@@ -72,11 +90,12 @@ def _not(f: Formula) -> Formula:
     return ("not", f)
 
 
-def _with_constant(e: tuple, op: str, c: Any) -> Formula:
+def _with_constant(e: tuple, op: str, c: Any, collated: bool = False) -> Formula:
     """§6.1 *Basis*: ``e op c`` over L(e,c) and E(e,c)."""
-    if theory_group(c) is None:
+    group = theory_group(c, collated)
+    if group is None:
         return _atom(("cmp", e, op, repr(c)))
-    if theory_group(c) == "eq" and op not in ("=", "!=", "<>"):
+    if group.startswith("eq") and op not in ("=", "!=", "<>"):
         return _atom(("cmp", e, op, repr(c)))
     lt, eq = _atom(("L", e, c)), _atom(("E", e, c))
     table = {
@@ -119,8 +138,13 @@ def _in_test(e: tuple, op_u: str, values: Any) -> Formula:
     return f if op_u == "IN" else _not(f)
 
 
-def scalar(ref: Any, op: str, value: Any) -> Formula:
-    """The canonical formula of ``ScalarPred(ref, op, value)``."""
+def scalar(
+    ref: Any, op: str, value: Any, collated: frozenset[str] = frozenset()
+) -> Formula:
+    """The canonical formula of ``ScalarPred(ref, op, value)``.
+
+    *collated* names the expressions (by SQL) that declare a collation.
+    """
     op_u = str(op).upper()
     e = expr_key(ref)
     if e is None:
@@ -134,18 +158,18 @@ def scalar(ref: Any, op: str, value: Any) -> Formula:
         return _atom(("cmp", e, op_u, repr(value) if other is None else other))
     if other is not None:
         return _two_exprs(e, op_u, other)
-    return _with_constant(e, op_u, value)
+    return _with_constant(e, op_u, value, e[1] in collated)
 
 
-def canonical(pred: Any) -> Formula | None:
+def canonical(pred: Any, collated: frozenset[str] = frozenset()) -> Formula | None:
     """The formula of a ScalarPred or RawPred; ``None`` for other atoms."""
     from sqldim.core.query.dgm.preds import RawPred, ScalarPred
 
     if isinstance(pred, ScalarPred):
         if isinstance(pred.ref, (int, float, str)) and expr_key(pred.value):
             # a constant on the left is moved to the right first
-            return scalar(pred.value, _SWAP.get(pred.op, pred.op), pred.ref)
-        return scalar(pred.ref, pred.op, pred.value)
+            return scalar(pred.value, _SWAP.get(pred.op, pred.op), pred.ref, collated)
+        return scalar(pred.ref, pred.op, pred.value, collated)
     if isinstance(pred, RawPred):
         text = " ".join(pred.to_sql().split())
         if text.upper() in ("TRUE", "FALSE"):
@@ -193,11 +217,13 @@ def _null(keys: Iterable[tuple], nullable: Any) -> Iterator[Clause]:
                 yield ("undef", ((k, True),), ((a, True),))
 
 
-def _by_expression(keys: Iterable[tuple]) -> dict[tuple, dict[str, list]]:
+def _by_expression(
+    keys: Iterable[tuple], collated: frozenset[str]
+) -> dict[tuple, dict[str, list]]:
     out: dict[tuple, dict[str, list]] = {}
     for k in keys:
         if k[0] in ("L", "E"):
-            group = theory_group(k[2])
+            group = theory_group(k[2], k[1][1] in collated)
             assert group is not None
             consts = out.setdefault(k[1], {}).setdefault(group, [])
             if k[2] not in consts:
@@ -233,13 +259,16 @@ def _equality(e: tuple, consts: list, nullable: bool) -> Iterator[Clause]:
 
 
 def delta_clauses(
-    keys: Iterable[tuple], nullable: Any, expr_nullable: Any
+    keys: Iterable[tuple],
+    nullable: Any,
+    expr_nullable: Any,
+    collated: frozenset[str] = frozenset(),
 ) -> Iterator[Clause]:
     """Δ_excl, Δ_null and Δ_ord over the registered atoms *keys*."""
     keys = list(keys)
     yield from _excl(keys, nullable)
     yield from _null(keys, nullable)
-    for e, groups in _by_expression(keys).items():
+    for e, groups in _by_expression(keys, collated).items():
         n = expr_nullable(e)
         for group, consts in groups.items():
             if group.startswith("ordered"):
@@ -248,9 +277,13 @@ def delta_clauses(
                 yield from _equality(e, consts, n)
 
 
-def basis_companions(key: tuple) -> tuple[tuple, ...]:
+def basis_companions(
+    key: tuple, collated: frozenset[str] = frozenset()
+) -> tuple[tuple, ...]:
     """Atoms registered together with *key*: L and E of one ordered constant,
     so that Δ_ord chains through every constant compared with ``e``."""
-    if key[0] in ("L", "E") and str(theory_group(key[2])).startswith("ordered"):
+    if key[0] not in ("L", "E"):
+        return (key,)
+    if str(theory_group(key[2], key[1][1] in collated)).startswith("ordered"):
         return (("L", key[1], key[2]), ("E", key[1], key[2]))
     return (key,)

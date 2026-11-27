@@ -21,6 +21,8 @@ from sqldim.core.query.dgm import (
     ScalarPred,
     BridgeHop,
 )
+import pytest
+
 from sqldim.core.query.dgm.bdd import BDDManager, DGMPredicateBDD
 
 
@@ -67,19 +69,41 @@ def test_order_theory_on_dates():
     assert not bdd.implies(early, later)
 
 
-def test_strings_get_no_order_or_equality_axiom():
-    """Their order and equality depend on the backend's collation."""
+def test_string_equality_always_gets_its_axioms():
+    """Equality does not depend on the collation (§6.1)."""
     bdd = _bdd("t.s")
     a, b = bdd.compile(_x("=", "a", "t.s")), bdd.compile(_x("=", "A", "t.s"))
-    both = bdd.manager.apply("AND", a, b)
-    assert bdd.is_satisfiable(both)
+    assert not bdd.is_satisfiable(bdd.manager.apply("AND", a, b))
+
+
+def test_string_order_is_opaque_without_a_collation():
+    bdd = _bdd("t.s")
     assert not bdd.implies(
         bdd.compile(_x(">", "b", "t.s")), bdd.compile(_x(">", "a", "t.s"))
     )
 
 
-def test_forall_previously_stays_an_opaque_atom():
-    """§4.1 states no guard for FORALL PREVIOUSLY: no elimination, no inference."""
+def test_string_order_under_the_binary_collation():
+    bdd = DGMPredicateBDD(BDDManager(), collations={"t.s": "binary"})
+    gt_b, gt_a = bdd.compile(_x(">", "b", "t.s")), bdd.compile(_x(">", "a", "t.s"))
+    assert bdd.implies(gt_b, gt_a) and not bdd.implies(gt_a, gt_b)
+    # code point order: 'B' < 'a'
+    assert bdd.implies(
+        bdd.compile(_x("=", "a", "t.s")), bdd.compile(_x(">", "B", "t.s"))
+    )
+    # another expression is not collated
+    assert not bdd.implies(
+        bdd.compile(_x(">", "b", "t.u")), bdd.compile(_x(">", "a", "t.u"))
+    )
+
+
+def test_an_unknown_collation_is_refused():
+    with pytest.raises(ValueError, match="collation"):
+        DGMPredicateBDD(BDDManager(), collations={"t.s": "nocase"})
+
+
+def test_forall_previously_is_eliminated_with_a_one_hop_guard():
+    """§4.1: self-dual, guarded by PathPred(EXISTS, PREVIOUSLY, TRUE)."""
     hop = BridgeHop("c", "next", "s", table="t", on="s.prev_id = c.id")
     pp = PathPred(
         "c", hop, _x(">", 1, "s.v"), quantifier=Quantifier.FORALL,
@@ -87,6 +111,13 @@ def test_forall_previously_stays_an_opaque_atom():
     )  # fmt: skip
     bdd = _bdd()
     uid = bdd.compile(pp)
-    node = bdd.manager.get_node(uid)
-    assert (node.low, node.high) == (0, 1)
-    assert bdd._var_to_atom[node.var] is pp
+    atoms = set()
+    while uid not in (0, 1):
+        node = bdd.manager.get_node(uid)
+        atom = bdd._var_to_atom[node.var]
+        assert atom is not pp and atom.quantifier is Quantifier.EXISTS
+        assert atom.temporal_mode is PREVIOUSLY
+        positive = node.low == 0
+        atoms.add((positive, type(atom.sub_filter).__name__))
+        uid = node.high if positive else node.low
+    assert atoms == {(True, "RawPred"), (False, "NotTrue")}

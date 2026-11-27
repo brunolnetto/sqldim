@@ -319,10 +319,15 @@ class TestTyping:
         assert ("running", "SUM", ("prop", "a2", "revenue")) in heads
         assert ("stat", "PERCENTILE_CONT", ("prop", "a2", "order_no")) not in heads
 
-    def test_semi_additive_and_missing_grain_are_unsupported(self) -> None:
+    def test_semi_additive_admits_ad4_but_never_sum(self) -> None:
+        """AD4 holds under every GroupBy; AD2 decides SUM by a period or key the
+        declaration does not identify, so SUM (and PROD) is not enumerated."""
         semi = shop(Additivity("Sale", "revenue", AdditivityKind.SEMI_ADDITIVE, {TIME}))
-        with pytest.raises(LatticeUnsupported, match="SEMI_ADDITIVE"):
-            lattice(semi).space(["Customer", "Sale"], max_hops=1)
+        aggs = set(self._ctx(semi).agg_terms)
+        fns = {a[1] for a in aggs if a[2] == ("prop", "a2", "revenue")}
+        assert fns == {"COUNT", "MIN", "MAX", "AVG"}
+
+    def test_missing_grain_is_unsupported(self) -> None:
         no_grain = model(
             (NodeType("Customer", DIM, {}), NodeType("Sale", FACT, {"q": REAL})),
             (EdgeType("Customer", "Sale", "placed", VERB),),
@@ -447,10 +452,10 @@ class TestWhatCanIAnswer:
         # Conformed decides nothing within one hop: not needed there.
         result, _ = _run(_args(), {"sales": Source(shop(kinds=KINDS - {"Conformed"}))})
         assert result.status is CallStatus.SUCCEEDED
+        # Grain(PERIOD) makes revenue SEMI_ADDITIVE: enumerated without its SUM
         period = shop(Grain("Sale", GrainKind.PERIOD))
         result, _ = _run(_args(), {"sales": Source(period)})
-        assert result.error.kind is ToolErrorKind.UNSUPPORTED
-        assert "AD2" in result.error.message
+        assert result.status is CallStatus.SUCCEEDED
         for kind in ("Additivity", "Degenerate"):
             withheld = shop(kinds=KINDS - {kind})
             result, _ = _run(_args(), {"sales": Source(withheld)})
