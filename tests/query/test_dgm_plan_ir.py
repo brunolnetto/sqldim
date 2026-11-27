@@ -711,12 +711,12 @@ class TestQuestionKey:
         with pytest.raises(PlanIdentityUnavailable):
             plan.deps(CATALOG)
 
-    def test_plan_with_precomputation_has_no_identity(self) -> None:
+    def test_steps_added_outside_the_ir_have_no_identity(self) -> None:
         from sqldim.core.query.dgm.planner import PreComputation
 
         plan = planner().plan_query(q_anchor())
         plan.pre_compute.append(PreComputation("pc", "SELECT 1"))
-        with pytest.raises(PlanIdentityUnavailable, match="PreComputation"):
+        with pytest.raises(PlanIdentityUnavailable, match="pre_compute"):
             key(plan)
         with pytest.raises(PlanIdentityUnavailable):
             plan.deps(CATALOG)

@@ -22,16 +22,21 @@ import functools
 import re
 from dataclasses import dataclass
 from enum import Enum
-from typing import Union
+from typing import TYPE_CHECKING, Union
 
 from sqldim.core.query.dgm.algebra import ComposeOp
+from sqldim.core.query.dgm.preds._repeat import RepeatMode
 from sqldim.exceptions import SemanticError
+
+if TYPE_CHECKING:
+    from sqldim.core.query.dgm.planner._targets import PreComputation
 
 __all__ = [
     "PlanIRError",
     "UnsupportedConstruct",
     "UnsafeFragment",
     "UnknownRelation",
+    "UndeclaredReads",
     "PlanIdentityUnavailable",
     "ReadRole",
     "VersionKind",
@@ -47,6 +52,9 @@ __all__ = [
     "Disj",
     "Neg",
     "PathHop",
+    "PathRepeat",
+    "RepeatJoin",
+    "RepeatMode",
     "PathExists",
     "Pred",
     "BandQuery",
@@ -57,6 +65,7 @@ __all__ = [
     "check_fragment",
     "check_identifier",
     "check_relation_name",
+    "rename_aliases",
     "sql_string",
 ]
 
@@ -80,6 +89,10 @@ class UnsafeFragment(UnsupportedConstruct):
 
 class UnknownRelation(PlanIRError):
     """A relation is not declared by the catalog, so its dependencies are unknown."""
+
+
+class UndeclaredReads(UnknownRelation):
+    """A step of the plan does not declare the relations it reads."""
 
 
 class PlanIdentityUnavailable(PlanIRError):
@@ -191,6 +204,29 @@ def check_fragment(sql: object, scope: frozenset[str]) -> "Fragment":
     return Fragment(sql)
 
 
+def rename_aliases(frag: "Fragment", mapping: dict[str, str]) -> "Fragment":
+    """*frag* with every name qualified by a key of *mapping* requalified.
+
+    Only the leading alias of a qualified name is replaced; string literals
+    and unqualified names are left alone.  The result is a new Fragment; the
+    caller re-checks it against the scope it is emitted in.
+    """
+    out: list[str] = []
+    pos = 0
+    sql = frag.sql
+    while pos < len(sql):
+        m = _TOKEN_RE.match(sql, pos)
+        if m is None or m.lastgroup == "bad":  # a checked fragment has neither
+            raise UnsafeFragment(f"fragment {sql!r} was not checked")
+        tok = m.group()
+        if m.lastgroup == "name" and "." in tok:
+            head, rest = tok.split(".", 1)
+            tok = f"{mapping.get(head, head)}.{rest}"
+        out.append(tok)
+        pos = m.end()
+    return Fragment("".join(out))
+
+
 def sql_string(value: str) -> str:
     """Render *value* as a SQL string literal (quotes doubled)."""
     return "'" + value.replace("'", "''") + "'"
@@ -208,6 +244,7 @@ class ReadRole(Enum):
     PATH_JOIN = "PATH_JOIN"  # path_join hop
     VERSIONED_JOIN = "VERSIONED_JOIN"  # SCD version resolution (join_dim)
     EXISTS_PATH = "EXISTS_PATH"  # hop inside a PathPred EXISTS / FORALL
+    REPEAT = "REPEAT"  # hop inside the body of a Repeat (§3.2)
 
 
 class VersionKind(Enum):
@@ -305,12 +342,43 @@ class PathHop:
 
 
 @dataclass(frozen=True)
+class PathRepeat:
+    """``Repeat(body, min, max, mode, depth_alias)`` of §3.2.
+
+    *start* is the alias the first iteration starts from; each later
+    iteration starts from the end alias of the one before.  ``max = None`` is
+    ``UNBOUNDED``.  *start_relation* is the relation *start* is read from
+    when the planner knows it (it is needed to check R1 before unrolling).
+    """
+
+    start: str
+    body: tuple[PathHop, ...]
+    min: int
+    max: int | None
+    mode: RepeatMode
+    depth_alias: str | None = None
+    start_relation: str | None = None
+
+    @property
+    def end(self) -> str:
+        """The body's end alias: outside the path, the node the instance ends at."""
+        return self.body[-1].scan.alias
+
+
+@dataclass(frozen=True)
+class RepeatJoin:
+    """A PathJoin over a Repeat: one joined row per instance (strategy ALL)."""
+
+    repeat: PathRepeat
+
+
+@dataclass(frozen=True)
 class PathExists:
     """A PathPred: ∃ (or ∀) path over *hops* such that *sub_filter* holds."""
 
     quantifier: Quantifier
     strategy: str  # only ALL is executable in this IR version
-    hops: tuple[PathHop, ...]
+    hops: tuple[PathHop | PathRepeat, ...]
     sub_filter: "Pred"
 
 
@@ -322,7 +390,7 @@ class BandQuery:
     """A ``Q_valid`` leaf: B1 context and filter, B2 aggregation, B3 ranking."""
 
     anchor: Scan
-    joins: tuple[Join, ...] = ()
+    joins: tuple[Join | RepeatJoin, ...] = ()
     where: Pred | None = None
     group_by: tuple[Fragment, ...] = ()
     aggregates: tuple[tuple[str, Fragment], ...] = ()
@@ -332,7 +400,12 @@ class BandQuery:
 
     def scans(self) -> tuple[Scan, ...]:
         """Every Scan of this leaf, including those inside path predicates."""
-        out = [self.anchor, *(j.scan for j in self.joins)]
+        out = [self.anchor]
+        for j in self.joins:
+            if isinstance(j, RepeatJoin):
+                out.extend(h.scan for h in j.repeat.body)
+            else:
+                out.append(j.scan)
         for p in (self.where, self.having, self.qualify):
             if p is not None:
                 out.extend(_pred_scans(p))
@@ -362,20 +435,54 @@ class Cte:
 
 @dataclass(frozen=True)
 class PlanIR:
-    """A physical plan: CTEs in topological order and the root node.
+    """A physical plan: PreComputations, CTEs in topological order, the root.
 
     When ``ctes`` is empty the root is a single :class:`BandQuery` emitted as
     one ``SELECT``; otherwise the root is the last CTE and is emitted as
     ``WITH … SELECT * FROM <root>``.
+
+    ``pre_compute`` are the steps run before the query, in order (§6.2
+    Rule 3, §6.3 Step 1b).  Each step materialises a relation named after
+    it; the query, or a later step, may read that relation.  A step's
+    ``reads`` may name an earlier step but never itself or a later one.
     """
 
     root: PlanNode
     ctes: tuple[Cte, ...] = ()
+    pre_compute: tuple["PreComputation", ...] = ()
+
+    def __post_init__(self) -> None:
+        from sqldim.core.query.dgm.planner._targets import PreComputation
+
+        for pc in self.pre_compute:
+            if not isinstance(pc, PreComputation):
+                raise UnsupportedConstruct(f"{pc!r} is not a PreComputation")
+        names = [pc.name for pc in self.pre_compute]
+        cte_names = {c.name for c in self.ctes}
+        for i, pc in enumerate(self.pre_compute):
+            name = check_identifier(pc.name, "PreComputation name")
+            if name in names[:i] or name in cte_names:
+                raise UnsupportedConstruct(
+                    f"PreComputation name {name!r} is bound twice"
+                )
+            ahead = sorted(set(pc.reads or ()) & set(names[i:]))
+            if ahead:
+                raise UnsupportedConstruct(
+                    f"PreComputation {name!r} reads {ahead}, which no earlier "
+                    "step produces"
+                )
+
+
+def _hop_scans(h: PathHop | PathRepeat) -> list[Scan]:
+    if isinstance(h, PathRepeat):
+        return [b.scan for b in h.body]
+    return [h.scan]
 
 
 def _pred_scans(p: Pred) -> list[Scan]:
     if isinstance(p, PathExists):
-        return [h.scan for h in p.hops] + _pred_scans(p.sub_filter)
+        hops = [s for h in p.hops for s in _hop_scans(h)]
+        return hops + _pred_scans(p.sub_filter)
     if isinstance(p, (Conj, Disj)):
         return [s for sub in p.preds for s in _pred_scans(sub)]
     if isinstance(p, Neg):

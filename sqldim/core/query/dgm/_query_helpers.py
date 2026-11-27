@@ -17,6 +17,7 @@ from sqldim.core.query.dgm.preds import (
     OR,
     PathPred,
     RawPred,
+    Repeat,
     ScalarPred,
     SignaturePred,
 )
@@ -249,7 +250,13 @@ def _scd2_join_lines(q: "DGMQuery", anchor_alias: str) -> list[str]:
 def _build_from_joins(q: "DGMQuery") -> str:
     anchor_alias: str = q._anchor_alias or q._anchor_table or ""
     lines = [f"FROM {q._anchor_table} {anchor_alias}"]
-    for table, alias, on in q._joins:
+    for join in q._joins:
+        if isinstance(join, Repeat):
+            raise SemanticError(
+                "Repeat (§3.2) has no to_sql() rendering; plan the query with "
+                "DGMPlanner.plan_query()"
+            )
+        table, alias, on = join
         on_full = _augment_on_with_scd2(on, alias, q._as_of) if q._as_of else on
         lines.append(f"LEFT JOIN {table} {alias} ON {on_full}")
     lines.extend(_scd2_join_lines(q, anchor_alias))

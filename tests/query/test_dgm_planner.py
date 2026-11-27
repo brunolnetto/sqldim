@@ -492,13 +492,13 @@ class TestRule3:
     def test_outgoing_sigs_forward_bfs(self):
         p = _make_planner()
         expr = NodeExpr(OUTGOING_SIGNATURES(), alias="a")
-        result = p.apply_rule_3(expr)
+        result = p.apply_rule_3(expr).strategy
         assert "forward_bfs" in result.lower() or "bfs" in result.lower()
 
     def test_incoming_sigs_transposed_bfs(self):
         p = _make_planner()
         expr = NodeExpr(INCOMING_SIGNATURES(), alias="a")
-        result = p.apply_rule_3(expr)
+        result = p.apply_rule_3(expr).strategy
         assert (
             "transposed" in result.lower()
             or "g^t" in result.lower()
@@ -512,7 +512,7 @@ class TestRule3:
             )
         )
         expr = SubgraphExpr(SIGNATURE_ENTROPY())
-        result = p.apply_rule_3(expr)
+        result = p.apply_rule_3(expr).strategy
         assert "precompute" in result.lower() or "pre_compute" in result.lower()
 
     def test_signature_entropy_small_graph_inline(self):
@@ -522,13 +522,18 @@ class TestRule3:
             )
         )
         expr = SubgraphExpr(SIGNATURE_ENTROPY())
-        result = p.apply_rule_3(expr)
+        result = p.apply_rule_3(expr).strategy
         assert "inline" in result.lower()
 
-    def test_returns_string(self):
+    def test_returns_typed_schedule(self):
+        from sqldim.core.query.dgm.planner import GraphExprSchedule, Placement
+
         p = _make_planner()
         expr = NodeExpr(OUTGOING_SIGNATURES(), alias="x")
-        assert isinstance(p.apply_rule_3(expr), str)
+        result = p.apply_rule_3(expr)
+        assert isinstance(result, GraphExprSchedule)
+        assert result.placement is Placement.INLINE
+        assert result.pre_computation is None
 
     def test_global_dominant_sig_broadcast(self):
         p = _make_planner(
@@ -537,7 +542,7 @@ class TestRule3:
             )
         )
         expr = SubgraphExpr(GLOBAL_DOMINANT_SIGNATURE())
-        result = p.apply_rule_3(expr)
+        result = p.apply_rule_3(expr).strategy
         assert (
             "broadcast" in result.lower()
             or "scalar" in result.lower()
@@ -550,7 +555,7 @@ class TestRule3:
 
         p = _make_planner()
         expr = NodeExpr(DEGREE(), alias="x")
-        result = p.apply_rule_3(expr)
+        result = p.apply_rule_3(expr).strategy
         assert "inline" in result.lower()
         assert "DEGREE" in result
 
@@ -560,7 +565,7 @@ class TestRule3:
 
         p = _make_planner()
         expr = SubgraphExpr(DENSITY())
-        result = p.apply_rule_3(expr)
+        result = p.apply_rule_3(expr).strategy
         assert "inline" in result.lower()
         assert "DENSITY" in result
 

@@ -3,6 +3,15 @@
 Emission is a pure function of the IR: it never consults the source query.
 For a single :class:`BandQuery` the text equals ``DGMQuery.to_sql()`` of the
 query it was lowered from, except that string literals are always escaped.
+
+A Repeat (§3.2) is emitted only where its SQL is exact without node or edge
+identities, which a hop does not declare: a PathJoin over a one-hop body in
+``WALK`` mode with ``1 ≤ min ≤ max ≤ MAX_UNROLL`` and no ``depth_alias``,
+unrolled into one join chain per iteration count (Rule 5).  ``SIMPLE`` and
+``TRAIL`` need the identities to exclude revisits, and a Repeat inside a
+PathPred needs per-iteration evaluation positions (§4.1); those raise
+:class:`UnsupportedConstruct`.  Their reads are still in the IR, so
+``deps`` of the lowered plan is defined.
 """
 
 from __future__ import annotations
@@ -18,17 +27,25 @@ from sqldim.core.query.dgm.planner._ir import (
     Literal,
     Neg,
     PathExists,
+    PathRepeat,
     PlanIR,
     PlanNode,
     Pred,
     Quantifier,
     RawCondition,
+    RepeatJoin,
+    RepeatMode,
     UnsupportedConstruct,
     VersionKind,
+    rename_aliases,
     sql_string,
 )
 
-__all__ = ["emit_sql", "emit_node", "emit_pred"]
+__all__ = ["MAX_UNROLL", "emit_sql", "emit_node", "emit_pred"]
+
+#: Largest ``max`` of a Repeat the emitter unrolls.  A larger bound is an
+#: :class:`UnsupportedConstruct`, never a truncated traversal (§3.2).
+MAX_UNROLL: int = 8
 
 
 def _literal_sql(lit: Literal) -> str:
@@ -53,7 +70,13 @@ def _paren(parts: list[str], op: str) -> str:
 
 
 def _path_sql(p: PathExists) -> str:
-    first, rest = p.hops[0], p.hops[1:]
+    if any(isinstance(h, PathRepeat) for h in p.hops):
+        raise UnsupportedConstruct(
+            "a Repeat inside a PathPred binds its body aliases per iteration "
+            "(§3.2), which needs the temporal modes this IR version does not emit"
+        )
+    hops = [h for h in p.hops if not isinstance(h, PathRepeat)]
+    first, rest = hops[0], hops[1:]
     sql = f"SELECT 1 FROM {first.scan.relation} {first.scan.alias}"
     for h in rest:
         sql += f" JOIN {h.scan.relation} {h.scan.alias} ON {h.on.sql}"
@@ -78,6 +101,62 @@ def emit_pred(p: Pred) -> str:
     if isinstance(p, PathExists):
         return _path_sql(p)
     raise UnsupportedConstruct(f"no SQL for predicate node {type(p).__name__}")
+
+
+def repeat_iteration_alias(end: str, i: int) -> str:
+    """Alias of iteration *i* of a Repeat unrolled to end at alias *end*."""
+    return f"{end}__r{i}"
+
+
+def _check_unrollable(r: PathRepeat) -> None:
+    if r.mode is not RepeatMode.WALK:
+        raise UnsupportedConstruct(
+            f"Repeat mode {r.mode.value} excludes revisited node or edge "
+            "instances, which needs identities a hop does not declare; only "
+            "WALK is emitted in this IR version"
+        )
+    if len(r.body) != 1:
+        raise UnsupportedConstruct("only a one-hop Repeat body is emitted")
+    if r.min < 1 or r.depth_alias is not None:
+        raise UnsupportedConstruct(
+            "Repeat with min = 0 or a depth_alias is not emitted in this IR version"
+        )
+    if r.max is None or r.max > MAX_UNROLL:
+        raise UnsupportedConstruct(
+            f"Repeat max {r.max} is above MAX_UNROLL={MAX_UNROLL}; it is not "
+            "unrolled, and never truncated"
+        )
+    if r.start_relation != r.body[0].scan.relation:
+        raise UnsupportedConstruct(
+            f"Repeat body over {r.body[0].scan.relation!r} does not end at the "
+            f"relation it starts from ({r.start_relation!r}; R1)"
+        )
+
+
+def _repeat_branch(r: PathRepeat, k: int) -> str:
+    hop = r.body[0]
+    rel, end = hop.scan.relation, r.end
+    names = [repeat_iteration_alias(end, i) for i in range(1, k)] + [end]
+    sql = f"SELECT {end}.* FROM {rel} {names[0]}"
+    for prev, cur in zip(names, names[1:]):
+        on = rename_aliases(hop.on, {r.start: prev, end: cur})
+        sql += f" JOIN {rel} {cur} ON {on.sql}"
+    first = rename_aliases(hop.on, {end: names[0]})
+    return sql + f" WHERE {first.sql}"
+
+
+def _repeat_join_sql(j: RepeatJoin) -> str:
+    r = j.repeat
+    _check_unrollable(r)
+    assert r.max is not None
+    body = "\nUNION ALL\n".join(_repeat_branch(r, k) for k in range(r.min, r.max + 1))
+    return f"LEFT JOIN LATERAL (\n{body}\n) {r.end} ON TRUE"
+
+
+def _join_sql(j: Join | RepeatJoin) -> str:
+    if isinstance(j, RepeatJoin):
+        return _repeat_join_sql(j)
+    return f"LEFT JOIN {j.scan.relation} {j.scan.alias} ON {j.on.sql}{_version_sql(j)}"
 
 
 def _version_sql(j: Join) -> str:
@@ -113,10 +192,7 @@ def _band_sql(q: BandQuery) -> str:
         "SELECT " + ", ".join(_select_list(q)),
         f"FROM {q.anchor.relation} {q.anchor.alias}",
     ]
-    lines += [
-        f"LEFT JOIN {j.scan.relation} {j.scan.alias} ON {j.on.sql}{_version_sql(j)}"
-        for j in q.joins
-    ]
+    lines += [_join_sql(j) for j in q.joins]
     if q.where is not None:
         lines.append("WHERE " + emit_pred(q.where))
     if q.group_by:

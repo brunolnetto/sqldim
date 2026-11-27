@@ -33,7 +33,10 @@ from sqldim.core.query.dgm.planner._targets import (
 )
 
 if TYPE_CHECKING:
+    from collections.abc import Sequence
+
     from sqldim.core.query.dgm.algebra import QuestionAlgebra
+    from sqldim.core.query.dgm.planner._rule3 import GraphExprSchedule
     from sqldim.core.query.dgm.bdd import DGMPredicateBDD
     from sqldim.core.query.dgm.core import DGMQuery
     from sqldim.core.query.dgm.graph import GraphStatistics, NodeExpr, SubgraphExpr
@@ -213,48 +216,25 @@ class DGMPlanner:
     # Rule 3 — GraphExpr scheduling
     # ------------------------------------------------------------------
 
-    def apply_rule_3(self, expr: "NodeExpr | SubgraphExpr") -> str:
-        """Rule 3: Schedule or inline a GraphExpr algorithm."""
-        from sqldim.core.query.dgm.graph import NodeExpr
+    def apply_rule_3(
+        self,
+        expr: "NodeExpr | SubgraphExpr",
+        *,
+        reads: "frozenset[str] | None" = None,
+    ) -> "GraphExprSchedule":
+        """Rule 3: schedule or inline a GraphExpr as a typed plan step.
 
-        if isinstance(expr, NodeExpr):
-            return self._rule3_node_expr(expr)
-        return self._rule3_subgraph_expr(expr)
+        A scheduled step is a :class:`PreComputation` with the time, cost and
+        approximate variant the cost model declares (``PrecomputeCostModel``)
+        and the relations *reads* the caller declares; pass it to
+        :meth:`plan_query` in ``pre_compute`` to make it part of the IR.
+        """
+        from sqldim.core.query.dgm.planner._rule3 import schedule_graph_expr
 
-    def _rule3_node_expr(self, expr: "NodeExpr") -> str:
-        from sqldim.core.query.dgm.graph import (
-            OUTGOING_SIGNATURES,
-            INCOMING_SIGNATURES,
-            DOMINANT_OUTGOING_SIGNATURE,
-            DOMINANT_INCOMING_SIGNATURE,
-            SIGNATURE_DIVERSITY,
+        node_count = getattr(self.statistics, "node_count", None)
+        return schedule_graph_expr(
+            expr, node_count=node_count, cost_model=self.cost_model, reads=reads
         )
-
-        alg = expr.algorithm
-        if isinstance(
-            alg, (OUTGOING_SIGNATURES, DOMINANT_OUTGOING_SIGNATURE, SIGNATURE_DIVERSITY)
-        ):
-            return "forward_bfs per anchor alias; pre-compute if stable"
-        if isinstance(alg, (INCOMING_SIGNATURES, DOMINANT_INCOMING_SIGNATURE)):
-            return "bfs on transposed G^T per anchor alias; pre-compute if stable"
-        return f"inline NodeExpr({type(alg).__name__})"
-
-    def _rule3_subgraph_expr(self, expr: "SubgraphExpr") -> str:
-        from sqldim.core.query.dgm.graph import (
-            GLOBAL_SIGNATURE_COUNT,
-            GLOBAL_DOMINANT_SIGNATURE,
-            SIGNATURE_ENTROPY,
-        )
-
-        alg = expr.algorithm
-        node_count = self.statistics.node_count if self.statistics else 0
-        if isinstance(alg, (GLOBAL_SIGNATURE_COUNT, GLOBAL_DOMINANT_SIGNATURE)):
-            return "broadcast graph-level scalar inline to all tuples"
-        if isinstance(alg, SIGNATURE_ENTROPY):
-            if node_count >= SMALL_GRAPH_THRESHOLD:
-                return "precompute SIGNATURE_ENTROPY: schedule PreComputation"
-            return "inline SIGNATURE_ENTROPY: p(s) distribution; -Σ p log₂ p"
-        return f"inline SubgraphExpr({type(alg).__name__})"
 
     # ------------------------------------------------------------------
     # Rule 4 — Band reordering (BDD implies)
@@ -481,13 +461,16 @@ class DGMPlanner:
         *,
         final: "str | None" = None,
         table_name: "str | None" = None,
+        pre_compute: "Sequence[PreComputation]" = (),
     ) -> ExportPlan:
         """Lower *source* to the physical plan IR and emit SQL from it (#148).
 
         *source* is a :class:`DGMQuery`, or a :class:`QuestionAlgebra` with
-        the name of its *final* CTE.  The returned plan carries the IR in
-        ``ir`` and the SQL emitted from it in ``query_text``.  A construct
-        the IR cannot represent raises :class:`UnsupportedConstruct`.
+        the name of its *final* CTE.  *pre_compute* are the steps run before
+        the query (e.g. from :meth:`apply_rule_3`); they become part of the
+        IR.  The returned plan carries the IR in ``ir`` and the SQL emitted
+        from it in ``query_text``.  A construct the IR cannot represent
+        raises :class:`UnsupportedConstruct`.
         """
         from sqldim.core.query.dgm.algebra import QuestionAlgebra
         from sqldim.core.query.dgm.planner._ir import PlanIR, UnsupportedConstruct
@@ -504,11 +487,11 @@ class DGMPlanner:
         if isinstance(source, QuestionAlgebra):
             if final is None:
                 raise UnsupportedConstruct("a QuestionAlgebra plan needs final=")
-            ir = lower_algebra(source, final)
+            ir = lower_algebra(source, final, tuple(pre_compute))
         elif final is not None:
             raise UnsupportedConstruct("final= applies only to a QuestionAlgebra")
         else:
-            ir = PlanIR(root=lower_query(source))
+            ir = PlanIR(root=lower_query(source), pre_compute=tuple(pre_compute))
         return ExportPlan.from_ir(
             ir,
             self.query_target,

@@ -6,18 +6,20 @@
 * :func:`dag_hash` — Merkle hash of a plan node, ``H(operator, payload,
   hashes of its children)``; children are sorted by hash for the commutative
   operators (UNION, INTERSECT) and kept in order otherwise.  CTE names and
-  other local handles never enter the hash.
+  other local handles never enter the hash.  For a whole plan with
+  PreComputation steps, the steps' payloads, in order, are hashed with the
+  root: an exact step and its approximation have different payloads.
+  Repeat bounds and mode are part of the path payload, so plans that differ
+  only in them never share a ``dag_hash``.
 * :func:`question_key` — ``H(canon_version, schema_version, dag_hash(root),
   params)`` with ``params`` sorted by name.
-* :func:`deps` — the source relations the plan can read, with Derived views
-  replaced by their base relations through a :class:`RelationCatalog`.
+* :func:`deps` — the source relations (and partitions) the plan can read;
+  see :mod:`._deps`.
 """
 
 from __future__ import annotations
 
 from collections.abc import Iterator, Mapping
-from dataclasses import dataclass, field
-from typing import Protocol
 
 from sqldim.core.query.dgm.algebra import ComposeOp
 from sqldim.core.query.dgm.bdd import FALSE_NODE_ID, TRUE_NODE_ID, BDDManager
@@ -26,24 +28,33 @@ from sqldim.core.query.dgm.planner._canon import (
     canonical_encode,
     canonical_hash,
 )
+from sqldim.core.query.dgm.planner._deps import (
+    Dependency,
+    RelationCatalog,
+    StaticCatalog,
+    deps,
+    relations_read,
+)
 from sqldim.core.query.dgm.planner._ir import (
     BandQuery,
     Compare,
-    Compose,
     Conj,
     Disj,
     Fragment,
     Join,
     Neg,
     PathExists,
+    PathHop,
+    PathRepeat,
     PlanIR,
     PlanNode,
     Pred,
     RawCondition,
+    RepeatJoin,
     Scan,
-    UnknownRelation,
     UnsupportedConstruct,
 )
+from sqldim.core.query.dgm.planner._targets import PreComputation
 
 __all__ = [
     "Dependency",
@@ -72,7 +83,30 @@ def _frag(f: Fragment | None) -> tuple | None:
     return None if f is None else ("frag", f.sql)
 
 
-def _join(j: Join) -> tuple:
+def _hop(h: PathHop) -> tuple:
+    return ("hop", h.kind, h.label, _scan(h.scan), _frag(h.on))
+
+
+def _repeat(r: PathRepeat) -> tuple:
+    return (
+        "repeat",
+        r.start,
+        tuple(_hop(h) for h in r.body),
+        r.min,
+        r.max,  # None = UNBOUNDED
+        r.mode.value,
+        r.depth_alias,
+        r.start_relation,
+    )
+
+
+def _path_item(h: PathHop | PathRepeat) -> tuple:
+    return _repeat(h) if isinstance(h, PathRepeat) else _hop(h)
+
+
+def _join(j: Join | RepeatJoin) -> tuple:
+    if isinstance(j, RepeatJoin):
+        return ("repeat_join", _repeat(j.repeat))
     v = j.version
     ver = None if v is None else ("version", v.kind.value, v.as_of)
     return ("join", _scan(j.scan), _frag(j.on), ver)
@@ -84,9 +118,7 @@ def _atom(p: Pred) -> tuple:
     if isinstance(p, RawCondition):
         return ("raw", p.fragment.sql)
     if isinstance(p, PathExists):
-        hops = tuple(
-            ("hop", h.kind, h.label, _scan(h.scan), _frag(h.on)) for h in p.hops
-        )
+        hops = tuple(_path_item(h) for h in p.hops)
         return (
             "path",
             p.quantifier.value,
@@ -200,10 +232,19 @@ def _node_hash(node: PlanNode, memo: dict[int, str]) -> str:
     return h
 
 
+def _step(pc: PreComputation) -> tuple:
+    reads = None if pc.reads is None else tuple(sorted(pc.reads))
+    return ("precompute", pc.name, pc.kind, pc.query, reads, pc.accuracy)
+
+
 def dag_hash(node: PlanNode | PlanIR) -> str:
-    """``dag_hash`` of §8.14 for a node (or for the root of a plan)."""
-    root = node.root if isinstance(node, PlanIR) else node
-    return _node_hash(root, {})
+    """``dag_hash`` of §8.14 for a node, or for a plan: its root and steps."""
+    if not isinstance(node, PlanIR):
+        return _node_hash(node, {})
+    root = _node_hash(node.root, {})
+    if not node.pre_compute:
+        return root
+    return canonical_hash("plan", root, tuple(_step(pc) for pc in node.pre_compute))
 
 
 def _params(params: Mapping[str, object] | None) -> tuple:
@@ -229,87 +270,3 @@ def question_key(
     if not isinstance(schema_version, str) or not schema_version:
         raise ValueError("question_key needs a non-empty schema_version")
     return canonical_hash(CANON_VERSION, schema_version, dag_hash(ir), _params(params))
-
-
-# ---------------------------------------------------------------------------
-# deps(plan)
-# ---------------------------------------------------------------------------
-
-
-@dataclass(frozen=True, order=True)
-class Dependency:
-    """A source the plan can read; ``partitions=None`` means every partition."""
-
-    relation: str
-    partitions: tuple[str, ...] | None = None
-
-
-class RelationCatalog(Protocol):
-    def base_relations(self, name: str) -> frozenset[str] | None:
-        """Base relations read through *name*; ``None`` if *name* is unknown.
-
-        A base relation returns ``{name}``; a Derived view (§2.6) returns the
-        base relations of its definition.
-        """
-        ...
-
-
-@dataclass(frozen=True)
-class StaticCatalog:
-    """A :class:`RelationCatalog` from explicit declarations."""
-
-    base: frozenset[str]
-    derived: Mapping[str, frozenset[str]] = field(default_factory=dict)
-
-    def __post_init__(self) -> None:
-        for view, bases in self.derived.items():
-            if view in self.base:
-                raise ValueError(f"{view!r} is declared both base and derived")
-            if not bases:
-                raise ValueError(f"derived view {view!r} declares no base relation")
-            missing = set(bases) - self.base
-            if missing:
-                raise ValueError(
-                    f"derived view {view!r} reads undeclared relations {sorted(missing)}"
-                )
-
-    def base_relations(self, name: str) -> frozenset[str] | None:
-        if name in self.base:
-            return frozenset({name})
-        if name in self.derived:
-            return frozenset(self.derived[name])
-        return None
-
-
-def _nodes(ir: PlanIR) -> Iterator[PlanNode]:
-    stack: list[PlanNode] = [ir.root, *(c.node for c in ir.ctes)]
-    seen: set[int] = set()
-    while stack:
-        n = stack.pop()
-        if id(n) in seen:
-            continue
-        seen.add(id(n))
-        yield n
-        if isinstance(n, Compose):
-            stack += [n.left, n.right]
-
-
-def relations_read(ir: PlanIR) -> frozenset[str]:
-    """Relation names the emitted SQL references (before view expansion)."""
-    return frozenset(
-        s.relation for n in _nodes(ir) if isinstance(n, BandQuery) for s in n.scans()
-    )
-
-
-def deps(ir: PlanIR, catalog: RelationCatalog) -> tuple[Dependency, ...]:
-    """``deps(plan)`` of §8.14, sorted; an undeclared relation is an error."""
-    out: set[Dependency] = set()
-    for name in sorted(relations_read(ir)):
-        bases = catalog.base_relations(name)
-        if not bases:
-            raise UnknownRelation(
-                f"relation {name!r} is not declared by the catalog; the plan's "
-                "dependencies cannot be determined"
-            )
-        out.update(Dependency(b) for b in bases)
-    return tuple(sorted(out))

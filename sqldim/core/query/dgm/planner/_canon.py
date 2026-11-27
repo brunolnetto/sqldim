@@ -40,7 +40,7 @@ __all__ = [
 #: ``canon_version``).  Any change to the encoding below, to the IR payloads
 #: that feed it or to the normalisation applied before hashing must change
 #: this value, which retires every earlier key.
-CANON_VERSION: str = "dgm-canon/1"
+CANON_VERSION: str = "dgm-canon/2"
 
 _LEN_BYTES = 8
 

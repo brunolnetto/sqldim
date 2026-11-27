@@ -94,6 +94,17 @@ def _check_duration(value: timedelta | None, what: str) -> None:
         raise ValueError(f"{what} must be a non-negative timedelta, got {value!r}")
 
 
+def _check_reads(value: "frozenset[str] | None") -> None:
+    if value is None:
+        return
+    if not isinstance(value, frozenset) or not all(isinstance(r, str) for r in value):
+        raise ValueError(f"reads must be a frozenset of relation names, got {value!r}")
+    from sqldim.core.query.dgm.planner._ir import check_relation_name
+
+    for r in value:
+        check_relation_name(r)
+
+
 @dataclass(frozen=True)
 class ApproximateVariant:
     """The declared approximate variant of a PreComputation (§6.3 Step 1b).
@@ -115,6 +126,10 @@ class ApproximateVariant:
         The accuracy statement of the approximate algorithm (§6.3, e.g.
         ``"Monte Carlo approximation (k=200 samples)"``); it becomes the
         warning of the REWRITE or CLARIFY option.
+    reads:
+        Relations the approximate step reads, for ``deps(plan)`` (§8.14);
+        ``None`` when undeclared, and then the approximated plan has no
+        ``deps``.  It is never copied from the exact step.
     """
 
     name: str
@@ -123,18 +138,26 @@ class ApproximateVariant:
     cost_estimate: "CostEstimate"
     accuracy: str
     kind: str = "sql"
+    reads: frozenset[str] | None = None
 
     def __post_init__(self) -> None:
         if self.estimated_time is None:
             raise ValueError("an approximate variant needs an estimated_time")
         _check_duration(self.estimated_time, "estimated_time")
+        _check_reads(self.reads)
         if not isinstance(self.accuracy, str) or not self.accuracy.strip():
             raise ValueError("an approximate variant needs an accuracy statement")
 
 
-@dataclass(eq=True)
+@dataclass(frozen=True)
 class PreComputation:
     """A named pre-computation step emitted before the main query.
+
+    A step is part of the plan IR (``PlanIR.pre_compute``): its ``name``,
+    ``kind``, ``query``, ``reads`` and ``accuracy`` enter the plan's canonical
+    identity, so an exact plan and its approximation never share a key.  Its
+    estimates and declared approximation do not: they describe the cost of
+    the question, not the question.
 
     Parameters
     ----------
@@ -152,6 +175,12 @@ class PreComputation:
         the plan with the step replaced by its approximation.
     approximation:
         The declared approximate variant, if the algorithm has one.
+    reads:
+        Relations the step reads, for ``deps(plan)`` (§8.14); ``None`` when
+        undeclared, and then the plan has no ``deps``.
+    accuracy:
+        ``None`` for an exact step; for a step that replaced an exact one by
+        its approximate variant, the variant's accuracy statement.
     """
 
     name: str
@@ -160,9 +189,12 @@ class PreComputation:
     estimated_time: timedelta | None = None
     cost_estimate: "CostEstimate | None" = None
     approximation: ApproximateVariant | None = None
+    reads: frozenset[str] | None = None
+    accuracy: str | None = None
 
     def __post_init__(self) -> None:
         _check_duration(self.estimated_time, "estimated_time")
+        _check_reads(self.reads)
 
 
 # ---------------------------------------------------------------------------
@@ -222,8 +254,8 @@ class ExportPlan:
     ir:
         The physical plan IR the query text was emitted from (issue #148),
         or ``None`` for a plan built from text.  When present, ``query_text``
-        must equal the SQL emitted from it; build such plans with
-        :meth:`from_ir`.
+        must equal the SQL emitted from it and ``pre_compute`` the IR's
+        steps; build such plans with :meth:`from_ir`.
     """
 
     query_target: QueryTarget
@@ -245,15 +277,25 @@ class ExportPlan:
                 raise ValueError(
                     "query_text does not match the SQL emitted from the plan IR"
                 )
+            if tuple(self.pre_compute) != self.ir.pre_compute:
+                raise ValueError("pre_compute does not match the plan IR's steps")
 
     @classmethod
     def from_ir(
         cls, ir: "PlanIR", query_target: QueryTarget, **kwargs: Any
     ) -> "ExportPlan":
-        """Build a plan whose ``query_text`` is emitted from *ir*."""
+        """Build a plan whose ``query_text`` and ``pre_compute`` come from *ir*."""
         from sqldim.core.query.dgm.planner._ir_emit import emit_sql
 
-        return cls(query_target, emit_sql(ir), ir=ir, **kwargs)
+        if "pre_compute" in kwargs:
+            raise TypeError("pre_compute comes from the IR; put the steps in ir")
+        return cls(
+            query_target,
+            emit_sql(ir),
+            pre_compute=list(ir.pre_compute),
+            ir=ir,
+            **kwargs,
+        )
 
     def _identity_ir(self) -> "PlanIR":
         from sqldim.core.query.dgm.planner._ir import PlanIdentityUnavailable
@@ -263,11 +305,11 @@ class ExportPlan:
                 "the plan was built from text and has no IR; it has no "
                 "canonical identity or declared dependencies"
             )
-        if self.pre_compute:
+        if tuple(self.pre_compute) != self.ir.pre_compute:
             raise PlanIdentityUnavailable(
-                "PreComputation steps are not part of the plan IR; a plan "
-                "with pre_compute has no canonical identity or declared "
-                "dependencies in this IR version"
+                "pre_compute was changed after the plan was built and no "
+                "longer matches the plan IR; the plan has no canonical "
+                "identity or declared dependencies"
             )
         return self.ir
 
