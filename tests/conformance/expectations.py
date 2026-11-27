@@ -116,6 +116,57 @@ _add(X, _BDD_ELIM, (BDD,), "BDD-F-*")
 _add(N, "sqldim has no Additivity annotation; Grain decides SUM only",
      ("dgm-annotations",), "ADD-04", "ADD-06", "ADD-07", "ADD-08", "ADD-09", "ADD-10")  # fmt: skip
 
+# --- Per-backend matrix (#138) -----------------------------------------------
+PG, REF, WP = "pg-duckdb-plan-ir", "planner-refusals", "dgm-write-plan"
+
+# PG(DD) executes the SQL of the plan IR: the IR's declarations carry over
+for (_pattern, _b), _v in list(EXPECTATIONS.items()):
+    if _b == IR:
+        EXPECTATIONS[(_pattern, PG)] = _v
+_add(X, "DuckDB 1.5.0's postgres extension raises NotImplementedException "
+        "(PostgresScanSerialize is not serializable) for a SUM window over a "
+        "PostgreSQL table; the same SQL passes on DuckDB storage", (PG,),
+     "WIN-02", "WIN-03")  # fmt: skip
+
+_add(N, _NO_ON_EMPTY, (REF,), "CTL-*-VAC", "CTL-G1-*", "CTL-G2-*", "PP-FA-03")
+_add(N, "the query is rejected while it is built (§3.5, §4.1), before planning: "
+        "it says nothing about the targets", (REF,), "PP-PROM-01", "PP-PAST-*")  # fmt: skip
+_add(R, "every target without an emitter (SQL_POSTGRESQL, CYPHER, SPARQL, "
+        "DGM_JSON, DGM_YAML) raises UnsupportedCapability", (REF,), "*")  # fmt: skip
+
+_add(X, "Rule 8 plans `INSERT INTO delta_scan`; §6.2 Delta writes: delta_scan is "
+        "read-only, the write goes to a Delta table attached with TYPE delta",
+     (WP,), "WP-DELTA-target")  # fmt: skip
+_add(X, "Rule 8 plans `INSERT INTO iceberg_scan`; §6.2 Iceberg writes: "
+        "iceberg_scan never appears as a write target", (WP,), "WP-ICEBERG-target")  # fmt: skip
+_add(X, "SinkTarget.ICEBERG carries no catalog, so Rule 8 cannot check that a "
+        "REST catalog is attached and plans the write anyway (§6.2 Iceberg "
+        "writes: rejected at planning time)", (WP,), "WP-ICEBERG-catalog")  # fmt: skip
+_add(X, "Rule 10 plans a MERGE into ICEBERG without the engine version or the "
+        "table's merge-on-read mode; §6.2 rejects every Iceberg plan but APPEND "
+        "on an engine version the capability table does not cover", (WP,),
+     "WP-ICEBERG-merge")  # fmt: skip
+
+_PQ_BOOL = (
+    "is_current, ParquetSink's default hive partition column, is read back as "
+    "VARCHAR ('true'/'false'), not as the BOOLEAN written"
+)
+_add(X, _PQ_BOOL + "; and a second write() replaces the files of every partition "
+        "it writes (COPY … OVERWRITE_OR_IGNORE), so the first write's rows there "
+        "are lost", ("sink-parquet",), "SINK-RT-02")  # fmt: skip
+_add(X, _PQ_BOOL + "; and close_versions() rewrites only the current rows into "
+        "the partitions, overwriting the historical versions, which are lost",
+     ("sink-parquet",), "SINK-CL-01", "SINK-CL-02")  # fmt: skip
+_add(X, _PQ_BOOL + "; and when every current row is closed nothing is written to "
+        "is_current=true, so the old files stay and each key is read back both "
+        "open and closed", ("sink-parquet",), "SINK-CL-03")  # fmt: skip
+_add(X, _PQ_BOOL, ("sink-parquet",), "SINK-RT-01", "SINK-RT-03", "SINK-CL-04")
+_add(X, "DeltaLakeSink.write() sends `MERGE INTO delta.`<path>``, Spark SQL that "
+        "DuckDB's parser rejects (and §6.2 allows a Delta write to APPEND only)",
+     ("sink-delta",), "SINK-SQL-W")  # fmt: skip
+_add(X, "DeltaLakeSink.close_versions() is a no-op: it sends no statement and "
+        "returns 0, so no version is closed", ("sink-delta",), "SINK-SQL-C")  # fmt: skip
+
 NOT_COVERED: list[tuple[str, str]] = [
     (
         "§4.1 Monitor verdicts",

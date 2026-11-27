@@ -14,7 +14,7 @@ from tests.conformance.cases import Case
 from tests.conformance.cases.anchors import SCHEMAS
 from tests.conformance.cases.fixtures import GRAPHS, GRID_VALUES, INPUTS, POINT_VALUES
 from tests.conformance.oracle import aggregation, allen, anchors, ctl, logic, model, scd
-from tests.conformance.oracle import paths, structure
+from tests.conformance.oracle import export, paths, structure, window
 
 
 def interval_pairs() -> list[tuple[tuple, tuple]]:
@@ -117,6 +117,11 @@ _AREAS: dict[str, Callable[[Case], Any]] = {
         == tuple(c.input["bits"])
     ),
     "cubes": lambda c: truth_set(c.input["formula"]),
+    "window": lambda c: window.qualify(c.input),
+    "sink_roundtrip": lambda c: export.appended(c.input),
+    "sink_close": lambda c: export.closed(c.input),
+    "sink_sql": lambda c: export.emits_duckdb_sql(c.input),
+    "write_plan": lambda c: export.write_plan(c.input),
 }
 
 AREAS = frozenset(_AREAS)

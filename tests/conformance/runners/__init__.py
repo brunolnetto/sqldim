@@ -11,6 +11,11 @@ returns a value in the oracle's format.  The contract:
   :class:`NotExpressible`; that too must be declared, with its reason;
 * nothing else is caught: an error is a failure of the case.
 
+A backend that needs an external service declares ``requires``: it returns
+``None`` when the service is reachable, else the reason it is not.  Its
+cases are then skipped locally and are an error under CI (``CI=true``); a
+case that did not run is never reported as passing.
+
 Adding a backend (for #138) is adding one :class:`Backend` to :data:`BACKENDS`
 and declaring its expectations; the cases and the oracle do not change.
 """
@@ -31,16 +36,25 @@ class NotExpressible(Exception):
     """The implementation has no construct for this case."""
 
 
+def _available() -> str | None:
+    return None
+
+
 @dataclass(frozen=True)
 class Backend:
     name: str
     description: str
     areas: frozenset[str]
     run: Callable[[Case], Any]
+    requires: Callable[[], str | None] | None = None
+
+    def unavailable(self) -> str | None:
+        return (self.requires or _available)()
 
 
 def _backends() -> tuple[Backend, ...]:
     from tests.conformance.runners import bdd_impl, duckdb_sql, model_impl, ordering
+    from tests.conformance.runners import postgres, refusals, sinks, write_plan
 
     return (
         duckdb_sql.LEGACY,
@@ -49,6 +63,14 @@ def _backends() -> tuple[Backend, ...]:
         bdd_impl.BACKEND,
         model_impl.MODEL,
         model_impl.ANNOTATIONS,
+        postgres.PG_DUCKDB,
+        refusals.BACKEND,
+        write_plan.BACKEND,
+        sinks.DUCKDB,
+        sinks.PARQUET,
+        sinks.POSTGRESQL,
+        sinks.MOTHERDUCK,
+        sinks.DELTA,
     )
 
 

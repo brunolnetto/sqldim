@@ -17,6 +17,19 @@ from typing import TYPE_CHECKING
 if TYPE_CHECKING:
     from sqldim.core.query.dgm.planner import ExportPlan
 
+
+def _require_target(plan: "ExportPlan", target: str) -> None:
+    """Fail closed (#138): text planned for another target is never relabelled."""
+    from sqldim.core.query.dgm.planner import UnsupportedCapability
+
+    actual = getattr(plan.query_target, "value", plan.query_target)
+    if actual != target:
+        raise UnsupportedCapability(
+            f"the plan targets {actual}; its text is not {target} and is not "
+            f"exported as {target}"
+        )
+
+
 __all__ = [
     "CypherExporter",
     "SPARQLExporter",
@@ -42,6 +55,7 @@ class CypherExporter:
 
     def export(self, plan: "ExportPlan") -> str:
         """Return the Cypher query text, enriched with a header comment."""
+        _require_target(plan, "CYPHER")
         header = "// DGM Cypher export — cone_containment_applied: {cc}\n".format(
             cc=getattr(plan, "cone_containment_applied", False)
         )
@@ -72,6 +86,7 @@ class SPARQLExporter:
 
     def export(self, plan: "ExportPlan") -> str:
         """Return the SPARQL query text with optional prefix header."""
+        _require_target(plan, "SPARQL")
         parts: list[str] = []
         if self.base_prefix:
             parts.append(f"PREFIX {self.base_prefix} <#>")

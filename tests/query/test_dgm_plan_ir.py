@@ -575,7 +575,7 @@ class TestUnsupportedConstructsFailClosed:
         "target", [QueryTarget.CYPHER, QueryTarget.SPARQL, QueryTarget.SQL_POSTGRESQL]
     )
     def test_non_duckdb_target(self, target: QueryTarget) -> None:
-        with pytest.raises(UnsupportedConstruct, match="not an IR target"):
+        with pytest.raises(UnsupportedConstruct, match="no emitter"):
             planner(target).plan_query(q_anchor())
 
 
