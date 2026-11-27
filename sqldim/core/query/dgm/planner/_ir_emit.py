@@ -10,7 +10,9 @@ identities, which a hop does not declare: a PathJoin over a one-hop body in
 unrolled into one join chain per iteration count (Rule 5).  ``SIMPLE`` and
 ``TRAIL`` need the identities to exclude revisits, and a Repeat inside a
 PathPred needs per-iteration evaluation positions (§4.1); those raise
-:class:`UnsupportedConstruct`.  Their reads are still in the IR, so
+:class:`UnsupportedConstruct`.  A temporal mode never reaches the emitter:
+lowering rewrites one over a single evaluation position into its mode-free
+form (``preds/_positions.py``) and refuses every other.  Their reads are still in the IR, so
 ``deps`` of the lowered plan is defined.
 """
 
@@ -74,7 +76,8 @@ def _path_sql(p: PathExists) -> str:
     if any(isinstance(h, PathRepeat) for h in p.hops):
         raise UnsupportedConstruct(
             "a Repeat inside a PathPred binds its body aliases per iteration "
-            "(§3.2), which needs the temporal modes this IR version does not emit"
+            "(§3.2): a trace has several evaluation positions, which this IR "
+            "version does not emit"
         )
     hops = [h for h in p.hops if not isinstance(h, PathRepeat)]
     first, rest = hops[0], hops[1:]

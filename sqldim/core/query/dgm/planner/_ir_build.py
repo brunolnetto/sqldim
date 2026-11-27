@@ -161,19 +161,16 @@ def _lower_hops(
 
 def _lower_path(pp: "PathPred", scope: frozenset[str]) -> PathExists:
     from sqldim.core.query.dgm.preds import ALL, Quantifier as _Q
+    from sqldim.core.query.dgm.preds._core import STRATEGY_REFUSAL
+    from sqldim.core.query.dgm.preds._positions import without_mode
 
-    if pp.temporal_mode is not None:
-        raise UnsupportedConstruct(
-            "PathPred temporal modes have no executable SQL template in this IR version"
-        )
     if pp.promote:
         raise UnsupportedConstruct("PathPred(promote=True) is not supported")
     strategy = pp.strategy
     if strategy is not None and not isinstance(strategy, ALL):
-        raise UnsupportedConstruct(
-            f"PathPred strategy {type(strategy).__name__} restricts the path set; "
-            "only ALL is executable as an EXISTS/FORALL subquery"
-        )
+        raise UnsupportedConstruct(STRATEGY_REFUSAL.format(type(strategy).__name__))
+    # a temporal mode is lowered by its one-position form, as to_sql() renders it
+    pp = without_mode(pp)
     quant = Quantifier.FORALL if pp.quantifier is _Q.FORALL else Quantifier.EXISTS
     hops = _lower_hops(pp.path, scope)
     inner = frozenset(_path_aliases(hops)) | scope

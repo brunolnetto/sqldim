@@ -20,6 +20,7 @@ from sqldim.core.query.dgm.preds import (
     PathPred,
     VerbHop,
     BridgeHop,
+    RawPred,
 )
 from sqldim.core.query.dgm.refs import PropRef, AggRef, WinRef, SignatureRef
 from sqldim.core.query.dgm.temporal import (
@@ -143,23 +144,63 @@ def _make_path_pred_with_mode(mode, hop_cls=None):
 
 
 class TestTemporalModeSQLTemplates:
-    """No mode has an executable SQL template: to_sql() refuses rather than
-    rendering the EXISTS template, which reads AF/AG/AX as EF (#173)."""
+    """A future mode over one evaluation position is rendered by its
+    one-position form (§4.1, ADR 0001); everything else is refused (#173)."""
+
+    @pytest.mark.parametrize("mode", [EVENTUALLY, GLOBALLY, NEXT])
+    def test_future_modes_over_one_position(self, mode):
+        plain = _make_path_pred_with_mode(None)
+        assert _make_path_pred_with_mode(mode).to_sql() == plain.to_sql()
+
+    def test_until_reads_its_target_at_the_position(self):
+        psi = ScalarPred(PropRef("s", "done"), "=", True)
+        sql = _make_path_pred_with_mode(UntilMode(psi)).to_sql()
+        assert "s.done = True" in sql and "s.status" not in sql
+
+    def test_forall_keeps_the_witness_guard(self):
+        from sqldim.core.query.dgm.preds import Quantifier
+
+        hop = VerbHop("c", "placed", "s", table="fact_order", on="c.id = s.cust_id")
+        sub = ScalarPred(PropRef("s", "status"), "=", "ok")
+        pp = PathPred(
+            "c", hop, sub, quantifier=Quantifier.FORALL, temporal_mode=GLOBALLY
+        )
+        sql = pp.to_sql()
+        assert "IS NOT TRUE" in sql and sql.count("EXISTS") == 2
 
     @pytest.mark.parametrize(
-        "mode",
-        [
-            EVENTUALLY,
-            GLOBALLY,
-            NEXT,
-            UntilMode(ScalarPred(PropRef("s", "done"), "=", True)),
-        ],
+        "sub", [ScalarPred(PropRef("c", "status"), "=", "ok"), RawPred("TRUE")]
     )
-    def test_future_modes_are_refused(self, mode):
+    def test_no_single_position_is_refused(self, sub):
         from sqldim.core.query.dgm.planner import UnsupportedConstruct
 
-        pp = _make_path_pred_with_mode(mode)
-        with pytest.raises(UnsupportedConstruct, match="temporal mode"):
+        hop = VerbHop("c", "placed", "s", table="fact_order", on="c.id = s.cust_id")
+        pp = PathPred("c", hop, sub, temporal_mode=EVENTUALLY)
+        with pytest.raises(UnsupportedConstruct, match="evaluation position"):
+            pp.to_sql()
+
+    def test_until_target_on_another_alias_is_refused(self):
+        from sqldim.core.query.dgm.planner import UnsupportedConstruct
+
+        h1 = VerbHop("c", "placed", "s", table="fact_order", on="c.id = s.cust_id")
+        h2 = BridgeHop("s", "next", "t", table="fact_order", on="t.prev = s.id")
+        from sqldim.core.query.dgm.preds import Compose
+
+        psi = ScalarPred(PropRef("t", "done"), "=", True)
+        sub = ScalarPred(PropRef("s", "status"), "=", "ok")
+        pp = PathPred("c", Compose(h1, h2), sub, temporal_mode=UntilMode(psi))
+        with pytest.raises(UnsupportedConstruct, match="UNTIL target"):
+            pp.to_sql()
+
+    def test_next_over_two_hops_is_refused(self):
+        from sqldim.core.query.dgm.planner import UnsupportedConstruct
+        from sqldim.core.query.dgm.preds import Compose
+
+        h1 = VerbHop("c", "placed", "s", table="fact_order", on="c.id = s.cust_id")
+        h2 = BridgeHop("s", "next", "t", table="fact_order", on="t.prev = s.id")
+        sub = ScalarPred(PropRef("t", "status"), "=", "ok")
+        pp = PathPred("c", Compose(h1, h2), sub, temporal_mode=NEXT)
+        with pytest.raises(UnsupportedConstruct, match="one-hop"):
             pp.to_sql()
 
     @pytest.mark.parametrize(

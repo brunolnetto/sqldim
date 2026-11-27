@@ -440,10 +440,19 @@ class TestUnsupportedConstructsFailClosed:
     def _plan(self, q: object, **kw: Any) -> ExportPlan:
         return planner().plan_query(q, **kw)  # type: ignore[arg-type]
 
-    def test_temporal_mode(self) -> None:
+    def test_temporal_mode_over_one_position_is_lowered(self) -> None:
+        """EF over one evaluation position is EXISTS (§4.1, ADR 0001)."""
         pp = return_pred()
         pp.temporal_mode = EVENTUALLY
-        with pytest.raises(UnsupportedConstruct, match="temporal"):
+        q = DGMQuery().anchor("dim_customer", "c").where(pp)
+        plain = DGMQuery().anchor("dim_customer", "c").where(return_pred())
+        assert self._plan(q).query_text == self._plan(plain).query_text == q.to_sql()
+
+    def test_temporal_mode_without_one_position(self) -> None:
+        pp = return_pred()
+        pp.sub_filter = ScalarPred(PropRef("c", "tier"), "=", "gold")
+        pp.temporal_mode = EVENTUALLY
+        with pytest.raises(UnsupportedConstruct, match="evaluation position"):
             self._plan(DGMQuery().anchor("dim_customer", "c").where(pp))
 
     def test_restricting_strategy(self) -> None:

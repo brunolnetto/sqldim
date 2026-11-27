@@ -306,26 +306,30 @@ def _check_path_pred(pp: "PathPred") -> None:
 def _check_renderable(pp: "PathPred") -> None:
     """``to_sql()`` renders only what it renders faithfully (fail-closed).
 
-    The same constructs are refused by the plan IR (``planner/_ir_build.py``).
+    The same constructs are refused by the plan IR (``planner/_ir_build.py``);
+    a temporal mode is checked by ``_positions.without_mode``.
     """
     from sqldim.core.query.dgm.planner._ir import UnsupportedConstruct
 
-    mode = pp.temporal_mode
-    if mode is not None:
-        name = getattr(mode, "__name__", type(mode).__name__)
-        raise UnsupportedConstruct(
-            f"PathPred temporal mode {name} has no executable SQL template "
-            "(§4.1); to_sql() refuses it rather than render the EXISTS template"
-        )
     if pp.strategy is not None and not isinstance(pp.strategy, ALL):
-        raise UnsupportedConstruct(
-            f"PathPred strategy {type(pp.strategy).__name__} restricts the path "
-            "set (§3.3); only ALL is rendered as an EXISTS/FORALL subquery"
-        )  # promote=True implies SHORTEST or MIN_WEIGHT (§3.5), refused here
+        raise UnsupportedConstruct(STRATEGY_REFUSAL.format(type(pp.strategy).__name__))
+    # promote=True implies SHORTEST or MIN_WEIGHT (§3.5), refused here
+
+
+STRATEGY_REFUSAL = (
+    "PathPred strategy {} restricts the path set by the order ≺ of §3.3, which "
+    "breaks ties by node keys a hop does not declare; only ALL is rendered"
+)
 
 
 def _path_pred_sql(pp: "PathPred") -> str:
-    """EXISTS / FORALL subquery SQL of a PathPred without mode or strategy."""
+    """EXISTS / FORALL subquery SQL of a PathPred with strategy ALL; a
+    temporal mode is rendered by its one-position form (``_positions``)."""
+    if pp.temporal_mode is not None:
+        from sqldim.core.query.dgm.preds._positions import without_mode
+
+        _check_renderable(pp)
+        pp = without_mode(pp)
     hops = _flatten_path(pp.path)
     if not hops:  # pragma: no cover
         return "TRUE"

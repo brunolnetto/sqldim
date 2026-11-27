@@ -146,8 +146,10 @@ _DUCKDB_SQL: dict[Capability, Declared] = {
     Capability.WINDOW: Declared(S, "window functions with QUALIFY (band B3)"),
     Capability.PATHPRED: Declared(
         P,
-        "EXISTS / FORALL without a temporal mode, strategy ALL; temporal "
-        "modes, other strategies and on_empty are refused",
+        "EXISTS / FORALL, strategy ALL; EVENTUALLY, GLOBALLY, NEXT and UNTIL "
+        "over one evaluation position per instance; a mode over a Repeat or "
+        "several positions, past-time modes, other strategies and on_empty are "
+        "refused",
     ),
 }
 
