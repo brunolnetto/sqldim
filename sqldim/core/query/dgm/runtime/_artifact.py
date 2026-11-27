@@ -30,6 +30,12 @@ terminal transition exists, and otherwise retries steps 3–4 under the same
 ``write_id`` — a write that already committed is not repeated.
 :meth:`ArtifactRuntime.recover` decides an unresolved run without writing.
 
+Expiry (§2.4, ADR 0005 ``ON_EXPIRY``): :meth:`ArtifactRuntime.expire` appends
+the ``expired`` transition of an :class:`ExpiryPlan` when, at the runtime's own
+clock instant ``now``, the artifact is still Complete after the plan's
+``based_on`` and ``now − completed_at > ttl``.  The transition's
+``occurred_at`` is that ``now``; nothing is written to any sink.
+
 A failed write raises :class:`MaterialisationFailed` with the recorded state;
 a transition that could not be appended raises :class:`TransitionNotRecorded`
 with the state the store holds.  Neither is ever reported as a success.
@@ -43,11 +49,11 @@ from dataclasses import dataclass
 from datetime import datetime
 from typing import Any, Protocol
 
-from sqldim.core.query.dgm.annotations import WriteModeKind
 from sqldim.core.query.dgm.model import DGMModel
 from sqldim.core.query.dgm.nl.supervisor._auth import Action, AuthContext
 from sqldim.core.query.dgm.nl.supervisor._invariant_core import col, ident
 from sqldim.core.query.dgm.planner._ir_identity import RelationCatalog
+from sqldim.core.query.dgm.planner._rule10 import operation_for
 from sqldim.core.query.dgm.planner._targets import SinkTarget
 from sqldim.core.query.dgm.runtime._artifact_plan import (
     ArtifactConflict,
@@ -55,6 +61,8 @@ from sqldim.core.query.dgm.runtime._artifact_plan import (
     ArtifactPlan,
     ArtifactSnapshot,
     ArtifactState,
+    ExpiryNotDue,
+    ExpiryPlan,
     MaterialisationFailed,
     RunCancelled,
     TransitionNotRecorded,
@@ -82,6 +90,7 @@ __all__ = [
     "SinkWrite",
     "WriteIdSink",
     "ArtifactOutcome",
+    "ExpiryOutcome",
     "ArtifactRuntime",
 ]
 
@@ -140,22 +149,15 @@ class ArtifactOutcome:
     recovered: bool = False
 
 
-_WRITE_MODE_OPERATION: dict[WriteModeKind, WriteOperation] = {
-    WriteModeKind.BACKFILL: WriteOperation.APPEND,
-    WriteModeKind.REFRESH: WriteOperation.MERGE,
-}
-_ADAPTIVE: dict[ArtifactState, WriteOperation] = {
-    ArtifactState.MISSING: WriteOperation.APPEND,
-    ArtifactState.FAILED: WriteOperation.APPEND,
-    ArtifactState.STALE: WriteOperation.MERGE,
-}
+@dataclass(frozen=True)
+class ExpiryOutcome:
+    """An ``expired`` transition that is recorded; ``replayed`` when an
+    earlier call recorded it."""
 
-
-def _operation_for(mode: WriteModeKind, state: ArtifactState) -> WriteOperation:
-    """§2.4 ``write_mode``: BACKFILL → APPEND, REFRESH → MERGE, ADAPTIVE by state."""
-    if mode is WriteModeKind.ADAPTIVE:
-        return _ADAPTIVE[state]
-    return _WRITE_MODE_OPERATION[mode]
+    plan_id: str
+    state: ArtifactState
+    occurred_at: datetime
+    replayed: bool = False
 
 
 def _dispatched(plan: ArtifactPlan, h: History) -> bool:
@@ -234,7 +236,7 @@ class ArtifactRuntime:
         self._require(self._store_relations(lay) | {plan.write.relation}, Action.WRITE)
         reads = {d.relation for d in plan.query.deps(self._catalog)}
         self._require(reads, Action.READ)
-        expected = _operation_for(lay.annotation.write_mode, plan.dispatch_from)
+        expected = operation_for(lay.annotation.write_mode, plan.dispatch_from)
         if plan.write.operation is not expected:
             raise InvalidRuntimeArgument(
                 f"write_mode {lay.annotation.write_mode.value} from "
@@ -269,8 +271,9 @@ class ArtifactRuntime:
             h = read_history(self._con, lay, artifact_key)
         window = (h.row[1], h.row[2]) if h.row else None
         last = h.last.key if h.last else None
+        at = h.last.occurred_at if h.last else None
         return ArtifactSnapshot(
-            artifact_type, artifact_key, h.state, last, h.reached_complete, window
+            artifact_type, artifact_key, h.state, last, h.reached_complete, window, at
         )
 
     # -- execute -------------------------------------------------------------
@@ -315,6 +318,82 @@ class ArtifactRuntime:
                 return self._record_success(plan, lay, h, None, recovered=True)
             raise self._record_failure(
                 plan, lay, h, "recovered: the write did not commit"
+            )
+
+    def expire(self, plan: ExpiryPlan) -> ExpiryOutcome:
+        """Append the ``expired`` transition when ``ON_EXPIRY`` holds now.
+
+        Needs ``WRITE`` on the datasets of the artifact and its transitions.
+        The plan's ``ttl`` must be the declared one, and the artifact must be
+        Complete with the plan's ``based_on`` as its last transition, recorded
+        at ``completed_at`` (else ``CONFLICT``).  Before ``ttl`` has elapsed
+        the answer is :class:`ExpiryNotDue` and nothing is recorded.  A plan
+        whose transition is already recorded returns it again (``replayed``).
+        """
+        if not isinstance(plan, ExpiryPlan):
+            raise InvalidRuntimeArgument(f"expected an ExpiryPlan, got {plan!r}")
+        lay = resolve_layout(self._model, plan.artifact_type)
+        self._require(self._store_relations(lay), Action.WRITE)
+        if plan.ttl != lay.annotation.ttl:
+            raise InvalidRuntimeArgument(
+                f"the plan's ttl {plan.ttl} is not the declared ttl "
+                f"{lay.annotation.ttl} of {plan.artifact_type!r}"
+            )
+        tp = plan.transition
+        with self._lock:
+            h = read_history(self._con, lay, plan.artifact_key)
+            done = h.get(tp.idempotency_key)
+            if done is not None:
+                return ExpiryOutcome(
+                    plan.plan_id, h.state, done.occurred_at, replayed=True
+                )
+            self._check_expiry(plan, h)
+            now = self._expiry_instant(plan, h)
+            if not plan.due(now):
+                raise ExpiryNotDue(
+                    f"ttl {plan.ttl}s has not elapsed since {plan.completed_at} "
+                    f"at {now}; nothing was recorded"
+                )
+            try:
+                self._con.begin()
+                append_transition(self._con, lay, tp, h.last, now)
+                self._con.commit()
+            except Exception as exc:
+                self._con.rollback()
+                if isinstance(exc, ArtifactConflict):
+                    raise
+                raise TransitionNotRecorded(
+                    f"the expired transition was not recorded: {exc}",
+                    state=h.state,
+                    plan_id=plan.plan_id,
+                ) from exc
+        return ExpiryOutcome(plan.plan_id, ArtifactState.STALE, now)
+
+    def _expiry_instant(self, plan: ExpiryPlan, h: History) -> datetime:
+        try:
+            return self._now()
+        except InvalidRuntimeArgument:
+            raise
+        except Exception as exc:
+            raise TransitionNotRecorded(
+                f"the clock could not be read; nothing was recorded: {exc}",
+                state=h.state,
+                plan_id=plan.plan_id,
+            ) from exc
+
+    @staticmethod
+    def _check_expiry(plan: ExpiryPlan, h: History) -> None:
+        last = h.last
+        if (
+            h.state is not ArtifactState.COMPLETE
+            or last is None
+            or last.key != plan.based_on
+            or last.occurred_at != plan.completed_at
+        ):
+            where = f"after {last.key!r}" if last else "with no transition"
+            raise ArtifactConflict(
+                f"the artifact is {h.state.value} {where}; the expiry was planned "
+                f"for Complete after {plan.based_on!r} at {plan.completed_at}"
             )
 
     # -- steps ---------------------------------------------------------------

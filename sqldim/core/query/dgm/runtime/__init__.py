@@ -62,17 +62,24 @@ from sqldim.core.query.dgm.runtime._artifact_plan import (  # noqa: F401
     WritePlan,
     ArtifactSnapshot,
     ArtifactPlan,
+    ExpiryPlan,
     plan_artifact_run,
     transition_key,
+    ArtifactPlanError,
+    InvalidArtifactPlan,
+    NotEligible,
+    UnsupportedArtifactPlan,
     ArtifactConflict,
     MaterialisationFailed,
     TransitionNotRecorded,
     RunCancelled,
+    ExpiryNotDue,
 )
 from sqldim.core.query.dgm.runtime._artifact import (  # noqa: F401
     SinkWrite,
     WriteIdSink,
     ArtifactOutcome,
+    ExpiryOutcome,
     ArtifactRuntime,
 )
 from sqldim.core.query.dgm.runtime._recommender import (  # noqa: F401

@@ -32,7 +32,7 @@ TransitionPlan(
   from_state:      ArtifactState,
   kind:            TransitionKind,
   to_state:        ArtifactState,                  -- a row of δ (§2.4)
-  condition:       ON_DISPATCH | ON_SUCCESS | ON_FAILURE,
+  condition:       ON_DISPATCH | ON_SUCCESS | ON_FAILURE | ON_EXPIRY,
   idempotency_key: H(artifact_key, from_state, kind, plan id))
 ```
 
@@ -40,6 +40,7 @@ TransitionPlan(
 
 - Evaluating a query, checking an annotation or producing a plan has no side effect. In particular, a read query over `PipelineArtifact` facts never changes them.
 - The runtime appends a transition fact only when its `condition` is met. `scheduled` is appended on dispatch, `succeeded` on success, and `failed` on failure. Each append uses the `idempotency_key`, so a retried runtime step records it once.
+- `expired` is appended ON_EXPIRY: when the runtime, at its own evaluation instant `now`, finds the artifact still Complete after the transition the plan was based on, and `now − occurred_at` of that transition into Complete exceeds `ttl`. Its `occurred_at` is that `now`, not the instant the `ttl` ran out, so the history read up to an earlier instant never changes (PA3). An expiry plan carries no `WritePlan`; the refresh is a later run from Stale (`rescheduled`).
 - The appended transition must be a row of δ, and PA1–PA4 (§2.4) must hold after the append; otherwise the runtime rejects it.
 - Writes require an identity authorised to write to the sink and to the transition table. Under the supervisor this is a separate grant from READ (§12.10).
 
@@ -54,4 +55,5 @@ TransitionPlan(
 - Rule 10 produces `TransitionPlan`s and `WritePlan`s instead of "appending" transitions.
 - §6.3 Strategy 4 describes what the runtime does with an ASYNC decision; the gate itself schedules nothing.
 - A deployment without an authorised runtime can still plan and inspect pipelines, but nothing is materialised.
+- *Extended by issue #171:* `expired` has its own condition, ON_EXPIRY, because it is neither a dispatch, a success nor a failure; Rule 10 plans it without a write.
 - *Extended by D46 (issue #141):* §2.4 now fixes the runtime's four-step execution protocol — validate, dispatch, write, record. The write and its terminal transition are atomic, either in one transaction or through a `write_id` found on recovery. A sink without either guarantee is `UNSUPPORTED` for materialisation. "A separate grant from READ" is the `WRITE` action of §12.10.
