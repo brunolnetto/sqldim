@@ -2,8 +2,9 @@
 
 * ``dgm-model`` — ``DGMModel`` construction, ``partition_problems``,
   ``validate_anchor_set`` and the question-space scope ``build_space``;
-* ``dgm-annotations`` — what an annotation object decides by itself
-  (``Grain.rejects_sum`` for SUM, AD1–AD2).
+* ``dgm-annotations`` — what an annotation decides: ``Grain.rejects_sum``
+  for SUM under the grain default (AD1–AD2), and the AggFns the question
+  lattice admits over a measure from its Grain or Additivity (AD1–AD4).
 """
 
 from __future__ import annotations
@@ -13,6 +14,9 @@ from typing import Any
 
 from sqldim.core.query.dgm.analytical_space import validate_anchor_set
 from sqldim.core.query.dgm.annotations import (
+    TIME,
+    Additivity,
+    AdditivityKind,
     Conformed,
     Grain,
     GrainKind,
@@ -22,7 +26,7 @@ from sqldim.core.query.dgm.annotations import (
     SCDKind,
     SCDType,
 )
-from sqldim.core.query.dgm.lattice._space import build_space
+from sqldim.core.query.dgm.lattice._space import LatticeUnsupported, build_space
 from sqldim.core.query.dgm.model import (
     DGMModel,
     EdgeKind,
@@ -30,10 +34,11 @@ from sqldim.core.query.dgm.model import (
     ModelDeclarationError,
     NodeKind,
     NodeType,
+    PropType,
 )
 from tests.conformance.cases import Case
 from tests.conformance.cases.anchors import SCHEMAS
-from tests.conformance.runners import REJECTED, Backend, NotExpressible
+from tests.conformance.runners import REJECTED, Backend
 
 KINDS = frozenset(
     {"Conformed", "FactlessFact", "Grain", "MedallionLayer", "RolePlaying", "SCDType"}
@@ -143,12 +148,46 @@ MODEL = Backend(
 )
 
 
+def _measure_model(grain: str, kind: Any) -> DGMModel:
+    """Account → AccountBalance(balance: Real), with the case's Grain and kind."""
+    sigma: list[Any] = [Grain("AccountBalance", GrainKind[grain])]
+    if kind is not None:
+        name, over = (kind, ()) if isinstance(kind, str) else kind
+        over = {TIME if a == "TIME" else a for a in over}
+        sigma.append(
+            Additivity("AccountBalance", "balance", AdditivityKind[name], over)
+        )
+    return DGMModel(
+        node_types=(
+            NodeType("Account", NodeKind.DIM),
+            NodeType("AccountBalance", NodeKind.FACT, {"balance": PropType("Real")}),
+        ),
+        edge_types=(EdgeType("Account", "AccountBalance", "holds", EdgeKind.VERB),),
+        sigma=tuple(sigma),
+        sigma_kinds=frozenset(
+            {"Additivity", "Degenerate", "FactlessFact", "Grain", "MedallionLayer"}
+        ),
+    )
+
+
+def _admitted(case: Case) -> Any:
+    """The AggFns the question lattice admits over the measure (§2.4)."""
+    i = case.input
+    model = _measure_model(i["grain"], i.get("kind"))
+    try:
+        space = build_space(model, ["Account", "AccountBalance"], h=1, max_anchors=2)
+    except LatticeUnsupported:
+        return REJECTED
+    allowed = space.agg_fns("AccountBalance", "balance")
+    return "VALID" if allowed is not None and i["fn"] in allowed else REJECTED
+
+
 def _additivity(case: Case) -> Any:
+    """SUM under the grain default: ``Grain.rejects_sum`` (AD1–AD2); any
+    other case: what the question lattice admits (``Space.agg_fns``)."""
     i = case.input
     if i.get("kind") is not None or i["fn"] != "SUM":
-        raise NotExpressible(
-            "sqldim has no Additivity annotation; Grain decides SUM only"
-        )
+        return _admitted(case)
     invalid = Grain("AccountBalance", GrainKind[i["grain"]]).rejects_sum(
         group_by_axes=i.get("group_by_axes", ()),
         where_pins=i.get("where_pins", ()),
@@ -159,7 +198,8 @@ def _additivity(case: Case) -> Any:
 
 ANNOTATIONS = Backend(
     "dgm-annotations",
-    "Grain.rejects_sum (AD1–AD2: is SUM rejected at construction)",
+    "Grain.rejects_sum (AD1–AD2: is SUM rejected at construction) and the "
+    "AggFns the question lattice admits over a measure (Space.agg_fns, AD1–AD4)",
     frozenset({"additivity"}),
     _additivity,
 )

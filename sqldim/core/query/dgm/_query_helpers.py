@@ -223,19 +223,36 @@ def _validate_bands(q: "DGMQuery") -> None:
     _check_alias_uniqueness(q)
 
 
+def _entity_keys(q: "DGMQuery") -> dict[str, str]:
+    """The entity key of every dimension-join alias: its durable key (§2.5)."""
+    anchor = q._anchor_alias or q._anchor_table or ""
+    return {
+        st.alias: f"{st.alias}.{j.dim_pk}"
+        for j in q._scd2_joins
+        for st in dim_join_steps(j, anchor, q._as_of)
+    }
+
+
 def rendered_aggregates(q: "DGMQuery") -> dict[str, str]:
     """The aggregate expressions of *q* under their ``over`` (§4.2).
 
-    Without a PathJoin each tuple is one anchor instance and the units agree;
-    with one, an ENTITIES aggregate reads each instance once.
+    Without a PathJoin or a dimension join each tuple is one anchor instance
+    and the units agree.  With a PathJoin, an ENTITIES aggregate reads each
+    instance of the aliases it references once; a dimension join puts one
+    entity in many tuples (one per fact), so an aggregate over its alias reads
+    each entity once, identified by its durable key.
     """
-    if not q._joins:
+    keys = _entity_keys(q)
+    if not q._joins and not keys:
         return dict(q._agg_exprs)
-    aliases = _context_aliases(q)
+    aliases = {a: a for a in _context_aliases(q)}
+    aliases.update(keys)
+    # without a PathJoin only an aggregate over a dimension-join alias fans out
+    require = None if q._joins else keys
     return {
         name: expr
         if q._agg_over.get(name, ENTITIES) == PATHS
-        else entity_aggregate(expr, aliases)
+        else entity_aggregate(expr, aliases, require=require)
         for name, expr in q._agg_exprs.items()
     }
 

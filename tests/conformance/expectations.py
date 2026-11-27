@@ -113,8 +113,17 @@ _add(X, _BDD_ID, (BDD,), "BDD-C-*")
 _add(X, _BDD_ELIM, (BDD,), "BDD-F-*")
 
 # --- Model, anchor sets, annotations ----------------------------------------
-_add(N, "sqldim has no Additivity annotation; Grain decides SUM only",
-     ("dgm-annotations",), "ADD-04", "ADD-06", "ADD-07", "ADD-08", "ADD-09", "ADD-10")  # fmt: skip
+_SEMI = (
+    "the question lattice raises LatticeUnsupported for a SEMI_ADDITIVE measure: "
+    "AD2 decides its SUM by the period or entity of each axis, which the "
+    "enumeration does not decide (fail-closed)"
+)
+_add(R, _SEMI, ("dgm-annotations",), "ADD-04", "ADD-10")
+_add(R, _SEMI + "; rejected for that reason, not by AD2", ("dgm-annotations",),
+     "ADD-09")  # fmt: skip
+_add(R, "the question lattice does not offer AVG over a NON_ADDITIVE measure: AD3 "
+        "accepts it only with a warning, and the enumeration offers no aggregate "
+        "that needs one", ("dgm-annotations",), "ADD-07")  # fmt: skip
 
 # --- Per-backend matrix (#138) -----------------------------------------------
 PG, REF, WP = "pg-duckdb-plan-ir", "planner-refusals", "dgm-write-plan"
@@ -174,9 +183,10 @@ NOT_COVERED: list[tuple[str, str]] = [
         "run against the oracle only",
     ),
     (
-        "§2.4 Additivity annotation, AD3/AD4",
-        "sqldim has no Additivity annotation; "
-        "only the grain default for SUM is checked (`dgm-annotations`)",
+        "§2.4 AD2 over a declared SEMI_ADDITIVE axis",
+        "no implementation decides it: `Grain.rejects_sum` covers the grain "
+        "default only, and the question lattice refuses every SEMI_ADDITIVE "
+        "measure (`ADD-04`, `ADD-09`, `ADD-10` are refusals)",
     ),
     (
         "§4.2 LATEST / EARLIEST",

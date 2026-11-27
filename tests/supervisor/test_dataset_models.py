@@ -521,35 +521,84 @@ def _additive(model: DGMModel) -> set[tuple[str, str]]:
     }
 
 
+def _dim_attribute(model: DGMModel, type_: str) -> bool:
+    node = model.node(type_)
+    return node is not None and node.kind is NodeKind.DIM
+
+
 def _assert_only_additive_sums(model: DGMModel, skeleton: str) -> None:
-    """No SUM, AVG or PROD over anything but an ADDITIVE measure (AD1–AD4)."""
+    """SUM and PROD only over an ADDITIVE measure (AD1–AD4); AVG also over a
+    numeric dimension attribute, read over ENTITIES (§2.4)."""
     head = skeleton.split(" | ")[0].removeprefix("ANCHORS ")
     alias_type = {a: t for t, a in (part.split() for part in head.split(", "))}
-    for _, alias, key in _AGG.findall(skeleton):
-        assert (alias_type[alias], key) in _additive(model), skeleton
+    for fn, alias, key in _AGG.findall(skeleton):
+        type_ = alias_type[alias]
+        if fn == "AVG" and _dim_attribute(model, type_):
+            continue
+        assert (type_, key) in _additive(model), skeleton
 
 
 def _assert_aggregate_universe(model: DGMModel, anchors: list[str]) -> None:
     """Every aggregate and running window the enumeration may emit for the
-    first Join: SUM/AVG/PROD only over ADDITIVE measures, never over a
-    Degenerate identifier or a dimension attribute."""
+    first Join: SUM/PROD only over ADDITIVE measures, AVG also over a
+    dimension attribute but never in a window, and nothing but COUNT over a
+    Degenerate identifier."""
     lattice = QuestionLattice(model, max_anchors=3, max_hops=1)
     (question,), _ = first(lattice.enumerate(anchors, max_hops=1), 1)
     ctx = JoinCtx(lattice.space(anchors, max_hops=1), question.skeleton.join)
     additive = _additive(model)
-    terms = [(t[1], t[2]) for t in ctx.agg_terms]
-    terms += [
+    aggs = [(t[1], t[2]) for t in ctx.agg_terms]
+    running = [
         (w[1][1], w[1][2])
         for w in ctx.window_terms(ctx.prop_refs, 2)
         if w[1][0] == "running"
     ]
-    summed = [(fn, ref) for fn, ref in terms if fn in _SUMMING and ref[0] == "prop"]
-    for fn, ref in summed:
-        assert (ctx.alias_type[ref[1]], ref[2]) in additive, (fn, ref)
+    for fn, ref in aggs + running:
+        if fn not in _SUMMING or ref[0] != "prop":
+            continue
+        type_ = ctx.alias_type[ref[1]]
+        if fn == "AVG" and (fn, ref) in aggs and _dim_attribute(model, type_):
+            continue
+        assert (type_, ref[2]) in additive, (fn, ref)
     degenerate = {(a.fact, a.key) for a in model.annotations(Degenerate)}
-    for fn, ref in terms:
+    for fn, ref in aggs + running:
         if ref[0] == "prop" and (ctx.alias_type[ref[1]], ref[2]) in degenerate:
             assert fn == "COUNT", (fn, ref)
+
+
+def test_a_numeric_dimension_attribute_takes_min_max_avg_count() -> None:
+    """§2.4: ``Pessoa.idade`` is a numeric property of a dimension type, not a
+    measure: MIN, MAX, AVG and COUNT over ENTITIES, never SUM; a window over
+    the tuples of C still takes COUNT only."""
+    args = {**_anchors("entertainment", ["Leitura", "Pessoa"]), "limit": 200}
+    result = _call("dgm_what_can_i_answer", args, "entertainment")
+    assert result.status is CallStatus.SUCCEEDED, result.error
+    data = WhatCanIAnswerOutput.model_validate(result.data)
+    over_idade = {
+        fn
+        for q in data.questions
+        for fn in re.findall(r"\b(\w+)\(a2\.idade\)", q.skeleton)
+    }
+    assert over_idade == {"AVG", "COUNT", "MAX", "MIN"}
+    model = _open("entertainment").dgm_model()
+    lattice = QuestionLattice(model, max_anchors=3, max_hops=1)
+    (question,), _ = first(lattice.enumerate(["Leitura", "Pessoa"], max_hops=1), 1)
+    ctx = JoinCtx(
+        lattice.space(["Leitura", "Pessoa"], max_hops=1), question.skeleton.join
+    )
+    idade = ("prop", "a2", "idade")
+    assert {t[1] for t in ctx.agg_terms if t[2] == idade} == {
+        "AVG",
+        "COUNT",
+        "MAX",
+        "MIN",
+    }
+    windows = {
+        w[1][1]
+        for w in ctx.window_terms(ctx.prop_refs, 2)
+        if w[1][0] == "running" and w[1][2] == idade
+    }
+    assert windows == {"COUNT"}
 
 
 def _open_withholding(kind: str) -> Any:

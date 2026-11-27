@@ -185,14 +185,16 @@ class JoinCtx:
             return None
         return agg_type(fn, self.type_of(arg))
 
-    def fn_admitted(self, fn: str, ref: Term) -> bool:
-        """Σ admits ``fn`` over the PropRef *ref*: FactlessFact and AD1–AD4."""
+    def fn_admitted(self, fn: str, ref: Term, *, per_tuple: bool = False) -> bool:
+        """Σ admits ``fn`` over the PropRef *ref*: FactlessFact, AD1–AD4 and
+        the rule for a numeric dimension attribute (§2.4); *per_tuple* for a
+        window, which reads every tuple of C."""
         if ref[0] != "prop":
             return True
         type_ = self.alias_type.get(ref[1], "")
         if self.space.factless(type_) and fn != "COUNT":
             return False
-        allowed = self.space.agg_fns(type_, ref[2])
+        allowed = self.space.agg_fns(type_, ref[2], per_tuple=per_tuple)
         return allowed is None or fn in allowed
 
     def alias_of(self, ref: Term) -> str | None:
@@ -304,7 +306,7 @@ def _percentile_heads(
 ) -> Iterator[tuple[Term, bool]]:
     # A statistic over a numeric PropRef takes a measure (MIN/MAX admitted),
     # never a Degenerate or dimension attribute.
-    scope = [r for r in scope if ctx.fn_admitted("MIN", r)]
+    scope = [r for r in scope if ctx.fn_admitted("MIN", r, per_tuple=True)]
     types = [ctx.type_of(r) for r in scope]
     yield from (
         (("stat", "PERCENTILE_CONT", r), False)
@@ -319,7 +321,7 @@ def _percentile_heads(
 
 
 def _running_type(ctx: JoinCtx, fn: str, ref: Term) -> str | None:
-    if not ctx.fn_admitted(fn, ref):
+    if not ctx.fn_admitted(fn, ref, per_tuple=True):
         return None
     return agg_type(fn, ctx.type_of(ref))
 

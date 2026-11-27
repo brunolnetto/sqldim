@@ -234,3 +234,111 @@ def test_as_was_over_entity_key_needs_event_time():
 def test_unknown_mode_rejected():
     with pytest.raises(SemanticError, match="AS_WAS or AS_IS"):
         DGMQuery("fact_sale").join_dim("dim_customer", "ck", mode="LATEST")
+
+
+# ---------------------------------------------------------------------------
+# §5.1 as_of(t) is the reference instant τ of the whole query
+# ---------------------------------------------------------------------------
+
+
+def _region_query(tau: str, **join) -> DGMQuery:
+    return (
+        DGMQuery("fact_sale")
+        .join_dim("dim_customer", "ck", "id", **join)
+        .by("d_dim_customer.region")
+        .sum("f.revenue")
+        .as_of(tau)
+    )
+
+
+@pytest.mark.parametrize("tau", ["2024-06-30", "2025-01-01", "2023-12-31"])
+def test_as_of_does_not_move_an_as_was_join(tau):
+    """§2.5 C42: under AS_WAS the version read depends on the fact alone."""
+    q = _region_query(tau, event_time="occurred_on")
+    assert sorted(q.execute(_scd_db())) == [("North", 400), ("South", 600)]
+
+
+@pytest.mark.parametrize(
+    ("tau", "expected"),
+    [("2024-06-30", [("North", 1000)]), ("2023-12-31", [("South", 1000)])],
+)
+def test_as_of_is_tau_for_an_as_is_join(tau, expected):
+    """§2.5 C42: under AS_IS τ selects the version every fact reads."""
+    assert sorted(_region_query(tau, mode="AS_IS").execute(_scd_db())) == expected
+
+
+def test_as_of_is_tau_not_a_temporal_join_override():
+    """``as_of(t)`` states τ (``TemporalContext.default_as_of``, §5.1): it is
+    the same as ``temporal_join(t)`` and the plan IR renders the same SQL."""
+    from sqldim.core.query.dgm import DGMPlanner, QueryTarget
+
+    q = _region_query("2024-06-30", mode="AS_IS")
+    same = (
+        DGMQuery("fact_sale")
+        .join_dim("dim_customer", "ck", "id", mode="AS_IS")
+        .by("d_dim_customer.region")
+        .sum("f.revenue")
+        .temporal_join("2024-06-30")
+    )
+    assert q.to_sql() == same.to_sql()
+    planner = DGMPlanner(None, None, None, None, QueryTarget.SQL_DUCKDB)  # type: ignore[arg-type]
+    assert planner.plan_query(q).query_text == q.to_sql()
+
+
+# ---------------------------------------------------------------------------
+# §4.2 ENTITIES identifies an instance by its entity key
+# ---------------------------------------------------------------------------
+
+
+def _versions_db(age_102: int = 40) -> duckdb.DuckDBPyConnection:
+    """C42 has two SCD2 versions, each read by one sale under AS_WAS; C7 one."""
+    con = _scd_db()
+    con.execute("ALTER TABLE dim_customer ADD COLUMN age INTEGER")
+    con.execute("UPDATE dim_customer SET age = 40 WHERE vk = 101")
+    con.execute(f"UPDATE dim_customer SET age = {age_102} WHERE vk = 102")
+    con.execute(
+        "INSERT INTO dim_customer VALUES "
+        "(201, 'C7', 'North', '2023-01-01', NULL, TRUE, 20)"
+    )
+    con.execute("INSERT INTO fact_sale VALUES ('S3', 'C7', 201, '2023-07-01', 100)")
+    return con
+
+
+def _ages(over: str = "ENTITIES", **join) -> DGMQuery:
+    join = join or {"event_time": "occurred_on"}
+    return (
+        DGMQuery("fact_sale")
+        .join_dim("dim_customer", join.pop("fk", "ck"), "id", **join)
+        .agg(
+            over=over,
+            avg_age="AVG(d_dim_customer.age)",
+            n="COUNT(d_dim_customer.age)",
+            total="SUM(f.revenue)",
+        )
+    )
+
+
+def test_entities_reads_each_entity_once_across_its_versions():
+    """C42 is one entity although its two versions are two rows."""
+    assert _ages().execute(_versions_db()) == [(30.0, 2, 1100)]
+
+
+def test_entities_over_a_version_key_join_reads_each_entity_once():
+    assert _ages(fk="vk", version_key="vk").execute(_versions_db()) == [(30.0, 2, 1100)]
+
+
+def test_paths_reads_every_tuple():
+    rows = _ages("PATHS").execute(_versions_db())
+    assert rows == [(pytest.approx(100 / 3), 3, 1100)]
+
+
+def test_entities_refuses_an_entity_with_two_values():
+    """Two versions of C42 disagree on age: no single value to count once."""
+    with pytest.raises(duckdb.InvalidInputException, match="unique"):
+        _ages().execute(_versions_db(age_102=41))
+
+
+def test_entity_key_identifies_a_dimension_alias():
+    ident = {"d": "d.id", "f": "f"}
+    assert "row(d.id, d.age)" in entity_aggregate("AVG(d.age)", ident, require={"d"})
+    assert entity_aggregate("SUM(f.x)", ident, require={"d"}) == "SUM(f.x)"

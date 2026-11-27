@@ -60,7 +60,7 @@ implement the area.
 | ADR 0001 Truth conditions; §4.1 Path semantics | `CTL-A-c-EF` … `CTL-B-a2-EX-VAC` (30) | 24 refused, 6 n/e | 24 refused, 6 n/e | — | — | — | — | 24 refused, 6 n/e | 24 refused, 6 n/e | — | — | — | — | — | — |
 | ADR 0003 / §5.1 one reference instant τ | `SCD-TAU-01` | 1 refused | 1 refused | — | — | — | — | 1 refused | 1 refused | — | — | — | — | — | — |
 | §2.1 Structural invariants (V_S ⊆ D_S × F_S) | `MOD-08`, `MOD-09`, `MOD-10`, `MOD-11` | — | — | — | — | 4 pass | — | — | — | — | — | — | — | — | — |
-| §2.4 Additivity AD1–AD4 and grain defaults | `ADD-01` … `ADD-13` (13) | — | — | — | — | — | 7 pass, 6 n/e | — | — | — | — | — | — | — | — |
+| §2.4 Additivity AD1–AD4 and grain defaults | `ADD-01` … `ADD-13` (13) | — | — | — | — | — | 9 pass, 4 refused | — | — | — | — | — | — | — | — |
 | §2.5 SCD resolution: as-was and as-is | `SCD-01` … `SCD-05` (5) | 5 pass | 5 pass | — | — | — | — | 5 pass | 5 refused | — | — | — | — | — | — |
 | §2.5 SCD2 versions; §2.6 M2 (a closed version has valid_to set) | `SINK-CL-01`, `SINK-CL-02`, `SINK-CL-03`, `SINK-CL-04` | — | — | — | — | — | — | — | — | — | 4 pass | 4 **non-conf.** | 4 pass | — | — |
 | §2.6 Declared model (well-formedness at construction); §2.4 argument kinds | `MOD-01` … `MOD-07` (7) | — | — | — | — | 7 pass | — | — | — | — | — | — | — | — | — |
@@ -458,12 +458,10 @@ implement the area.
 | `SCD-TAU-01` | `duckdb-plan-ir` | refused | the plan IR refuses TemporalContext (node_resolution cannot be stated) |
 | `SCD-TAU-01` | `pg-duckdb-plan-ir` | refused | the plan IR refuses TemporalContext (node_resolution cannot be stated) |
 | `SCD-TAU-01` | `planner-refusals` | refused | every target without an emitter (SQL_POSTGRESQL, CYPHER, SPARQL, DGM_JSON, DGM_YAML) raises UnsupportedCapability |
-| `ADD-04` | `dgm-annotations` | n/e | sqldim has no Additivity annotation; Grain decides SUM only |
-| `ADD-06` | `dgm-annotations` | n/e | sqldim has no Additivity annotation; Grain decides SUM only |
-| `ADD-07` | `dgm-annotations` | n/e | sqldim has no Additivity annotation; Grain decides SUM only |
-| `ADD-08` | `dgm-annotations` | n/e | sqldim has no Additivity annotation; Grain decides SUM only |
-| `ADD-09` | `dgm-annotations` | n/e | sqldim has no Additivity annotation; Grain decides SUM only |
-| `ADD-10` | `dgm-annotations` | n/e | sqldim has no Additivity annotation; Grain decides SUM only |
+| `ADD-04` | `dgm-annotations` | refused | the question lattice raises LatticeUnsupported for a SEMI_ADDITIVE measure: AD2 decides its SUM by the period or entity of each axis, which the enumeration does not decide (fail-closed) |
+| `ADD-07` | `dgm-annotations` | refused | the question lattice does not offer AVG over a NON_ADDITIVE measure: AD3 accepts it only with a warning, and the enumeration offers no aggregate that needs one |
+| `ADD-09` | `dgm-annotations` | refused | the question lattice raises LatticeUnsupported for a SEMI_ADDITIVE measure: AD2 decides its SUM by the period or entity of each axis, which the enumeration does not decide (fail-closed); rejected for that reason, not by AD2 |
+| `ADD-10` | `dgm-annotations` | refused | the question lattice raises LatticeUnsupported for a SEMI_ADDITIVE measure: AD2 decides its SUM by the period or entity of each axis, which the enumeration does not decide (fail-closed) |
 | `DA-01` | `planner-refusals` | refused | every target without an emitter (SQL_POSTGRESQL, CYPHER, SPARQL, DGM_JSON, DGM_YAML) raises UnsupportedCapability |
 | `DA-02` | `planner-refusals` | refused | every target without an emitter (SQL_POSTGRESQL, CYPHER, SPARQL, DGM_JSON, DGM_YAML) raises UnsupportedCapability |
 | `BDD-K-05` | `dgm-bdd` | n/e | sqldim has no NotTrue filter node |
@@ -476,7 +474,7 @@ implement the area.
 | Clause | Why no executable case |
 |---|---|
 | §4.1 Monitor verdicts | sqldim has no Monitor construct; the cases `MON-*` run against the oracle only |
-| §2.4 Additivity annotation, AD3/AD4 | sqldim has no Additivity annotation; only the grain default for SUM is checked (`dgm-annotations`) |
+| §2.4 AD2 over a declared SEMI_ADDITIVE axis | no implementation decides it: `Grain.rejects_sum` covers the grain default only, and the question lattice refuses every SEMI_ADDITIVE measure (`ADD-04`, `ADD-09`, `ADD-10` are refusals) |
 | §4.2 LATEST / EARLIEST | sqldim has no LATEST or EARLIEST TemporalWindow; `TAGG-*` run against the oracle only |
 | §5.2.2 DA1–DA3 | constellation well-formedness is enforced only inside the question-lattice enumeration (`lattice/_context.py`), which has no query to submit; `DA-WF-*` run against the oracle only |
 | ADR 0001 infinite traces (lasso) | the oracle does not model infinite traces and no backend executes a cyclic temporal PathPred; no case is written |
