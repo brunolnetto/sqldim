@@ -54,21 +54,21 @@ Regenerate with `PYTHONPATH=. python -m tests.conformance.backend_matrix --write
 
 | Backend | Declared by | Emitter | Version | Evidence | Executed in CI |
 |---|---|---|---|---|---|
-| DuckDB, plan IR | `SQL_DUCKDB` | plan IR → DuckDB SQL (#148) | DuckDB 1.5.0 | `duckdb-plan-ir` | yes |
-| DuckDB, `DGMQuery.to_sql()` | `DGMQuery.to_sql()` | DGMQuery.to_sql() → DuckDB SQL | DuckDB 1.5.0 | `duckdb-dgmquery` | yes |
-| PostgreSQL via DuckDB (PG(DD)) | `SQL_DUCKDB over PostgreSQL (PG(DD))` | plan IR → DuckDB SQL (#148), executed by DuckDB's postgres extension | DuckDB 1.5.0 postgres extension | `pg-duckdb-plan-ir` | yes, against the `postgres:19` service container (`SQLDIM_PG_HOST`); skipped locally without a server |
-| MotherDuck | `SQL_MOTHERDUCK` | plan IR → DuckDB SQL (#148), the SQL_DUCKDB emitter | DuckDB 1.5.0 | — | **not executed** — needs a MotherDuck account and `MOTHERDUCK_TOKEN`; running its SQL on local DuckDB would be DuckDB evidence, not MotherDuck |
+| DuckDB, plan IR | `SQL_DUCKDB` | plan IR → DuckDB SQL (#148) | DuckDB 2.0.1 | `duckdb-plan-ir` | yes |
+| DuckDB, `DGMQuery.to_sql()` | `DGMQuery.to_sql()` | DGMQuery.to_sql() → DuckDB SQL | DuckDB 2.0.1 | `duckdb-dgmquery` | yes |
+| PostgreSQL via DuckDB (PG(DD)) | `SQL_DUCKDB over PostgreSQL (PG(DD))` | plan IR → DuckDB SQL (#148), executed by DuckDB's postgres extension | DuckDB 2.0.1 postgres extension | `pg-duckdb-plan-ir` | yes, against the `postgres:19` service container (`SQLDIM_PG_HOST`); skipped locally without a server |
+| MotherDuck | `SQL_MOTHERDUCK` | plan IR → DuckDB SQL (#148), the SQL_DUCKDB emitter | DuckDB 2.0.1 | — | **not executed** — needs a MotherDuck account and `MOTHERDUCK_TOKEN`; running its SQL on local DuckDB would be DuckDB evidence, not MotherDuck |
 | PostgreSQL, native SQL | `SQL_POSTGRESQL` | **none** | — | `planner-refusals` | yes — the refusal of every query is executed |
 | Cypher | `CYPHER` | **none** | — | `planner-refusals` | yes — the refusal of every query is executed |
 | SPARQL | `SPARQL` | **none** | — | `planner-refusals` | yes — the refusal of every query is executed |
 | DGM_JSON | `DGM_JSON` | **none** | — | `planner-refusals` | yes — the refusal of every query is executed |
 | DGM_YAML | `DGM_YAML` | **none** | — | `planner-refusals` | yes — the refusal of every query is executed |
-| DuckDB | `DUCKDB` | DuckDBSink; Rule 8: CREATE TABLE AS / INSERT INTO | DuckDB 1.5.0 | `sink-duckdb`, `dgm-write-plan` | yes — temporary file |
-| PostgreSQL | `POSTGRESQL` | PostgreSQLSink through DuckDB's postgres extension | DuckDB 1.5.0 postgres extension | `sink-postgresql`, `dgm-write-plan` | yes, against the `postgres:19` service container (`SQLDIM_PG_HOST`); skipped locally without a server |
-| Parquet | `PARQUET` | ParquetSink; Rule 8: COPY TO (FORMAT PARQUET) | DuckDB 1.5.0 | `sink-parquet`, `dgm-write-plan` | yes — temporary directory |
-| MotherDuck | `MOTHERDUCK` | MotherDuckSink; Rule 8: CREATE TABLE AS / INSERT INTO | DuckDB 1.5.0 | `sink-motherduck`, `dgm-write-plan` | captured SQL and write plan only; storage **not executed** (needs `MOTHERDUCK_TOKEN`) |
-| Delta | `DELTA` | DeltaLakeSink; Rule 8 write plan | DuckDB 1.5.0 delta extension | `sink-delta`, `dgm-write-plan` | yes — an empty Delta table built in a temporary directory (DuckDB 1.5.0 cannot create one), appended to through the `delta` extension |
-| Iceberg | `ICEBERG` | IcebergSink (PyIceberg append); Rule 8 write plan | DuckDB 2.0 (documented, §6.2 Iceberg writes) | `dgm-write-plan` | write plan only; storage **not executed**: `IcebergSink` needs `pyiceberg` and an Iceberg REST catalog, and §6.2 writes need DuckDB 2.0; CI has neither (see *Reproducing* below) |
+| DuckDB | `DUCKDB` | DuckDBSink; Rule 8: CREATE TABLE AS / INSERT INTO | DuckDB 2.0.1 | `sink-duckdb`, `dgm-write-plan` | yes — temporary file |
+| PostgreSQL | `POSTGRESQL` | PostgreSQLSink through DuckDB's postgres extension | DuckDB 2.0.1 postgres extension | `sink-postgresql`, `dgm-write-plan` | yes, against the `postgres:19` service container (`SQLDIM_PG_HOST`); skipped locally without a server |
+| Parquet | `PARQUET` | ParquetSink; Rule 8: COPY TO (FORMAT PARQUET) | DuckDB 2.0.1 | `sink-parquet`, `dgm-write-plan` | yes — temporary directory |
+| MotherDuck | `MOTHERDUCK` | MotherDuckSink; Rule 8: CREATE TABLE AS / INSERT INTO | DuckDB 2.0.1 | `sink-motherduck`, `dgm-write-plan` | captured SQL and write plan only; storage **not executed** (needs `MOTHERDUCK_TOKEN`) |
+| Delta | `DELTA` | DeltaLakeSink; Rule 8 write plan | DuckDB 2.0.1 delta extension | `sink-delta`, `dgm-write-plan` | yes — an empty Delta table created by DuckDB in a temporary directory, appended to through the `delta` extension and read back with `delta_scan` after `DETACH` |
+| Iceberg | `ICEBERG` | IcebergSink (PyIceberg append); Rule 8 write plan | DuckDB 2.0 (documented, §6.2 Iceberg writes) | `dgm-write-plan` | write plan only; storage **not executed**: `IcebergSink` writes through `pyiceberg`, not DuckDB, and needs an Iceberg REST catalog whose warehouse the runner also reaches; no code executes an Iceberg MERGE (see *Reproducing* below) |
 
 ### Query capabilities
 
@@ -78,7 +78,7 @@ Cells: declared support · cases by status (*pass*, **non-conf.** = strict xfail
 |---|---|---|---|---|---|---|---|---|
 | DuckDB, plan IR | partial · 6 pass | supported · 10 pass | partial · 16 pass, 3 refused | supported · 6 pass | partial · 6 pass | supported · 13 pass | supported · 2 pass | partial · 98 pass, 22 n/e |
 | DuckDB, `DGMQuery.to_sql()` | partial · 6 pass | supported · 10 pass | partial · 16 pass, 3 refused | supported · 6 pass | unsupported · 6 refused | supported · 13 pass | supported · 2 pass | partial · 52 pass, 46 refused, 22 n/e |
-| PostgreSQL via DuckDB (PG(DD)) | partial · 6 pass | supported · 8 pass | partial · 16 pass, 3 refused | supported · 6 pass | partial · 6 pass | partial · 1 pass, 2 refused | unsupported · 2 refused | partial · 98 pass, 22 n/e |
+| PostgreSQL via DuckDB (PG(DD)) | partial · 6 pass | supported · 8 pass | partial · 16 pass, 3 refused | supported · 6 pass | partial · 6 pass | partial · 3 pass | partial · 2 pass | partial · 98 pass, 22 n/e |
 | MotherDuck | partial · *not executed* | supported · *not executed* | partial · *not executed* | supported · *not executed* | partial · *not executed* | supported · *not executed* | supported · *not executed* | partial · *not executed* |
 | PostgreSQL, native SQL | unsupported · 6 refused | unsupported · 8 refused | unsupported · 19 refused | unsupported · 6 refused | unsupported · 6 refused | unsupported · 3 refused | unsupported · 2 refused | unsupported · 93 refused, 27 n/e |
 | Cypher | unsupported · 6 refused | unsupported · 8 refused | unsupported · 19 refused | unsupported · 6 refused | unsupported · 6 refused | unsupported · 3 refused | unsupported · 2 refused | unsupported · 93 refused, 27 n/e |
@@ -94,7 +94,7 @@ Cells: declared support · cases by status (*pass*, **non-conf.** = strict xfail
 | PostgreSQL | supported · 6 pass | supported · 5 pass | supported · *no case* |
 | Parquet | supported · 6 pass | partial · 5 pass | partial · *no case* |
 | MotherDuck | supported · 3 pass | supported · 1 pass | supported · *not executed* |
-| Delta | partial · 7 pass | unsupported · 5 refused | unsupported · 1 pass |
+| Delta | supported · 7 pass | unsupported · 5 refused | unsupported · 1 pass |
 | Iceberg | partial · 3 pass | partial · *not executed* | partial · 1 pass |
 
 ### Partial and unsupported declarations
@@ -108,15 +108,14 @@ Cells: declared support · cases by status (*pass*, **non-conf.** = strict xfail
 | unsupported | `DGMQuery.to_sql()`: cte | a Repeat raises UnsupportedConstruct; plan it with DGMPlanner |
 | partial | `DGMQuery.to_sql()`: pathpred | EXISTS / FORALL, strategy ALL; a temporal mode is rendered by the plan IR without a model: EVENTUALLY, GLOBALLY and UNTIL over every node after the anchor of a Repeat-free path; NEXT over the first hop; it reads no model, so a mode over a Repeat's iterations, other strategies and the past-time modes (time-orderedness is declared by BridgeSemantics) are refused, as is on_empty |
 | partial | `SQL_DUCKDB over PostgreSQL (PG(DD))`: window | ROW_NUMBER with QUALIFY is verified; RANK and DENSE_RANK are not |
-| unsupported | `SQL_DUCKDB over PostgreSQL (PG(DD))`: window_aggregate | a SUM window over a PostgreSQL scan raises NotImplementedException (PostgresScanSerialize) in DuckDB 1.5.0's postgres extension; DGMPlanner(execution_profile=POSTGRESQL_VIA_DUCKDB) refuses it before execution |
+| partial | `SQL_DUCKDB over PostgreSQL (PG(DD))`: window_aggregate | a SUM window with QUALIFY is verified (DuckDB 2.0.1; 1.5.0 raised NotImplementedException, PostgresScanSerialize); AVG, LAG and the other window functions are not |
 | unsupported | `SQL_POSTGRESQL`: join, null, temporal, aggregation, cte, window, window_aggregate, pathpred | no emitter: DGMPlanner.plan_query raises UnsupportedCapability; PostgreSQL data is queried with SQL_DUCKDB over a database attached with DuckDB's postgres extension (PG(DD), §6.4) |
 | unsupported | `CYPHER`: join, null, temporal, aggregation, cte, window, window_aggregate, pathpred; `SPARQL`: join, null, temporal, aggregation, cte, window, window_aggregate, pathpred | no emitter: DGMPlanner.plan_query raises UnsupportedCapability (§6.4 cells unbuilt) |
 | unsupported | `DGM_JSON`: join, null, temporal, aggregation, cte, window, window_aggregate, pathpred | no emitter: DGMPlanner.plan_query raises UnsupportedCapability; DGMJSONExporter serialises a plan |
 | unsupported | `DGM_YAML`: join, null, temporal, aggregation, cte, window, window_aggregate, pathpred | no emitter: DGMPlanner.plan_query raises UnsupportedCapability; DGMYAMLExporter serialises a plan |
 | partial | `PARQUET`: scd2_close | the whole table is rewritten into a staging directory that replaces it, keeping every version; local filesystem only (a remote URI raises SinkUnsupported), and not atomic for a concurrent reader |
 | partial | `PARQUET`: merge | Rule 10 plans a MERGE WritePlan |
-| partial | `DELTA`: append | §6.2: APPEND only, by ATTACH … (TYPE delta) and INSERT INTO the attached table; DuckDB 1.5.0 cannot create the table |
-| unsupported | `DELTA`: scd2_close | §6.2: the delta extension rejects UPDATE; DeltaLakeSink.close_versions raises SinkUnsupported |
+| unsupported | `DELTA`: scd2_close | §6.2: the delta extension rejects UPDATE (DuckDB 2.0.1: "Can only update base table"); DeltaLakeSink.close_versions raises SinkUnsupported |
 | unsupported | `DELTA`: merge | §6.2 Delta writes: MERGE is rejected (Rule 10) |
 | partial | `ICEBERG`: append | §6.2: INSERT INTO catalog.schema.table on the attached REST catalog declared with IcebergCatalog; without one Rule 8 rejects the plan |
 | partial | `ICEBERG`: scd2_close | partition overwrite via PyIceberg |
@@ -143,17 +142,25 @@ Those of the DuckDB paths are listed in `dgm-conformance.md`.
   `duckdb-plan-ir` backend with a session that attaches `md:<db>`. Running
   the same SQL on local DuckDB is DuckDB evidence and is not counted for
   MotherDuck.
-- **Delta.** DuckDB 1.5.0 cannot create a Delta table ("Delta tables do not
-  support creating tables", §6.2 *Delta writes*), and `deltalake` is an
-  optional extra. The `sink-delta` harness therefore writes an empty table by
-  hand (one empty Parquet file and its first commit in `_delta_log`). It then
-  appends through the `delta` extension, which CI installs with
-  `INSTALL delta`.
-- **Iceberg.** It needs `pyiceberg` and an Iceberg REST catalog. §6.2
-  *Iceberg writes* states the precondition: a catalog attached with
-  `ATTACH 'warehouse' AS … (TYPE iceberg, SECRET …, URI …)`, writes by
-  three-part name, and its capability table was read for DuckDB 2.0. A
-  reproducer runs a REST catalog, for example the `apache/iceberg-rest-fixture`
-  image, attaches it from DuckDB 2.0 and runs the `sink_roundtrip` and
-  `sink_close` cases. Until then `IcebergSink` is evidenced only by its write
-  plan.
+- **Delta** (run in CI). The `sink-delta` harness creates the empty table
+  through DuckDB 2.0.1 (`ATTACH '<dir>/dim' AS dim (TYPE delta)` and
+  `CREATE TABLE dim.dim (…)`: the table takes the name of the alias), appends
+  through `DeltaLakeSink.write()` and reads the rows back with `delta_scan`
+  after `DETACH`, from what was committed to `_delta_log`. CI installs the
+  extension with `INSTALL delta`. `UPDATE`, `DELETE` and `MERGE INTO` on an
+  attached Delta table still fail on 2.0.1 ("Can only update base table"),
+  so closing a version stays a refusal. A statement on an unqualified name
+  that matches the alias, run before the table exists, creates a DuckDB
+  in-memory table, not a Delta table: its effects look like Delta writes
+  inside the session and leave nothing on disk.
+- **Iceberg** (not executed). `IcebergSink` writes and closes versions
+  through `pyiceberg` (`Table.append`, a partition overwrite), not through
+  DuckDB, and reads with `iceberg_scan`. A CI run needs `pyiceberg` as a test
+  dependency, an Iceberg REST catalog service (for example the
+  `apache/iceberg-rest-fixture` image) and a warehouse both the catalog
+  container and the runner reach (a shared volume, or an S3 service such as
+  MinIO with credentials). The §6.2 MERGE is planned by Rule 10, but sqldim
+  has no code that executes it (`MERGE INTO` on a catalog attached with
+  `ATTACH … (TYPE iceberg)`), so CI would have no MERGE to run. Until both
+  exist `IcebergSink` is evidenced only by its write plan; moving to
+  DuckDB 2.0.1 (#193) changes neither.

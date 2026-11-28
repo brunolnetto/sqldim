@@ -221,7 +221,7 @@ with IcebergSink(
 
 ### DeltaLakeSink
 
-Delta Lake via DuckDB's `delta` extension, APPEND only (§6.2 *Delta writes*). `write()` attaches the table (`ATTACH … (TYPE delta)`) and appends with `INSERT INTO`; `delta_scan` is used for reads only. The table must already exist: DuckDB 1.5.0 cannot create a Delta table.
+Delta Lake via DuckDB's `delta` extension, APPEND only (§6.2 *Delta writes*). `write()` attaches the table (`ATTACH … (TYPE delta)`) and appends with `INSERT INTO … BY NAME`, one Delta commit per call: a table column the rows lack is written as `NULL`, and a column the table lacks raises `SchemaError` before anything is written. When the path holds no Delta table, the first `write()` creates it with `CREATE TABLE <alias> AS` (DuckDB 2.0.1 names the table after the attached alias). `delta_scan` is used for reads only.
 
 ```python
 from sqldim.sinks import DeltaLakeSink
@@ -235,7 +235,7 @@ with DeltaLakeSink("/data/delta_warehouse", natural_key="email") as sink:
 | `path` | `str` | required | Base directory for Delta tables |
 | `natural_key` | `str` | `"id"` | Kept for compatibility; an append does not use it |
 
-**Limitations**: DuckDB's delta extension rejects `UPDATE`, `DELETE` and `MERGE INTO`, so `close_versions()`, `update_attributes()`, `rotate_attributes()` and `update_milestones()` raise `SinkUnsupported` and send nothing. An SCD2 load that closes versions needs another sink. No `write_named`, `prefetch_hashes`, or `upsert`.
+**Limitations**: DuckDB's delta extension rejects `UPDATE`, `DELETE` and `MERGE INTO` (checked on DuckDB 2.0.1: "Can only update base table"), so `close_versions()`, `update_attributes()`, `rotate_attributes()` and `update_milestones()` raise `SinkUnsupported` and send nothing. An SCD2 load that closes versions needs another sink. No `write_named`, `prefetch_hashes`, or `upsert`.
 
 ## Choosing a Sink
 

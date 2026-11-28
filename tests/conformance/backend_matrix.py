@@ -96,13 +96,14 @@ SINK_ROWS: tuple[Row, ...] = (
         "captured SQL and write plan only; storage **not executed** (needs "
         "`MOTHERDUCK_TOKEN`)", "MOTHERDUCK"),
     Row("Delta", _s(SinkTarget.DELTA), ("sink-delta", "dgm-write-plan"),
-        "yes — an empty Delta table built in a temporary directory (DuckDB "
-        "1.5.0 cannot create one), appended to through the `delta` "
-        "extension", "DELTA"),
+        "yes — an empty Delta table created by DuckDB in a temporary "
+        "directory, appended to through the `delta` extension and read back "
+        "with `delta_scan` after `DETACH`", "DELTA"),
     Row("Iceberg", _s(SinkTarget.ICEBERG), ("dgm-write-plan",),
-        "write plan only; storage **not executed**: `IcebergSink` needs "
-        "`pyiceberg` and an Iceberg REST catalog, and §6.2 writes need DuckDB "
-        "2.0; CI has neither (see *Reproducing* below)", "ICEBERG"),
+        "write plan only; storage **not executed**: `IcebergSink` writes "
+        "through `pyiceberg`, not DuckDB, and needs an Iceberg REST catalog "
+        "whose warehouse the runner also reaches; no code executes an Iceberg "
+        "MERGE (see *Reproducing* below)", "ICEBERG"),
 )  # fmt: skip
 
 ROWS = QUERY_ROWS + SINK_ROWS

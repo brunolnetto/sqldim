@@ -4,37 +4,44 @@ sqldim/sinks/delta.py
 Delta Lake sink via DuckDB's delta extension (§6.2 *Delta writes*).
 
 ``delta_scan(path)`` is read-only.  A write attaches the table
-(``ATTACH … (TYPE delta)``) and appends to it with ``INSERT INTO``; that is
-the only write DuckDB's delta extension makes.  ``UPDATE``, ``DELETE`` and
-``MERGE INTO`` are rejected by the extension, so every operation that changes
-written rows — closing SCD2 versions, SCD1/SCD3 updates, milestones — raises
-:class:`~sqldim.sinks.SinkUnsupported` and sends nothing (#178).  On DuckDB
-1.5.0 the table must already exist: creating a Delta table needs DuckDB 2.0.
+(``ATTACH … (TYPE delta)``) and appends to it with ``INSERT INTO … BY NAME``;
+when the path holds no Delta table yet, the first write creates it with
+``CREATE TABLE <alias> AS`` (DuckDB 2.0.1: the table takes the name of the
+attached alias).  ``UPDATE``, ``DELETE`` and ``MERGE INTO`` are still rejected
+by the extension on DuckDB 2.0.1 ("Can only update base table"), so every
+operation that changes written rows — closing SCD2 versions, SCD1/SCD3
+updates, milestones — raises :class:`~sqldim.sinks.SinkUnsupported` and sends
+nothing (#178, #193).
 """
 
 from uuid import uuid4
 
 import duckdb
 
+from sqldim.exceptions import SchemaError
 from sqldim.sinks._connection import OwnsConnection, make_connection
 from sqldim.sinks._errors import SinkUnsupported
 
 _APPEND_ONLY = (
     "§6.2 Delta writes: DuckDB's delta extension appends only (INSERT INTO an "
-    "attached table); UPDATE, DELETE and MERGE INTO are rejected, so a Delta "
-    "table's rows cannot be changed in place. Nothing was written"
+    "attached table); UPDATE, DELETE and MERGE INTO are rejected (verified on "
+    "DuckDB 2.0.1), so a Delta table's rows cannot be changed in place. "
+    "Nothing was written"
 )
 
 
-def _ident(name: str) -> str:
-    return '"' + str(name).replace('"', '""') + '"'
+def _columns(con: duckdb.DuckDBPyConnection, relation: str) -> list[str]:
+    return [
+        str(r[0]) for r in con.execute(f"DESCRIBE SELECT * FROM {relation}").fetchall()
+    ]
 
 
 class DeltaLakeSink(OwnsConnection):
     """
     Sink backed by Delta Lake via DuckDB's delta extension: APPEND only.
 
-    ``write()`` appends; every in-place change raises ``SinkUnsupported``.
+    ``write()`` appends, creating the table on the first write; every in-place
+    change raises ``SinkUnsupported``.
     ``natural_key`` is kept for compatibility; an append does not use it.
     """
 
@@ -63,31 +70,41 @@ class DeltaLakeSink(OwnsConnection):
         table_name: str,
         batch_size: int = 100_000,
     ) -> int:
-        """Append the rows of *view_name* to the existing Delta table.
+        """Append the rows of *view_name* to the Delta table, one Delta commit.
 
-        The table is attached under a fresh alias, its columns are read in
-        order, and ``INSERT INTO <alias> SELECT <those columns> FROM view``
-        appends one Delta commit; a column missing from the view fails the
-        write.  Returns the rows appended.
+        The table is attached under a fresh alias.  If it exists, the rows are
+        inserted by name (``INSERT INTO <alias> BY NAME SELECT *``): a table
+        column the view lacks is written as ``NULL``, and a view column the
+        table lacks raises :class:`~sqldim.exceptions.SchemaError` before
+        anything is written, as in ``DuckDBSink`` (#192).  If the path holds
+        no Delta table, ``CREATE TABLE <alias> AS`` creates it with the
+        view's columns and rows.  Returns the rows written.
         """
         alias = f"sqldim_delta_{uuid4().hex[:12]}"
         con.execute(f"ATTACH '{self._table_uri(table_name)}' AS {alias} (TYPE delta)")
         try:
-            cols = [
-                r[0]
-                for r in con.execute(
-                    "SELECT column_name FROM duckdb_columns() "
-                    f"WHERE database_name = '{alias}' ORDER BY column_index"
-                ).fetchall()
-            ]
-            if not cols:
-                raise SinkUnsupported(
-                    f"{self._table_uri(table_name)!r} has no Delta table to append "
-                    "to; creating one needs DuckDB 2.0 (§6.2). Nothing was written"
-                )
+            exists = (
+                con.execute(
+                    "SELECT count(*) FROM duckdb_tables() "
+                    f"WHERE database_name = '{alias}'"
+                ).fetchone()
+                or (0,)
+            )[0]
             n = (con.execute(f"SELECT count(*) FROM {view_name}").fetchone() or (0,))[0]
-            select = ", ".join(_ident(c) for c in cols)
-            con.execute(f"INSERT INTO {alias} SELECT {select} FROM {view_name}")
+            if not exists:
+                con.execute(
+                    f"CREATE TABLE {alias}.{alias} AS SELECT * FROM {view_name}"
+                )
+                return n
+            have = {c.lower() for c in _columns(con, alias)}
+            extra = [c for c in _columns(con, view_name) if c.lower() not in have]
+            if extra:
+                raise SchemaError(
+                    f"{self._table_uri(table_name)!r} has no column {extra}: "
+                    "DeltaLakeSink inserts by name, and every column of the rows "
+                    "written must exist in the Delta table; nothing was written"
+                )
+            con.execute(f"INSERT INTO {alias} BY NAME SELECT * FROM {view_name}")
         finally:
             con.execute(f"DETACH {alias}")
         return n

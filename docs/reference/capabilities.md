@@ -100,7 +100,7 @@ Declared support per capability, from the profiles the planner reads. A target w
 |---|---|---|---|---|---|---|---|---|---|---|---|
 | DuckDB, plan IR | `SQL_DUCKDB` | plan IR → DuckDB SQL (#148) | partial | supported | partial | supported | partial | supported | supported | partial | yes |
 | DuckDB, `DGMQuery.to_sql()` | `DGMQuery.to_sql()` | DGMQuery.to_sql() → DuckDB SQL | partial | supported | partial | supported | unsupported | supported | supported | partial | yes |
-| PostgreSQL via DuckDB (PG(DD)) | `SQL_DUCKDB over PostgreSQL (PG(DD))` | plan IR → DuckDB SQL (#148), executed by DuckDB's postgres extension | partial | supported | partial | supported | partial | partial | unsupported | partial | yes, against the `postgres:19` service container (`SQLDIM_PG_HOST`); skipped locally without a server |
+| PostgreSQL via DuckDB (PG(DD)) | `SQL_DUCKDB over PostgreSQL (PG(DD))` | plan IR → DuckDB SQL (#148), executed by DuckDB's postgres extension | partial | supported | partial | supported | partial | partial | partial | partial | yes, against the `postgres:19` service container (`SQLDIM_PG_HOST`); skipped locally without a server |
 | MotherDuck | `SQL_MOTHERDUCK` | plan IR → DuckDB SQL (#148), the SQL_DUCKDB emitter | partial | supported | partial | supported | partial | supported | supported | partial | **not executed** — needs a MotherDuck account and `MOTHERDUCK_TOKEN`; running its SQL on local DuckDB would be DuckDB evidence, not MotherDuck |
 | PostgreSQL, native SQL | `SQL_POSTGRESQL` | **none** | unsupported | unsupported | unsupported | unsupported | unsupported | unsupported | unsupported | unsupported | yes — the refusal of every query is executed |
 | Cypher | `CYPHER` | **none** | unsupported | unsupported | unsupported | unsupported | unsupported | unsupported | unsupported | unsupported | yes — the refusal of every query is executed |
@@ -116,7 +116,7 @@ Declared support per capability, from the profiles the planner reads. A target w
 | PostgreSQL | `POSTGRESQL` | PostgreSQLSink through DuckDB's postgres extension | supported | supported | supported | yes, against the `postgres:19` service container (`SQLDIM_PG_HOST`); skipped locally without a server |
 | Parquet | `PARQUET` | ParquetSink; Rule 8: COPY TO (FORMAT PARQUET) | supported | partial | partial | yes — temporary directory |
 | MotherDuck | `MOTHERDUCK` | MotherDuckSink; Rule 8: CREATE TABLE AS / INSERT INTO | supported | supported | supported | captured SQL and write plan only; storage **not executed** (needs `MOTHERDUCK_TOKEN`) |
-| Delta | `DELTA` | DeltaLakeSink; Rule 8 write plan | partial | unsupported | unsupported | yes — an empty Delta table built in a temporary directory (DuckDB 1.5.0 cannot create one), appended to through the `delta` extension |
+| Delta | `DELTA` | DeltaLakeSink; Rule 8 write plan | supported | unsupported | unsupported | yes — an empty Delta table created by DuckDB in a temporary directory, appended to through the `delta` extension and read back with `delta_scan` after `DETACH` |
 | Iceberg | `ICEBERG` | IcebergSink (PyIceberg append); Rule 8 write plan | partial | partial | partial | write plan only; storage **not executed**: `IcebergSink` needs `pyiceberg` and an Iceberg REST catalog, and §6.2 writes need DuckDB 2.0; CI has neither (see *Reproducing* in `dgm-backend-matrix.md`) |
 
 ### Theoretical claims
