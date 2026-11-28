@@ -307,7 +307,7 @@ def _check_renderable(pp: "PathPred") -> None:
     """``to_sql()`` renders only what it renders faithfully (fail-closed).
 
     The same constructs are refused by the plan IR (``planner/_ir_build.py``);
-    a temporal mode is checked by ``_positions.without_mode``.
+    a temporal mode is rendered by the plan IR itself (``_positions``).
     """
     from sqldim.core.query.dgm.planner._ir import UnsupportedConstruct
 
@@ -325,12 +325,11 @@ STRATEGY_REFUSAL = (
 
 def _path_pred_sql(pp: "PathPred") -> str:
     """EXISTS / FORALL subquery SQL of a PathPred with strategy ALL; a
-    temporal mode is rendered by its one-position form (``_positions``)."""
+    temporal mode is rendered by the plan IR, without a model (``_positions``)."""
     if pp.temporal_mode is not None:
-        from sqldim.core.query.dgm.preds._positions import without_mode
+        from sqldim.core.query.dgm.preds._positions import render_sql
 
-        _check_renderable(pp)
-        pp = without_mode(pp)
+        return render_sql(pp)
     hops = _flatten_path(pp.path)
     if not hops:  # pragma: no cover
         return "TRUE"

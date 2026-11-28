@@ -114,6 +114,37 @@ class NodeIdentities:
         ]
         return any(e.weighted for e in edges) if edges else None
 
+    def time_ordered(self, kind: str, label: str) -> bool | None:
+        """§2.3: the bridge edge types labelled *label* are time-ordered.
+
+        ``None`` when the model cannot say: it declares no bridge edge type
+        with that label, or does not declare BridgeSemantics at all.
+        """
+        from sqldim.core.query.dgm.annotations import (
+            BridgeSemantics,
+            BridgeSemanticsKind,
+        )
+        from sqldim.core.query.dgm.model import AnnotationNotDeclared, EdgeKind
+
+        if kind in ("verb", "verb_inverse"):
+            return False
+        if not any(
+            e.kind is EdgeKind.BRIDGE and e.label == label
+            for e in self.model.edge_types
+        ):
+            return None
+        try:
+            sems = {a.sem for a in self.model.annotations(BridgeSemantics)
+                    if a.bridge == label}  # fmt: skip
+        except AnnotationNotDeclared:
+            return None
+        ordered = {
+            BridgeSemanticsKind.CAUSAL,
+            BridgeSemanticsKind.TEMPORAL,
+            BridgeSemanticsKind.SUPERSESSION,
+        }
+        return bool(sems) and sems <= ordered
+
 
 @dataclass(frozen=True)
 class _Ctx:
@@ -280,31 +311,34 @@ def _strategy(pp: "PathPred") -> tuple[str, int | None]:
 
 
 def _lower_path(pp: "PathPred", scope: frozenset[str]) -> PathExists:
+    """Lower a PathPred; a temporal mode is stated by ``_positions``."""
     from sqldim.core.query.dgm.preds import Quantifier as _Q
-    from sqldim.core.query.dgm.preds._positions import trace_mode, without_mode
+    from sqldim.core.query.dgm.preds import Repeat, _flatten_path
+    from sqldim.core.query.dgm.preds._positions import (
+        MIRROR,
+        lower_mode,
+        mode_name,
+        past_hops,
+    )
 
     if pp.promote:
         raise UnsupportedConstruct("PathPred(promote=True) is not supported")
     strategy, k = _strategy(pp)
-    if strategy != "ALL" and pp.temporal_mode is not None:
-        raise UnsupportedConstruct(
-            f"a temporal mode with strategy {strategy}: §4.1 defines T(s) over "
-            "every instance of the path, and does not state whether a strategy "
-            "selects instances before their traces are formed"
-        )
-    mode = trace_mode(pp)
-    if mode is None:
-        # a mode over one position per instance is lowered by its mode-free
-        # form, as to_sql() renders it
-        pp = without_mode(pp)
+    mode = mode_name(pp.temporal_mode)
+    repeat = any(isinstance(h, Repeat) for h in _flatten_path(pp.path))
+    keyed = strategy != "ALL" or (mode is not None and repeat)
+    hops = _lower_hops(pp.path, scope, keyed=keyed)
+    if mode in MIRROR:  # ONCE, PREVIOUSLY, SINCE: their mirror on G^T (§4.1)
+        ctx = _CTX.get()
+        hops = past_hops(pp, hops, ctx.ids, dict(ctx.relations))
+        mode = MIRROR[mode]
     quant = Quantifier.FORALL if pp.quantifier is _Q.FORALL else Quantifier.EXISTS
-    hops = _lower_hops(pp.path, scope, keyed=strategy != "ALL" or mode is not None)
     inner = frozenset(_path_aliases(hops)) | scope
     sub = lower_pred(pp.sub_filter, inner)
     until = None
     if mode == "UNTIL":
         until = lower_pred(pp.temporal_mode.pred, inner)  # type: ignore[attr-defined]
-    return PathExists(quant, strategy, hops, sub, k, mode, until)
+    return lower_mode(PathExists(quant, strategy, hops, sub, k), mode, until)
 
 
 def _path_aliases(hops: tuple[PathHop | PathRepeat, ...]) -> list[str]:

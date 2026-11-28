@@ -144,8 +144,8 @@ def _make_path_pred_with_mode(mode, hop_cls=None):
 
 
 class TestTemporalModeSQLTemplates:
-    """A future mode over one evaluation position is rendered by its
-    one-position form (§4.1, ADR 0001); everything else is refused (#173)."""
+    """``to_sql()`` renders a temporal mode through the plan IR without a
+    model (§4.1, ADR 0001; #173, #183); what needs one is refused."""
 
     @pytest.mark.parametrize("mode", [EVENTUALLY, GLOBALLY, NEXT])
     def test_future_modes_over_one_position(self, mode):
@@ -171,25 +171,33 @@ class TestTemporalModeSQLTemplates:
     @pytest.mark.parametrize(
         "sub", [ScalarPred(PropRef("c", "status"), "=", "ok"), RawPred("TRUE")]
     )
-    def test_no_single_position_is_refused(self, sub):
-        from sqldim.core.query.dgm.planner import UnsupportedConstruct
-
+    def test_a_sub_filter_reading_no_path_alias_is_constant(self, sub):
+        """#183: every node after the anchor is a position; a sub_filter that
+        reads no path alias has the same value at each one."""
         hop = VerbHop("c", "placed", "s", table="fact_order", on="c.id = s.cust_id")
         pp = PathPred("c", hop, sub, temporal_mode=EVENTUALLY)
-        with pytest.raises(UnsupportedConstruct, match="evaluation position"):
-            pp.to_sql()
+        assert pp.to_sql() == PathPred("c", hop, sub).to_sql()
 
-    def test_until_target_on_another_alias_is_refused(self):
-        from sqldim.core.query.dgm.planner import UnsupportedConstruct
-
-        h1 = VerbHop("c", "placed", "s", table="fact_order", on="c.id = s.cust_id")
-        h2 = BridgeHop("s", "next", "t", table="fact_order", on="t.prev = s.id")
+    def test_every_node_after_the_anchor_is_a_position(self):
+        """#183: E(φ U ψ) over two hops reads φ and ψ at s and at t."""
         from sqldim.core.query.dgm.preds import Compose
 
+        h1 = BridgeHop("c", "next", "s", table="fact_order", on="s.prev = c.id")
+        h2 = BridgeHop("s", "next", "t", table="fact_order", on="t.prev = s.id")
         psi = ScalarPred(PropRef("t", "done"), "=", True)
         sub = ScalarPred(PropRef("s", "status"), "=", "ok")
-        pp = PathPred("c", Compose(h1, h2), sub, temporal_mode=UntilMode(psi))
-        with pytest.raises(UnsupportedConstruct, match="UNTIL target"):
+        sql = PathPred("c", Compose(h1, h2), sub, temporal_mode=UntilMode(psi)).to_sql()
+        assert "(s.done = True OR (t.done = True AND s.status = 'ok'))" in sql
+
+    def test_positions_over_different_relations_are_refused(self):
+        from sqldim.core.query.dgm.planner import UnsupportedConstruct
+        from sqldim.core.query.dgm.preds import Compose
+
+        h1 = VerbHop("c", "placed", "s", table="fact_order", on="c.id = s.cust_id")
+        h2 = BridgeHop("s", "ships", "t", table="shipment", on="t.order_id = s.id")
+        sub = ScalarPred(PropRef("t", "status"), "=", "ok")
+        pp = PathPred("c", Compose(h1, h2), sub, temporal_mode=EVENTUALLY)
+        with pytest.raises(UnsupportedConstruct, match="different relations"):
             pp.to_sql()
 
     def test_next_reading_past_the_first_hop_is_refused(self):

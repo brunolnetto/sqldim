@@ -50,7 +50,7 @@ implement the area.
 
 <!-- BEGIN GENERATED: tests/conformance/matrix.py -->
 
-413 cases; 197 carry a value stated by the specification, the others are derived by the oracle from the definitions. Every case is checked against the oracle.
+452 cases; 236 carry a value stated by the specification, the others are derived by the oracle from the definitions. Every case is checked against the oracle.
 
 | Clause | Cases | `duckdb-dgmquery` | `duckdb-plan-ir` | `duckdb-ordering` | `dgm-bdd` | `duckdb-question-algebra` | `dgm-model` | `dgm-annotations` | `pg-duckdb-plan-ir` | `planner-refusals` | `dgm-write-plan` | `sink-duckdb` | `sink-parquet` | `sink-postgresql` | `sink-motherduck` | `sink-delta` |
 |---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
@@ -84,8 +84,11 @@ implement the area.
 | §4.1 FORALL elimination (CTL duality, NotTrue, REQUIRE_WITNESS guard) | `BDD-F-01`, `BDD-F-02`, `BDD-F-03`, `BDD-F-04` | — | — | — | 4 pass | — | — | — | — | — | — | — | — | — | — | — |
 | §4.1 FORALL with ONCE/SINCE; past-time modes need a time-ordered path | `PP-PAST-01`, `PP-PAST-02`, `PP-PAST-03` | 3 pass | 3 pass | — | — | — | — | — | 3 pass | 3 n/e | — | — | — | — | — | — |
 | §4.1 NULL rules (NULL is not a literal) | `CON-N-01`, `CON-N-02` | 2 pass | 2 pass | — | — | — | — | — | — | — | — | — | — | — | — | — |
+| §4.1 Path-order modes and temporal modes (G^T); ADR 0001 Past-time modes | `CTL-PAST-ONCE-01` … `CTL-PAST-REJ-02` (18) | 2 pass, 15 refused, 1 n/e | 17 pass, 1 n/e | — | — | — | — | — | 17 pass, 1 n/e | 16 refused, 2 n/e | — | — | — | — | — | — |
 | §4.1 PathPred; FORALL elimination with NotTrue; ADR 0001 | `PP-EX-01` … `PP-NULL-04` (8) | 8 pass | 8 pass | — | — | — | — | — | 8 pass | 8 refused | — | — | — | — | — | — |
 | §4.1 Recorded traces and monitoring verdicts | `MON-01` … `MON-15` (15) | — | — | — | — | — | — | — | — | — | — | — | — | — | — | — |
+| §4.1 Temporal mode with a strategy; §3.3; ADR 0001 | `CTL-STR-01` … `CTL-STR-11` (11) | 11 refused | 11 pass | — | — | — | — | — | 11 pass | 11 refused | — | — | — | — | — | — |
+| §4.1 evaluation position; ADR 0001 Definitions (path without a Repeat) | `CTL-POS-01` … `CTL-POS-10` (10) | 10 pass | 10 pass | — | — | — | — | — | 10 pass | 10 refused | — | — | — | — | — | — |
 | §4.2 TemporalWindow LATEST / EARLIEST | `TAGG-01`, `TAGG-02` | — | — | — | — | — | — | — | — | — | — | — | — | — | — | — |
 | §4.2 What an aggregate counts (ENTITIES / PATHS) | `AGG-OVER-01`, `AGG-OVER-02`, `AGG-OVER-03`, `AGG-OVER-04` | 4 pass | 4 pass | — | — | — | — | — | 4 pass | 4 refused | — | — | — | — | — | — |
 | §5.2.2 Drill-across (steps 1–3, DA4) | `DA-01`, `DA-02` | 2 pass | 2 pass | — | — | — | — | — | 2 pass | 2 refused | — | — | — | — | — | — |
@@ -247,6 +250,74 @@ implement the area.
 | `CTL-U-04` | `planner-refusals` | refused | every target without an emitter (SQL_POSTGRESQL, CYPHER, SPARQL, DGM_JSON, DGM_YAML) raises UnsupportedCapability |
 | `CTL-U-05` | `duckdb-dgmquery` | refused | DGMQuery.to_sql() reads no model: a Repeat PathJoin and a temporal mode over a Repeat's iterations need node identities, so it raises (plan with DGMPlanner(model=…)) |
 | `CTL-U-05` | `planner-refusals` | refused | every target without an emitter (SQL_POSTGRESQL, CYPHER, SPARQL, DGM_JSON, DGM_YAML) raises UnsupportedCapability |
+| `CTL-POS-01` | `planner-refusals` | refused | every target without an emitter (SQL_POSTGRESQL, CYPHER, SPARQL, DGM_JSON, DGM_YAML) raises UnsupportedCapability |
+| `CTL-POS-02` | `planner-refusals` | refused | every target without an emitter (SQL_POSTGRESQL, CYPHER, SPARQL, DGM_JSON, DGM_YAML) raises UnsupportedCapability |
+| `CTL-POS-03` | `planner-refusals` | refused | every target without an emitter (SQL_POSTGRESQL, CYPHER, SPARQL, DGM_JSON, DGM_YAML) raises UnsupportedCapability |
+| `CTL-POS-04` | `planner-refusals` | refused | every target without an emitter (SQL_POSTGRESQL, CYPHER, SPARQL, DGM_JSON, DGM_YAML) raises UnsupportedCapability |
+| `CTL-POS-05` | `planner-refusals` | refused | every target without an emitter (SQL_POSTGRESQL, CYPHER, SPARQL, DGM_JSON, DGM_YAML) raises UnsupportedCapability |
+| `CTL-POS-06` | `planner-refusals` | refused | every target without an emitter (SQL_POSTGRESQL, CYPHER, SPARQL, DGM_JSON, DGM_YAML) raises UnsupportedCapability |
+| `CTL-POS-07` | `planner-refusals` | refused | every target without an emitter (SQL_POSTGRESQL, CYPHER, SPARQL, DGM_JSON, DGM_YAML) raises UnsupportedCapability |
+| `CTL-POS-08` | `planner-refusals` | refused | every target without an emitter (SQL_POSTGRESQL, CYPHER, SPARQL, DGM_JSON, DGM_YAML) raises UnsupportedCapability |
+| `CTL-POS-09` | `planner-refusals` | refused | every target without an emitter (SQL_POSTGRESQL, CYPHER, SPARQL, DGM_JSON, DGM_YAML) raises UnsupportedCapability |
+| `CTL-POS-10` | `planner-refusals` | refused | every target without an emitter (SQL_POSTGRESQL, CYPHER, SPARQL, DGM_JSON, DGM_YAML) raises UnsupportedCapability |
+| `CTL-STR-01` | `duckdb-dgmquery` | refused | DGMQuery.to_sql() renders only strategy ALL (UnsupportedConstruct): ≺ (§3.3) breaks ties by entity keys, and to_sql() reads no model |
+| `CTL-STR-01` | `planner-refusals` | refused | every target without an emitter (SQL_POSTGRESQL, CYPHER, SPARQL, DGM_JSON, DGM_YAML) raises UnsupportedCapability |
+| `CTL-STR-02` | `duckdb-dgmquery` | refused | DGMQuery.to_sql() renders only strategy ALL (UnsupportedConstruct): ≺ (§3.3) breaks ties by entity keys, and to_sql() reads no model |
+| `CTL-STR-02` | `planner-refusals` | refused | every target without an emitter (SQL_POSTGRESQL, CYPHER, SPARQL, DGM_JSON, DGM_YAML) raises UnsupportedCapability |
+| `CTL-STR-03` | `duckdb-dgmquery` | refused | DGMQuery.to_sql() renders only strategy ALL (UnsupportedConstruct): ≺ (§3.3) breaks ties by entity keys, and to_sql() reads no model |
+| `CTL-STR-03` | `planner-refusals` | refused | every target without an emitter (SQL_POSTGRESQL, CYPHER, SPARQL, DGM_JSON, DGM_YAML) raises UnsupportedCapability |
+| `CTL-STR-04` | `duckdb-dgmquery` | refused | DGMQuery.to_sql() renders only strategy ALL (UnsupportedConstruct): ≺ (§3.3) breaks ties by entity keys, and to_sql() reads no model |
+| `CTL-STR-04` | `planner-refusals` | refused | every target without an emitter (SQL_POSTGRESQL, CYPHER, SPARQL, DGM_JSON, DGM_YAML) raises UnsupportedCapability |
+| `CTL-STR-05` | `duckdb-dgmquery` | refused | DGMQuery.to_sql() renders only strategy ALL (UnsupportedConstruct): ≺ (§3.3) breaks ties by entity keys, and to_sql() reads no model |
+| `CTL-STR-05` | `planner-refusals` | refused | every target without an emitter (SQL_POSTGRESQL, CYPHER, SPARQL, DGM_JSON, DGM_YAML) raises UnsupportedCapability |
+| `CTL-STR-06` | `duckdb-dgmquery` | refused | DGMQuery.to_sql() renders only strategy ALL (UnsupportedConstruct): ≺ (§3.3) breaks ties by entity keys, and to_sql() reads no model |
+| `CTL-STR-06` | `planner-refusals` | refused | every target without an emitter (SQL_POSTGRESQL, CYPHER, SPARQL, DGM_JSON, DGM_YAML) raises UnsupportedCapability |
+| `CTL-STR-07` | `duckdb-dgmquery` | refused | DGMQuery.to_sql() renders only strategy ALL (UnsupportedConstruct): ≺ (§3.3) breaks ties by entity keys, and to_sql() reads no model |
+| `CTL-STR-07` | `planner-refusals` | refused | every target without an emitter (SQL_POSTGRESQL, CYPHER, SPARQL, DGM_JSON, DGM_YAML) raises UnsupportedCapability |
+| `CTL-STR-08` | `duckdb-dgmquery` | refused | DGMQuery.to_sql() renders only strategy ALL (UnsupportedConstruct): ≺ (§3.3) breaks ties by entity keys, and to_sql() reads no model |
+| `CTL-STR-08` | `planner-refusals` | refused | every target without an emitter (SQL_POSTGRESQL, CYPHER, SPARQL, DGM_JSON, DGM_YAML) raises UnsupportedCapability |
+| `CTL-STR-09` | `duckdb-dgmquery` | refused | DGMQuery.to_sql() renders only strategy ALL (UnsupportedConstruct): ≺ (§3.3) breaks ties by entity keys, and to_sql() reads no model |
+| `CTL-STR-09` | `planner-refusals` | refused | every target without an emitter (SQL_POSTGRESQL, CYPHER, SPARQL, DGM_JSON, DGM_YAML) raises UnsupportedCapability |
+| `CTL-STR-10` | `duckdb-dgmquery` | refused | DGMQuery.to_sql() renders only strategy ALL (UnsupportedConstruct): ≺ (§3.3) breaks ties by entity keys, and to_sql() reads no model |
+| `CTL-STR-10` | `planner-refusals` | refused | every target without an emitter (SQL_POSTGRESQL, CYPHER, SPARQL, DGM_JSON, DGM_YAML) raises UnsupportedCapability |
+| `CTL-STR-11` | `duckdb-dgmquery` | refused | DGMQuery.to_sql() renders only strategy ALL (UnsupportedConstruct): ≺ (§3.3) breaks ties by entity keys, and to_sql() reads no model |
+| `CTL-STR-11` | `planner-refusals` | refused | every target without an emitter (SQL_POSTGRESQL, CYPHER, SPARQL, DGM_JSON, DGM_YAML) raises UnsupportedCapability |
+| `CTL-PAST-ONCE-01` | `duckdb-dgmquery` | refused | DGMQuery.to_sql() reads no model: whether a bridge is time-ordered (§2.3) is its BridgeSemantics, so a past-time mode on G^T is refused (plan with DGMPlanner(model=…)) |
+| `CTL-PAST-ONCE-01` | `planner-refusals` | refused | every target without an emitter (SQL_POSTGRESQL, CYPHER, SPARQL, DGM_JSON, DGM_YAML) raises UnsupportedCapability |
+| `CTL-PAST-ONCE-02` | `duckdb-dgmquery` | refused | DGMQuery.to_sql() reads no model: whether a bridge is time-ordered (§2.3) is its BridgeSemantics, so a past-time mode on G^T is refused (plan with DGMPlanner(model=…)) |
+| `CTL-PAST-ONCE-02` | `planner-refusals` | refused | every target without an emitter (SQL_POSTGRESQL, CYPHER, SPARQL, DGM_JSON, DGM_YAML) raises UnsupportedCapability |
+| `CTL-PAST-ONCE-03` | `duckdb-dgmquery` | refused | DGMQuery.to_sql() reads no model: whether a bridge is time-ordered (§2.3) is its BridgeSemantics, so a past-time mode on G^T is refused (plan with DGMPlanner(model=…)) |
+| `CTL-PAST-ONCE-03` | `planner-refusals` | refused | every target without an emitter (SQL_POSTGRESQL, CYPHER, SPARQL, DGM_JSON, DGM_YAML) raises UnsupportedCapability |
+| `CTL-PAST-ONCE-04` | `duckdb-dgmquery` | refused | DGMQuery.to_sql() reads no model: whether a bridge is time-ordered (§2.3) is its BridgeSemantics, so a past-time mode on G^T is refused (plan with DGMPlanner(model=…)) |
+| `CTL-PAST-ONCE-04` | `planner-refusals` | refused | every target without an emitter (SQL_POSTGRESQL, CYPHER, SPARQL, DGM_JSON, DGM_YAML) raises UnsupportedCapability |
+| `CTL-PAST-ONCE-05` | `duckdb-dgmquery` | refused | DGMQuery.to_sql() reads no model: whether a bridge is time-ordered (§2.3) is its BridgeSemantics, so a past-time mode on G^T is refused (plan with DGMPlanner(model=…)) |
+| `CTL-PAST-ONCE-05` | `planner-refusals` | refused | every target without an emitter (SQL_POSTGRESQL, CYPHER, SPARQL, DGM_JSON, DGM_YAML) raises UnsupportedCapability |
+| `CTL-PAST-ONCE-06` | `duckdb-dgmquery` | refused | DGMQuery.to_sql() reads no model: whether a bridge is time-ordered (§2.3) is its BridgeSemantics, so a past-time mode on G^T is refused (plan with DGMPlanner(model=…)) |
+| `CTL-PAST-ONCE-06` | `planner-refusals` | refused | every target without an emitter (SQL_POSTGRESQL, CYPHER, SPARQL, DGM_JSON, DGM_YAML) raises UnsupportedCapability |
+| `CTL-PAST-ONCE-07` | `duckdb-dgmquery` | refused | DGMQuery.to_sql() reads no model: whether a bridge is time-ordered (§2.3) is its BridgeSemantics, so a past-time mode on G^T is refused (plan with DGMPlanner(model=…)) |
+| `CTL-PAST-ONCE-07` | `planner-refusals` | refused | every target without an emitter (SQL_POSTGRESQL, CYPHER, SPARQL, DGM_JSON, DGM_YAML) raises UnsupportedCapability |
+| `CTL-PAST-PREV-01` | `duckdb-dgmquery` | refused | DGMQuery.to_sql() reads no model: whether a bridge is time-ordered (§2.3) is its BridgeSemantics, so a past-time mode on G^T is refused (plan with DGMPlanner(model=…)) |
+| `CTL-PAST-PREV-01` | `planner-refusals` | refused | every target without an emitter (SQL_POSTGRESQL, CYPHER, SPARQL, DGM_JSON, DGM_YAML) raises UnsupportedCapability |
+| `CTL-PAST-PREV-02` | `duckdb-dgmquery` | refused | DGMQuery.to_sql() reads no model: whether a bridge is time-ordered (§2.3) is its BridgeSemantics, so a past-time mode on G^T is refused (plan with DGMPlanner(model=…)) |
+| `CTL-PAST-PREV-02` | `planner-refusals` | refused | every target without an emitter (SQL_POSTGRESQL, CYPHER, SPARQL, DGM_JSON, DGM_YAML) raises UnsupportedCapability |
+| `CTL-PAST-PREV-03` | `duckdb-dgmquery` | refused | DGMQuery.to_sql() reads no model: whether a bridge is time-ordered (§2.3) is its BridgeSemantics, so a past-time mode on G^T is refused (plan with DGMPlanner(model=…)) |
+| `CTL-PAST-PREV-03` | `planner-refusals` | refused | every target without an emitter (SQL_POSTGRESQL, CYPHER, SPARQL, DGM_JSON, DGM_YAML) raises UnsupportedCapability |
+| `CTL-PAST-PREV-04` | `duckdb-dgmquery` | refused | DGMQuery.to_sql() reads no model: whether a bridge is time-ordered (§2.3) is its BridgeSemantics, so a past-time mode on G^T is refused (plan with DGMPlanner(model=…)) |
+| `CTL-PAST-PREV-04` | `planner-refusals` | refused | every target without an emitter (SQL_POSTGRESQL, CYPHER, SPARQL, DGM_JSON, DGM_YAML) raises UnsupportedCapability |
+| `CTL-PAST-PREV-05-VAC` | `duckdb-dgmquery` | n/e | PathPred has no `on_empty` field, so VACUOUS cannot be requested |
+| `CTL-PAST-PREV-05-VAC` | `duckdb-plan-ir` | n/e | PathPred has no `on_empty` field, so VACUOUS cannot be requested |
+| `CTL-PAST-PREV-05-VAC` | `pg-duckdb-plan-ir` | n/e | PathPred has no `on_empty` field, so VACUOUS cannot be requested |
+| `CTL-PAST-PREV-05-VAC` | `planner-refusals` | n/e | PathPred has no `on_empty` field, so VACUOUS cannot be requested |
+| `CTL-PAST-PREV-06` | `duckdb-dgmquery` | refused | DGMQuery.to_sql() reads no model: whether a bridge is time-ordered (§2.3) is its BridgeSemantics, so a past-time mode on G^T is refused (plan with DGMPlanner(model=…)) |
+| `CTL-PAST-PREV-06` | `planner-refusals` | refused | every target without an emitter (SQL_POSTGRESQL, CYPHER, SPARQL, DGM_JSON, DGM_YAML) raises UnsupportedCapability |
+| `CTL-PAST-SINCE-01` | `duckdb-dgmquery` | refused | DGMQuery.to_sql() reads no model: whether a bridge is time-ordered (§2.3) is its BridgeSemantics, so a past-time mode on G^T is refused (plan with DGMPlanner(model=…)) |
+| `CTL-PAST-SINCE-01` | `planner-refusals` | refused | every target without an emitter (SQL_POSTGRESQL, CYPHER, SPARQL, DGM_JSON, DGM_YAML) raises UnsupportedCapability |
+| `CTL-PAST-SINCE-02` | `duckdb-dgmquery` | refused | DGMQuery.to_sql() reads no model: whether a bridge is time-ordered (§2.3) is its BridgeSemantics, so a past-time mode on G^T is refused (plan with DGMPlanner(model=…)) |
+| `CTL-PAST-SINCE-02` | `planner-refusals` | refused | every target without an emitter (SQL_POSTGRESQL, CYPHER, SPARQL, DGM_JSON, DGM_YAML) raises UnsupportedCapability |
+| `CTL-PAST-SINCE-03` | `duckdb-dgmquery` | refused | DGMQuery.to_sql() reads no model: whether a bridge is time-ordered (§2.3) is its BridgeSemantics, so a past-time mode on G^T is refused (plan with DGMPlanner(model=…)) |
+| `CTL-PAST-SINCE-03` | `planner-refusals` | refused | every target without an emitter (SQL_POSTGRESQL, CYPHER, SPARQL, DGM_JSON, DGM_YAML) raises UnsupportedCapability |
+| `CTL-PAST-REJ-01` | `planner-refusals` | refused | every target without an emitter (SQL_POSTGRESQL, CYPHER, SPARQL, DGM_JSON, DGM_YAML) raises UnsupportedCapability |
+| `CTL-PAST-REJ-02` | `planner-refusals` | n/e | the query is rejected while it is built (§3.5, §4.1), before planning: it says nothing about the targets |
 | `PP-EX-01` | `planner-refusals` | refused | every target without an emitter (SQL_POSTGRESQL, CYPHER, SPARQL, DGM_JSON, DGM_YAML) raises UnsupportedCapability |
 | `PP-EX-02` | `planner-refusals` | refused | every target without an emitter (SQL_POSTGRESQL, CYPHER, SPARQL, DGM_JSON, DGM_YAML) raises UnsupportedCapability |
 | `PP-FA-01` | `planner-refusals` | refused | every target without an emitter (SQL_POSTGRESQL, CYPHER, SPARQL, DGM_JSON, DGM_YAML) raises UnsupportedCapability |
@@ -348,7 +419,6 @@ implement the area.
 | §2.4 AD2 over a declared SEMI_ADDITIVE axis | no implementation decides it: `Grain.rejects_sum` covers the grain default only, and the question lattice enumerates COUNT, MIN, MAX and AVG over a SEMI_ADDITIVE measure but never its SUM (`ADD-09`, `ADD-10` are refusals) |
 | §4.2 LATEST / EARLIEST | sqldim has no LATEST or EARLIEST TemporalWindow; `TAGG-*` run against the oracle only |
 | ADR 0001 infinite traces (lasso) | the oracle does not model infinite traces and no backend executes a cyclic temporal PathPred; no case is written |
-| §4.1 SINCE / ONCE / PREVIOUSLY evaluation | only their construction-time rejections are covered; no backend evaluates a past-time mode |
 | §4.1 typing rules of ScalarPred (Int/String/Enum mixes) | PropRef and ScalarPred carry no property types; a typing error cannot be posed |
 | §5.1 Q_delta, §2.5 SCD3/SCD6, TRAILING/ROLLING/YTD at τ | DeltaQuery and the windows render placeholders only; nothing is executable to compare |
 | §3.3 K_SHORTEST / MIN_WEIGHT over weighted bridges | covered by the oracle on unweighted hops only; no backend executes a non-ALL strategy |

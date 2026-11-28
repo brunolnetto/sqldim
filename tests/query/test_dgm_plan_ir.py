@@ -449,12 +449,16 @@ class TestUnsupportedConstructsFailClosed:
         plain = DGMQuery().anchor("dim_customer", "c").where(return_pred())
         assert self._plan(q).query_text == self._plan(plain).query_text == q.to_sql()
 
-    def test_temporal_mode_without_one_position(self) -> None:
+    def test_temporal_mode_reading_no_path_alias(self) -> None:
+        # #183: every node after the anchor is a position; a sub_filter that
+        # reads no path alias is the same condition at each of them
         pp = return_pred()
         pp.sub_filter = ScalarPred(PropRef("c", "tier"), "=", "gold")
+        plain = DGMQuery().anchor("dim_customer", "c").where(pp)
+        expected = self._plan(plain).query_text
         pp.temporal_mode = EVENTUALLY
-        with pytest.raises(UnsupportedConstruct, match="evaluation position"):
-            self._plan(DGMQuery().anchor("dim_customer", "c").where(pp))
+        q = DGMQuery().anchor("dim_customer", "c").where(pp)
+        assert self._plan(q).query_text == expected == q.to_sql()
 
     def test_restricting_strategy(self) -> None:
         pp = return_pred()
