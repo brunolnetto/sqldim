@@ -331,12 +331,23 @@ class Neg:
 
 @dataclass(frozen=True)
 class PathHop:
-    """One hop of a path pattern; ``on`` correlates it with earlier aliases."""
+    """One hop of a path pattern; ``on`` correlates it with earlier aliases.
+
+    *key* are the entity-key columns of the node the scan reads, from the
+    ``NodeTable`` of a declared model (§2.6); empty when no model states
+    them.  *weighted* is ``False`` when the hop counts 1 in ``weight(π)``
+    (a verb hop, or a bridge declared unweighted), ``True`` for a weighted
+    bridge and ``None`` when nothing declares it (§3.3).  Both are set only
+    where a construct needs them, so the identity of every other plan does
+    not depend on whether a model was given.
+    """
 
     kind: str  # verb | verb_inverse | bridge
     label: str
     scan: Scan
     on: Fragment
+    key: tuple[str, ...] = ()
+    weighted: bool | None = None
 
 
 @dataclass(frozen=True)
@@ -372,12 +383,22 @@ class RepeatJoin:
 
 @dataclass(frozen=True)
 class PathExists:
-    """A PathPred: ∃ (or ∀) path over *hops* such that *sub_filter* holds."""
+    """A PathPred: ∃ (or ∀) path over *hops* such that *sub_filter* holds.
+
+    *strategy* is ``ALL``, ``SHORTEST``, ``K_SHORTEST`` (with *k*) or
+    ``MIN_WEIGHT`` (§3.3).  *mode* is ``None`` or, for a pattern whose
+    traces have several evaluation positions (a Repeat), ``EVENTUALLY``,
+    ``GLOBALLY`` or ``UNTIL`` with its target *until* (§4.1, ADR 0001); a
+    mode over one position per instance is lowered to its mode-free form.
+    """
 
     quantifier: Quantifier
-    strategy: str  # only ALL is executable in this IR version
+    strategy: str
     hops: tuple[PathHop | PathRepeat, ...]
     sub_filter: "Pred"
+    k: int | None = None
+    mode: str | None = None
+    until: "Pred | None" = None
 
 
 Pred = Union[Compare, RawCondition, Conj, Disj, Neg, PathExists]
@@ -519,7 +540,8 @@ def _hop_scans(h: PathHop | PathRepeat) -> list[Scan]:
 def _pred_scans(p: Pred) -> list[Scan]:
     if isinstance(p, PathExists):
         hops = [s for h in p.hops for s in _hop_scans(h)]
-        return hops + _pred_scans(p.sub_filter)
+        until = [] if p.until is None else _pred_scans(p.until)
+        return hops + _pred_scans(p.sub_filter) + until
     if isinstance(p, (Conj, Disj)):
         return [s for sub in p.preds for s in _pred_scans(sub)]
     if isinstance(p, Neg):

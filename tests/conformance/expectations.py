@@ -31,19 +31,14 @@ LEG, IR = "duckdb-dgmquery", "duckdb-plan-ir"
 ORD = "duckdb-ordering"
 
 _NO_ON_EMPTY = "PathPred has no `on_empty` field, so VACUOUS cannot be requested"
-_IR_REPEAT = (
-    "a Repeat inside a PathPred is not emitted (UnsupportedConstruct): a trace "
-    "has several evaluation positions, and SIMPLE needs node identities a hop "
-    "does not declare"
-)
-_LEG_REPEAT = "DGMQuery.to_sql() raises for a Repeat (plan with DGMPlanner)"
-_IR_STRATEGY = (
-    "the plan IR executes only strategy ALL (UnsupportedConstruct): ≺ (§3.3) "
-    "breaks ties by node keys a hop does not declare"
+_LEG_REPEAT = (
+    "DGMQuery.to_sql() reads no model: a Repeat PathJoin and a temporal mode "
+    "over a Repeat's iterations need node identities, so it raises (plan with "
+    "DGMPlanner(model=…))"
 )
 _LEG_STRATEGY = (
     "DGMQuery.to_sql() renders only strategy ALL (UnsupportedConstruct): ≺ "
-    "(§3.3) breaks ties by node keys a hop does not declare"
+    "(§3.3) breaks ties by entity keys, and to_sql() reads no model"
 )
 _LEG_CONTEXT = (
     "DGMQuery.to_sql() raises UnsupportedConstruct for a TemporalContext "
@@ -62,12 +57,11 @@ BOTH = (LEG, IR)
 
 # --- CTL and PathPred -------------------------------------------------------
 _add(N, _NO_ON_EMPTY, BOTH, "CTL-*-VAC", "CTL-G1-*", "CTL-G2-*", "PP-FA-03")
-_add(R, _IR_REPEAT, (IR,), "CTL-B-a?-??", "CTL-B-a2-*-REQ", "CTL-U-*")
-_add(R, _LEG_REPEAT, (LEG,), "CTL-B-a?-??", "CTL-B-a2-*-REQ", "CTL-U-*", "RJ-*")
-_add(R, _IR_STRATEGY, (IR,), "PP-STR-01", "PP-STR-03", "PP-STR-04")
+# NEXT reads Succ(s), the first hop's targets: to_sql() renders EX and AX over
+# a Repeat as the PathPred over its first body hop, so only F, G and U remain
+_add(R, _LEG_REPEAT, (LEG,), "CTL-B-a?-[EA][FG]", "CTL-B-a2-[EA][FG]-REQ",
+     "CTL-U-*", "RJ-*")  # fmt: skip
 _add(R, _LEG_STRATEGY, (LEG,), "PP-STR-01", "PP-STR-03", "PP-STR-04")
-_add(R, "the plan IR emits only WALK with 1 ≤ min (SIMPLE/TRAIL need node "
-        "identities; min = 0 not emitted)", (IR,), "RJ-04", "RJ-05", "RJ-06")  # fmt: skip
 
 # --- SCD and validity -------------------------------------------------------
 _add(R, _LEG_CONTEXT, (LEG,), "SCD-V-01", "SCD-TAU-01")

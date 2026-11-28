@@ -154,7 +154,11 @@ _DUCKDB_SQL: dict[Capability, Declared] = {
         S, "over = ENTITIES / PATHS; drill-across with DA1–DA4 (§5.2.2)"
     ),
     Capability.CTE: Declared(
-        P, "Repeat in WALK mode with 1 ≤ min; SIMPLE, TRAIL and min = 0 are refused"
+        P,
+        "Repeat over a one-hop body: WALK with 1 ≤ min ≤ max ≤ 8 unrolled; "
+        "SIMPLE, TRAIL, min = 0 and other bounds as WITH RECURSIVE over the "
+        "node identities of a declared model (DGMPlanner(model=…)), with "
+        "MAX_REPEAT_DEPTH reported; a multi-hop body and depth_alias are refused",
     ),
     Capability.WINDOW: Declared(
         S, "ranking window functions (ROW_NUMBER, RANK, DENSE_RANK) with QUALIFY"
@@ -164,10 +168,12 @@ _DUCKDB_SQL: dict[Capability, Declared] = {
     ),
     Capability.PATHPRED: Declared(
         P,
-        "EXISTS / FORALL, strategy ALL; EVENTUALLY, GLOBALLY, NEXT and UNTIL "
-        "over one evaluation position per instance; a mode over a Repeat or "
-        "several positions, past-time modes, other strategies and on_empty are "
-        "refused",
+        "EXISTS / FORALL; strategy ALL, and SHORTEST, K_SHORTEST and MIN_WEIGHT "
+        "(unweighted hops) over the entity keys of a declared model; "
+        "EVENTUALLY, GLOBALLY and UNTIL over one evaluation position per "
+        "instance, or over the iterations of one Repeat with a declared model; "
+        "NEXT over the first hop; several or no positions on a Repeat-free "
+        "path, past-time modes, a mode with a strategy and on_empty are refused",
     ),
 }
 
@@ -229,6 +235,13 @@ DGMQUERY_TO_SQL = Profile(
         **_DUCKDB_SQL,
         Capability.CTE: Declared(
             U, "a Repeat raises UnsupportedConstruct; plan it with DGMPlanner"
+        ),
+        Capability.PATHPRED: Declared(
+            P,
+            "EXISTS / FORALL, strategy ALL; EVENTUALLY, GLOBALLY and UNTIL over "
+            "one evaluation position per instance; NEXT over the first hop; "
+            "it reads no model, so a mode over a Repeat's iterations and other "
+            "strategies are refused, as are past-time modes and on_empty",
         ),
     },
 )

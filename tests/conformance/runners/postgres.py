@@ -25,6 +25,7 @@ from uuid import uuid4
 import duckdb
 
 from sqldim.core.query.dgm import DGMPlanner, DGMQuery
+from sqldim.core.query.dgm.model import DGMModel
 from sqldim.core.query.dgm.planner import POSTGRESQL_VIA_DUCKDB, QueryTarget
 from tests.conformance.runners.duckdb_sql import EXECUTED_AREAS, Engine, backend
 
@@ -78,14 +79,15 @@ def session() -> Iterator[duckdb.DuckDBPyConnection]:
         con.close()
 
 
-def _pg_sql(q: DGMQuery) -> str:
+def _pg_sql(q: DGMQuery, model: DGMModel | None) -> str:
     """The plan IR's SQL, planned for the engine that runs it: PG(DD) (#178).
 
     A construct ``POSTGRESQL_VIA_DUCKDB`` declares unsupported raises
     ``UnsupportedCapability`` here, before the postgres scanner sees it.
     """
     planner = DGMPlanner(None, None, None, None, QueryTarget.SQL_DUCKDB,  # type: ignore[arg-type]
-                         execution_profile=POSTGRESQL_VIA_DUCKDB)  # fmt: skip
+                         execution_profile=POSTGRESQL_VIA_DUCKDB,
+                         model=model)  # fmt: skip
     return planner.plan_query(q).query_text
 
 
