@@ -91,6 +91,12 @@ ONE_HOP = (("hop", "placed", "fwd", True),)
 CHAIN = (("repeat", "next", "fwd", 0, None, "SIMPLE"),)
 """``Repeat(BridgeHop(next), 0, UNBOUNDED)``: the start node is a position."""
 
+TWO_HOPS = (("hop", "next", "fwd", False), ("hop", "next", "fwd", True))
+"""Two bridge hops without a Repeat; sub_filter reads the second hop's alias."""
+
+NEXT_HOP = (("hop", "next", "fwd", True),)
+"""One bridge hop ``next``."""
+
 REVENUE_GT_500 = ("prop", "revenue", ">", 500)
 COMPLETE = ("prop", "state", "=", "Complete")
 PHI = ("prop", "phi", "=", True)

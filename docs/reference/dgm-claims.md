@@ -82,8 +82,8 @@ not exist, or when a check is not referenced by any claim.
   *Domain:* every directed graph on ≤ 3 nodes, self-loops included, every (A, B).
 - **`CLM-3.4.5-PROJ`** — h maps G_ab^I into G_AB^S: h_N(N_ab^I) ⊆ N_AB^S and h_E(E_ab^I) ⊆ E_AB^S.
   *Note:* the proof was restated on reachability with the cones (#139); no check enumerates typed instance graphs.
-- **`CLM-4.1-DUAL`** — Under on_empty = VACUOUS, AG φ = ¬EF ¬φ, AF φ = ¬EG ¬φ, AX φ = ¬EX ¬φ and A(φ U ψ) = ¬E(¬ψ U (¬φ ∧ ¬ψ)) ∧ ¬EG ¬ψ over maximal traces; under REQUIRE_WITNESS each FORALL form is its construction conjoined with EF TRUE (EX TRUE for NEXT). The inner ¬ must be NotTrue.
-  *Domain:* every one-label graph on 3 nodes without self-loops, every two-valued labelling of φ and ψ, start node fixed by symmetry, patterns Repeat(0|1, UNBOUNDED, SIMPLE) and one hop; finite traces only (the lasso of ADR 0001 is not modelled).
+- **`CLM-4.1-DUAL`** — Under on_empty = VACUOUS, AG φ = ¬EF ¬φ, AF φ = ¬EG ¬φ, AX φ = ¬EX ¬φ and A(φ U ψ) = ¬E(¬ψ U (¬φ ∧ ¬ψ)) ∧ ¬EG ¬ψ over maximal traces, and FORALL PREVIOUSLY φ = ¬EXISTS PREVIOUSLY ¬φ on G^T; under REQUIRE_WITNESS each FORALL form is its construction conjoined with EF TRUE (EX TRUE for NEXT, EXISTS PREVIOUSLY TRUE for PREVIOUSLY). The inner ¬ must be NotTrue.
+  *Domain:* every one-label graph on 3 nodes without self-loops, every two-valued labelling of φ and ψ, start node fixed by symmetry, patterns Repeat(0|1, UNBOUNDED, SIMPLE) and one hop (one hop on G^T for PREVIOUSLY); finite traces only (the lasso of ADR 0001 is not modelled).
   *Note:* with Kleene ¬ instead of NotTrue the AG duality fails at a node where φ is UNKNOWN — the reason §4.1 reads the inner NOT as NotTrue.
 - **`CLM-ADR1-VALUES`** — The truth tables of ADR 0001 for EF, EG, EX, AF, AG, AX under both empty-domain policies.
   *Domain:* the two graphs of the ADR.

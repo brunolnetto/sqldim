@@ -128,7 +128,7 @@ def _pp(g, s, quant, mode, phi, pattern, on_empty=ctl.VACUOUS) -> bool:
         g,
         s,
         {"quantifier": quant, "mode": mode, "phi": phi, "pattern": pattern,
-         "on_empty": on_empty},
+         "on_empty": on_empty, "time_ordered": True},
     )  # fmt: skip
 
 
@@ -145,6 +145,12 @@ def _constructions(g, s, pattern) -> dict:
             ex("EVENTUALLY", TRUE),
         ),
         "NEXT": (PHI, not ex("NEXT", nphi, HOP), ex("NEXT", TRUE, HOP)),
+        # §4.1: PREVIOUSLY is self-dual on G^T, guarded by EXISTS PREVIOUSLY TRUE
+        "PREVIOUSLY": (
+            PHI,
+            not ex("PREVIOUSLY", nphi, HOP),
+            ex("PREVIOUSLY", TRUE, HOP),
+        ),
     }
 
 
@@ -159,12 +165,12 @@ def test_claim_ctl_dualities() -> None:
                     for mode, (phi, vac, guard) in _constructions(
                         g, s, pattern
                     ).items():
-                        pat = HOP if mode == "NEXT" else pattern
+                        pat = HOP if mode in ("NEXT", "PREVIOUSLY") else pattern
                         assert _pp(g, s, "FORALL", mode, phi, pat) == vac
                         rw = _pp(g, s, "FORALL", mode, phi, pat, ctl.REQUIRE_WITNESS)
                         assert rw == (guard and vac)
                         checked += 1
-    assert checked == 64 * 64 * 2 * 4
+    assert checked == 64 * 64 * 2 * 5
 
 
 def test_claim_dualities_need_nottrue() -> None:

@@ -34,6 +34,7 @@ if TYPE_CHECKING:
 __all__ = [
     "PlanIRError",
     "UnsupportedConstruct",
+    "NotTimeOrdered",
     "UnsafeFragment",
     "UnknownRelation",
     "UndeclaredReads",
@@ -82,6 +83,10 @@ class PlanIRError(SemanticError):
 
 class UnsupportedConstruct(PlanIRError):
     """The query uses a construct the IR cannot represent with a known read set."""
+
+
+class NotTimeOrdered(PlanIRError):
+    """A past-time mode over an edge type that is not time-ordered (§2.3, §4.1)."""
 
 
 class UnsafeFragment(UnsupportedConstruct):
@@ -386,10 +391,11 @@ class PathExists:
     """A PathPred: ∃ (or ∀) path over *hops* such that *sub_filter* holds.
 
     *strategy* is ``ALL``, ``SHORTEST``, ``K_SHORTEST`` (with *k*) or
-    ``MIN_WEIGHT`` (§3.3).  *mode* is ``None`` or, for a pattern whose
-    traces have several evaluation positions (a Repeat), ``EVENTUALLY``,
-    ``GLOBALLY`` or ``UNTIL`` with its target *until* (§4.1, ADR 0001); a
-    mode over one position per instance is lowered to its mode-free form.
+    ``MIN_WEIGHT`` (§3.3).  *mode* is ``None`` or, for one Repeat, whose
+    traces are its iterations, ``EVENTUALLY``, ``GLOBALLY`` or ``UNTIL``
+    with its target *until* (§4.1, ADR 0001), evaluated over the instances
+    the strategy selects.  Any other mode is lowered to a mode-free form,
+    and a past mode to its mirror over reversed hops (``preds/_positions``).
     """
 
     quantifier: Quantifier

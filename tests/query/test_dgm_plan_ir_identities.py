@@ -22,6 +22,7 @@ from sqldim.core.query.dgm import (
     MIN_WEIGHT,
     NEXT,
     ONCE,
+    PREVIOUSLY,
     SHORTEST,
     UNBOUNDED,
     BridgeHop,
@@ -35,9 +36,11 @@ from sqldim.core.query.dgm import (
     Repeat,
     RepeatMode,
     ScalarPred,
+    SinceMode,
     UntilMode,
     VerbHop,
 )
+from sqldim.core.query.dgm.annotations import BridgeSemantics, BridgeSemanticsKind
 from sqldim.core.query.dgm.model import (
     DGMModel,
     EdgeKind,
@@ -50,6 +53,7 @@ from sqldim.core.query.dgm.model import (
     Reference,
 )
 from sqldim.core.query.dgm.planner import UnsupportedConstruct
+from sqldim.core.query.dgm.planner._ir import NotTimeOrdered
 from sqldim.core.query.dgm.planner import _ir_emit
 from sqldim.core.query.dgm.planner._ir_identity import dag_hash
 from sqldim.core.query.dgm.runtime._spec import InvalidSpec, encode_spec
@@ -69,7 +73,14 @@ def _fk(label: str, col: str) -> ForeignKey:
     return ForeignKey(Holder.SOURCE, (col,), Reference.ENTITY_KEY)
 
 
-def model(*, weighted: bool = False, version_key: str | None = None) -> DGMModel:
+def model(
+    *,
+    weighted: bool = False,
+    version_key: str | None = None,
+    sem: BridgeSemanticsKind | None = None,
+) -> DGMModel:
+    sigma = () if sem is None else (BridgeSemantics("reports_to", sem),)
+    kinds = frozenset() if sem is None else frozenset({"BridgeSemantics"})
     return DGMModel(
         (
             NodeType(
@@ -91,6 +102,8 @@ def model(*, weighted: bool = False, version_key: str | None = None) -> DGMModel
             ),
             EdgeType("Customer", "Sale", "placed", EdgeKind.VERB),
         ),
+        sigma,
+        kinds,
     )
 
 
@@ -329,13 +342,70 @@ class TestNext:
             planner(model()).plan_query(_where(pp))
 
 
+TEMPORAL = model(sem=BridgeSemanticsKind.TEMPORAL)
+
+
 class TestPastModes:
-    def test_refused_with_the_reason(self) -> None:
+    """ONCE, PREVIOUSLY, SINCE on G^T (§4.1, ADR 0001; #183).
+
+    In G^T a reports_to hop goes from a manager to a direct report.
+    """
+
+    def test_once_over_the_reports(self) -> None:
         pp = PathPred(
-            "e", Repeat(reports_to(), 1, 2), _title("=", "VP"), temporal_mode=ONCE
-        )
-        with pytest.raises(UnsupportedConstruct, match="truth condition"):
+            "e", Repeat(reports_to(), 1, UNBOUNDED), _title("=", "Eng"),
+            temporal_mode=ONCE,
+        )  # fmt: skip
+        assert _ids(_where(pp), TEMPORAL) == [1, 2, 3, 4]
+
+    def test_previously_is_one_hop_back(self) -> None:
+        pp = PathPred("e", reports_to(), _title("=", "Mgr"), temporal_mode=PREVIOUSLY)
+        assert _ids(_where(pp), TEMPORAL) == [3]
+
+    def test_forall_previously_needs_a_witness(self) -> None:
+        pp = PathPred(
+            "e", reports_to(), _title("=", "Eng"), quantifier=Quantifier.FORALL,
+            temporal_mode=PREVIOUSLY,
+        )  # fmt: skip
+        # 5 has no report: Succ⁻(5) is empty and REQUIRE_WITNESS holds
+        assert _ids(_where(pp), TEMPORAL) == [4]
+
+    def test_since_is_strong(self) -> None:
+        pp = PathPred(
+            "e", Repeat(reports_to(), 0, UNBOUNDED), _title("<>", "CEO"),
+            temporal_mode=SinceMode(_title("=", "Eng")),
+        )  # fmt: skip
+        assert _ids(_where(pp), TEMPORAL) == [2, 3, 4, 5]
+
+    def test_a_structural_bridge_is_not_time_ordered(self) -> None:
+        pp = PathPred("e", reports_to(), _title("=", "Mgr"), temporal_mode=PREVIOUSLY)
+        structural = model(sem=BridgeSemanticsKind.STRUCTURAL)
+        with pytest.raises(NotTimeOrdered, match="time-ordered"):
+            planner(structural).plan_query(_where(pp))
+
+    def test_undeclared_semantics_and_to_sql_are_refused(self) -> None:
+        pp = PathPred("e", reports_to(), _title("=", "Mgr"), temporal_mode=ONCE)
+        with pytest.raises(UnsupportedConstruct, match="BridgeSemantics"):
             planner(model()).plan_query(_where(pp))
+        with pytest.raises(UnsupportedConstruct, match="to_sql"):
+            _where(pp).to_sql()
+
+    def test_a_hop_between_relations_is_not_reversed(self) -> None:
+        hop = BridgeHop("e", "reports_to", "c", table="customer", on="c.id = e.title")
+        pp = PathPred("e", hop, ScalarPred(PropRef("c", "id"), "=", "c1"),
+                      temporal_mode=PREVIOUSLY)  # fmt: skip
+        with pytest.raises(UnsupportedConstruct, match="same relation"):
+            planner(TEMPORAL).plan_query(_where(pp))
+
+
+class TestPositionsWithoutRepeat:
+    def test_every_node_after_the_anchor_is_a_position(self) -> None:
+        # #183: EF over e → m → g reads the sub_filter at m and at g
+        path = PathCompose(reports_to("e", "m"), reports_to("m", "g"))
+        sub = ScalarPred(PropRef("g", "title"), "=", "VP")
+        pp = PathPred("e", path, sub, temporal_mode=EVENTUALLY)
+        assert _ids(_where(pp)) == [3, 4]
+        assert _where(pp).to_sql() == planner().plan_query(_where(pp)).query_text
 
 
 # ---------------------------------------------------------------------------
@@ -389,14 +459,23 @@ class TestStrategies:
         with pytest.raises(UnsupportedConstruct, match="k ≥ 1"):
             planner(model()).plan_query(_placed(K_SHORTEST(0)))
 
-    def test_strategy_with_a_mode_is_refused(self) -> None:
+    def test_strategy_selects_before_the_mode(self) -> None:
+        # #183: SHORTEST selects c1's sale s1 (300) first; EF reads only it
         hop = VerbHop("c", "placed", "s", table="sale", on="s.customer_id = c.id")
         pp = PathPred(
             "c", hop, ScalarPred(PropRef("s", "revenue"), ">", 500),
             strategy=SHORTEST(), temporal_mode=EVENTUALLY,
         )  # fmt: skip
-        with pytest.raises(UnsupportedConstruct, match="does not state"):
-            planner(model()).plan_query(DGMQuery().anchor("customer", "c").where(pp))
+        assert run(DGMQuery().anchor("customer", "c").where(pp)) == [("c2",)]
+
+    def test_strategy_over_a_repeat_with_a_mode(self) -> None:
+        r = Repeat(reports_to(), 1, UNBOUNDED)
+        pp = PathPred("e", r, _title("=", "VP"), strategy=SHORTEST(),
+                      temporal_mode=EVENTUALLY)  # fmt: skip
+        assert _ids(_where(pp)) == [3]  # the direct manager only
+        two = PathPred("e", r, _title("=", "VP"), strategy=K_SHORTEST(2),
+                       temporal_mode=EVENTUALLY)  # fmt: skip
+        assert _ids(_where(two)) == [3, 4]
 
     def test_identity_and_spec(self) -> None:
         a = planner(model()).plan_query(_placed(SHORTEST())).ir

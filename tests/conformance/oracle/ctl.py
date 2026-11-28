@@ -1,8 +1,21 @@
 """CTL over maximal finite traces, the empty-domain policy and monitors.
 
-Definitions: ADR 0001 (*Definitions*, *Truth conditions*, *Empty-domain
-policy*) and §4.1 (*Path semantics*, *FORALL elimination*, *Recorded traces
-and monitoring verdicts*).
+Definitions: ADR 0001 (*Definitions*, *Truth conditions*, *Past-time modes*,
+*Temporal mode with a strategy*, *Empty-domain policy*) and §4.1 (*Path
+semantics*, *Temporal mode with a strategy*, *Path-order modes and temporal
+modes*, *FORALL elimination*, *Recorded traces and monitoring verdicts*).
+
+The three decisions of #183 are read from those definitions:
+
+* on a pattern without a Repeat, every node after the start is an
+  evaluation position of EVENTUALLY, GLOBALLY and UNTIL (the ``read`` flag
+  of a hop is ignored there);
+* ONCE, PREVIOUSLY and SINCE are EVENTUALLY, NEXT and UNTIL evaluated on the
+  transposed graph ``G^T``; a case declares with ``time_ordered`` that the
+  edge types of its path are time-ordered (§2.3);
+* a strategy other than ALL selects the instances first; ``T(s)`` is formed
+  from the selected instances, and ``Succ(s)`` is the set of nodes they reach
+  by their first hop.
 
 A predicate is data: ``("prop", key, op, value)``, ``("true",)``,
 ``("not", p)``, ``("and", p, q, ...)``, ``("or", p, q, ...)``.  It is read at
@@ -55,11 +68,28 @@ def pred(p: Sequence, props: Mapping[str, Any], outer: Mapping | None = None) ->
     raise Undefined(f"unknown predicate form {tag!r}")
 
 
-def traces(graph: Mapping[str, Any], s: str, pattern: Sequence) -> set[tuple[str, ...]]:
-    """``T(s)``: maximal traces — not a proper prefix of another trace from s."""
+def _has_repeat(pattern: Sequence) -> bool:
+    return any(elem[0] == "repeat" for elem in pattern)
+
+
+def traces(
+    graph: Mapping[str, Any],
+    s: str,
+    pattern: Sequence,
+    insts: Sequence | None = None,
+) -> set[tuple[str, ...]]:
+    """``T(s)``: maximal traces — not a proper prefix of another trace from s.
+
+    *insts* are the instances the traces are formed from: every instance
+    (strategy ALL) when omitted, else those a strategy selected.  On a
+    pattern without a Repeat every node after *s* is a position (#183).
+    """
+    every_node = not _has_repeat(pattern)
     all_traces = set()
-    for nodes, _edges, positions in instances(graph, s, pattern):
-        trace = tuple(nodes[i] for i in positions)
+    if insts is None:
+        insts = instances(graph, s, pattern)
+    for nodes, _edges, positions in insts:
+        trace = tuple(nodes[1:]) if every_node else tuple(nodes[i] for i in positions)
         if trace:
             all_traces.add(trace)
     return {
@@ -83,6 +113,17 @@ def succ(graph: Mapping[str, Any], s: str, pattern: Sequence) -> set[str]:
         elif direction == "rev" and dst == s:
             out.add(src)
     return out
+
+
+def transpose(graph: Mapping[str, Any]) -> dict[str, Any]:
+    """``G^T`` (§2.2): every edge instance ``(a, b)`` read as ``(b, a)``."""
+    edges = [(e[1], e[0], *e[2:]) for e in graph["edges"]]
+    return {"nodes": graph["nodes"], "edges": edges}
+
+
+def first_hop_nodes(insts: Sequence) -> set[str]:
+    """The nodes the instances reach by their first hop (§4.1, strategy)."""
+    return {nodes[1] for nodes, _e, _p in insts if len(nodes) > 1}
 
 
 def construction(case_input: Mapping[str, Any]) -> str | None:
@@ -157,22 +198,38 @@ def evaluate(graph: Mapping[str, Any], s: str, case_input: Mapping[str, Any]) ->
     return (not value) if case_input.get("negate") else value
 
 
+_MIRROR = {"ONCE": "EVENTUALLY", "PREVIOUSLY": "NEXT"}
+
+
+def _future(graph: Mapping[str, Any], mode: Any) -> tuple[Mapping[str, Any], Any]:
+    """A past mode as its future mirror on ``G^T`` (§4.1, ADR 0001)."""
+    if isinstance(mode, (tuple, list)) and mode[0] == "SINCE":
+        return transpose(graph), ("UNTIL", mode[1])
+    if mode in _MIRROR:
+        return transpose(graph), _MIRROR[mode]
+    return graph, mode
+
+
 def _evaluate(graph: Mapping[str, Any], s: str, case_input: Mapping[str, Any]) -> bool:
     mode = case_input.get("mode")
     if mode is None:
         return _no_mode(graph, s, case_input)
-    if case_input.get("strategy", ("ALL",))[0] != "ALL":
-        raise Undefined("temporal modes are defined over strategy ALL only")
-    ok = _holder(graph, s)
+    ok = _holder(graph, s)  # node properties are the same in G^T
+    graph, mode = _future(graph, mode)
     phi, quant = case_input["phi"], case_input["quantifier"]
     on_empty = case_input.get("on_empty", REQUIRE_WITNESS)
+    pattern, strategy = case_input["pattern"], case_input.get("strategy", ("ALL",))
+    selected = None
+    if strategy[0] != "ALL":  # the strategy selects first (§3.3, §4.1)
+        selected = select(graph, instances(graph, s, pattern), strategy)
     if mode == "NEXT":
-        domain: list = sorted(succ(graph, s, case_input["pattern"]))
+        nexts = (
+            succ(graph, s, pattern) if selected is None else first_hop_nodes(selected)
+        )
+        domain: list = sorted(nexts)
         values = [ok(m, phi) for m in domain]
-    elif isinstance(mode, (tuple, list)) and mode[0] == "SINCE" or mode in PAST_MODES:
-        raise Undefined("past-time modes are checked at construction only")
     else:
-        domain = sorted(traces(graph, s, case_input["pattern"]))
+        domain = sorted(traces(graph, s, pattern, selected))
         values = [_per_trace(ok, t, mode, phi) for t in domain]
     if quant == "EXISTS":
         return any(values)

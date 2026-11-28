@@ -37,6 +37,7 @@ from sqldim.core.query.dgm import (
     AggRef,
     ArithExpr,
     BridgeHop,
+    Compose as PathCompose,
     DGMPlanner,
     DGMQuery,
     PathPred,
@@ -52,6 +53,7 @@ from sqldim.core.query.dgm import (
     VerbHop,
     WinRef,
 )
+from sqldim.core.query.dgm.annotations import BridgeSemantics, BridgeSemanticsKind
 from sqldim.core.query.dgm.model import (
     DGMModel,
     EdgeKind,
@@ -172,13 +174,15 @@ def load_graph(con: duckdb.DuckDBPyConnection, graph: Mapping[str, Any]) -> None
 _VERB_LABELS = frozenset({"placed"})
 
 
-def graph_model(graph: Mapping[str, Any]) -> DGMModel:
+def graph_model(graph: Mapping[str, Any], time_ordered: bool = False) -> DGMModel:
     """The declared model of :func:`load_graph`'s mapping (§2.6).
 
     One node type per ``type`` with a NodeTable keyed by ``id`` (no version
     key), one edge type per ``(source type, target type, label)`` mapped to
     the ``ForeignKey(TARGET)`` column ``<label>_src``; a bridge is weighted
-    iff one of its edges carries a weight.
+    iff one of its edges carries a weight.  Every bridge is declared
+    ``BridgeSemantics(TEMPORAL)`` when the case says its path is
+    *time_ordered* (§2.3), else ``STRUCTURAL``.
     """
     nodes = graph["nodes"]
     edges: dict[tuple[str, str, str], bool] = {}
@@ -200,7 +204,15 @@ def graph_model(graph: Mapping[str, Any]) -> DGMModel:
                                     Reference.ENTITY_KEY))
         for (src, dst, lab), weighted in sorted(edges.items())
     ]  # fmt: skip
-    return DGMModel(tuple(node_types), tuple(edge_types))
+    sem = (
+        BridgeSemanticsKind.TEMPORAL if time_ordered else BridgeSemanticsKind.STRUCTURAL
+    )
+    sigma = tuple(
+        BridgeSemantics(lab, sem)
+        for lab in sorted({lab for (_s, _t, lab) in edges if lab not in _VERB_LABELS})
+    )
+    return DGMModel(tuple(node_types), tuple(edge_types), sigma,
+                    frozenset({"BridgeSemantics"}))  # fmt: skip
 
 
 def _run(
@@ -223,7 +235,7 @@ def _run(
 # PathPred (ctl, pathpred)
 # ---------------------------------------------------------------------------
 
-_MODES: dict[str, object] = {
+_MODES: dict[str, object] = {  # UNTIL and SINCE carry ψ: see _mode
     "EVENTUALLY": EVENTUALLY,
     "GLOBALLY": GLOBALLY,
     "NEXT": NEXT,
@@ -272,19 +284,35 @@ def _target_type(graph: Mapping[str, Any], label: str) -> str:
     return _type_of(graph["nodes"][dst])
 
 
-def _path(graph: Mapping[str, Any], pattern: Sequence, outer: str, alias: str) -> Any:
-    if len(pattern) != 1:
-        raise NotExpressible("only one-element patterns are mapped")
-    elem = pattern[0]
+def _element(graph: Mapping[str, Any], elem: Sequence, frm: str, alias: str) -> Any:
     if elem[2] != "fwd":
         raise NotExpressible("reverse hops are not mapped")
     table = table_of(_target_type(graph, elem[1]))
-    on = f"{alias}.{elem[1]}_src = {outer}.id"
+    on = f"{alias}.{elem[1]}_src = {frm}.id"
     if elem[0] == "hop":
-        return VerbHop(outer, elem[1], alias, table=table, on=on)
+        cls = VerbHop if elem[1] in _VERB_LABELS else BridgeHop
+        return cls(frm, elem[1], alias, table=table, on=on)
     _, label, _d, lo, hi, mode = elem
-    hop = BridgeHop(outer, label, alias, table=table, on=on)
+    hop = BridgeHop(frm, label, alias, table=table, on=on)
     return Repeat(hop, lo, UNBOUNDED if hi is None else hi, mode=RepeatMode[mode])
+
+
+def _path(graph: Mapping[str, Any], pattern: Sequence, outer: str, alias: str) -> Any:
+    """The path of *pattern*; its last element binds *alias*.
+
+    Several elements are mapped only when none is a Repeat: hop ``i`` binds
+    ``<alias>_h<i>`` and the last one *alias*, which sub_filter reads.
+    """
+    if len(pattern) > 1 and any(e[0] == "repeat" for e in pattern):
+        raise NotExpressible("a Repeat is mapped only as the whole pattern")
+    names = [f"{alias}_h{i}" for i in range(len(pattern) - 1)] + [alias]
+    path: Any = None
+    frm = outer
+    for elem, name in zip(pattern, names):
+        item = _element(graph, elem, frm, name)
+        path = item if path is None else PathCompose(path, item)
+        frm = name
+    return path
 
 
 def _path_pred_query(case: Case) -> tuple[DGMQuery, str]:
@@ -317,7 +345,8 @@ def _path_pred(eng: Engine) -> Callable[[Case], Any]:
         if q is None:
             return REJECTED
         graph = GRAPHS[case.fixture]
-        rows = _run(eng, q, lambda con: load_graph(con, graph), graph_model(graph))
+        model = graph_model(graph, case.input.get("time_ordered", False))
+        rows = _run(eng, q, lambda con: load_graph(con, graph), model)
         if rows == REJECTED:
             return REJECTED
         return start in {r[0] for r in rows}

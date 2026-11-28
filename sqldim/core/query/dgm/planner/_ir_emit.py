@@ -14,9 +14,10 @@ joins), and an iteration beyond ``MAX_REPEAT_DEPTH`` is reported as an
 error, never cut silently.  Without the keys it raises
 :class:`UnsupportedConstruct`.  The same keys give the order ≺ of a
 strategy other than ALL (§3.3) and the maximal traces of a temporal mode
-over one Repeat (§4.1, ADR 0001).  A temporal mode over one position per
-instance never reaches the emitter: lowering rewrites it into its mode-free
-form (``preds/_positions.py``).  Every read is still in the IR, so ``deps``
+over one Repeat (§4.1, ADR 0001), formed from the instances the strategy
+selects.  Any other temporal mode never reaches the emitter: lowering
+rewrites it into a mode-free form, and a past mode into its mirror over
+reversed hops (``preds/_positions.py``).  Every read is still in the IR, so ``deps``
 of the lowered plan is defined.
 """
 
@@ -226,14 +227,57 @@ def _trace_sql(p: PathExists) -> str:
         f"SELECT 1 FROM {rel} {_P} JOIN {rel} {y} ON {on.sql} WHERE "
         f"{_key(_P, key)} = {_W}.__dgm_end AND {_admits(r, y)}"
     )
+    agg = "bool_and" if p.quantifier is Quantifier.FORALL else "bool_or"
+    if p.strategy != "ALL":
+        return _selected_trace_sql(p, r, cols, agg)
     per_trace = _PER_TRACE[p.mode or ""].format(
         phi=f"{_W}.__dgm_phi", psi=f"{_W}.__dgm_psi"
     )
-    agg = "bool_and" if p.quantifier is Quantifier.FORALL else "bool_or"
     return (
         f"COALESCE((\n{_recursive(r, cols)}\nSELECT {agg}({per_trace}) FROM {_W} "
         f"WHERE {_W}.__dgm_k >= {r.min} AND len({_W}.__dgm_phi) > 0 AND "
         f"({bounded}NOT EXISTS ({extend}))\n), FALSE)"
+    )
+
+
+def _selected_trace_sql(
+    p: PathExists, r: PathRepeat, cols: list[tuple[str, str, str]], agg: str
+) -> str:
+    """A temporal mode over the instances a strategy selects (§3.3, §4.1).
+
+    The strategy first selects instances of the Repeat by ≺ — fewest
+    iterations, then the sequence of node identities, which orders the edge
+    instances of a one-label body as ``key(π)`` does.  The traces are those
+    of the selected instances, and a trace is maximal when no other selected
+    instance extends it.  With every weight 1 MIN_WEIGHT is SHORTEST.  The
+    recursive CTE is read once: DuckDB fails to bind a second reference to it
+    inside a correlated subquery, so the selected instances are compared in
+    a list (``__dgm_all``).
+    """
+    if p.strategy == "MIN_WEIGHT" and r.body[0].weighted is not False:
+        raise UnsupportedConstruct(
+            f"MIN_WEIGHT needs weight(π) (§3.3): hop {r.body[0].label!r} is not "
+            "declared an unweighted bridge"
+        )
+    limit = p.k if p.strategy == "K_SHORTEST" else 1
+    a = "__dgm_a"
+    per_trace = _PER_TRACE[p.mode or ""].format(
+        phi=f"{a}.__dgm_phi", psi=f"{a}.__dgm_psi"
+    )
+    ranked = (
+        f"SELECT *, ROW_NUMBER() OVER (ORDER BY {_W}.__dgm_k, {_W}.__dgm_seg) AS "
+        f"__dgm_rn FROM {_W} WHERE {_W}.__dgm_k >= {r.min}"
+    )
+    selected = (
+        f"SELECT *, list(__dgm_r.__dgm_seg) OVER () AS __dgm_all FROM ({ranked}) "
+        f"__dgm_r WHERE __dgm_r.__dgm_rn <= {limit}"
+    )
+    seg = f"{a}.__dgm_seg"
+    extends = f"lambda x: len(x) > len({seg}) AND list_slice(x, 1, len({seg})) = {seg}"
+    return (
+        f"COALESCE((\n{_recursive(r, cols)}\nSELECT {agg}({per_trace}) FROM "
+        f"({selected}) {a} WHERE len({a}.__dgm_phi) > 0 AND "
+        f"len(list_filter({a}.__dgm_all, {extends})) = 0\n), FALSE)"
     )
 
 

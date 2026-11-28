@@ -44,6 +44,11 @@ _LEG_CONTEXT = (
     "DGMQuery.to_sql() raises UnsupportedConstruct for a TemporalContext "
     "(fail-closed, as the plan IR)"
 )
+_LEG_PAST = (
+    "DGMQuery.to_sql() reads no model: whether a bridge is time-ordered (§2.3) "
+    "is its BridgeSemantics, so a past-time mode on G^T is refused (plan with "
+    "DGMPlanner(model=…))"
+)
 EXPECTATIONS: dict[tuple[str, str], tuple[Status, str]] = {}
 
 
@@ -61,7 +66,8 @@ _add(N, _NO_ON_EMPTY, BOTH, "CTL-*-VAC", "CTL-G1-*", "CTL-G2-*", "PP-FA-03")
 # a Repeat as the PathPred over its first body hop, so only F, G and U remain
 _add(R, _LEG_REPEAT, (LEG,), "CTL-B-a?-[EA][FG]", "CTL-B-a2-[EA][FG]-REQ",
      "CTL-U-*", "RJ-*")  # fmt: skip
-_add(R, _LEG_STRATEGY, (LEG,), "PP-STR-01", "PP-STR-03", "PP-STR-04")
+_add(R, _LEG_STRATEGY, (LEG,), "PP-STR-01", "PP-STR-03", "PP-STR-04", "CTL-STR-*")
+_add(R, _LEG_PAST, (LEG,), "CTL-PAST-ONCE-*", "CTL-PAST-PREV-*", "CTL-PAST-SINCE-*")
 
 # --- SCD and validity -------------------------------------------------------
 _add(R, _LEG_CONTEXT, (LEG,), "SCD-V-01", "SCD-TAU-01")
@@ -105,7 +111,8 @@ _add(R, "POSTGRESQL_VIA_DUCKDB declares window_aggregate unsupported: DuckDB "
 
 _add(N, _NO_ON_EMPTY, (REF,), "CTL-*-VAC", "CTL-G1-*", "CTL-G2-*", "PP-FA-03")
 _add(N, "the query is rejected while it is built (§3.5, §4.1), before planning: "
-        "it says nothing about the targets", (REF,), "PP-PROM-01", "PP-PAST-*")  # fmt: skip
+        "it says nothing about the targets", (REF,), "PP-PROM-01", "PP-PAST-*",
+     "CTL-PAST-REJ-02")  # fmt: skip
 _add(R, "every target without an emitter (SQL_POSTGRESQL, CYPHER, SPARQL, "
         "DGM_JSON, DGM_YAML) raises UnsupportedCapability", (REF,), "*")  # fmt: skip
 
@@ -138,11 +145,6 @@ NOT_COVERED: list[tuple[str, str]] = [
         "ADR 0001 infinite traces (lasso)",
         "the oracle does not model infinite traces "
         "and no backend executes a cyclic temporal PathPred; no case is written",
-    ),
-    (
-        "§4.1 SINCE / ONCE / PREVIOUSLY evaluation",
-        "only their construction-time "
-        "rejections are covered; no backend evaluates a past-time mode",
     ),
     (
         "§4.1 typing rules of ScalarPred (Int/String/Enum mixes)",

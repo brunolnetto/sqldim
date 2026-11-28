@@ -108,9 +108,11 @@ CLAIMS: tuple[Claim, ...] = (
         "CLM-4.1-DUAL",
         "§4.1 FORALL elimination; ADR 0001 Duality and construction",
         "Under on_empty = VACUOUS, AG φ = ¬EF ¬φ, AF φ = ¬EG ¬φ, AX φ = ¬EX ¬φ and "
-        "A(φ U ψ) = ¬E(¬ψ U (¬φ ∧ ¬ψ)) ∧ ¬EG ¬ψ over maximal traces; under "
+        "A(φ U ψ) = ¬E(¬ψ U (¬φ ∧ ¬ψ)) ∧ ¬EG ¬ψ over maximal traces, and "
+        "FORALL PREVIOUSLY φ = ¬EXISTS PREVIOUSLY ¬φ on G^T; under "
         "REQUIRE_WITNESS each FORALL form is its construction conjoined with "
-        "EF TRUE (EX TRUE for NEXT). The inner ¬ must be NotTrue.",
+        "EF TRUE (EX TRUE for NEXT, EXISTS PREVIOUSLY TRUE for PREVIOUSLY). The "
+        "inner ¬ must be NotTrue.",
         (E, R),
         Status.HOLDS,
         (
@@ -120,8 +122,8 @@ CLAIMS: tuple[Claim, ...] = (
         ),
         "every one-label graph on 3 nodes without self-loops, every two-valued "
         "labelling of φ and ψ, start node fixed by symmetry, patterns Repeat(0|1, UNBOUNDED, "
-        "SIMPLE) and one hop; finite traces only (the lasso of ADR 0001 is not "
-        "modelled)",
+        "SIMPLE) and one hop (one hop on G^T for PREVIOUSLY); finite traces only "
+        "(the lasso of ADR 0001 is not modelled)",
         "with Kleene ¬ instead of NotTrue the AG duality fails at a node where φ "
         "is UNKNOWN — the reason §4.1 reads the inner NOT as NotTrue",
     ),

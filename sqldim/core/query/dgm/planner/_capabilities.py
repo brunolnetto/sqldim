@@ -170,10 +170,13 @@ _DUCKDB_SQL: dict[Capability, Declared] = {
         P,
         "EXISTS / FORALL; strategy ALL, and SHORTEST, K_SHORTEST and MIN_WEIGHT "
         "(unweighted hops) over the entity keys of a declared model; "
-        "EVENTUALLY, GLOBALLY and UNTIL over one evaluation position per "
-        "instance, or over the iterations of one Repeat with a declared model; "
-        "NEXT over the first hop; several or no positions on a Repeat-free "
-        "path, past-time modes, a mode with a strategy and on_empty are refused",
+        "EVENTUALLY, GLOBALLY and UNTIL over every node after the anchor of a "
+        "Repeat-free path whose hops scan one relation, or over the iterations "
+        "of one Repeat with a declared model, after the strategy's selection; "
+        "NEXT over the first hop; ONCE, PREVIOUSLY and SINCE as their mirrors "
+        "on G^T over bridges the model declares time-ordered; on_empty, a mode "
+        "over a composed pattern with a Repeat and a Repeat body of several "
+        "hops are refused",
     ),
 }
 
@@ -238,10 +241,12 @@ DGMQUERY_TO_SQL = Profile(
         ),
         Capability.PATHPRED: Declared(
             P,
-            "EXISTS / FORALL, strategy ALL; EVENTUALLY, GLOBALLY and UNTIL over "
-            "one evaluation position per instance; NEXT over the first hop; "
-            "it reads no model, so a mode over a Repeat's iterations and other "
-            "strategies are refused, as are past-time modes and on_empty",
+            "EXISTS / FORALL, strategy ALL; a temporal mode is rendered by the "
+            "plan IR without a model: EVENTUALLY, GLOBALLY and UNTIL over every "
+            "node after the anchor of a Repeat-free path; NEXT over the first "
+            "hop; it reads no model, so a mode over a Repeat's iterations, other "
+            "strategies and the past-time modes (time-orderedness is declared "
+            "by BridgeSemantics) are refused, as is on_empty",
         ),
     },
 )
