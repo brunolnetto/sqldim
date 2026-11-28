@@ -98,10 +98,10 @@ Declared support per capability, from the profiles the planner reads. A target w
 
 | Backend | Declared by | Emitter | join | null | temporal | aggregation | cte | window | window_aggregate | pathpred | Executed in CI |
 |---|---|---|---|---|---|---|---|---|---|---|---|
-| DuckDB, plan IR | `SQL_DUCKDB` | plan IR → DuckDB SQL (#148) | partial | supported | partial | partial | partial | supported | supported | partial | yes |
+| DuckDB, plan IR | `SQL_DUCKDB` | plan IR → DuckDB SQL (#148) | partial | supported | partial | supported | partial | supported | supported | partial | yes |
 | DuckDB, `DGMQuery.to_sql()` | `DGMQuery.to_sql()` | DGMQuery.to_sql() → DuckDB SQL | partial | supported | partial | supported | unsupported | supported | supported | partial | yes |
-| PostgreSQL via DuckDB (PG(DD)) | `SQL_DUCKDB over PostgreSQL (PG(DD))` | plan IR → DuckDB SQL (#148), executed by DuckDB's postgres extension | partial | supported | partial | partial | partial | partial | unsupported | partial | yes, against the `postgres:19` service container (`SQLDIM_PG_HOST`); skipped locally without a server |
-| MotherDuck | `SQL_MOTHERDUCK` | plan IR → DuckDB SQL (#148), the SQL_DUCKDB emitter | partial | supported | partial | partial | partial | supported | supported | partial | **not executed** — needs a MotherDuck account and `MOTHERDUCK_TOKEN`; running its SQL on local DuckDB would be DuckDB evidence, not MotherDuck |
+| PostgreSQL via DuckDB (PG(DD)) | `SQL_DUCKDB over PostgreSQL (PG(DD))` | plan IR → DuckDB SQL (#148), executed by DuckDB's postgres extension | partial | supported | partial | supported | partial | partial | unsupported | partial | yes, against the `postgres:19` service container (`SQLDIM_PG_HOST`); skipped locally without a server |
+| MotherDuck | `SQL_MOTHERDUCK` | plan IR → DuckDB SQL (#148), the SQL_DUCKDB emitter | partial | supported | partial | supported | partial | supported | supported | partial | **not executed** — needs a MotherDuck account and `MOTHERDUCK_TOKEN`; running its SQL on local DuckDB would be DuckDB evidence, not MotherDuck |
 | PostgreSQL, native SQL | `SQL_POSTGRESQL` | **none** | unsupported | unsupported | unsupported | unsupported | unsupported | unsupported | unsupported | unsupported | yes — the refusal of every query is executed |
 | Cypher | `CYPHER` | **none** | unsupported | unsupported | unsupported | unsupported | unsupported | unsupported | unsupported | unsupported | yes — the refusal of every query is executed |
 | SPARQL | `SPARQL` | **none** | unsupported | unsupported | unsupported | unsupported | unsupported | unsupported | unsupported | unsupported | yes — the refusal of every query is executed |

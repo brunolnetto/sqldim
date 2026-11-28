@@ -76,10 +76,10 @@ Cells: declared support · cases by status (*pass*, **non-conf.** = strict xfail
 
 | Backend | join | null | temporal | aggregation | cte | window | window_aggregate | pathpred |
 |---|---|---|---|---|---|---|---|---|
-| DuckDB, plan IR | partial · 4 pass, 2 refused | supported · 10 pass | partial · 16 pass, 3 refused | partial · 4 pass, 2 refused | partial · 3 pass, 3 refused | supported · 13 pass | supported · 2 pass | partial · 34 pass, 26 refused, 21 n/e |
+| DuckDB, plan IR | partial · 6 pass | supported · 10 pass | partial · 16 pass, 3 refused | supported · 6 pass | partial · 3 pass, 3 refused | supported · 13 pass | supported · 2 pass | partial · 34 pass, 26 refused, 21 n/e |
 | DuckDB, `DGMQuery.to_sql()` | partial · 6 pass | supported · 10 pass | partial · 16 pass, 3 refused | supported · 6 pass | unsupported · 6 refused | supported · 13 pass | supported · 2 pass | partial · 34 pass, 26 refused, 21 n/e |
-| PostgreSQL via DuckDB (PG(DD)) | partial · 4 pass, 2 refused | supported · 8 pass | partial · 16 pass, 3 refused | partial · 4 pass, 2 refused | partial · 3 pass, 3 refused | partial · 1 pass, 2 refused | unsupported · 2 refused | partial · 34 pass, 26 refused, 21 n/e |
-| MotherDuck | partial · *not executed* | supported · *not executed* | partial · *not executed* | partial · *not executed* | partial · *not executed* | supported · *not executed* | supported · *not executed* | partial · *not executed* |
+| PostgreSQL via DuckDB (PG(DD)) | partial · 6 pass | supported · 8 pass | partial · 16 pass, 3 refused | supported · 6 pass | partial · 3 pass, 3 refused | partial · 1 pass, 2 refused | unsupported · 2 refused | partial · 34 pass, 26 refused, 21 n/e |
+| MotherDuck | partial · *not executed* | supported · *not executed* | partial · *not executed* | supported · *not executed* | partial · *not executed* | supported · *not executed* | supported · *not executed* | partial · *not executed* |
 | PostgreSQL, native SQL | unsupported · 6 refused | unsupported · 8 refused | unsupported · 19 refused | unsupported · 6 refused | unsupported · 6 refused | unsupported · 3 refused | unsupported · 2 refused | unsupported · 56 refused, 25 n/e |
 | Cypher | unsupported · 6 refused | unsupported · 8 refused | unsupported · 19 refused | unsupported · 6 refused | unsupported · 6 refused | unsupported · 3 refused | unsupported · 2 refused | unsupported · 56 refused, 25 n/e |
 | SPARQL | unsupported · 6 refused | unsupported · 8 refused | unsupported · 19 refused | unsupported · 6 refused | unsupported · 6 refused | unsupported · 3 refused | unsupported · 2 refused | unsupported · 56 refused, 25 n/e |
@@ -101,12 +101,10 @@ Cells: declared support · cases by status (*pass*, **non-conf.** = strict xfail
 
 | Declared | Where | Note |
 |---|---|---|
-| partial | `SQL_DUCKDB`: join; `SQL_DUCKDB over PostgreSQL (PG(DD))`: join; `SQL_MOTHERDUCK`: join | PathJoin over verb and bridge hops; a constellation declared with drill_across raises UnsupportedConstruct in the plan IR (§5.2.2) |
+| partial | `SQL_DUCKDB`: join; `DGMQuery.to_sql()`: join; `SQL_DUCKDB over PostgreSQL (PG(DD))`: join; `SQL_MOTHERDUCK`: join | PathJoin over verb and bridge hops; a constellation is evaluated by drill-across once its fact branches are declared (drill_across, §5.2.2): DGMQuery reads no model and cannot find them itself |
 | partial | `SQL_DUCKDB`: temporal; `DGMQuery.to_sql()`: temporal; `SQL_DUCKDB over PostgreSQL (PG(DD))`: temporal; `SQL_MOTHERDUCK`: temporal | as_of with SCD resolution and half-open validity; TemporalContext raises UnsupportedConstruct |
-| partial | `SQL_DUCKDB`: aggregation; `SQL_DUCKDB over PostgreSQL (PG(DD))`: aggregation; `SQL_MOTHERDUCK`: aggregation | over = ENTITIES / PATHS; drill-across raises UnsupportedConstruct in the plan IR (DGMQuery.to_sql() renders it) |
 | partial | `SQL_DUCKDB`: cte; `SQL_DUCKDB over PostgreSQL (PG(DD))`: cte; `SQL_MOTHERDUCK`: cte | Repeat in WALK mode with 1 ≤ min; SIMPLE, TRAIL and min = 0 are refused |
 | partial | `SQL_DUCKDB`: pathpred; `DGMQuery.to_sql()`: pathpred; `SQL_DUCKDB over PostgreSQL (PG(DD))`: pathpred; `SQL_MOTHERDUCK`: pathpred | EXISTS / FORALL, strategy ALL; EVENTUALLY, GLOBALLY, NEXT and UNTIL over one evaluation position per instance; a mode over a Repeat or several positions, past-time modes, other strategies and on_empty are refused |
-| partial | `DGMQuery.to_sql()`: join | PathJoin over verb and bridge hops; a constellation is evaluated by drill-across once its fact branches are declared (drill_across, §5.2.2): DGMQuery reads no model and cannot find them itself |
 | unsupported | `DGMQuery.to_sql()`: cte | a Repeat raises UnsupportedConstruct; plan it with DGMPlanner |
 | partial | `SQL_DUCKDB over PostgreSQL (PG(DD))`: window | ROW_NUMBER with QUALIFY is verified; RANK and DENSE_RANK are not |
 | unsupported | `SQL_DUCKDB over PostgreSQL (PG(DD))`: window_aggregate | a SUM window over a PostgreSQL scan raises NotImplementedException (PostgresScanSerialize) in DuckDB 1.5.0's postgres extension; DGMPlanner(execution_profile=POSTGRESQL_VIA_DUCKDB) refuses it before execution |

@@ -37,6 +37,7 @@ from sqldim.core.query.dgm.planner._ir import (
     BandQuery,
     Compare,
     Compose,
+    DrillAcross,
     Conj,
     PlanIR,
     PlanNode,
@@ -289,7 +290,12 @@ def _nodes(ir: PlanIR) -> Iterator[PlanNode]:
 
 
 def _bands(ir: PlanIR) -> Iterator[BandQuery]:
-    return (n for n in _nodes(ir) if isinstance(n, BandQuery))
+    """Every BandQuery of the plan, the branches of a drill-across included."""
+    for n in _nodes(ir):
+        if isinstance(n, BandQuery):
+            yield n
+        elif isinstance(n, DrillAcross):
+            yield from n.branches
 
 
 def relations_read(ir: PlanIR) -> frozenset[str]:

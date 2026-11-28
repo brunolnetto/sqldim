@@ -23,7 +23,12 @@ from enum import Enum
 from types import MappingProxyType
 from typing import TYPE_CHECKING
 
-from sqldim.core.query.dgm.planner._ir import BandQuery, Compose, UnsupportedConstruct
+from sqldim.core.query.dgm.planner._ir import (
+    BandQuery,
+    Compose,
+    DrillAcross,
+    UnsupportedConstruct,
+)
 from sqldim.core.query.dgm.planner._targets import QueryTarget, SinkTarget
 
 if TYPE_CHECKING:
@@ -135,8 +140,9 @@ S, P, U = Support.SUPPORTED, Support.PARTIAL, Support.UNSUPPORTED
 _DUCKDB_SQL: dict[Capability, Declared] = {
     Capability.JOIN: Declared(
         P,
-        "PathJoin over verb and bridge hops; a constellation declared with "
-        "drill_across raises UnsupportedConstruct in the plan IR (§5.2.2)",
+        "PathJoin over verb and bridge hops; a constellation is evaluated by "
+        "drill-across once its fact branches are declared (drill_across, "
+        "§5.2.2): DGMQuery reads no model and cannot find them itself",
     ),
     Capability.NULL: Declared(S, "Kleene logic; NULL is not a literal"),
     Capability.TEMPORAL: Declared(
@@ -145,9 +151,7 @@ _DUCKDB_SQL: dict[Capability, Declared] = {
         "raises UnsupportedConstruct",
     ),
     Capability.AGGREGATION: Declared(
-        P,
-        "over = ENTITIES / PATHS; drill-across raises UnsupportedConstruct in "
-        "the plan IR (DGMQuery.to_sql() renders it)",
+        S, "over = ENTITIES / PATHS; drill-across with DA1–DA4 (§5.2.2)"
     ),
     Capability.CTE: Declared(
         P, "Repeat in WALK mode with 1 ≤ min; SIMPLE, TRAIL and min = 0 are refused"
@@ -223,15 +227,6 @@ DGMQUERY_TO_SQL = Profile(
     "DuckDB 1.5.0",
     {
         **_DUCKDB_SQL,
-        Capability.JOIN: Declared(
-            P,
-            "PathJoin over verb and bridge hops; a constellation is evaluated by "
-            "drill-across once its fact branches are declared (drill_across, "
-            "§5.2.2): DGMQuery reads no model and cannot find them itself",
-        ),
-        Capability.AGGREGATION: Declared(
-            S, "over = ENTITIES / PATHS; drill-across with DA1–DA4 (§5.2.2)"
-        ),
         Capability.CTE: Declared(
             U, "a Repeat raises UnsupportedConstruct; plan it with DGMPlanner"
         ),
@@ -278,6 +273,8 @@ def window_capability(sql: str) -> Capability:
 def _leaves(node: "PlanNode") -> Iterator[BandQuery]:
     if isinstance(node, BandQuery):
         yield node
+    elif isinstance(node, DrillAcross):
+        yield from node.branches
     elif isinstance(node, Compose):
         yield from _leaves(node.left)
         yield from _leaves(node.right)

@@ -40,6 +40,7 @@ from sqldim.core.query.dgm.planner._ir import (
     Compare,
     Conj,
     Disj,
+    DrillAcross,
     Fragment,
     Join,
     Neg,
@@ -239,6 +240,14 @@ def _node_hash(node: PlanNode, memo: dict[int, str]) -> str:
         return memo[key]
     if isinstance(node, BandQuery):
         h = canonical_hash("band", _band_payload(node))
+    elif isinstance(node, DrillAcross):
+        h = canonical_hash(
+            "drill_across",
+            tuple(_node_hash(b, memo) for b in node.branches),
+            node.key_names,
+            tuple((n, e.sql) for n, e in node.select),
+            ("having", _ph(node.having)),
+        )
     else:
         kids = [_node_hash(node.left, memo), _node_hash(node.right, memo)]
         if node.op in _COMMUTATIVE:

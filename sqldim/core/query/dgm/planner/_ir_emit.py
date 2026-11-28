@@ -26,6 +26,7 @@ from sqldim.core.query.dgm.planner._ir import (
     Compose,
     Conj,
     Disj,
+    DrillAcross,
     Join,
     Literal,
     Neg,
@@ -233,19 +234,40 @@ def _compose_sql(c: Compose, names: dict[PlanNode, str]) -> str:
     raise UnsupportedConstruct(f"no SQL for composition {c.op!r} (on={c.on!r})")
 
 
-def emit_node(node: PlanNode, names: dict[PlanNode, str] | None = None) -> str:
-    """Render the body of one plan node; *names* maps earlier nodes to CTE names."""
+def _drill_sql(d: DrillAcross) -> str:
+    """§5.2.2 steps 1–3, as ``DGMQuery.to_sql()`` renders a constellation."""
+    from sqldim.core.query.dgm._drill_across import aligned_sql
+
+    branches = [(_band_sql(b), [n for n, _ in b.aggregates]) for b in d.branches]
+    having = None if d.having is None else emit_pred(d.having)
+    select = [(n, e.sql) for n, e in d.select]
+    return aligned_sql(branches, d.key_names, select, having)
+
+
+def _leaf_sql(node: PlanNode) -> str | None:
     if isinstance(node, BandQuery):
         return _band_sql(node)
+    if isinstance(node, DrillAcross):
+        return _drill_sql(node)
+    return None
+
+
+def emit_node(node: PlanNode, names: dict[PlanNode, str] | None = None) -> str:
+    """Render the body of one plan node; *names* maps earlier nodes to CTE names."""
+    leaf = _leaf_sql(node)
+    if leaf is not None:
+        return leaf
+    assert isinstance(node, Compose)
     return _compose_sql(node, names or {})
 
 
 def emit_sql(ir: PlanIR) -> str:
     """Render the whole plan as one DuckDB statement."""
     if not ir.ctes:
-        if not isinstance(ir.root, BandQuery):
+        leaf = _leaf_sql(ir.root)
+        if leaf is None:
             raise UnsupportedConstruct("a composed root needs its CTEs")
-        return _band_sql(ir.root)
+        return leaf
     if ir.ctes[-1].node is not ir.root:
         raise UnsupportedConstruct("the root of a WITH plan must be its last CTE")
     names: dict[PlanNode, str] = {}

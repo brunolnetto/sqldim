@@ -23,6 +23,7 @@ from sqldim.core.query.dgm.planner._ir import (
     Conj,
     Cte,
     Disj,
+    DrillAcross,
     Fragment,
     Join,
     Literal,
@@ -44,6 +45,7 @@ from sqldim.core.query.dgm.planner._ir import (
     check_fragment,
     check_identifier,
     check_relation_name,
+    rename_aliases,
 )
 
 if TYPE_CHECKING:
@@ -303,12 +305,10 @@ def _opt_pred(p: object, scope: frozenset[str]) -> Pred | None:
     return None if p is None else lower_pred(p, scope)
 
 
-def lower_query(q: "DGMQuery") -> BandQuery:
-    """Lower one three-band query to a :class:`BandQuery`."""
-    from sqldim.core.query.dgm._query_helpers import (
-        _validate_bands,
-        rendered_aggregates,
-    )
+def lower_query(q: "DGMQuery") -> BandQuery | DrillAcross:
+    """Lower one three-band query to a :class:`BandQuery`, or a declared
+    constellation (``drill_across``) to a :class:`DrillAcross`."""
+    from sqldim.core.query.dgm._query_helpers import _validate_bands
 
     _validate_bands(q)  # same construction errors as DGMQuery.to_sql()
     if q._temporal_context is not None:
@@ -317,13 +317,13 @@ def lower_query(q: "DGMQuery") -> BandQuery:
             "ignores it, so no plan is produced rather than one that drops it"
         )
     if q._branches:
-        q.to_sql()  # DA1–DA3 reject as DGMQuery.to_sql() does
-        raise UnsupportedConstruct(
-            "drill-across (§5.2.2) is not lowered by this IR version: it has no "
-            "node for per-branch aggregation aligned by FULL OUTER JOIN, and "
-            "planning the context as one BandQuery would join the fact branches "
-            "row to row"
-        )
+        return _lower_drill(q)
+    return _lower_band(q)
+
+
+def _lower_band(q: "DGMQuery") -> BandQuery:
+    from sqldim.core.query.dgm._query_helpers import rendered_aggregates
+
     table = check_relation_name(q._anchor_table)
     anchor_alias = q._anchor_alias or table
     scope = _Scope()
@@ -340,6 +340,38 @@ def lower_query(q: "DGMQuery") -> BandQuery:
         having=_opt_pred(q._having_pred, s),
         windows=_named(q._window_exprs, s),
         qualify=_opt_pred(q._qualify_pred, s),
+    )
+
+
+def _lower_drill(q: "DGMQuery") -> DrillAcross:
+    """§5.2.2 steps 1–3; DA1–DA3 are checked as ``DGMQuery.to_sql()`` does.
+
+    The branches are put in the byte order of their ``dag_hash`` and the
+    ``b<i>`` references of step 3 renumbered to match, so the identity of
+    the node does not depend on the order the branches were declared in.
+    """
+    from sqldim.core.query.dgm._drill_across import drill_plan
+    from sqldim.core.query.dgm.planner._ir_identity import dag_hash
+
+    plan = drill_plan(q)
+    bands = [_lower_band(b) for b in plan.branches]
+    order = sorted(range(len(bands)), key=lambda i: dag_hash(bands[i]))
+    rename = {f"b{old}": f"b{new}" for new, old in enumerate(order)}
+    refs = frozenset(rename)
+    select = tuple(
+        (
+            check_identifier(name, "output name"),
+            rename_aliases(check_fragment(expr, refs), rename),
+        )
+        for name, expr in plan.outer
+    )
+    for name in plan.key_names:
+        check_identifier(name, "output name")
+    return DrillAcross(
+        branches=tuple(bands[i] for i in order),
+        key_names=plan.key_names,
+        select=select,
+        having=_opt_pred(plan.having, frozenset({"da"})),
     )
 
 

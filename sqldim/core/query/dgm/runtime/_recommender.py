@@ -37,6 +37,7 @@ from sqldim.core.query.dgm.planner._ir import (
     BandQuery,
     Compose,
     Conj,
+    DrillAcross,
     Join,
     PlanIdentityUnavailable,
     PlanIR,
@@ -227,6 +228,10 @@ def _feasible(ir: PlanIR, bdd: PredicateBDD) -> bool:
         n = stack.pop()
         if isinstance(n, Compose):
             stack += [n.left, n.right]
+        elif isinstance(n, DrillAcross):
+            if not bdd.satisfiable(n.having):
+                return False
+            stack += list(n.branches)
         elif not all(bdd.satisfiable(p) for p in (n.where, n.having, n.qualify)):
             return False
     return True
