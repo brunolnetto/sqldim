@@ -220,14 +220,14 @@ def _run_scd2_batch(
         s.close()
 
         with DuckDBSink(db_path) as sink:
-            _configure(sink._con, temp_dir)  # type: ignore[arg-type]
-            tracker = DuckDBObjectTracker(sink._con)
+            _configure(sink.connection, temp_dir)  # type: ignore[arg-type]
+            tracker = DuckDBObjectTracker(sink.connection)
             tracker.wrap()
             proc = LazySCDProcessor(
                 natural_key=artifact.natural_key,
                 track_columns=artifact.track_columns,
                 sink=sink,
-                con=sink._con,
+                con=sink.connection,
             )
             probe = MemoryProbe(temp_dir=temp_dir, label=case_id)
             with probe:
@@ -241,7 +241,7 @@ def _run_scd2_batch(
                 read_duckdb_memory_once,
             )
 
-            post_duckdb_gb = read_duckdb_memory_once(sink._con)
+            post_duckdb_gb = read_duckdb_memory_once(sink.connection)
             tracker.snapshot()
             tracker.unwrap()
 
@@ -313,14 +313,14 @@ def _run_metadata_batch(
         s.close()
 
         with DuckDBSink(db_path) as sink:
-            _configure(sink._con, eff_spill, mem_limit_override_gb)  # type: ignore[arg-type]
-            tracker = DuckDBObjectTracker(sink._con)
+            _configure(sink.connection, eff_spill, mem_limit_override_gb)  # type: ignore[arg-type]
+            tracker = DuckDBObjectTracker(sink.connection)
             tracker.wrap()
             proc = LazySCDMetadataProcessor(
                 natural_key=artifact.natural_key,
                 metadata_columns=artifact.metadata_columns,
                 sink=sink,
-                con=sink._con,
+                con=sink.connection,
             )
             probe = MemoryProbe(temp_dir=eff_spill, label=case_id)
             with probe:
@@ -333,7 +333,7 @@ def _run_metadata_batch(
                 read_duckdb_memory_once,
             )
 
-            post_duckdb_gb = read_duckdb_memory_once(sink._con)
+            post_duckdb_gb = read_duckdb_memory_once(sink.connection)
             tracker.snapshot()
             tracker.unwrap()
 

@@ -64,7 +64,9 @@ def example_01_product_catalogue() -> None:
     setup_con.close()
 
     with DuckDBSink(path) as sink:
-        proc = LazySCDProcessor("product_id", ["name", "price"], sink, con=sink._con)
+        proc = LazySCDProcessor(
+            "product_id", ["name", "price"], sink, con=sink.connection
+        )
         # T0: initial OLTP extract
         r1 = proc.process(src.snapshot(), "dim_product")
         # T1: changed records arrive from OLTP (price hikes + name revisions)
@@ -116,7 +118,7 @@ def example_02_employee_directory() -> None:
             type1_columns=["title"],
             type2_columns=["department"],
             sink=sink,
-            con=sink._con,
+            con=sink.connection,
         )
         r1 = proc.process(src.snapshot(), "dim_employee")
         r2 = proc.process(src.event_batch(1), "dim_employee")
@@ -168,7 +170,7 @@ def example_03_customer_addresses() -> None:
             natural_key="customer_id",
             column_pairs=[("address", "prev_address"), ("city", "prev_city")],
             sink=sink,
-            con=sink._con,
+            con=sink.connection,
         )
         r1 = proc.process(src.snapshot(), "dim_customer")
         r2 = proc.process(src.event_batch(1), "dim_customer")
@@ -220,7 +222,7 @@ def example_04_retail_stores() -> None:
             type1_columns=["phone"],
             type2_columns=["city", "state"],
             sink=sink,
-            con=sink._con,
+            con=sink.connection,
         )
         r1 = proc.process(src.snapshot(), "dim_store")
         r2 = proc.process(src.event_batch(1), "dim_store")

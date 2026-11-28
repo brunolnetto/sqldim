@@ -1,5 +1,8 @@
 from __future__ import annotations
 
+from sqldim.sinks._connection import connection_for
+from sqldim.sources.base import from_item
+
 import asyncio
 from sqlmodel import Session, select
 from sqldim.core.kimball.models import FactModel
@@ -40,7 +43,6 @@ class LazyAccumulatingLoader:
         batch_size: int = 100_000,
         con=None,
     ):
-        import duckdb as _duckdb
 
         _assert_not_dimension(table, "LazyAccumulatingLoader")
         self.table_name = _resolve_table(table)
@@ -48,7 +50,7 @@ class LazyAccumulatingLoader:
         self.milestone_columns = milestone_columns
         self.sink = sink
         self.batch_size = batch_size
-        self._con = con or _duckdb.connect()
+        self._con = connection_for(sink, con)
         self._model_cls: type | None = (
             None  # set by factory when created via as_loader()
         )
@@ -70,12 +72,12 @@ class LazyAccumulatingLoader:
         _sql = coerce_source(source).as_sql(self._con)
         self._con.execute(f"""
             CREATE OR REPLACE VIEW incoming AS
-            SELECT * FROM ({_sql})
+            SELECT * FROM {from_item(_sql)}
         """)
 
         self._con.execute(f"""
             CREATE OR REPLACE TABLE current_keys AS
-            SELECT {mc} FROM ({sql})
+            SELECT {mc} FROM {from_item(sql)}
         """)
 
         # New rows: natural key is not in the current state

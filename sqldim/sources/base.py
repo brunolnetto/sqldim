@@ -33,3 +33,20 @@ class SourceAdapter(Protocol):
             SELECT * FROM ({source.as_sql(con)})
         """
         ...
+
+
+_QUERY_STARTS = ("SELECT", "WITH", "FROM", "VALUES", "(")
+
+
+def from_item(sql: str) -> str:
+    """*sql* as an item of a ``FROM`` clause (#192).
+
+    A source or a sink's current state is either a query (``SELECT …``) or a
+    table reference: a table function such as ``read_parquet('x.parquet')``,
+    or a table name.  A query is parenthesised as a subquery; a reference is
+    returned as it is, since ``FROM (read_parquet(…))`` is a parser error.
+    """
+    text = sql.strip()
+    if text.upper().startswith(_QUERY_STARTS):
+        return f"({text})"
+    return text

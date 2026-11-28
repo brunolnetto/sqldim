@@ -66,8 +66,11 @@ Local file-based DuckDB database. The default choice for development, testing, a
 from sqldim.sinks import DuckDBSink
 
 with DuckDBSink("warehouse.duckdb") as sink:
+    con = sink.connection  # the connection the file is attached to
     sink.write(con, "new_rows", "dim_customer")
 ```
+
+`sink.connection` is the sink's DuckDB connection, open only inside the `with` block; outside it raises `SinkNotOpen`. The other sinks that attach their storage to a connection (`PostgreSQLSink`, `MotherDuckSink`, `DeltaLakeSink`, `IcebergSink`) expose it the same way, and a lazy loader or processor given such a sink and no `con` writes through it. `write` inserts by name (`INSERT INTO … BY NAME`) into an existing table: a target column the rows lack takes its default, and a column the target lacks raises `SchemaError` before anything is written.
 
 | Parameter | Type | Default | Description |
 |-----------|------|---------|-------------|

@@ -224,7 +224,7 @@ class TestAloadWrapper:
         loader = LazyCumulativeLoader("tbl", "player_id", "seasons", ["pts"], sink)
         loader.process = MagicMock(return_value=5)
         result = asyncio.run(loader.aload("today.parquet", 2024))
-        loader.process.assert_called_once_with("today.parquet", 2024)
+        loader.process.assert_called_once_with("today.parquet", 2024, None)
         assert result == 5
 
     def test_scd_handler_aload_is_alias_for_process(self, session):

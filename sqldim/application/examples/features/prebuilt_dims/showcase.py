@@ -73,9 +73,9 @@ def example_09_date_time_spine() -> None:
 
     with DuckDBSink(path) as sink:
         date_rows = DateDimension.generate_lazy(
-            "2024-01-01", "2024-12-31", "dim_date", sink, con=sink._con
+            "2024-01-01", "2024-12-31", "dim_date", sink, con=sink.connection
         )
-        time_rows = TimeDimension.generate_lazy("dim_time", sink, con=sink._con)
+        time_rows = TimeDimension.generate_lazy("dim_time", sink, con=sink.connection)
 
     con = duckdb.connect(path)
 
@@ -140,7 +140,12 @@ def example_10_sales_channel_flags() -> None:
     setup.close()
 
     with DuckDBSink(path) as sink:
-        n = populate_junk_dimension_lazy(flags, "dim_sales_flags", sink, con=sink._con)  # type: ignore[arg-type]
+        n = populate_junk_dimension_lazy(
+            flags,  # type: ignore[arg-type]
+            "dim_sales_flags",
+            sink,
+            con=sink.connection,
+        )
 
     con = duckdb.connect(path)
     rows = con.execute(

@@ -212,7 +212,7 @@ class GraphModel(_GraphQueryMixin):
             target_id=getattr(target, "id"),
             max_hops=max_hops,
         )
-        result = await self._session.execute(text(sql_str))
+        result = await self._execute_sql(text(sql_str))
         return [list(row[0]) for row in result.fetchall()]
 
     # ------------------------------------------------------------------
@@ -259,7 +259,7 @@ class GraphModel(_GraphQueryMixin):
             direction=direction,
             weighted=weighted,
         )
-        result = await self._session.execute(text(sql_str))
+        result = await self._execute_sql(text(sql_str))
         row = result.fetchone()
         if row is None or row[0] is None:
             return 0.0
@@ -380,7 +380,7 @@ class GraphModel(_GraphQueryMixin):
             start_id=getattr(vertex, "id"),
             direction=direction,
         )
-        result = await self._session.execute(text(sql_str))
+        result = await self._execute_sql(text(sql_str))
         row = result.fetchone()
         return int(row[0]) if row and row[0] is not None else 0
 

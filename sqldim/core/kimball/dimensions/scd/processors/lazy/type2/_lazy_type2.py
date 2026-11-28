@@ -8,6 +8,8 @@ Both delegate storage to a :class:`SinkAdapter`.
 
 from __future__ import annotations
 
+from sqldim.sinks._connection import connection_for
+
 from datetime import datetime, timezone
 from typing import Any
 
@@ -63,7 +65,6 @@ class LazySCDProcessor(_Type2StreamMixin):
         con=None,
         lineage_emitter: Any = None,
     ):
-        import duckdb as _duckdb
 
         self.natural_key = natural_key
         self._nk_cols = (
@@ -72,7 +73,7 @@ class LazySCDProcessor(_Type2StreamMixin):
         self.track_columns = sorted(track_columns)
         self.sink = sink
         self.batch_size = batch_size
-        self._con = con or _duckdb.connect()
+        self._con = connection_for(sink, con)
         self._lineage_emitter = lineage_emitter
 
     def process(self, source, table_name: str) -> SCDResult:

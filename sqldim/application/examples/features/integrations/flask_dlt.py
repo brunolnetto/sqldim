@@ -119,7 +119,7 @@ def _load_rows_into_warehouse(
             "customer_id",
             tracked_fields,
             sink,
-            con=sink._con,
+            con=sink.connection,
         )
         return proc.process(source, "dim_customer")
 

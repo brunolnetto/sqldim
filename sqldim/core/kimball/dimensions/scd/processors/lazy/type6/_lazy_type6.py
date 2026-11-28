@@ -7,6 +7,8 @@ Delegates all storage to a :class:`SinkAdapter`.
 
 from __future__ import annotations
 
+from sqldim.sinks._connection import connection_for
+
 from sqldim.core.kimball.dimensions.scd.handler import SCDResult
 
 
@@ -39,14 +41,13 @@ class LazyType6Processor:
         batch_size: int = 100_000,
         con=None,
     ):
-        import duckdb as _duckdb
 
         self.natural_key = natural_key
         self.type1_columns = sorted(type1_columns)
         self.type2_columns = sorted(type2_columns)
         self.sink = sink
         self.batch_size = batch_size
-        self._con = con or _duckdb.connect()
+        self._con = connection_for(sink, con)
 
     def process(self, source, table_name: str) -> SCDResult:
         """Detect type1/type2 changes and apply correct versioning strategy.

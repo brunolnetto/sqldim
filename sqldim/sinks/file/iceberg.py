@@ -27,7 +27,7 @@ Usage
         namespace="warehouse",
         catalog_config=catalog_cfg,
     ) as sink:
-        proc = LazySCDProcessor("id", ["name", "email"], sink, con=sink._con)
+        proc = LazySCDProcessor("id", ["name", "email"], sink, con=sink.connection)
         proc.process(source, "dim_customer")
 
 Local / REST catalog example::
@@ -46,11 +46,11 @@ from typing import Any
 
 import duckdb
 
-from sqldim.sinks._connection import make_connection
+from sqldim.sinks._connection import OwnsConnection, make_connection
 from sqldim.sinks.file._iceberg_mutate import _IcebergMutateMixin  # noqa: F401
 
 
-class IcebergSink(_IcebergMutateMixin):
+class IcebergSink(OwnsConnection, _IcebergMutateMixin):
     """
     SinkAdapter implementation for Apache Iceberg tables.
 

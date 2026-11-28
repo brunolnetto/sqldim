@@ -16,13 +16,13 @@ from typing import TYPE_CHECKING
 import duckdb
 
 from sqldim.exceptions import SqldimError
-from sqldim.sinks._connection import make_connection
+from sqldim.sinks._connection import OwnsConnection, make_connection
 
 if TYPE_CHECKING:
     from sqldim.core.query.dgm.runtime import SinkWrite
 
 
-class PostgreSQLSink:
+class PostgreSQLSink(OwnsConnection):
     """
     Sink backed by PostgreSQL.
 
@@ -290,6 +290,7 @@ class PostgreSQLSink:
         if self._con:
             self._con.execute(f"DETACH {self._alias}")
             self._con.close()
+            self._con = None
 
 
 # ---------------------------------------------------------------------------

@@ -5,6 +5,9 @@ Reproduces player_game_edges.sql and player_player_edges.sql.
 
 from __future__ import annotations
 
+from sqldim.sinks._connection import connection_for
+from sqldim.sources.base import from_item
+
 import asyncio
 from sqldim.core.loaders._utils import _resolve_table
 
@@ -66,7 +69,6 @@ class LazyEdgeProjectionLoader:
         batch_size: int = 100_000,
         con=None,
     ):
-        import duckdb as _duckdb
 
         self.table_name = _resolve_table(table)
         self.subject_key = subject_key
@@ -76,7 +78,7 @@ class LazyEdgeProjectionLoader:
         self.self_join = self_join
         self.self_join_key = self_join_key
         self.batch_size = batch_size
-        self._con = con or _duckdb.connect()
+        self._con = connection_for(sink, con)
         self._model_cls: type | None = (
             None  # set by factory when created via as_loader()
         )
@@ -91,7 +93,7 @@ class LazyEdgeProjectionLoader:
         _sql = coerce_source(source).as_sql(self._con)
         self._con.execute(f"""
             CREATE OR REPLACE VIEW incoming AS
-            SELECT * FROM ({_sql})
+            SELECT * FROM {from_item(_sql)}
         """)
 
         if self.self_join:

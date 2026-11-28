@@ -38,7 +38,7 @@ class DuckDBTraversalEngine(TraversalEngine):
     Usage::
 
         with DuckDBSink("/tmp/graph.duckdb") as sink:
-            engine = DuckDBTraversalEngine(sink._con)
+            engine = DuckDBTraversalEngine(sink.connection)
             neighbors = engine.neighbors(PlayerEdge, start_id=23)
             paths     = engine.paths(PlayerEdge, start_id=23, target_id=6)
             degree    = engine.degree(PlayerEdge, start_id=23, direction="out")

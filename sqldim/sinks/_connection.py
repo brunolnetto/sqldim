@@ -71,3 +71,46 @@ def make_connection(
     if threads is not None:
         con.execute(f"SET threads = {threads}")
     return con
+
+
+class OwnsConnection:
+    """The public ``connection`` of a sink that opens its own (#192).
+
+    The sink attaches its storage to a DuckDB connection on ``__enter__``.
+    Lazy loaders and processors given the sink and no ``con`` write through
+    this connection; pass it explicitly as ``con=sink.connection`` to share
+    it with your own statements.
+    """
+
+    _con: duckdb.DuckDBPyConnection | None
+
+    @property
+    def connection(self) -> duckdb.DuckDBPyConnection:
+        """The sink's open connection; :class:`SinkNotOpen` outside ``with``."""
+        from sqldim.sinks._errors import SinkNotOpen
+
+        if self._con is None:
+            raise SinkNotOpen(
+                f"{type(self).__name__} has no open connection: use it as "
+                f"`with {type(self).__name__}(...) as sink:` and read "
+                "sink.connection inside the block"
+            )
+        return self._con
+
+
+def connection_for(
+    sink: object, con: duckdb.DuckDBPyConnection | None
+) -> duckdb.DuckDBPyConnection:
+    """The connection a lazy loader or processor writes through (#192).
+
+    *con* when given.  Otherwise the sink's own :attr:`OwnsConnection.connection`
+    (raising :class:`SinkNotOpen` if the sink is not open), since a fresh
+    connection would not see the sink's attached storage.  A sink that owns
+    no connection (``ParquetSink``, a custom sink) gets a new in-memory one,
+    as it reads and writes its storage by path.
+    """
+    if con is not None:
+        return con
+    if isinstance(sink, OwnsConnection):
+        return sink.connection
+    return duckdb.connect()

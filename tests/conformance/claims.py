@@ -305,18 +305,17 @@ CLAIMS: tuple[Claim, ...] = (
         "an enumeration written from §8.11, §12.3, §4.1, §4.2 and §5.2.3 in "
         "`tests/conformance/qvalid.py` (no `sqldim`), compared as a set and a "
         "count with the lattice's generator: every skeleton of grade ≤ 2 over "
-        "two anchors and one edge type with h = 1 (one Join), for five schemas "
-        "— no properties; a String property on a BRONZE dimension and a "
-        "Boolean; an ADDITIVE measure; a NON_ADDITIVE measure; a Degenerate "
-        "attribute — 4,878 skeletons, none missing, none extra, none twice",
+        "two anchors and one edge type with h = 1 (one Join), for six schemas "
+        "— no properties; a numeric dimension attribute; a String property on "
+        "a BRONZE dimension and a Boolean; an ADDITIVE measure; a NON_ADDITIVE "
+        "measure; a Degenerate attribute — 5,920 skeletons, none missing, "
+        "none extra, none twice",
         "evidence that sqldim's enumeration meets the definition on this "
         "domain. Grade ≤ 2 keeps every filter to two atoms, where the reduced "
         "BDD size does not depend on the variable order that §8.14 leaves to "
-        "the atoms' encoding. Outside the domain: numeric dimension attributes "
-        "(§2.4 admits MIN, MAX and AVG over them, while the §12.3 sentence on "
-        "Degenerate attributes reads 'no aggregate other than COUNT'), "
-        "properties of a FactlessFact, constellations (DA1–DA3), time-ordered "
-        "bridges and Joins of more than one hop",
+        "the atoms' encoding. Outside the domain: properties of a "
+        "FactlessFact, constellations (DA1–DA3), time-ordered bridges and "
+        "Joins of more than one hop",
     ),
     Claim(
         "CLM-8.13-WALK",

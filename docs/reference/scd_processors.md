@@ -26,7 +26,7 @@ All lazy processors live under `sqldim.core.kimball.dimensions.scd.processors` a
 | `track_columns` | `List[str]` | *required* (varies) | Columns to monitor for changes |
 | `sink` | `DuckDBSink` | *required* | Target sink for writes |
 | `batch_size` | `int` | `100_000` | Rows per flush |
-| `con` | `duckdb.DuckDBPyConnection` | `None` | DuckDB connection (required for SQL execution) |
+| `con` | `duckdb.DuckDBPyConnection` | `None` | DuckDB connection. `None` uses the open sink's `sink.connection` (`SinkNotOpen` outside its `with` block), or a new in-memory connection for a sink that owns none, such as `ParquetSink` |
 
 ### .process() Method
 

@@ -206,7 +206,7 @@ class MemoryProbe:
         with probe:
             proc.process(source, "dim_product")
         # Read DuckDB memory from main thread AFTER process() completes:
-        probe.report.peak_duckdb_gb = read_duckdb_memory_once(sink._con)
+        probe.report.peak_duckdb_gb = read_duckdb_memory_once(sink.connection)
         print(probe.report.summary())
     """
 

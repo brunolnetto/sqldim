@@ -7,6 +7,9 @@ Implements the LAG + streak pattern via narwhals window functions.
 
 from __future__ import annotations
 
+from sqldim.sinks._connection import connection_for
+from sqldim.sources.base import from_item
+
 from typing import Any, TYPE_CHECKING
 
 import narwhals as nw
@@ -149,16 +152,15 @@ def lazy_backfill_scd2(
     -------
     int — number of rows written
     """
-    import duckdb as _duckdb
 
-    _con = con or _duckdb.connect()
+    _con = connection_for(sink, con)
 
     from sqldim.sources import coerce_source
 
     _src_sql = coerce_source(source).as_sql(_con)
     _con.execute(f"""
         CREATE OR REPLACE VIEW backfill_source AS
-        SELECT * FROM ({_src_sql})
+        SELECT * FROM {from_item(_src_sql)}
     """)
 
     # Step 1: LAG columns

@@ -83,7 +83,7 @@ def example_05_ecommerce_orders() -> None:
             match_column="order_id",
             milestone_columns=["paid_at", "shipped_at", "delivered_at"],
             sink=sink,
-            con=sink._con,
+            con=sink.connection,
         )
         r = loader.process(src.placed_events())
         print(f"  T1 placed    → {r}")
@@ -132,7 +132,9 @@ def example_06_daily_account_balances() -> None:
 
     with DuckDBSink(path) as sink:
         for snap_date in snap_dates:
-            loader = LazySnapshotLoader(sink, snapshot_date=snap_date, con=sink._con)
+            loader = LazySnapshotLoader(
+                sink, snapshot_date=snap_date, con=sink.connection
+            )
             n = loader.load(src.snapshot_for_date(snap_date), "fact_account_balance")
             print(f"  {snap_date} → {n} rows loaded")
 
