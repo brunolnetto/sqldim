@@ -190,12 +190,12 @@ _NO_EMITTER = "no emitter: DGMPlanner.plan_query raises UnsupportedCapability"
 QUERY_PROFILES: Mapping[QueryTarget, Profile] = MappingProxyType(
     {
         QueryTarget.SQL_DUCKDB: Profile(
-            "SQL_DUCKDB", "plan IR → DuckDB SQL (#148)", "DuckDB 1.5.0", _DUCKDB_SQL
+            "SQL_DUCKDB", "plan IR → DuckDB SQL (#148)", "DuckDB 2.0.1", _DUCKDB_SQL
         ),
         QueryTarget.SQL_MOTHERDUCK: Profile(
             "SQL_MOTHERDUCK",
             "plan IR → DuckDB SQL (#148), the SQL_DUCKDB emitter",
-            "DuckDB 1.5.0",
+            "DuckDB 2.0.1",
             _DUCKDB_SQL,
         ),
         QueryTarget.SQL_POSTGRESQL: Profile(
@@ -233,7 +233,7 @@ QUERY_PROFILES: Mapping[QueryTarget, Profile] = MappingProxyType(
 DGMQUERY_TO_SQL = Profile(
     "DGMQuery.to_sql()",
     "DGMQuery.to_sql() → DuckDB SQL",
-    "DuckDB 1.5.0",
+    "DuckDB 2.0.1",
     {
         **_DUCKDB_SQL,
         Capability.CTE: Declared(
@@ -257,18 +257,17 @@ DGMQUERY_TO_SQL = Profile(
 POSTGRESQL_VIA_DUCKDB = Profile(
     "SQL_DUCKDB over PostgreSQL (PG(DD))",
     "plan IR → DuckDB SQL (#148), executed by DuckDB's postgres extension",
-    "DuckDB 1.5.0 postgres extension",
+    "DuckDB 2.0.1 postgres extension",
     {
         **_DUCKDB_SQL,
         Capability.WINDOW: Declared(
             P, "ROW_NUMBER with QUALIFY is verified; RANK and DENSE_RANK are not"
         ),
         Capability.WINDOW_AGGREGATE: Declared(
-            U,
-            "a SUM window over a PostgreSQL scan raises NotImplementedException "
-            "(PostgresScanSerialize) in DuckDB 1.5.0's postgres extension; "
-            "DGMPlanner(execution_profile=POSTGRESQL_VIA_DUCKDB) refuses it "
-            "before execution",
+            P,
+            "a SUM window with QUALIFY is verified (DuckDB 2.0.1; 1.5.0 raised "
+            "NotImplementedException, PostgresScanSerialize); AVG, LAG and the "
+            "other window functions are not",
         ),
     },
 )
@@ -322,7 +321,7 @@ SINK_PROFILES: Mapping[SinkTarget, Profile] = MappingProxyType(
         SinkTarget.DUCKDB: Profile(
             "DUCKDB",
             "DuckDBSink; Rule 8: CREATE TABLE AS / INSERT INTO",
-            "DuckDB 1.5.0",
+            "DuckDB 2.0.1",
             {
                 Capability.APPEND: Declared(S, "INSERT INTO the attached file"),
                 Capability.SCD2_CLOSE: Declared(S, "UPDATE in place"),
@@ -332,7 +331,7 @@ SINK_PROFILES: Mapping[SinkTarget, Profile] = MappingProxyType(
         SinkTarget.MOTHERDUCK: Profile(
             "MOTHERDUCK",
             "MotherDuckSink; Rule 8: CREATE TABLE AS / INSERT INTO",
-            "DuckDB 1.5.0",
+            "DuckDB 2.0.1",
             {
                 Capability.APPEND: Declared(S, "INSERT INTO the attached database"),
                 Capability.SCD2_CLOSE: Declared(S, "UPDATE in place"),
@@ -342,7 +341,7 @@ SINK_PROFILES: Mapping[SinkTarget, Profile] = MappingProxyType(
         SinkTarget.POSTGRESQL: Profile(
             "POSTGRESQL",
             "PostgreSQLSink through DuckDB's postgres extension",
-            "DuckDB 1.5.0 postgres extension",
+            "DuckDB 2.0.1 postgres extension",
             {
                 Capability.APPEND: Declared(S, "INSERT INTO the attached database"),
                 Capability.SCD2_CLOSE: Declared(S, "UPDATE … FROM in place"),
@@ -352,7 +351,7 @@ SINK_PROFILES: Mapping[SinkTarget, Profile] = MappingProxyType(
         SinkTarget.PARQUET: Profile(
             "PARQUET",
             "ParquetSink; Rule 8: COPY TO (FORMAT PARQUET)",
-            "DuckDB 1.5.0",
+            "DuckDB 2.0.1",
             {
                 Capability.APPEND: Declared(
                     S,
@@ -372,16 +371,18 @@ SINK_PROFILES: Mapping[SinkTarget, Profile] = MappingProxyType(
         SinkTarget.DELTA: Profile(
             "DELTA",
             "DeltaLakeSink; Rule 8 write plan",
-            "DuckDB 1.5.0 delta extension",
+            "DuckDB 2.0.1 delta extension",
             {
                 Capability.APPEND: Declared(
-                    P,
-                    "§6.2: APPEND only, by ATTACH … (TYPE delta) and INSERT INTO "
-                    "the attached table; DuckDB 1.5.0 cannot create the table",
+                    S,
+                    "§6.2: ATTACH … (TYPE delta), then INSERT INTO … BY NAME, or "
+                    "CREATE TABLE <alias> AS when the path holds no table; read "
+                    "back by delta_scan after DETACH",
                 ),
                 Capability.SCD2_CLOSE: Declared(
                     U,
-                    "§6.2: the delta extension rejects UPDATE; "
+                    "§6.2: the delta extension rejects UPDATE (DuckDB 2.0.1: "
+                    '"Can only update base table"); '
                     "DeltaLakeSink.close_versions raises SinkUnsupported",
                 ),
                 Capability.MERGE: Declared(

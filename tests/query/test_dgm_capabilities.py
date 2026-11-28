@@ -58,7 +58,9 @@ def test_require_raises_only_for_unsupported() -> None:
     delta = sink_profile(SinkTarget.DELTA)
     with pytest.raises(UnsupportedCapability, match="merge"):
         delta.require(Capability.MERGE)
-    assert delta.require(Capability.APPEND).support is Support.PARTIAL
+    assert delta.require(Capability.APPEND).support is Support.SUPPORTED
+    parquet = sink_profile(SinkTarget.PARQUET)
+    assert parquet.require(Capability.SCD2_CLOSE).support is Support.PARTIAL
     duck = query_profile(QueryTarget.SQL_DUCKDB)
     assert duck.require(Capability.WINDOW).support is Support.SUPPORTED
 
@@ -107,16 +109,38 @@ def test_window_capability(expr: str, cap: Capability) -> None:
     assert window_capability(expr) is cap
 
 
-def test_pg_dd_refuses_an_aggregate_window_before_execution() -> None:
-    from sqldim.core.query.dgm.planner import POSTGRESQL_VIA_DUCKDB
+def test_an_unsupported_window_is_refused_before_execution() -> None:
+    from dataclasses import replace
 
+    from sqldim.core.query.dgm.planner import POSTGRESQL_VIA_DUCKDB
+    from sqldim.core.query.dgm.planner._capabilities import Declared
+
+    refusing = replace(
+        POSTGRESQL_VIA_DUCKDB,
+        capabilities={
+            **POSTGRESQL_VIA_DUCKDB.capabilities,
+            Capability.WINDOW_AGGREGATE: Declared(Support.UNSUPPORTED, "probe"),
+        },
+    )
     planner = DGMPlanner(None, None, None, None, QueryTarget.SQL_DUCKDB,  # type: ignore[arg-type]
-                         execution_profile=POSTGRESQL_VIA_DUCKDB)  # fmt: skip
+                         execution_profile=refusing)  # fmt: skip
     q = _window_query("SUM(s.revenue) OVER (PARTITION BY s.customer)")
     with pytest.raises(UnsupportedCapability, match="window_aggregate"):
         planner.plan_query(q)
     ok = _window_query("ROW_NUMBER() OVER (PARTITION BY s.customer ORDER BY s.id)")
     assert "ROW_NUMBER" in planner.plan_query(ok).query_text
+
+
+def test_pg_dd_plans_a_sum_window() -> None:
+    """Verified on DuckDB 2.0.1 (#193); 1.5.0's postgres extension raised."""
+    from sqldim.core.query.dgm.planner import POSTGRESQL_VIA_DUCKDB
+
+    profile = POSTGRESQL_VIA_DUCKDB
+    assert profile.declared(Capability.WINDOW_AGGREGATE).support is Support.PARTIAL
+    planner = DGMPlanner(None, None, None, None, QueryTarget.SQL_DUCKDB,  # type: ignore[arg-type]
+                         execution_profile=profile)  # fmt: skip
+    q = _window_query("SUM(s.revenue) OVER (PARTITION BY s.customer)")
+    assert "SUM(s.revenue)" in planner.plan_query(q).query_text
 
 
 def test_duckdb_plans_an_aggregate_window() -> None:

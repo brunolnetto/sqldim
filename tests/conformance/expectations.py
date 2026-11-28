@@ -103,11 +103,6 @@ PG, REF, WP = "pg-duckdb-plan-ir", "planner-refusals", "dgm-write-plan"
 for (_pattern, _b), _v in list(EXPECTATIONS.items()):
     if _b == IR:
         EXPECTATIONS[(_pattern, PG)] = _v
-_add(R, "POSTGRESQL_VIA_DUCKDB declares window_aggregate unsupported: DuckDB "
-        "1.5.0's postgres extension raises NotImplementedException "
-        "(PostgresScanSerialize) for a SUM window over a PostgreSQL table, so "
-        "DGMPlanner(execution_profile=POSTGRESQL_VIA_DUCKDB) raises "
-        "UnsupportedCapability before execution", (PG,), "WIN-02", "WIN-03")  # fmt: skip
 
 _add(N, _NO_ON_EMPTY, (REF,), "CTL-*-VAC", "CTL-G1-*", "CTL-G2-*", "PP-FA-03")
 _add(N, "the query is rejected while it is built (§3.5, §4.1), before planning: "
@@ -118,8 +113,8 @@ _add(R, "every target without an emitter (SQL_POSTGRESQL, CYPHER, SPARQL, "
 
 _DELTA_APPEND_ONLY = (
     "§6.2 Delta writes: DuckDB's delta extension rejects UPDATE, DELETE and "
-    "MERGE INTO, so DeltaLakeSink.close_versions() raises SinkUnsupported and "
-    "sends nothing"
+    "MERGE INTO (still on DuckDB 2.0.1), so DeltaLakeSink.close_versions() "
+    "raises SinkUnsupported and sends nothing"
 )
 _add(R, _DELTA_APPEND_ONLY, ("sink-delta",), "SINK-CL-*", "SINK-SQL-C")
 

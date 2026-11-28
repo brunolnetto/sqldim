@@ -15,8 +15,8 @@ A sink that refuses the operation with :class:`SinkUnsupported` (#178) is
 :data:`REJECTED`.
 
 Executed against storage: DuckDB (a temporary file), Parquet (a temporary
-directory), Delta (an empty Delta table built in a temporary directory, since
-DuckDB 1.5.0 cannot create one) and PostgreSQL (a fresh schema of the server
+directory), Delta (an empty Delta table created by DuckDB in a temporary
+directory, DuckDB 2.0.1) and PostgreSQL (a fresh schema of the server
 of :mod:`tests.conformance.runners.postgres`).  MotherDuck and Iceberg are
 not executed against storage; ``docs/reference/dgm-backend-matrix.md`` gives
 the reason for each.
@@ -24,8 +24,6 @@ the reason for each.
 
 from __future__ import annotations
 
-import json
-import os
 import tempfile
 from collections.abc import Callable, Iterator, Mapping, Sequence
 from contextlib import AbstractContextManager, contextmanager
@@ -89,47 +87,16 @@ def _parquet(columns: Sequence[str]) -> Iterator[Opened]:
             con.close()
 
 
-#: Delta Lake primitive types of the fixture columns.
-_DELTA_TYPES = {"VARCHAR": "string", "BIGINT": "long", "DOUBLE": "double",
-                "TIMESTAMP": "timestamp_ntz", "BOOLEAN": "boolean", "DATE": "date"}  # fmt: skip
-
-
-def _delta_table(path: str, columns: Sequence[str]) -> None:
-    """An empty Delta table at *path*: one empty Parquet file and its commit."""
-    os.makedirs(f"{path}/_delta_log")
-    nulls = ", ".join(f"NULL::{TYPES[c]} AS {c}" for c in columns)
-    con = duckdb.connect()
-    try:
-        con.execute(f"COPY (SELECT {nulls} WHERE false) "
-                    f"TO '{path}/part-0.parquet' (FORMAT parquet)")  # fmt: skip
-    finally:
-        con.close()
-    schema = {"type": "struct", "fields": [
-        {"name": c, "type": _DELTA_TYPES[TYPES[c]], "nullable": True, "metadata": {}}
-        for c in columns]}  # fmt: skip
-    size = os.path.getsize(f"{path}/part-0.parquet")
-    actions = [
-        {"protocol": {"minReaderVersion": 3, "minWriterVersion": 7,
-                      "readerFeatures": ["timestampNtz"],
-                      "writerFeatures": ["timestampNtz"]}},
-        {"metaData": {"id": "00000000-0000-0000-0000-000000000000",
-                      "format": {"provider": "parquet", "options": {}},
-                      "schemaString": json.dumps(schema), "partitionColumns": [],
-                      "configuration": {}, "createdTime": 0}},
-        {"add": {"path": "part-0.parquet", "partitionValues": {}, "size": size,
-                 "modificationTime": 0, "dataChange": True}},
-    ]  # fmt: skip
-    with open(f"{path}/_delta_log/{0:020d}.json", "w", encoding="utf-8") as f:
-        f.writelines(json.dumps(a) + "\n" for a in actions)
-
-
 @contextmanager
 def _delta(columns: Sequence[str]) -> Iterator[Opened]:
+    # DuckDB 2.0.1 creates the empty Delta table: it is named after the alias
     with tempfile.TemporaryDirectory() as d:
-        _delta_table(f"{d}/{TABLE}", columns)
         con = duckdb.connect()
         try:
             con.execute("INSTALL delta; LOAD delta")
+            con.execute(f"ATTACH '{d}/{TABLE}' AS {TABLE} (TYPE delta)")
+            con.execute(f"CREATE TABLE {TABLE}.{TABLE} ({_ddl(columns)})")
+            con.execute(f"DETACH {TABLE}")
             yield DeltaLakeSink(d), con, TABLE
         finally:
             con.close()

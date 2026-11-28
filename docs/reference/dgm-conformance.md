@@ -78,7 +78,7 @@ implement the area.
 | §3.5 Evaluation contexts (Refs in C ∪ L) | `PP-ALIAS-01`, `PP-ALIAS-02`, `PP-ALIAS-03` | 3 pass | 3 pass | — | — | — | — | — | 3 pass | 3 refused | — | — | — | — | — | — |
 | §3.5 L-promotion | `PP-PROM-01` | 1 pass | 1 pass | — | — | — | — | — | 1 pass | 1 n/e | — | — | — | — | — | — |
 | §4.1 AF and AG are distinct; FORALL elimination | `CTL-G1-AF` … `CTL-G2-NOT-EF` (8) | 8 n/e | 8 n/e | — | — | — | — | — | 8 n/e | 8 n/e | — | — | — | — | — | — |
-| §4.1 Band table (B3: window, QUALIFY); §4.1 NULL rules | `WIN-01`, `WIN-02`, `WIN-03` | 3 pass | 3 pass | — | — | — | — | — | 1 pass, 2 refused | 3 refused | — | — | — | — | — | — |
+| §4.1 Band table (B3: window, QUALIFY); §4.1 NULL rules | `WIN-01`, `WIN-02`, `WIN-03` | 3 pass | 3 pass | — | — | — | — | — | 3 pass | 3 refused | — | — | — | — | — | — |
 | §4.1 Band table; §5.2 cross-band Ref rules | `CON-B-01` … `CON-B-10` (10) | 10 pass | 10 pass | — | — | — | — | — | — | — | — | — | — | — | — | — |
 | §4.1 Empty domain; ADR 0001 Empty-domain policy | `PP-EX-02`, `PP-FA-02`, `PP-FA-03`, `PP-NOT-03` | 3 pass, 1 n/e | 3 pass, 1 n/e | — | — | — | — | — | 3 pass, 1 n/e | 3 refused, 1 n/e | — | — | — | — | — | — |
 | §4.1 FORALL elimination (CTL duality, NotTrue, REQUIRE_WITNESS guard) | `BDD-F-01`, `BDD-F-02`, `BDD-F-03`, `BDD-F-04` | — | — | — | 4 pass | — | — | — | — | — | — | — | — | — | — | — |
@@ -400,15 +400,13 @@ implement the area.
 | `ADD-10` | `dgm-annotations` | refused | the question lattice does not enumerate SUM over a SEMI_ADDITIVE measure: AD2 decides it by the period of the fact or the entity of a dimension, which the declaration does not identify (Grain names no period property; §12.3) |
 | `DA-01` | `planner-refusals` | refused | every target without an emitter (SQL_POSTGRESQL, CYPHER, SPARQL, DGM_JSON, DGM_YAML) raises UnsupportedCapability |
 | `DA-02` | `planner-refusals` | refused | every target without an emitter (SQL_POSTGRESQL, CYPHER, SPARQL, DGM_JSON, DGM_YAML) raises UnsupportedCapability |
-| `SINK-CL-01` | `sink-delta` | refused | §6.2 Delta writes: DuckDB's delta extension rejects UPDATE, DELETE and MERGE INTO, so DeltaLakeSink.close_versions() raises SinkUnsupported and sends nothing |
-| `SINK-CL-02` | `sink-delta` | refused | §6.2 Delta writes: DuckDB's delta extension rejects UPDATE, DELETE and MERGE INTO, so DeltaLakeSink.close_versions() raises SinkUnsupported and sends nothing |
-| `SINK-CL-03` | `sink-delta` | refused | §6.2 Delta writes: DuckDB's delta extension rejects UPDATE, DELETE and MERGE INTO, so DeltaLakeSink.close_versions() raises SinkUnsupported and sends nothing |
-| `SINK-CL-04` | `sink-delta` | refused | §6.2 Delta writes: DuckDB's delta extension rejects UPDATE, DELETE and MERGE INTO, so DeltaLakeSink.close_versions() raises SinkUnsupported and sends nothing |
-| `SINK-SQL-C` | `sink-delta` | refused | §6.2 Delta writes: DuckDB's delta extension rejects UPDATE, DELETE and MERGE INTO, so DeltaLakeSink.close_versions() raises SinkUnsupported and sends nothing |
+| `SINK-CL-01` | `sink-delta` | refused | §6.2 Delta writes: DuckDB's delta extension rejects UPDATE, DELETE and MERGE INTO (still on DuckDB 2.0.1), so DeltaLakeSink.close_versions() raises SinkUnsupported and sends nothing |
+| `SINK-CL-02` | `sink-delta` | refused | §6.2 Delta writes: DuckDB's delta extension rejects UPDATE, DELETE and MERGE INTO (still on DuckDB 2.0.1), so DeltaLakeSink.close_versions() raises SinkUnsupported and sends nothing |
+| `SINK-CL-03` | `sink-delta` | refused | §6.2 Delta writes: DuckDB's delta extension rejects UPDATE, DELETE and MERGE INTO (still on DuckDB 2.0.1), so DeltaLakeSink.close_versions() raises SinkUnsupported and sends nothing |
+| `SINK-CL-04` | `sink-delta` | refused | §6.2 Delta writes: DuckDB's delta extension rejects UPDATE, DELETE and MERGE INTO (still on DuckDB 2.0.1), so DeltaLakeSink.close_versions() raises SinkUnsupported and sends nothing |
+| `SINK-SQL-C` | `sink-delta` | refused | §6.2 Delta writes: DuckDB's delta extension rejects UPDATE, DELETE and MERGE INTO (still on DuckDB 2.0.1), so DeltaLakeSink.close_versions() raises SinkUnsupported and sends nothing |
 | `WIN-01` | `planner-refusals` | refused | every target without an emitter (SQL_POSTGRESQL, CYPHER, SPARQL, DGM_JSON, DGM_YAML) raises UnsupportedCapability |
-| `WIN-02` | `pg-duckdb-plan-ir` | refused | POSTGRESQL_VIA_DUCKDB declares window_aggregate unsupported: DuckDB 1.5.0's postgres extension raises NotImplementedException (PostgresScanSerialize) for a SUM window over a PostgreSQL table, so DGMPlanner(execution_profile=POSTGRESQL_VIA_DUCKDB) raises UnsupportedCapability before execution |
 | `WIN-02` | `planner-refusals` | refused | every target without an emitter (SQL_POSTGRESQL, CYPHER, SPARQL, DGM_JSON, DGM_YAML) raises UnsupportedCapability |
-| `WIN-03` | `pg-duckdb-plan-ir` | refused | POSTGRESQL_VIA_DUCKDB declares window_aggregate unsupported: DuckDB 1.5.0's postgres extension raises NotImplementedException (PostgresScanSerialize) for a SUM window over a PostgreSQL table, so DGMPlanner(execution_profile=POSTGRESQL_VIA_DUCKDB) raises UnsupportedCapability before execution |
 | `WIN-03` | `planner-refusals` | refused | every target without an emitter (SQL_POSTGRESQL, CYPHER, SPARQL, DGM_JSON, DGM_YAML) raises UnsupportedCapability |
 
 ### Not covered

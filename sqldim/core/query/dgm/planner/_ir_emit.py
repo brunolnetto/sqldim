@@ -250,9 +250,9 @@ def _selected_trace_sql(
     instances of a one-label body as ``key(π)`` does.  The traces are those
     of the selected instances, and a trace is maximal when no other selected
     instance extends it.  With every weight 1 MIN_WEIGHT is SHORTEST.  The
-    recursive CTE is read once: DuckDB fails to bind a second reference to it
-    inside a correlated subquery, so the selected instances are compared in
-    a list (``__dgm_all``).
+    selected instances are a second CTE, read twice: once for the traces and
+    once, in a correlated ``NOT EXISTS``, for the instances that extend them
+    (DuckDB 1.5 failed to bind that second reference; 2.0.1 binds it, #193).
     """
     if p.strategy == "MIN_WEIGHT" and r.body[0].weighted is not False:
         raise UnsupportedConstruct(
@@ -260,24 +260,23 @@ def _selected_trace_sql(
             "declared an unweighted bridge"
         )
     limit = p.k if p.strategy == "K_SHORTEST" else 1
-    a = "__dgm_a"
+    a, b, sel = "__dgm_a", "__dgm_b", "__dgm_sel"
     per_trace = _PER_TRACE[p.mode or ""].format(
         phi=f"{a}.__dgm_phi", psi=f"{a}.__dgm_psi"
     )
-    ranked = (
-        f"SELECT *, ROW_NUMBER() OVER (ORDER BY {_W}.__dgm_k, {_W}.__dgm_seg) AS "
-        f"__dgm_rn FROM {_W} WHERE {_W}.__dgm_k >= {r.min}"
-    )
     selected = (
-        f"SELECT *, list(__dgm_r.__dgm_seg) OVER () AS __dgm_all FROM ({ranked}) "
-        f"__dgm_r WHERE __dgm_r.__dgm_rn <= {limit}"
+        f"{sel} AS (SELECT * FROM {_W} WHERE {_W}.__dgm_k >= {r.min} QUALIFY "
+        f"ROW_NUMBER() OVER (ORDER BY {_W}.__dgm_k, {_W}.__dgm_seg) <= {limit})"
     )
-    seg = f"{a}.__dgm_seg"
-    extends = f"lambda x: len(x) > len({seg}) AND list_slice(x, 1, len({seg})) = {seg}"
+    sa, sb = f"{a}.__dgm_seg", f"{b}.__dgm_seg"
+    extends = (
+        f"SELECT 1 FROM {sel} {b} WHERE len({sb}) > len({sa}) AND "
+        f"list_slice({sb}, 1, len({sa})) = {sa}"
+    )
     return (
-        f"COALESCE((\n{_recursive(r, cols)}\nSELECT {agg}({per_trace}) FROM "
-        f"({selected}) {a} WHERE len({a}.__dgm_phi) > 0 AND "
-        f"len(list_filter({a}.__dgm_all, {extends})) = 0\n), FALSE)"
+        f"COALESCE((\n{_recursive(r, cols)}, {selected}\nSELECT {agg}({per_trace}) "
+        f"FROM {sel} {a} WHERE len({a}.__dgm_phi) > 0 AND NOT EXISTS ({extends})"
+        "\n), FALSE)"
     )
 
 
