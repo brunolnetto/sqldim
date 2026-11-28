@@ -30,7 +30,7 @@ Option 1.
 
 For a `PathPred` evaluated at a start node `s`:
 
-- **Evaluation position.** A node of a path instance at which every path-local alias referenced by `sub_filter` is bound. `sub_filter` is evaluated only at evaluation positions.
+- **Evaluation position.** On a path without a Repeat, under EVENTUALLY, GLOBALLY and UNTIL: every node of the path instance after the anchor, whether or not an alias is bound to it; there `sub_filter` is read at that node, each path-local alias it reads denoting the node (#183). Otherwise: a node of a path instance at which every path-local alias referenced by `sub_filter` is bound. `sub_filter` is evaluated only at evaluation positions.
 - **Trace.** The sequence of evaluation positions of one path instance from `s`, in path order.
 - **Terminal.** A position after which the path instance cannot be extended: the node has no outgoing edge instance matching the next hop of the path. A fact node with no outgoing bridge edge is terminal for every forward path.
 - **Maximal trace.** A trace that is not a proper prefix of another trace from `s`. A maximal trace is either finite, ending at a terminal, or infinite. Infinite traces exist only where the traversed subgraph has a cycle; under `BridgeSemantics(CAUSAL)` and in event logs every maximal trace is finite.
@@ -59,6 +59,26 @@ The domain is `T(s)` for the F, G and U forms and `Succ(s)` for the X forms. UNT
 
 EG φ and AG φ are satisfied by a finite trace on which φ holds at every position up to and including the terminal. Nothing is required "after" the terminal.
 
+### Past-time modes (#183)
+
+ONCE, PREVIOUSLY and SINCE mirror the future modes on the transposed graph `G^T` (§2.2): ONCE is EVENTUALLY, PREVIOUSLY is NEXT and SINCE is UNTIL. `G^T` is built only over time-ordered edge types (§2.3); a past mode on a path that uses an edge type that is not time-ordered is rejected with a typed error.
+
+- **`T⁻(s)`** — the set of maximal traces from `s` of the path in `G^T`, every hop traversed against its direction. Evaluation positions, terminals and maximality are those defined above, read in `G^T`.
+- **`Succ⁻(s)`** — the set of nodes reached from `s` by exactly one hop of the path in `G^T`.
+
+| Form | Holds at `s` iff | Empty domain |
+|---|---|---|
+| EXISTS, ONCE φ | ∃π∈T⁻(s) ∃i. φ(πᵢ) | false |
+| EXISTS, SINCE(ψ) φ | ∃π∈T⁻(s) ∃j. ψ(πⱼ) ∧ ∀i<j. φ(πᵢ) | false |
+| EXISTS, PREVIOUSLY φ | ∃m∈Succ⁻(s). φ(m) | false |
+| FORALL, PREVIOUSLY φ | ∀m∈Succ⁻(s). φ(m) | by `on_empty` |
+
+SINCE is strong. FORALL with ONCE or SINCE is rejected at construction (§4.1): its dual needs a past-time GLOBALLY, which `TemporalMode` does not contain. FORALL PREVIOUSLY follows the empty-domain policy below like AX, with the guard `PathPred(EXISTS, PREVIOUSLY, TRUE)`, which is exactly `Succ⁻(s) ≠ ∅`.
+
+### Temporal mode with a strategy (#183)
+
+With a strategy other than ALL, the strategy first selects the path instances of the binding (§3.3). The temporal mode is then evaluated only over the traces formed by those instances: `T(s)` is the set of maximal traces among the traces of the selected instances, and `Succ(s)` the set of nodes the selected instances reach by their first hop; likewise `T⁻(s)` and `Succ⁻(s)`.
+
 ### Empty-domain policy
 
 `PathPred` gains a field that applies to FORALL only:
@@ -74,13 +94,14 @@ EXISTS is false on an empty domain under either setting.
 
 ### Duality and construction
 
-Under VACUOUS the CTL dualities hold unchanged on maximal traces: AG φ = ¬EF ¬φ, AF φ = ¬EG ¬φ, AX φ = ¬EX ¬φ, A(φ U ψ) = ¬E(¬ψ U (¬φ ∧ ¬ψ)) ∧ ¬EG ¬ψ.
+Under VACUOUS the CTL dualities hold unchanged on maximal traces: AG φ = ¬EF ¬φ, AF φ = ¬EG ¬φ, AX φ = ¬EX ¬φ, A(φ U ψ) = ¬E(¬ψ U (¬φ ∧ ¬ψ)) ∧ ¬EG ¬ψ, and on `G^T` FORALL PREVIOUSLY φ = ¬EXISTS PREVIOUSLY ¬φ.
 
 Under REQUIRE_WITNESS each FORALL form is its VACUOUS form conjoined with a non-emptiness guard:
 
 ```
 FORALL, mode ∈ {GLOBALLY, EVENTUALLY, UNTIL}:   AND(PathPred(EXISTS, EVENTUALLY, TRUE), <dual construction>)
 FORALL, NEXT:                                   AND(PathPred(EXISTS, NEXT, TRUE),       <dual construction>)
+FORALL, PREVIOUSLY:                             AND(PathPred(EXISTS, PREVIOUSLY, TRUE), <dual construction>)
 ```
 
 `PathPred(EXISTS, EVENTUALLY, TRUE)` is exactly `T(s) ≠ ∅`, and `PathPred(EXISTS, NEXT, TRUE)` is exactly `Succ(s) ≠ ∅`.
@@ -121,7 +142,7 @@ At the terminal `a₂`, EG φ and AG φ are true on the one-position trace witho
 - §6.1 defines "end of a maximal path" for the EG template: a node with no matching outgoing edge, or the closing of a cycle.
 - SAFETY over a zero-hop path (#32) and LIVENESS on finite logs (#33) are to be restated on these definitions. Neither is changed by this ADR.
 - Existing FORALL predicates change meaning on nodes with no path instance: they become false unless `on_empty = VACUOUS` is set.
-- Which positions of a multi-hop or closure path are evaluation positions follows from alias binding. A sharper statement of path order belongs to #31 and #35.
+- Which positions of a multi-hop or closure path are evaluation positions follows from alias binding. A sharper statement of path order belongs to #31 and #35. For a path without a Repeat under EVENTUALLY, GLOBALLY and UNTIL, #183 decided it: every node after the anchor is a position.
 
 ## Alternatives not taken
 
