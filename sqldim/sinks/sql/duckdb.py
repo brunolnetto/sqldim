@@ -8,10 +8,29 @@ Useful for local development, testing, and intermediate staging.
 
 import duckdb
 
-from sqldim.sinks._connection import make_connection
+from sqldim.exceptions import SchemaError
+from sqldim.sinks._connection import OwnsConnection, make_connection
 
 
-class DuckDBSink:
+def _columns(con: duckdb.DuckDBPyConnection, relation: str) -> list[str]:
+    return [
+        str(r[0]) for r in con.execute(f"DESCRIBE SELECT * FROM {relation}").fetchall()
+    ]
+
+
+def _check_columns(con: duckdb.DuckDBPyConnection, view: str, target: str) -> None:
+    """Every column of *view* is a column of *target* (insert by name)."""
+    have = {c.lower() for c in _columns(con, target)}
+    extra = [c for c in _columns(con, view) if c.lower() not in have]
+    if extra:
+        raise SchemaError(
+            f"{target} has no column {extra}: DuckDBSink inserts by name, and "
+            "every column of the rows written must exist in the target table; "
+            "nothing was written"
+        )
+
+
+class DuckDBSink(OwnsConnection):
     """
     Sink backed by a DuckDB file.
     All operations are native DuckDB — no translation layer.
@@ -71,9 +90,14 @@ class DuckDBSink:
     ) -> int:
         """Stream all rows from *view_name* into *table_name*.
 
-        Executes a single ``INSERT INTO … SELECT *`` so DuckDB's vectorised
-        pipeline streams data without materialising the full result set.
-        The total row count is logged before and the elapsed time after.
+        Executes a single ``INSERT INTO … BY NAME SELECT *`` so DuckDB's
+        vectorised pipeline streams data without materialising the full
+        result set.  Columns are matched by name, never by position (#192):
+        a target column the view lacks takes its default (``NULL`` without
+        one), and a view column the target lacks raises
+        :class:`~sqldim.exceptions.SchemaError` before anything is written.
+        The target table must exist.  The total row count is logged before
+        and the elapsed time after.
 
         Parameters
         ----------
@@ -91,9 +115,10 @@ class DuckDBSink:
         total = (con.execute(f"SELECT count(*) FROM {view_name}").fetchone() or (0,))[0]
         if total == 0:
             return 0
+        _check_columns(con, view_name, target)
         _log.info(f"[sqldim] {table_name}: inserting {total:,} rows …")
         t0 = time.perf_counter()
-        con.execute(f"INSERT INTO {target} SELECT * FROM {view_name}")
+        con.execute(f"INSERT INTO {target} BY NAME SELECT * FROM {view_name}")
         _log.info(
             f"[sqldim] {table_name}: {total:,} rows written "
             f"in {time.perf_counter() - t0:.1f}s"
@@ -321,3 +346,4 @@ class DuckDBSink:
         if self._con:
             self._con.execute(f"DETACH {self._alias}")
             self._con.close()
+            self._con = None

@@ -1,5 +1,8 @@
 from __future__ import annotations
 
+from sqldim.sinks._connection import connection_for
+from sqldim.sources.base import from_item
+
 import asyncio
 from datetime import date
 from itertools import islice
@@ -24,11 +27,10 @@ class LazyTransactionLoader:
     """
 
     def __init__(self, sink, batch_size: int = 100_000, con=None):
-        import duckdb as _duckdb
 
         self.sink = sink
         self.batch_size = batch_size
-        self._con = con or _duckdb.connect()
+        self._con = connection_for(sink, con)
         self._model_cls: type | None = (
             None  # set by factory when created via as_loader()
         )
@@ -47,7 +49,7 @@ class LazyTransactionLoader:
         _sql = coerce_source(source).as_sql(self._con)
         self._con.execute(f"""
             CREATE OR REPLACE VIEW pending_facts AS
-            SELECT * FROM ({_sql})
+            SELECT * FROM {from_item(_sql)}
         """)
         return self.sink.write(self._con, "pending_facts", table_name, self.batch_size)
 
@@ -159,13 +161,12 @@ class LazySnapshotLoader:
         batch_size: int = 100_000,
         con=None,
     ):
-        import duckdb as _duckdb
 
         self.sink = sink
         self.snapshot_date = snapshot_date
         self.date_field = date_field
         self.batch_size = batch_size
-        self._con = con or _duckdb.connect()
+        self._con = connection_for(sink, con)
         self._model_cls: type | None = (
             None  # set by factory when created via as_loader()
         )
@@ -195,7 +196,7 @@ class LazySnapshotLoader:
             CREATE OR REPLACE VIEW snapshot_rows AS
             SELECT *,
                    '{sd}'::DATE AS {self.date_field}
-            FROM ({_sql})
+            FROM {from_item(_sql)}
         """)
         return self.sink.write(self._con, "snapshot_rows", table_name, self.batch_size)
 

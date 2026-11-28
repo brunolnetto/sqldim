@@ -20,6 +20,8 @@ Expected DB schema for each SCD2 table managed by this processor::
 
 from __future__ import annotations
 
+from sqldim.sinks._connection import connection_for
+
 import logging
 import re
 from datetime import datetime, timezone
@@ -146,7 +148,7 @@ class LazySCDMetadataProcessor(_MetadataWriteMixin, _MetadataStreamMixin):
         self._meta_cols = sorted(_safe(c) for c in metadata_columns)
         self.sink = sink
         self.batch_size = batch_size
-        self._con = con if con is not None else duckdb.connect()
+        self._con = connection_for(sink, con)
 
     # ── Public API ────────────────────────────────────────────────────────
 

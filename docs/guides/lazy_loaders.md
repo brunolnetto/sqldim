@@ -20,9 +20,9 @@ This guide explains when to use lazy loaders, how each one works, and how to set
 
 ## Shared Setup Pattern
 
-All lazy loaders take a target `table`, a `sink`, the sink's connection as
-`con` and load with `process(source, ...)`. The examples on this page run as
-written; they share these inputs:
+All lazy loaders take a target `table` and a `sink`, and load with
+`process(source, ...)`. The examples on this page run as written; they share
+these inputs:
 
 ```python
 from datetime import date
@@ -48,19 +48,20 @@ duckdb.sql(
 )
 ```
 
-### What the loaders need today
+### What the loaders need
 
-- **The sink's connection.** A `DuckDBSink` attaches its file to its own
-  connection on `__enter__`, and a loader writes through the connection it
-  is given. Pass `con=sink._con`; there is no public accessor yet. A loader
-  given no `con` opens a connection without the sink's database and fails.
-- **An existing target table.** `DuckDBSink.write` runs `INSERT INTO … SELECT
-  *`, so the table must exist with the columns in the order the loader
-  produces them; each example below creates it.
-- **A table or view as the source.** `process()` accepts a `SourceAdapter`
-  or a string, but a Parquet or CSV path currently fails with a DuckDB parser
-  error (the loaders write `FROM (read_parquet(…))`). Register a view over
-  the file and pass its name, as the examples do.
+- **An open sink.** A `DuckDBSink` attaches its file to its own connection
+  on `__enter__`. A loader given the sink and no `con` writes through that
+  connection, `sink.connection`; outside the `with` block reading it raises
+  `SinkNotOpen`. Pass `con=` only to use another connection that has the
+  sink's database attached.
+- **An existing target table.** `DuckDBSink.write` inserts by name
+  (`INSERT INTO … BY NAME`), so column order does not matter; a target
+  column the loader does not produce takes its default, and a produced
+  column the table lacks raises `SchemaError` before anything is written.
+  Each example below creates its table.
+- **A source.** `process()` accepts a `SourceAdapter`, a Parquet or CSV path,
+  or the name of a table or view of the connection.
 - **`batch_size`** defaults to 100,000 and is passed to the sink.
 
 ## LazyCumulativeLoader
@@ -71,12 +72,16 @@ Use this when tracking longitudinal history — e.g., a player's per-season stat
 
 ### How it works
 
-1. Reads yesterday's state from the sink (existing table)
+The table holds one row per entity **per period**, as in the
+`pipeline_query.sql` pattern it reproduces: the latest state of an entity is
+its row with the latest `current_period_column`.
+
+1. Reads yesterday's state from the sink: the rows of the previous period
 2. Reads today's batch from the source (Parquet/CSV)
 3. FULL OUTER JOIN on the partition key
 4. For active members: `list_append(history, struct_pack(metrics, period))`
 5. For dormant members: keeps history, increments `years_since_last_active`
-6. Writes the merged result back
+6. Appends the merged rows as the rows of `target_period`
 
 ### Parameters
 
@@ -91,12 +96,19 @@ Use this when tracking longitudinal history — e.g., a player's per-season stat
 | `batch_size` | `int` | Write batch size (default: 100,000) |
 | `con` | `DuckDBPyConnection` | Optional existing connection |
 
-### `process(today_source, target_period) -> int`
+### `process(today_source, target_period, previous_period=None) -> int`
 
 | Parameter | Type | Description |
 |-----------|------|-------------|
 | `today_source` | `str` or `SourceAdapter` | Path to today's data file |
-| `target_period` | `Any` | The period identifier (e.g., `2024`, `"Q1-2024"`) |
+| `target_period` | `Any` | The period identifier (e.g., `2024`, `"Q1-2024"`), stored as text |
+| `previous_period` | `Any` | The period read as yesterday; may be omitted while the table holds at most one period |
+
+Periods are compared as text, so the loader never guesses which period is
+the previous one. It raises `LoadError` when the table holds several periods
+and `previous_period` is not given, or holds no row of the one given, and
+`IdempotencyError` when `target_period` is already stored, before anything
+is written.
 
 ### Example
 
@@ -109,27 +121,32 @@ duckdb.connect("nba.duckdb").execute(
     " is_active BOOLEAN, years_since_last_active INTEGER, current_season VARCHAR)"
 ).close()
 
+duckdb.sql(
+    "COPY (SELECT 'LeBron' AS player_name, 25.7::DOUBLE AS pts, 8.3::DOUBLE AS ast,"
+    " 7.8::DOUBLE AS reb) TO '2025_season_stats.parquet'"
+)
+
 with DuckDBSink("nba.duckdb") as sink:
-    sink._con.execute("CREATE VIEW season_2024 AS SELECT * FROM '2024_season_stats.parquet'")
     loader = LazyCumulativeLoader(
         table="player_seasons_cumulated",
         partition_key="player_name",
         cumulative_column="seasons",
         metric_columns=["pts", "ast", "reb"],
         sink=sink,
-        con=sink._con,
     )
-    print(loader.process("season_2024", target_period=2024))  # 2
-    print(sink._con.execute(
-        "SELECT seasons FROM sqldim_ddb.player_seasons_cumulated WHERE player_name = 'LeBron'"
-    ).fetchone()[0])
-    # [{'pts': 27.4, 'ast': 7.2, 'reb': 5.9, 'period': '2024'}]
+    print(loader.process("2024_season_stats.parquet", target_period=2024))  # 2
+    loader.process("2025_season_stats.parquet", target_period=2025, previous_period=2024)
+    print(sink.connection.execute(
+        "SELECT player_name, len(seasons), years_since_last_active"
+        " FROM sqldim_ddb.player_seasons_cumulated"
+        " WHERE current_season = '2025' ORDER BY 1"
+    ).fetchall())  # [('Curry', 1, 1), ('LeBron', 2, 0)]
 ```
 
 Each row's `seasons` column holds one struct per period, and `period` is
-stored as text. With `DuckDBSink` the merged rows are *inserted*: after a
-second period the table holds both the old and the new row of each player,
-so read the latest `current_season`, or replace the table between periods.
+stored as text. After two periods the table holds four rows: one per player
+for 2024 and one for 2025. Curry, absent from the 2025 batch, keeps his
+history and counts one season since he was last active.
 
 ## LazyBitmaskLoader
 
@@ -181,7 +198,6 @@ duckdb.connect("retention.duckdb").execute(
 ).close()
 
 with DuckDBSink("retention.duckdb") as sink:
-    sink._con.execute("CREATE VIEW user_activity AS SELECT * FROM 'user_activity.parquet'")
     loader = LazyBitmaskLoader(
         table="fact_activity_bitmask",
         partition_key="user_id",
@@ -189,10 +205,9 @@ with DuckDBSink("retention.duckdb") as sink:
         reference_date="2024-01-31",
         window_days=32,
         sink=sink,
-        con=sink._con,
     )
-    loader.process("user_activity")
-    print(sink._con.execute(
+    loader.process("user_activity.parquet")
+    print(sink.connection.execute(
         "SELECT * FROM sqldim_ddb.fact_activity_bitmask ORDER BY 1"
     ).fetchall())  # [('U-001', 32778), ('U-002', 2147483648)]
 ```
@@ -252,7 +267,6 @@ duckdb.connect("metrics.duckdb").execute(
 ).close()
 
 with DuckDBSink("metrics.duckdb") as sink:
-    sink._con.execute("CREATE VIEW daily_revenue AS SELECT * FROM 'daily_revenue.parquet'")
     loader = LazyArrayMetricLoader(
         table="fact_monthly_metrics",
         partition_key="user_id",
@@ -260,10 +274,9 @@ with DuckDBSink("metrics.duckdb") as sink:
         metric_name="monthly_revenue",
         month_start=date(2024, 1, 1),
         sink=sink,
-        con=sink._con,
     )
-    loader.process("daily_revenue", target_date=date(2024, 1, 15))
-    print(sink._con.execute(
+    loader.process("daily_revenue.parquet", target_date=date(2024, 1, 15))
+    print(sink.connection.execute(
         "SELECT user_id, metric_array[15] FROM sqldim_ddb.fact_monthly_metrics ORDER BY 1"
     ).fetchall())  # [('U-001', 149.99), ('U-002', 20.0)]
 ```
@@ -317,27 +330,20 @@ ddl.execute("CREATE TABLE graph_player_player (subject_id VARCHAR, object_id VAR
 ddl.close()
 
 with DuckDBSink("graph.duckdb") as sink:
-    sink._con.execute(
-        "CREATE VIEW player_game_facts AS SELECT * FROM 'player_game_facts.parquet'"
-    )
     loader = LazyEdgeProjectionLoader(
         table="graph_player_game",
         subject_key="player_id",
         object_key="game_id",
         property_map={"pts": "points_scored"},
         sink=sink,
-        con=sink._con,
     )
-    print(loader.process("player_game_facts"))  # 3
+    print(loader.process("player_game_facts.parquet"))  # 3
 ```
 
 ### Example — Self-join edges (co-players)
 
 ```python
 with DuckDBSink("graph.duckdb") as sink:
-    sink._con.execute(
-        "CREATE VIEW player_game_facts AS SELECT * FROM 'player_game_facts.parquet'"
-    )
     loader = LazyEdgeProjectionLoader(
         table="graph_player_player",
         subject_key="player_id",
@@ -346,10 +352,9 @@ with DuckDBSink("graph.duckdb") as sink:
         self_join_key="game_id",
         property_map={"pts": "shared_points"},
         sink=sink,
-        con=sink._con,
     )
-    loader.process("player_game_facts")
-    print(sink._con.execute(
+    loader.process("player_game_facts.parquet")
+    print(sink.connection.execute(
         "SELECT * FROM sqldim_ddb.graph_player_player"
     ).fetchall())  # [('p1', 'p2', 22)]
 ```
@@ -358,9 +363,10 @@ The self-join generates one edge per unique player pair per game, with `shared_p
 
 ## Chaining Multiple Lazy Loaders
 
-Loaders that share a sink share its connection, `sink._con`: every example
-above passes it, and several loaders can run inside one `with DuckDBSink(…)`
-block. A separate `duckdb.connect()` does not see the sink's database.
+Loaders that share a sink share its connection, `sink.connection`: several
+loaders can run inside one `with DuckDBSink(…)` block, and your own
+statements in that block go through `sink.connection` too. A separate
+`duckdb.connect()` does not see the sink's database.
 
 ## DuckDB-Only Constraint
 

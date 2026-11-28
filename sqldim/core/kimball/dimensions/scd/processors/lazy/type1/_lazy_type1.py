@@ -7,6 +7,8 @@ Delegates all storage to a :class:`SinkAdapter`.
 
 from __future__ import annotations
 
+from sqldim.sinks._connection import connection_for
+
 from sqldim.core.kimball.dimensions.scd.handler import SCDResult
 
 
@@ -31,13 +33,12 @@ class LazyType1Processor:
         batch_size: int = 100_000,
         con=None,
     ):
-        import duckdb as _duckdb
 
         self.natural_key = natural_key
         self.track_columns = sorted(track_columns)
         self.sink = sink
         self.batch_size = batch_size
-        self._con = con or _duckdb.connect()
+        self._con = connection_for(sink, con)
 
     def process(self, source, table_name: str) -> SCDResult:
         """Detect and overwrite changed rows; insert new rows into *table_name*.

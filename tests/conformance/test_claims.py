@@ -772,6 +772,9 @@ def _schema(nodes: dict, edge: tuple, measures=None, bronze=()) -> dict:
 
 _QVALID_SCHEMAS = {
     "no properties": _schema({"A": ("dim", {}), "B": ("dim", {})}, ("A", "e", "B")),
+    "numeric dimension attribute": _schema(
+        {"A": ("dim", {"age": "Integer"}), "F": ("fact", {})}, ("A", "placed", "F")
+    ),
     "String on a BRONZE dimension, Boolean": _schema(
         {"A": ("dim", {"s": "String"}), "B": ("dim", {"f": "Boolean"})},
         ("A", "e", "B"),

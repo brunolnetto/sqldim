@@ -16,7 +16,7 @@ from uuid import uuid4
 
 import duckdb
 
-from sqldim.sinks._connection import make_connection
+from sqldim.sinks._connection import OwnsConnection, make_connection
 from sqldim.sinks._errors import SinkUnsupported
 
 _APPEND_ONLY = (
@@ -30,7 +30,7 @@ def _ident(name: str) -> str:
     return '"' + str(name).replace('"', '""') + '"'
 
 
-class DeltaLakeSink:
+class DeltaLakeSink(OwnsConnection):
     """
     Sink backed by Delta Lake via DuckDB's delta extension: APPEND only.
 
@@ -148,3 +148,4 @@ class DeltaLakeSink:
     def __exit__(self, *_) -> None:
         if self._con:
             self._con.close()
+            self._con = None

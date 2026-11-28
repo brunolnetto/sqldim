@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from sqldim.sinks._connection import connection_for
+
 from datetime import datetime, timezone
 
 
@@ -48,7 +50,6 @@ class LazyType4Processor:
         batch_size: int = 100_000,
         con=None,
     ):
-        import duckdb as _duckdb
 
         self.natural_key = natural_key
         self.base_columns = base_columns
@@ -59,7 +60,7 @@ class LazyType4Processor:
         self.mini_dim_id_col = mini_dim_id_col
         self.sink = sink
         self.batch_size = batch_size
-        self._con = con or _duckdb.connect()
+        self._con = connection_for(sink, con)
 
     def _upsert_mini_dim(self) -> int:
         """Step 1 — upsert distinct profile combos and resolve profile SKs."""

@@ -1,4 +1,4 @@
-from sqldim.sources.base import SourceAdapter
+from sqldim.sources.base import SourceAdapter, from_item
 from sqldim.sources.batch.parquet import ParquetSource
 from sqldim.sources.batch.csv import CSVSource
 from sqldim.sources.batch.duckdb_source import DuckDBSource
@@ -25,6 +25,7 @@ __all__ = [
     "DltSource",
     "_DatasetSource",
     "coerce_source",
+    "from_item",
     "StreamSourceAdapter",
     "StreamResult",
     "KafkaSource",

@@ -5,6 +5,8 @@ via a single join instead of N individual dict lookups.
 
 from __future__ import annotations
 
+from sqldim.sinks._connection import connection_for
+
 from datetime import date
 from typing import Any, TYPE_CHECKING
 
@@ -210,10 +212,9 @@ class LazySKResolver:
     """
 
     def __init__(self, sink, con=None):
-        import duckdb as _duckdb
 
         self.sink = sink
-        self._con = con or _duckdb.connect()
+        self._con = connection_for(sink, con)
 
     def resolve(
         self,

@@ -53,12 +53,12 @@ def _d_stream_case(ds, temp_dir: str) -> BenchmarkResult:
         s.close()
 
         with DuckDBSink(db_path) as sink:
-            _configure(sink._con, temp_dir)  # type: ignore[arg-type]
+            _configure(sink.connection, temp_dir)  # type: ignore[arg-type]
             proc = LazySCDProcessor(
                 natural_key=ds.natural_key,
                 track_columns=ds.track_columns,
                 sink=sink,
-                con=sink._con,
+                con=sink.connection,
             )
             batch_size = 100_000
             offset = 0
@@ -137,19 +137,19 @@ def _d_csv_case(ds, temp_dir: str) -> BenchmarkResult:
         s.close()
 
         with DuckDBSink(db_path_csv) as sink:
-            _configure(sink._con, temp_dir)  # type: ignore[arg-type]
+            _configure(sink.connection, temp_dir)  # type: ignore[arg-type]
             proc = LazySCDProcessor(
                 natural_key=ds.natural_key,
                 track_columns=ds.track_columns,
                 sink=sink,
-                con=sink._con,
+                con=sink.connection,
             )
             source = CSVStreamSource(csv_path)
             agg_ins = agg_ver = agg_unc = 0
             probe = MemoryProbe(temp_dir=temp_dir, label="D_stream_csv")
             with probe:
                 t0 = time.perf_counter()
-                for frag in source.stream(sink._con, batch_size=100_000):
+                for frag in source.stream(sink.connection, batch_size=100_000):
                     r = proc.process(SQLSource(frag), "dim_products_csv")
                     agg_ins += r.inserted
                     agg_ver += r.versioned
@@ -263,15 +263,15 @@ def group_f_processor_comparison(
         s.close()
 
         with DuckDBSink(db_path) as sink:
-            _configure(sink._con, temp_dir)  # type: ignore[arg-type]
-            tracker = DuckDBObjectTracker(sink._con)
+            _configure(sink.connection, temp_dir)  # type: ignore[arg-type]
+            tracker = DuckDBObjectTracker(sink.connection)
             tracker.wrap()
             proc = LazyType6Processor(
                 natural_key="employee_id",
                 type1_columns=["title"],
                 type2_columns=["department"],
                 sink=sink,
-                con=sink._con,
+                con=sink.connection,
             )
             probe = MemoryProbe(temp_dir=temp_dir, label="F_type6")
             with probe:

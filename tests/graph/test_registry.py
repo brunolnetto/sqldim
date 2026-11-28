@@ -579,3 +579,37 @@ class TestUnifiedGraph:
         # First call registered _UGFactIdm; second call must hit 'continue'.
         ug._auto_register_from_schema()
         assert _UGFactIdm in ug.registered_edges()
+
+
+# ---------------------------------------------------------------------------
+# A synchronous Session works for every method (#192)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_sync_session_degree_and_aggregation():
+    engine = create_engine(
+        "sqlite://", connect_args={"check_same_thread": False}, poolclass=StaticPool
+    )
+    tables = [RPlayer.__table__, RGame.__table__, RPlaysIn.__table__]
+    SQLModel.metadata.create_all(engine, tables=tables)  # type: ignore[arg-type]
+    with Session(engine) as session:
+        session.add_all([RPlayer(id=1, name="Jordan"), RGame(id=10, game_id=10)])
+        session.add_all([RPlaysIn(subject_id=1, object_id=10, pts=31.0),
+                         RPlaysIn(subject_id=1, object_id=10, pts=12.5)])  # fmt: skip
+        session.commit()
+        g = GraphModel(RPlayer, RGame, RPlaysIn, session=session)
+        jordan = RPlayer(id=1, name="Jordan")
+        assert await g.degree(jordan, edge_type=RPlaysIn, direction="out") == 2
+        total = await g.neighbor_aggregation(jordan, edge_type=RPlaysIn, measure="pts")
+        assert total == 43.5
+
+
+@pytest.mark.asyncio
+async def test_sync_session_paths():
+    """paths() does not await a synchronous Session's result (#192)."""
+    session = MagicMock()
+    session.execute.return_value.fetchall.return_value = [([1, 2],)]
+    g = GraphModel(RPlayer, RSelfEdge, session=session)
+    paths = await g.paths(RPlayer(id=1, name="a"), RPlayer(id=2, name="b"))
+    assert paths == [[1, 2]]

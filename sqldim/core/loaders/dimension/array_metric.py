@@ -5,6 +5,9 @@ Reproduces array_metrics_analysis.sql and generate_monthly_array_metrics.sql.
 
 from __future__ import annotations
 
+from sqldim.sinks._connection import connection_for
+from sqldim.sources.base import from_item
+
 import asyncio
 from sqldim.core.loaders._utils import _resolve_table, _assert_not_dimension
 
@@ -46,7 +49,6 @@ class LazyArrayMetricLoader:
         batch_size: int = 100_000,
         con=None,
     ):
-        import duckdb as _duckdb
 
         _assert_not_dimension(table, "LazyArrayMetricLoader")
         self.table_name = _resolve_table(table)
@@ -56,7 +58,7 @@ class LazyArrayMetricLoader:
         self.month_start = month_start
         self.sink = sink
         self.batch_size = batch_size
-        self._con = con or _duckdb.connect()
+        self._con = connection_for(sink, con)
         self._model_cls: type | None = (
             None  # set by factory when created via as_loader()
         )
@@ -77,7 +79,7 @@ class LazyArrayMetricLoader:
         _sql = coerce_source(source).as_sql(self._con)
         self._con.execute(f"""
             CREATE OR REPLACE VIEW incoming AS
-            SELECT * FROM ({_sql})
+            SELECT * FROM {from_item(_sql)}
         """)
 
         # DuckDB list_transform: build [0.0, ..., value_at_offset, ..., 0.0]

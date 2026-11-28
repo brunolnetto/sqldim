@@ -6,6 +6,9 @@ in place.  Delegates all storage to a :class:`SinkAdapter`.
 
 from __future__ import annotations
 
+from sqldim.sinks._connection import connection_for
+from sqldim.sources.base import from_item
+
 from sqldim.core.kimball.dimensions.scd.handler import SCDResult
 
 
@@ -34,14 +37,13 @@ class LazyType3Processor:
         batch_size: int = 100_000,
         con=None,
     ):
-        import duckdb as _duckdb
 
         self.natural_key = natural_key
         self.column_pairs = column_pairs  # [(curr, prev), ...]
         self.track_cols = [c for c, _ in column_pairs]
         self.sink = sink
         self.batch_size = batch_size
-        self._con = con or _duckdb.connect()
+        self._con = connection_for(sink, con)
 
     def process(self, source, table_name: str) -> SCDResult:
         """Detect changes and rotate column history; insert new rows into *table_name*.
@@ -78,7 +80,7 @@ class LazyType3Processor:
             CREATE OR REPLACE VIEW incoming AS
             SELECT *,
                    md5({cols}) AS _checksum
-            FROM ({_sql})
+            FROM {from_item(_sql)}
         """)
 
     def _register_current_checksums(self, table_name: str) -> None:

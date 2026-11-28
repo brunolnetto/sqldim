@@ -54,8 +54,8 @@ with Session(engine) as session:
 
 `GraphModel` generates the SQL: `neighbors()` is one hop (`direction="out"`,
 `"in"` or `"both"`, the default), and `paths(source, target, max_hops=3)` is a
-recursive CTE bounded by `max_hops`, written for DuckDB and PostgreSQL (SQLite has no arrays for it). `paths()` awaits `session.execute`, so it
-needs an `AsyncSession`; `get_vertex()` and `neighbors()` accept either kind.
+recursive CTE bounded by `max_hops`, written for DuckDB and PostgreSQL (SQLite has no arrays for it). Every method accepts a synchronous
+`Session` or an `AsyncSession`.
 
 ## What it does and does not give you
 

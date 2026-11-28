@@ -16,10 +16,12 @@ Scope, so that no reading has to be chosen:
   two variables has the same reduced BDD size under either variable order,
   so the set does not depend on the byte order of §8.14, which the spec
   leaves to the encoding of the atoms;
-* no numeric attribute of a dimension (§2.4 admits MIN, MAX and AVG over it;
-  the §12.3 sentence on Degenerate attributes reads "no aggregate other than
-  COUNT"), no property of a FactlessFact, no time-ordered bridge, one fact at
-  most (no constellation, so DA1–DA3 are vacuous).
+* no property of a FactlessFact, no time-ordered bridge, one fact at most
+  (no constellation, so DA1–DA3 are vacuous).
+
+A numeric attribute of a dimension is in scope (§2.4, §12.3): as an
+aggregate it takes COUNT, MIN, MAX and AVG over ENTITIES, as a RunningAgg
+COUNT only, and no StatFn takes it.
 
 A schema is ``{"nodes": {type: (kind, {key: declared type})}, "edge":
 (source, label, target), "measures": {(fact, key): kind}, "bronze": set}``,
@@ -47,6 +49,10 @@ MEASURE_FNS = {
     "NON_ADDITIVE": {"COUNT", "MIN", "MAX"},
     "DEGENERATE": {"COUNT"},
 }
+#: §2.4, §12.3: a numeric dimension attribute as an aggregate, and as a
+#: RunningAgg (which reads every tuple, not each instance once).
+DIM_ATTRIBUTE_FNS = {"COUNT", "MIN", "MAX", "AVG"}
+DIM_ATTRIBUTE_RUNNING_FNS = {"COUNT"}
 
 Term = tuple[Any, ...]
 Fn = tuple[frozenset, frozenset]
@@ -177,8 +183,17 @@ class Domain:
         """The measure kind of a numeric fact property, else ``None``."""
         if ref[0] != "prop" or self.type_of(ref) not in NUMERIC:
             return None
-        assert self.node_kind(ref[1]) == "fact", "numeric dimension attributes: out"
+        if self.node_kind(ref[1]) != "fact":
+            return None
         return self.schema["measures"][(self.alias[ref[1]], ref[2])]
+
+    def dim_attribute(self, ref: Term) -> bool:
+        """A numeric property of a dimension: not a measure (§2.4)."""
+        return (
+            ref[0] == "prop"
+            and self.type_of(ref) in NUMERIC
+            and self.node_kind(ref[1]) != "fact"
+        )
 
     def agg_type(self, fn: str, arg: Term, *, window: bool = False) -> str | None:
         """§4.2 typing, then the Σ rules of §2.4 / §12.3."""
@@ -198,11 +213,15 @@ class Domain:
         kind = self.measure(arg)
         if kind is not None and fn not in MEASURE_FNS[kind]:
             return None
+        if self.dim_attribute(arg):
+            fns = DIM_ATTRIBUTE_RUNNING_FNS if window else DIM_ATTRIBUTE_FNS
+            if fn not in fns:
+                return None
         return typed
 
     def stat_arg_ok(self, ref: Term) -> bool:
-        """No StatFn over a Degenerate attribute (§12.3)."""
-        return self.measure(ref) != "DEGENERATE"
+        """No StatFn over a Degenerate or a numeric dimension attribute (§12.3)."""
+        return self.measure(ref) != "DEGENERATE" and not self.dim_attribute(ref)
 
     def win_type(self, w: Term) -> str | None:
         head = w[1]

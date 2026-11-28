@@ -56,14 +56,15 @@ print(products.as_sql(None))  # SELECT * FROM products
 
 `LazySCDProcessor` classifies incoming rows against the current table by a
 checksum of the tracked columns and writes new rows and new versions with
-SQL. Two things it needs that are easy to miss:
+SQL. Two things it needs:
 
-- **the sink's connection.** A sink attaches its storage to its own DuckDB
-  connection on `__enter__`; pass that connection as `con=`. There is no
-  public accessor yet, so this reads `sink._con`.
-- **an existing target table**, with the source columns first and then
-  `valid_from`, `valid_to`, `is_current`, `checksum`. `DuckDBSink.write`
-  inserts by position.
+- **an open sink.** A sink attaches its storage to its own DuckDB connection
+  on `__enter__`. A processor given the sink and no `con` writes through
+  that connection, `sink.connection`, which you also use for your own
+  statements; outside the `with` block it raises `SinkNotOpen`.
+- **an existing target table** with the source columns and `valid_from`,
+  `valid_to`, `is_current`, `checksum`. `DuckDBSink.write` inserts by name,
+  so the column order does not matter.
 
 ```python
 import duckdb
@@ -88,12 +89,11 @@ with DuckDBSink("analytics.duckdb") as sink:
         natural_key="customer_id",
         track_columns=["plan_tier", "country"],
         sink=sink,
-        con=sink._con,
     )
     first = proc.process(ParquetSource("customers_v1.parquet"), "dim_customer")
     second = proc.process(ParquetSource("customers_v2.parquet"), "dim_customer")
     print(first.inserted, second.versioned, second.unchanged)  # 2 1 1
-    rows = sink._con.execute(
+    rows = sink.connection.execute(
         "SELECT customer_id, plan_tier, is_current"
         " FROM sqldim_ddb.dim_customer ORDER BY 1, 3"
     ).fetchall()
@@ -123,7 +123,7 @@ Python.
 The lazy loaders (`LazyCumulativeLoader`, `LazyBitmaskLoader`,
 `LazyArrayMetricLoader`, `LazyAccumulatingLoader`, `LazySnapshotLoader`,
 `LazyTransactionLoader`, `LazyEdgeProjectionLoader`, all exported by
-`sqldim`) follow the same pattern: a target table, a sink and a connection.
+`sqldim`) follow the same pattern: a target table and an open sink.
 [Lazy Loaders](lazy_loaders.md) documents each one.
 
 ---

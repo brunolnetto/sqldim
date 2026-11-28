@@ -52,7 +52,7 @@ def _setup_graph(path: str, src: MoviesSource) -> dict:
             self_join=True,
             self_join_key="movie_id",
             sink=sink,
-            con=sink._con,
+            con=sink.connection,
         )
         edge_count = loader.process(src.cast_snapshot())
 

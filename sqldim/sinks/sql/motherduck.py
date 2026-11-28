@@ -15,7 +15,7 @@ Usage
 
     # Cloud target (requires MOTHERDUCK_TOKEN env var or explicit token=)
     with MotherDuckSink(db="my_warehouse") as sink:
-        proc = LazySCDProcessor("id", ["name", "email"], sink, con=sink._con)
+        proc = LazySCDProcessor("id", ["name", "email"], sink, con=sink.connection)
         proc.process(source, "dim_customer")
 
     # Local stand-in (useful for testing / CI)
@@ -27,10 +27,10 @@ import os
 
 import duckdb
 
-from sqldim.sinks._connection import make_connection
+from sqldim.sinks._connection import OwnsConnection, make_connection
 
 
-class MotherDuckSink:
+class MotherDuckSink(OwnsConnection):
     """
     SinkAdapter implementation for MotherDuck (cloud DuckDB).
 

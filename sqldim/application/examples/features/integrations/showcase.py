@@ -85,7 +85,7 @@ def _run_scd2_load(staging_db: str, warehouse_db: str, src: GitHubIssuesSource) 
     source = _DatasetSource(staging_db, "issues", "github_staging")
     with DuckDBSink(warehouse_db) as sink:
         proc = LazySCDProcessor(
-            "issue_id", ["title", "state", "labels"], sink, con=sink._con
+            "issue_id", ["title", "state", "labels"], sink, con=sink.connection
         )
         return proc.process(source, "dim_github_issue")
 
@@ -151,7 +151,9 @@ def example_15_custom_sink_motherduck() -> None:
     print(isinstance(MotherDuckSink(db=local), SinkAdapter))
 
     with MotherDuckSink(db=local) as sink:
-        proc = LazySCDProcessor("product_id", ["name", "price"], sink, con=sink._con)
+        proc = LazySCDProcessor(
+            "product_id", ["name", "price"], sink, con=sink.connection
+        )
         result = proc.process(src.snapshot(), "dim_product")
 
     print(f"  SCD2 via MotherDuckSink → inserted={result.inserted}")
