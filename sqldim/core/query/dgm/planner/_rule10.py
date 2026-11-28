@@ -16,7 +16,9 @@ a typed error: In-flight, Complete within ``ttl`` and a window outside the
 horizon are :class:`NotEligible`; no sink, an unknown ``write_mode`` or an
 inconsistent window are :class:`InvalidArtifactPlan`; MERGE into DELTA is
 :class:`UnsupportedArtifactPlan` (Delta sinks, §6.2).  An ICEBERG plan needs
-the attached catalog (:class:`IcebergCatalog`), and a MERGE into ICEBERG also
+the attached catalog (:class:`IcebergCatalog`) and a target
+``<catalog>.<schema>.<table>`` in it, else :class:`InvalidArtifactPlan`; a
+MERGE into ICEBERG also
 needs an engine version the §6.2 capability table covers and a merge-on-read
 table; otherwise it is :class:`UnsupportedArtifactPlan` (§6.2 Iceberg writes).
 Nothing falls back to a default sink, mode, horizon or window.
@@ -45,7 +47,7 @@ from sqldim.core.query.dgm.planner._rule8 import (
     ICEBERG_DOCUMENTED_VERSIONS,
     IcebergCatalog,
 )
-from sqldim.core.query.dgm.planner._targets import ExportPlan, SinkTarget
+from sqldim.core.query.dgm.planner._targets import _IDENT, ExportPlan, SinkTarget
 
 __all__ = ["ArtifactTarget", "plan_rule_10", "backfill_eligible", "operation_for"]
 
@@ -151,8 +153,26 @@ def _window(
     return chosen
 
 
+def _check_iceberg_target(relation: object, catalog: IcebergCatalog) -> None:
+    """§6.2 Iceberg writes: the target is ``<catalog>.<schema>.<table>``."""
+    parts = relation.split(".") if isinstance(relation, str) else []
+    if len(parts) != 3 or not all(_IDENT.match(p) for p in parts):
+        raise InvalidArtifactPlan(
+            f"an ICEBERG target is catalog.schema.table, got {relation!r} "
+            "(§6.2 Iceberg writes)"
+        )
+    if parts[0] != catalog.name:
+        raise InvalidArtifactPlan(
+            f"the ICEBERG target {relation!r} is not in the attached catalog "
+            f"{catalog.name!r} (§6.2 Iceberg writes)"
+        )
+
+
 def _check_sink(
-    sink: SinkTarget, op: WriteOperation, catalog: IcebergCatalog | None
+    sink: SinkTarget,
+    op: WriteOperation,
+    catalog: IcebergCatalog | None,
+    relation: object,
 ) -> None:
     """§6.2 Delta and Iceberg writes: what the sink admits for *op*."""
     if op is WriteOperation.MERGE and sink is SinkTarget.DELTA:
@@ -166,6 +186,7 @@ def _check_sink(
             "an ICEBERG WritePlan needs an attached Iceberg REST catalog "
             "(iceberg_catalog); there is none (§6.2 Iceberg writes)"
         )
+    _check_iceberg_target(relation, catalog)
     if op is not WriteOperation.MERGE:
         return
     if not catalog.documented:
@@ -216,7 +237,7 @@ def plan_rule_10(
             f"satisfy now − {artifact.backfill_horizon} days ≤ window_end ≤ now"
         )
     op = operation_for(artifact.write_mode, state)
-    _check_sink(sink, op, iceberg_catalog)
+    _check_sink(sink, op, iceberg_catalog, target.relation)
     write = WritePlan(sink, target.relation, op, target.window_column)
     return plan_artifact_run(
         snapshot, window_start=start, window_end=end, query=query, write=write

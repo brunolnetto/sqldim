@@ -76,6 +76,7 @@ def con() -> Iterator[duckdb.DuckDBPyConnection]:
 
 NOW = datetime(2024, 1, 2, 1)
 TARGET = ArtifactTarget("daily", "ts")
+ICE_TARGET = ArtifactTarget("ice.sales.daily", "ts")
 
 
 def planner(
@@ -119,12 +120,15 @@ def rule10(
     now: datetime = NOW,
     window: tuple[datetime, datetime] | None = (W0, W1),
     catalog: IcebergCatalog | None = None,
+    target: ArtifactTarget | None = None,
 ) -> ArtifactPlan | ExpiryPlan:
+    if target is None:
+        target = ICE_TARGET if sink is SinkTarget.ICEBERG else TARGET
     return planner(sink, catalog).apply_rule_10(
         a or artifact(),
         s or snap(),
         now=now,
-        target=TARGET,
+        target=target,
         query=query(),
         window=window,
     )
@@ -204,6 +208,25 @@ class TestWriteMode:
     def test_append_into_iceberg_on_any_version(self) -> None:
         p = rule10(sink=SinkTarget.ICEBERG, catalog=IcebergCatalog("ice", "1.5.0"))
         assert isinstance(p, ArtifactPlan) and p.write.sink is SinkTarget.ICEBERG
+
+    @pytest.mark.parametrize(
+        "relation",
+        ["daily", "sales.daily", "ice.sales.daily.x", "ice..daily", "ice.sa-les.t",
+         "other.sales.daily", "", None],
+    )  # fmt: skip
+    def test_iceberg_target_must_be_catalog_schema_table(
+        self, relation: object
+    ) -> None:
+        with pytest.raises(InvalidArtifactPlan, match="ICEBERG target"):
+            rule10(sink=SinkTarget.ICEBERG, catalog=IcebergCatalog("ice", "2.0"),
+                   target=ArtifactTarget(relation, "ts"))  # type: ignore[arg-type]  # fmt: skip
+
+    def test_iceberg_target_is_checked_before_merge(self) -> None:
+        s = snap(ArtifactState.STALE, window=(W0, W1), last="t", at=W1, reached=True)
+        with pytest.raises(InvalidArtifactPlan, match="catalog.schema.table"):
+            rule10(artifact(WriteModeKind.REFRESH), s, sink=SinkTarget.ICEBERG,
+                   catalog=IcebergCatalog("ice", "2.0.1", True),
+                   target=ArtifactTarget("daily"))  # fmt: skip
 
     @pytest.mark.parametrize(
         ("version", "mor", "match"),

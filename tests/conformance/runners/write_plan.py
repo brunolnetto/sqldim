@@ -85,6 +85,13 @@ def _iceberg_catalog(i: Mapping[str, Any]) -> str:
     return "ACCEPTED"
 
 
+def _artifact_target(sink: SinkTarget) -> ArtifactTarget:
+    """The target of the MERGE questions; ICEBERG names catalog.schema.table."""
+    if sink is SinkTarget.ICEBERG:
+        return ArtifactTarget(f"{CATALOG.name}.main.daily", "ts")
+    return ArtifactTarget("daily", "ts")
+
+
 def _merge(i: Mapping[str, Any]) -> str:
     """REFRESH from Stale: Rule 10 plans a MERGE (§2.4 write_mode)."""
     artifact = PipelineArtifact(
@@ -100,7 +107,7 @@ def _merge(i: Mapping[str, Any]) -> str:
         catalog = IcebergCatalog(CATALOG.name, i["engine"], i["merge_on_read"])
     try:
         plan = _planner(sink, catalog).apply_rule_10(
-            artifact, snap, now=NOW, target=ArtifactTarget("daily", "ts"), query=query
+            artifact, snap, now=NOW, target=_artifact_target(sink), query=query
         )
     except SemanticError:
         return REJECTED
