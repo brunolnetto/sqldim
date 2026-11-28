@@ -156,7 +156,30 @@ sink.write(con, "new_rows", "dim_customer")  # no context manager needed
 
 **Limitations**: No context manager. Rewrites are expensive for large datasets — every `close_versions` or `update_attributes` rewrites the whole table — and are not atomic for a concurrent reader. They need a local filesystem: on a remote URI they raise `SinkUnsupported` (appending works everywhere). No `prefetch_hashes` or `upsert`. Not suitable for high-frequency incremental updates.
 
-**Partitioning**: Data is partitioned by `is_current` by default (`.../table_name/is_current=true/` and `.../is_current=false/`). Partition columns are also written into the files and read back from them (`hive_partitioning=false`), so `is_current` reads back as a BOOLEAN. Files written before #178 lack those columns and must be rewritten once.
+**Partitioning**: Data is partitioned by `is_current` by default (`.../table_name/is_current=true/` and `.../is_current=false/`). Partition columns are also written into the files and read back from them (`hive_partitioning=false`), so `is_current` reads back as a BOOLEAN. Files written before #178 lack those columns and must be rewritten once; see [Migrating files written before #178](#migrating-files-written-before-178).
+
+**Compaction**: `sqldim.io.Compactor` merges the small files that repeated appends leave. It reads and writes the sink's layout (partition columns inside the files, types kept). It writes the new files into a staging directory and replaces the table's directory only after checking the row count and that no file was appended meanwhile, so it never overwrites a written file. Like the sink's rewrites it needs a local filesystem; a remote URI raises `SinkUnsupported`. `target_file_size_mb` rotates files with DuckDB's `FILE_SIZE_BYTES`, which DuckDB cannot combine with `PARTITION_BY`: passing both raises `SinkUnsupported`. A file without the partition columns raises `ParquetLayoutError`.
+
+```python
+from sqldim.io import Compactor
+
+Compactor.compact(con, "/data/warehouse/dim_customer",
+                  partition_by=["is_current"], zorder_by=["customer_id"])
+```
+
+#### Migrating files written before #178
+
+Before #178 the sink stored partition columns only in the directory names (`is_current=true/`). Reading such a file now fails explicitly, and `Compactor` refuses it. Rewrite each table once with `migrate_legacy_parquet`, declaring its partition columns and their types; the default is the sink's default layout, `{"is_current": "BOOLEAN"}`:
+
+```python
+from sqldim.io import migrate_legacy_parquet
+
+migrate_legacy_parquet(con, "/data/warehouse/dim_customer")
+migrate_legacy_parquet(con, "/data/warehouse/fact_sales",
+                       partitions={"ingest_date": "DATE"})
+```
+
+A file without the partition columns takes their values from its `key=value` directories, cast to the declared type. A file that already holds them (appended after #178) is read as it is. The rows are staged and then replace the table's directory, as in compaction. The function returns the number of rows rewritten, or `0` without writing when no file is in the old layout. It raises `ParquetLayoutError`, with the table untouched, for a file that holds only some of the partition columns, a file outside any `key=value` directory, or a directory value that does not cast. On a remote URI it raises `SinkUnsupported`: copy the table to local disk, migrate it there, and copy it back.
 
 ---
 
