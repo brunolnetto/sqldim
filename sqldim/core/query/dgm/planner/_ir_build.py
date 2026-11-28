@@ -13,6 +13,10 @@ from __future__ import annotations
 
 import math
 import re
+from collections.abc import Iterator, Mapping
+from contextlib import contextmanager
+from contextvars import ContextVar
+from dataclasses import dataclass, field, replace
 from typing import TYPE_CHECKING
 
 from sqldim.core.query.dgm.algebra import ComposeOp
@@ -51,14 +55,96 @@ from sqldim.core.query.dgm.planner._ir import (
 if TYPE_CHECKING:
     from sqldim.core.query.dgm.algebra import QuestionAlgebra
     from sqldim.core.query.dgm.core import DGMQuery
+    from sqldim.core.query.dgm.model import DGMModel
     from sqldim.core.query.dgm.preds import PathPred, Repeat, ScalarPred
 
-__all__ = ["lower_query", "lower_algebra", "lower_pred"]
+__all__ = ["NodeIdentities", "lower_query", "lower_algebra", "lower_pred"]
 
 _OPS = frozenset(
     {"=", "!=", "<>", "<", "<=", ">", ">=", "LIKE", "NOT LIKE", "ILIKE",
      "NOT ILIKE", "IS", "IS NOT"}
 )  # fmt: skip
+
+
+# ---------------------------------------------------------------------------
+# Node identities from a declared model (§2.6, §3.3)
+# ---------------------------------------------------------------------------
+
+#: Prefix of the names the emitter introduces (recursive CTEs, their columns
+#: and aliases); an alias of the query may not start with it.
+RESERVED_PREFIX = "__dgm"
+
+
+class NodeIdentities:
+    """Entity keys and hop weights that a declared :class:`DGMModel` states.
+
+    A relation has a key when exactly one node type maps to it with a
+    ``NodeTable`` that has no ``version_key`` (one row per entity, §2.6);
+    a versioned or unmapped relation has none.  A verb hop counts 1 in
+    ``weight(π)``; a bridge hop counts 1 when every bridge edge type with
+    its label is declared unweighted (§3.3).
+    """
+
+    def __init__(self, model: "DGMModel") -> None:
+        from sqldim.core.query.dgm.model import DGMModel
+
+        if not isinstance(model, DGMModel):
+            raise UnsupportedConstruct("node identities need a declared DGMModel")
+        self.model = model
+
+    def key(self, relation: str) -> tuple[str, ...]:
+        tables = [
+            n.mapping
+            for n in self.model.node_types
+            if n.mapping is not None and n.mapping.relation == relation
+        ]
+        if len(tables) != 1 or tables[0].version_key is not None:
+            return ()
+        return tuple(check_identifier(c, "entity key") for c in tables[0].entity_key)
+
+    def weighted(self, kind: str, label: str) -> bool | None:
+        from sqldim.core.query.dgm.model import EdgeKind
+
+        if kind in ("verb", "verb_inverse"):
+            return False
+        edges = [
+            e
+            for e in self.model.edge_types
+            if e.kind is EdgeKind.BRIDGE and e.label == label
+        ]
+        return any(e.weighted for e in edges) if edges else None
+
+
+@dataclass(frozen=True)
+class _Ctx:
+    ids: NodeIdentities | None = None
+    relations: Mapping[str, str] = field(default_factory=dict)
+
+
+_CTX: ContextVar[_Ctx] = ContextVar("dgm_lowering", default=_Ctx())
+
+
+@contextmanager
+def _context(**changes: object) -> Iterator[None]:
+    token = _CTX.set(replace(_CTX.get(), **changes))  # type: ignore[arg-type]
+    try:
+        yield
+    finally:
+        _CTX.reset(token)
+
+
+def _identify(h: PathHop) -> PathHop:
+    """*h* with the node identity and weight the model declares, if any."""
+    ids = _CTX.get().ids
+    if ids is None:
+        return h
+    return replace(
+        h, key=ids.key(h.scan.relation), weighted=ids.weighted(h.kind, h.label)
+    )
+
+
+def _identify_repeat(r: PathRepeat) -> PathRepeat:
+    return replace(r, body=tuple(_identify(h) for h in r.body))
 
 
 # ---------------------------------------------------------------------------
@@ -98,6 +184,16 @@ def _lower_compare(p: "ScalarPred", scope: frozenset[str]) -> Compare:
     return Compare(_ref_fragment(p.ref, scope), p.op, _literal(p.value))
 
 
+def _check_alias(alias: object) -> str:
+    name = check_identifier(alias, "alias")  # type: ignore[arg-type]
+    if name.startswith(RESERVED_PREFIX):
+        raise UnsupportedConstruct(
+            f"alias {name!r} starts with {RESERVED_PREFIX!r}, which the emitter "
+            "reserves for its own names"
+        )
+    return name
+
+
 def _lower_hop(h: object, visible: set[str], role: ReadRole) -> PathHop:
     """Lower one hop; its alias joins *visible* (in place)."""
     from sqldim.core.query.dgm.preds import _HopBase
@@ -108,7 +204,7 @@ def _lower_hop(h: object, visible: set[str], role: ReadRole) -> PathHop:
         raise UnsupportedConstruct(
             f"hop {h.label!r} needs an explicit table and on clause"
         )
-    alias = check_identifier(h.to_alias, "alias")
+    alias = _check_alias(h.to_alias)
     if alias in visible:
         raise UnsupportedConstruct(f"path alias {alias!r} shadows an alias in scope")
     visible.add(alias)
@@ -141,43 +237,74 @@ def _lower_repeat(
 
 
 def _lower_hops(
-    path: object, scope: frozenset[str]
+    path: object, scope: frozenset[str], keyed: bool
 ) -> tuple[PathHop | PathRepeat, ...]:
+    """The hops of a PathPred; with *keyed*, each carries its node identity."""
+    from sqldim.core.query.dgm.planner._ir_emit import unroll_refusal
     from sqldim.core.query.dgm.preds import Repeat, _flatten_path
 
     hops: list[PathHop | PathRepeat] = []
     visible = set(scope)
-    relations: dict[str, str] = {}
+    relations: dict[str, str] = dict(_CTX.get().relations)
     for h in _flatten_path(path):
         if isinstance(h, Repeat):
             start = relations.get(h.from_alias)
-            hops.append(_lower_repeat(h, visible, ReadRole.REPEAT, start))
+            rep = _lower_repeat(h, visible, ReadRole.REPEAT, start)
+            if keyed or unroll_refusal(rep) is not None:
+                rep = _identify_repeat(rep)
+            hops.append(rep)
             continue
         hop = _lower_hop(h, visible, ReadRole.EXISTS_PATH)
         relations[hop.scan.alias] = hop.scan.relation
-        hops.append(hop)
+        hops.append(_identify(hop) if keyed else hop)
     if not hops:
         raise UnsupportedConstruct("a PathPred needs at least one hop")
     return tuple(hops)
 
 
+def _strategy(pp: "PathPred") -> tuple[str, int | None]:
+    """The §3.3 strategy of *pp* and its k."""
+    from sqldim.core.query.dgm.preds import ALL, K_SHORTEST, MIN_WEIGHT, SHORTEST
+
+    s = pp.strategy
+    if s is None or isinstance(s, ALL):
+        return "ALL", None
+    if isinstance(s, K_SHORTEST):
+        k = s.k
+        if isinstance(k, bool) or not isinstance(k, int) or k < 1:
+            raise UnsupportedConstruct(f"K_SHORTEST needs k ≥ 1 (§3.3), got {k!r}")
+        return "K_SHORTEST", k
+    if isinstance(s, (SHORTEST, MIN_WEIGHT)):
+        return type(s).__name__, None
+    raise UnsupportedConstruct(f"strategy {type(s).__name__} is not one of §3.3")
+
+
 def _lower_path(pp: "PathPred", scope: frozenset[str]) -> PathExists:
-    from sqldim.core.query.dgm.preds import ALL, Quantifier as _Q
-    from sqldim.core.query.dgm.preds._core import STRATEGY_REFUSAL
-    from sqldim.core.query.dgm.preds._positions import without_mode
+    from sqldim.core.query.dgm.preds import Quantifier as _Q
+    from sqldim.core.query.dgm.preds._positions import trace_mode, without_mode
 
     if pp.promote:
         raise UnsupportedConstruct("PathPred(promote=True) is not supported")
-    strategy = pp.strategy
-    if strategy is not None and not isinstance(strategy, ALL):
-        raise UnsupportedConstruct(STRATEGY_REFUSAL.format(type(strategy).__name__))
-    # a temporal mode is lowered by its one-position form, as to_sql() renders it
-    pp = without_mode(pp)
+    strategy, k = _strategy(pp)
+    if strategy != "ALL" and pp.temporal_mode is not None:
+        raise UnsupportedConstruct(
+            f"a temporal mode with strategy {strategy}: §4.1 defines T(s) over "
+            "every instance of the path, and does not state whether a strategy "
+            "selects instances before their traces are formed"
+        )
+    mode = trace_mode(pp)
+    if mode is None:
+        # a mode over one position per instance is lowered by its mode-free
+        # form, as to_sql() renders it
+        pp = without_mode(pp)
     quant = Quantifier.FORALL if pp.quantifier is _Q.FORALL else Quantifier.EXISTS
-    hops = _lower_hops(pp.path, scope)
+    hops = _lower_hops(pp.path, scope, keyed=strategy != "ALL" or mode is not None)
     inner = frozenset(_path_aliases(hops)) | scope
     sub = lower_pred(pp.sub_filter, inner)
-    return PathExists(quant, "ALL", hops, sub)
+    until = None
+    if mode == "UNTIL":
+        until = lower_pred(pp.temporal_mode.pred, inner)  # type: ignore[attr-defined]
+    return PathExists(quant, strategy, hops, sub, k, mode, until)
 
 
 def _path_aliases(hops: tuple[PathHop | PathRepeat, ...]) -> list[str]:
@@ -226,7 +353,7 @@ class _Scope:
         self.relations: dict[str, str] = {}
 
     def add(self, alias: str, relation: str | None = None) -> frozenset[str]:
-        check_identifier(alias, "alias")
+        _check_alias(alias)
         if alias in self.aliases:
             raise UnsupportedConstruct(f"alias {alias!r} is bound twice")
         self.aliases.append(alias)
@@ -244,9 +371,13 @@ def _repeat_join(q: "DGMQuery", r: "Repeat", scope: _Scope) -> RepeatJoin:
             "a Repeat PathJoin under as_of needs version resolution per "
             "iteration, which this IR version does not emit"
         )
+    from sqldim.core.query.dgm.planner._ir_emit import unroll_refusal
+
     visible = set(scope.aliases)
     start = scope.relations.get(r.from_alias)
     repeat = _lower_repeat(r, visible, ReadRole.REPEAT, start)
+    if unroll_refusal(repeat) is not None:  # emitted recursively: needs keys
+        repeat = _identify_repeat(repeat)
     scope.add(repeat.end, repeat.body[-1].scan.relation)  # body-local otherwise
     return RepeatJoin(repeat)
 
@@ -305,9 +436,23 @@ def _opt_pred(p: object, scope: frozenset[str]) -> Pred | None:
     return None if p is None else lower_pred(p, scope)
 
 
-def lower_query(q: "DGMQuery") -> BandQuery | DrillAcross:
+def lower_query(
+    q: "DGMQuery", model: "DGMModel | None" = None
+) -> BandQuery | DrillAcross:
     """Lower one three-band query to a :class:`BandQuery`, or a declared
-    constellation (``drill_across``) to a :class:`DrillAcross`."""
+    constellation (``drill_across``) to a :class:`DrillAcross`.
+
+    *model* is the declared model of the data; it supplies the node
+    identities that SIMPLE and TRAIL repetition, the traces of a temporal
+    mode over a Repeat and the order ≺ of a strategy need (§2.6, §3.2, §3.3).
+    Without it those constructs are refused.
+    """
+    ids = None if model is None else NodeIdentities(model)
+    with _context(ids=ids):
+        return _lower_query(q)
+
+
+def _lower_query(q: "DGMQuery") -> BandQuery | DrillAcross:
     from sqldim.core.query.dgm._query_helpers import _validate_bands
 
     _validate_bands(q)  # same construction errors as DGMQuery.to_sql()
@@ -322,15 +467,19 @@ def lower_query(q: "DGMQuery") -> BandQuery | DrillAcross:
 
 
 def _lower_band(q: "DGMQuery") -> BandQuery:
-    from sqldim.core.query.dgm._query_helpers import rendered_aggregates
-
     table = check_relation_name(q._anchor_table)
     anchor_alias = q._anchor_alias or table
     scope = _Scope()
     scope.add(anchor_alias, table)
     anchor = Scan(table, anchor_alias, ReadRole.ANCHOR)
     joins = _path_joins(q, scope) + _dim_joins(q, anchor_alias, scope)
-    s = scope.frozen()
+    with _context(relations=dict(scope.relations)):
+        return _band(q, anchor, joins, scope.frozen())
+
+
+def _band(q: "DGMQuery", anchor: Scan, joins: list, s: frozenset[str]) -> BandQuery:
+    from sqldim.core.query.dgm._query_helpers import rendered_aggregates
+
     return BandQuery(
         anchor=anchor,
         joins=tuple(joins),
@@ -422,7 +571,7 @@ class _AlgebraLowering:
                 raise UnsupportedConstruct(
                     f"CTE {name!r} is raw SQL; its read set cannot be determined"
                 )
-            return lower_query(cq.query)
+            return _lower_query(cq.query)
         left, op, right = self.alg._composition[name]
         sql = cq._sql or ""
         on = None
@@ -436,9 +585,17 @@ class _AlgebraLowering:
 
 
 def lower_algebra(
-    alg: "QuestionAlgebra", final: str, pre_compute: tuple = ()
+    alg: "QuestionAlgebra",
+    final: str,
+    pre_compute: tuple = (),
+    model: "DGMModel | None" = None,
 ) -> PlanIR:
-    """Lower the CTEs *final* depends on; unreferenced CTEs are not emitted."""
+    """Lower the CTEs *final* depends on; unreferenced CTEs are not emitted.
+
+    *model* is as for :func:`lower_query`.
+    """
     lowering = _AlgebraLowering(alg)
-    root = lowering.node(final)
+    ids = None if model is None else NodeIdentities(model)
+    with _context(ids=ids):
+        root = lowering.node(final)
     return PlanIR(root=root, ctes=tuple(lowering.order), pre_compute=pre_compute)

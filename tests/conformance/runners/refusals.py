@@ -14,6 +14,7 @@ from __future__ import annotations
 from typing import Any
 
 from sqldim.core.query.dgm import DGMPlanner, DGMQuery
+from sqldim.core.query.dgm.model import DGMModel
 from sqldim.core.query.dgm.planner import (
     QUERY_PROFILES,
     UnsupportedCapability,
@@ -28,10 +29,10 @@ TARGETS = tuple(t for t, p in QUERY_PROFILES.items() if p.emitter is None)
 _planned: list[DGMQuery] = []
 
 
-def _refuse_all(q: DGMQuery) -> str:
+def _refuse_all(q: DGMQuery, model: DGMModel | None) -> str:
     _planned.append(q)
     for target in TARGETS:
-        planner = DGMPlanner(None, None, None, None, target)  # type: ignore[arg-type]
+        planner = DGMPlanner(None, None, None, None, target, model=model)  # type: ignore[arg-type]
         try:
             planner.plan_query(q)
         except UnsupportedCapability:

@@ -88,7 +88,10 @@ def _frag(f: Fragment | None) -> tuple | None:
 
 
 def _hop(h: PathHop) -> tuple:
-    return ("hop", h.kind, h.label, _scan(h.scan), _frag(h.on))
+    out: tuple = ("hop", h.kind, h.label, _scan(h.scan), _frag(h.on))
+    if h.key or h.weighted is not None:  # node identities (§3.3), when set
+        out += (("key", h.key), ("weighted", h.weighted))
+    return out
 
 
 def _repeat(r: PathRepeat) -> tuple:
@@ -123,13 +126,17 @@ def _atom(p: Pred) -> tuple:
         return ("raw", p.fragment.sql)
     if isinstance(p, PathExists):
         hops = tuple(_path_item(h) for h in p.hops)
-        return (
+        out: tuple = (
             "path",
             p.quantifier.value,
             p.strategy,
             hops,
             predicate_hash(p.sub_filter),
         )
+        if p.k is not None or p.mode is not None:
+            until = None if p.until is None else predicate_hash(p.until)
+            out += (("k", p.k), ("mode", p.mode, until))
+        return out
     raise UnsupportedConstruct(f"{type(p).__name__} is not a predicate atom")
 
 

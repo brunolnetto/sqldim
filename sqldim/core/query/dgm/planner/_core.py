@@ -47,6 +47,7 @@ if TYPE_CHECKING:
     from sqldim.core.query.dgm.planner._rule3 import GraphExprSchedule
     from sqldim.core.query.dgm.bdd import DGMPredicateBDD
     from sqldim.core.query.dgm.core import DGMQuery
+    from sqldim.core.query.dgm.model import DGMModel
     from sqldim.core.query.dgm.graph import GraphStatistics, NodeExpr, SubgraphExpr
     from sqldim.core.query.dgm.annotations import (
         AnnotationSigma,
@@ -95,6 +96,12 @@ class DGMPlanner:
         is not the query target's own, e.g. ``POSTGRESQL_VIA_DUCKDB`` for
         SQL_DUCKDB run over PostgreSQL tables.  A construct it does not
         support raises :class:`UnsupportedCapability` before execution.
+    model:
+        The declared model of the data (§2.6).  :meth:`plan_query` reads the
+        entity keys of its NodeTables as node identities, which SIMPLE and
+        TRAIL repetition, a temporal mode over a Repeat and the strategies
+        SHORTEST, K_SHORTEST and MIN_WEIGHT need; without it they are
+        refused.  Nothing is inferred from table or column names.
     """
 
     def __init__(
@@ -108,6 +115,7 @@ class DGMPlanner:
         *,
         iceberg_catalog: IcebergCatalog | None = None,
         execution_profile: "Profile | None" = None,
+        model: "DGMModel | None" = None,
     ) -> None:
         self.cost_model = cost_model
         self.statistics = statistics
@@ -117,6 +125,7 @@ class DGMPlanner:
         self.sink_target = sink_target
         self.iceberg_catalog = iceberg_catalog
         self.execution_profile = execution_profile
+        self.model = model
 
     # ------------------------------------------------------------------
     # Rule 1a — Path execution strategy
@@ -477,11 +486,13 @@ class DGMPlanner:
         if isinstance(source, QuestionAlgebra):
             if final is None:
                 raise UnsupportedConstruct("a QuestionAlgebra plan needs final=")
-            ir = lower_algebra(source, final, tuple(pre_compute))
+            ir = lower_algebra(source, final, tuple(pre_compute), self.model)
         elif final is not None:
             raise UnsupportedConstruct("final= applies only to a QuestionAlgebra")
         else:
-            ir = PlanIR(root=lower_query(source), pre_compute=tuple(pre_compute))
+            ir = PlanIR(
+                root=lower_query(source, self.model), pre_compute=tuple(pre_compute)
+            )
         require_ir(ir, profile or query_profile(self.query_target))
         return ExportPlan.from_ir(
             ir,

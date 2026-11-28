@@ -7,7 +7,9 @@
 The fixture is loaded into an in-memory DuckDB database following the
 relational mapping of §2.6: one NodeTable per node type, and a verb or bridge
 edge type as a ``ForeignKey(holder = TARGET)`` column ``<label>_src``.  The
-query is built with the public ``sqldim`` API only.
+query is built with the public ``sqldim`` API only.  The plan IR is given
+the declared model of that mapping (:func:`graph_model`), as a dataset
+declares it (§2.6 *Declared model*); ``DGMQuery.to_sql()`` reads none.
 """
 
 from __future__ import annotations
@@ -50,12 +52,23 @@ from sqldim.core.query.dgm import (
     VerbHop,
     WinRef,
 )
+from sqldim.core.query.dgm.model import (
+    DGMModel,
+    EdgeKind,
+    EdgeType,
+    ForeignKey,
+    Holder,
+    NodeKind,
+    NodeTable,
+    NodeType,
+    Reference,
+)
 from sqldim.exceptions import SemanticError
 from tests.conformance.cases import Case
 from tests.conformance.cases.fixtures import GRAPHS, INPUTS
 from tests.conformance.runners import REJECTED, Backend, NotExpressible
 
-Executor = Callable[[DGMQuery], str]
+Executor = Callable[[DGMQuery, DGMModel | None], str]
 Session = Callable[[], ContextManager[duckdb.DuckDBPyConnection]]
 
 
@@ -76,12 +89,13 @@ class Engine:
     session: Session = memory_session
 
 
-def _legacy_sql(q: DGMQuery) -> str:
-    return q.to_sql()
+def _legacy_sql(q: DGMQuery, model: DGMModel | None) -> str:
+    return q.to_sql()  # DGMQuery reads no model
 
 
-def _ir_sql(q: DGMQuery) -> str:
-    planner = DGMPlanner(None, None, None, None, QueryTarget.SQL_DUCKDB)  # type: ignore[arg-type]
+def _ir_sql(q: DGMQuery, model: DGMModel | None) -> str:
+    planner = DGMPlanner(None, None, None, None, QueryTarget.SQL_DUCKDB,  # type: ignore[arg-type]
+                         model=model)  # fmt: skip
     return planner.plan_query(q).query_text
 
 
@@ -153,10 +167,51 @@ def load_graph(con: duckdb.DuckDBPyConnection, graph: Mapping[str, Any]) -> None
         create(con, table_of(type_), rs)
 
 
-def _run(eng: Engine, q: DGMQuery, setup: Callable[[Any], None]) -> Any:
+#: The runner maps a ``hop`` element to a VerbHop (``placed`` is the only one
+#: in the fixtures) and a ``repeat`` element to a BridgeHop (:func:`_path`).
+_VERB_LABELS = frozenset({"placed"})
+
+
+def graph_model(graph: Mapping[str, Any]) -> DGMModel:
+    """The declared model of :func:`load_graph`'s mapping (§2.6).
+
+    One node type per ``type`` with a NodeTable keyed by ``id`` (no version
+    key), one edge type per ``(source type, target type, label)`` mapped to
+    the ``ForeignKey(TARGET)`` column ``<label>_src``; a bridge is weighted
+    iff one of its edges carries a weight.
+    """
+    nodes = graph["nodes"]
+    edges: dict[tuple[str, str, str], bool] = {}
+    for e in graph["edges"]:
+        term = (_type_of(nodes[e[0]]), _type_of(nodes[e[1]]), e[2])
+        edges[term] = edges.get(term, False) or len(e) > 3
+    facts = {t for (_s, t, lab) in edges if lab in _VERB_LABELS}
+    types = sorted({_type_of(p) for p in nodes.values()})
+    node_types = [
+        NodeType(t, NodeKind.FACT if t in facts else NodeKind.DIM,
+                 mapping=NodeTable(table_of(t), ("id",)))
+        for t in types
+    ]  # fmt: skip
+    edge_types = [
+        EdgeType(src, dst, lab,
+                 EdgeKind.VERB if lab in _VERB_LABELS else EdgeKind.BRIDGE,
+                 weighted=weighted,
+                 mapping=ForeignKey(Holder.TARGET, (f"{lab}_src",),
+                                    Reference.ENTITY_KEY))
+        for (src, dst, lab), weighted in sorted(edges.items())
+    ]  # fmt: skip
+    return DGMModel(tuple(node_types), tuple(edge_types))
+
+
+def _run(
+    eng: Engine,
+    q: DGMQuery,
+    setup: Callable[[Any], None],
+    model: DGMModel | None = None,
+) -> Any:
     """SQL of *q*, executed; a construction or lowering error is REJECTED."""
     try:
-        sql = eng.sql(q)
+        sql = eng.sql(q, model)
     except SemanticError:
         return REJECTED
     with eng.session() as con:
@@ -261,7 +316,8 @@ def _path_pred(eng: Engine) -> Callable[[Case], Any]:
         q, start = _path_pred_query(case)
         if q is None:
             return REJECTED
-        rows = _run(eng, q, lambda con: load_graph(con, GRAPHS[case.fixture]))
+        graph = GRAPHS[case.fixture]
+        rows = _run(eng, q, lambda con: load_graph(con, graph), graph_model(graph))
         if rows == REJECTED:
             return REJECTED
         return start in {r[0] for r in rows}
@@ -289,7 +345,7 @@ def _repeat_join(eng: Engine) -> Callable[[Case], Any]:
             )
         except SemanticError:
             return REJECTED
-        rows = _run(eng, q, lambda con: load_graph(con, graph))
+        rows = _run(eng, q, lambda con: load_graph(con, graph), graph_model(graph))
         if rows == REJECTED:
             return REJECTED
         return sorted(y for y, n in rows if y is not None for _ in range(n))
@@ -348,7 +404,7 @@ def _construction(eng: Engine) -> Callable[[Case], Any]:
                 _repeat_ctor(i)
                 return "ACCEPTED"
             q = _band_query(i) if i["kind"] == "band" else _null_query(i)
-            eng.sql(q)
+            eng.sql(q, None)
         except SemanticError:
             return REJECTED
         return "ACCEPTED"
@@ -459,7 +515,7 @@ def _constellation(eng: Engine) -> Callable[[Case], Any]:
                 }
             )
         try:
-            eng.sql(q)
+            eng.sql(q, None)
         except SemanticError:
             return REJECTED
         return "VALID"

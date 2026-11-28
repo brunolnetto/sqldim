@@ -122,6 +122,10 @@ def _join_out(j: Join | RepeatJoin) -> dict:
 def _hop_out(h: PathHop | PathRepeat) -> dict:
     if not isinstance(h, PathHop):
         raise _no_repeat(h)
+    if h.key or h.weighted is not None:
+        raise InvalidSpec(
+            f"node identities of a hop have no form in spec format {SPEC_FORMAT}"
+        )
     return {"kind": h.kind, "label": h.label, "scan": _scan_out(h.scan), "on": h.on.sql}
 
 
@@ -137,6 +141,15 @@ def _pred_out(p: Pred | None) -> dict | None:
         return {tag: [_pred_out(s) for s in p.preds]}
     if isinstance(p, Neg):
         return {"not": _pred_out(p.pred)}
+    return _path_out(p)
+
+
+def _path_out(p: PathExists) -> dict:
+    if p.strategy != "ALL" or p.mode is not None:
+        raise InvalidSpec(
+            f"a PathPred with strategy {p.strategy} or a temporal mode over a "
+            f"Repeat has no form in spec format {SPEC_FORMAT}"
+        )
     return {
         "path": {
             "quantifier": p.quantifier.value,

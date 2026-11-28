@@ -192,7 +192,8 @@ class TestTemporalModeSQLTemplates:
         with pytest.raises(UnsupportedConstruct, match="UNTIL target"):
             pp.to_sql()
 
-    def test_next_over_two_hops_is_refused(self):
+    def test_next_reading_past_the_first_hop_is_refused(self):
+        """NEXT reads Succ(s), the first hop's targets (§4.1)."""
         from sqldim.core.query.dgm.planner import UnsupportedConstruct
         from sqldim.core.query.dgm.preds import Compose
 
@@ -200,8 +201,17 @@ class TestTemporalModeSQLTemplates:
         h2 = BridgeHop("s", "next", "t", table="fact_order", on="t.prev = s.id")
         sub = ScalarPred(PropRef("t", "status"), "=", "ok")
         pp = PathPred("c", Compose(h1, h2), sub, temporal_mode=NEXT)
-        with pytest.raises(UnsupportedConstruct, match="one-hop"):
+        with pytest.raises(UnsupportedConstruct, match="Succ"):
             pp.to_sql()
+
+    def test_next_over_two_hops_reads_the_first(self):
+        from sqldim.core.query.dgm.preds import Compose
+
+        h1 = VerbHop("c", "placed", "s", table="fact_order", on="c.id = s.cust_id")
+        h2 = BridgeHop("s", "next", "t", table="fact_order", on="t.prev = s.id")
+        sub = ScalarPred(PropRef("s", "status"), "=", "ok")
+        pp = PathPred("c", Compose(h1, h2), sub, temporal_mode=NEXT)
+        assert pp.to_sql() == PathPred("c", h1, sub).to_sql()
 
     @pytest.mark.parametrize(
         "mode",

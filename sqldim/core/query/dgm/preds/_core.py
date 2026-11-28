@@ -318,7 +318,8 @@ def _check_renderable(pp: "PathPred") -> None:
 
 STRATEGY_REFUSAL = (
     "PathPred strategy {} restricts the path set by the order ≺ of §3.3, which "
-    "breaks ties by node keys a hop does not declare; only ALL is rendered"
+    "breaks ties by entity keys; DGMQuery.to_sql() reads no model, so it renders "
+    "only ALL (plan the query with DGMPlanner(model=…))"
 )
 
 

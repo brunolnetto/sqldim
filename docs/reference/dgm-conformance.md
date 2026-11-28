@@ -54,10 +54,10 @@ implement the area.
 
 | Clause | Cases | `duckdb-dgmquery` | `duckdb-plan-ir` | `duckdb-ordering` | `dgm-bdd` | `duckdb-question-algebra` | `dgm-model` | `dgm-annotations` | `pg-duckdb-plan-ir` | `planner-refusals` | `dgm-write-plan` | `sink-duckdb` | `sink-parquet` | `sink-postgresql` | `sink-motherduck` | `sink-delta` |
 |---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
-| ADR 0001 Empty-domain policy; §4.1 Empty domain | `CTL-A-c0-AF-REQ` … `CTL-B-a2-AX-VAC` (12) | 3 pass, 3 refused, 6 n/e | 3 pass, 3 refused, 6 n/e | — | — | — | — | — | 3 pass, 3 refused, 6 n/e | 6 refused, 6 n/e | — | — | — | — | — | — |
+| ADR 0001 Empty-domain policy; §4.1 Empty domain | `CTL-A-c0-AF-REQ` … `CTL-B-a2-AX-VAC` (12) | 4 pass, 2 refused, 6 n/e | 6 pass, 6 n/e | — | — | — | — | — | 6 pass, 6 n/e | 6 refused, 6 n/e | — | — | — | — | — | — |
 | ADR 0001 Truth conditions (UNTIL is strong) | `PP-UNTIL-01`, `PP-UNTIL-02` | 2 pass | 2 pass | — | — | — | — | — | 2 pass | 2 refused | — | — | — | — | — | — |
-| ADR 0001 Truth conditions (UNTIL is strong); §4.1 | `CTL-U-01` … `CTL-U-05` (5) | 5 refused | 5 refused | — | — | — | — | — | 5 refused | 5 refused | — | — | — | — | — | — |
-| ADR 0001 Truth conditions; §4.1 Path semantics | `CTL-A-c-EF` … `CTL-B-a2-EX-VAC` (30) | 9 pass, 15 refused, 6 n/e | 9 pass, 15 refused, 6 n/e | — | — | — | — | — | 9 pass, 15 refused, 6 n/e | 24 refused, 6 n/e | — | — | — | — | — | — |
+| ADR 0001 Truth conditions (UNTIL is strong); §4.1 | `CTL-U-01` … `CTL-U-05` (5) | 5 refused | 5 pass | — | — | — | — | — | 5 pass | 5 refused | — | — | — | — | — | — |
+| ADR 0001 Truth conditions; §4.1 Path semantics | `CTL-A-c-EF` … `CTL-B-a2-EX-VAC` (30) | 14 pass, 10 refused, 6 n/e | 24 pass, 6 n/e | — | — | — | — | — | 24 pass, 6 n/e | 24 refused, 6 n/e | — | — | — | — | — | — |
 | ADR 0003 / §5.1 one reference instant τ | `SCD-TAU-01` | 1 refused | 1 refused | — | — | — | — | — | 1 refused | 1 refused | — | — | — | — | — | — |
 | §2.1 Structural invariants (V_S ⊆ D_S × F_S) | `MOD-08`, `MOD-09`, `MOD-10`, `MOD-11` | — | — | — | — | — | 4 pass | — | — | — | — | — | — | — | — | — |
 | §2.4 Additivity AD1–AD4 and grain defaults | `ADD-01` … `ADD-15` (15) | — | — | — | — | — | — | 12 pass, 3 refused | — | — | — | — | — | — | — | — |
@@ -68,11 +68,11 @@ implement the area.
 | §2.6 Version and validity at an instant (half-open windows) | `SCD-V-01` … `SCD-E-06` (13) | 11 pass, 2 refused | 11 pass, 2 refused | — | — | — | — | — | 11 pass, 2 refused | 13 refused | — | — | — | — | — | — |
 | §3.2 Alias uniqueness (C ∩ L ≠ ∅ rejected) | `PP-ALIAS-04` | 1 pass | 1 pass | — | — | — | — | — | 1 pass | 1 refused | — | — | — | — | — | — |
 | §3.2 Repeat well-formedness | `CON-R2-01` … `CON-R-02` (7) | 7 pass | 7 pass | — | — | — | — | — | — | — | — | — | — | — | — | — |
-| §3.2 Repetition and RepeatMode; PathJoin under ALL | `RJ-01` … `RJ-06` (6) | 6 refused | 3 pass, 3 refused | — | — | — | — | — | 3 pass, 3 refused | 6 refused | — | — | — | — | — | — |
+| §3.2 Repetition and RepeatMode; PathJoin under ALL | `RJ-01` … `RJ-06` (6) | 6 refused | 6 pass | — | — | — | — | — | 6 pass | 6 refused | — | — | — | — | — | — |
 | §3.2 TemporalOrdering semantics (Allen, half-open, NULL bounds) | `TO-PRECEDES-proper` … `TO-EQUALS-degenerate` (39) | — | — | 39 pass | — | — | — | — | — | — | — | — | — | — | — | — |
 | §3.2 Typing of TemporalOrdering (TO1–TO4) | `TO-TYPE-01`, `TO-TYPE-02`, `TO-TYPE-03`, `TO-TYPE-04` | — | — | 3 pass, 1 n/e | — | — | — | — | — | — | — | — | — | — | — | — |
 | §3.2 point relations (NULL TimePoint is UNKNOWN) | `TO-BEFORE-pt`, `TO-AFTER-pt`, `TO-CONCURRENT-pt`, `TO-CONCURRENT-tol1` | — | — | 4 pass | — | — | — | — | — | — | — | — | — | — | — | — |
-| §3.3 Strategy (deterministic ≺ order) | `PP-STR-01`, `PP-STR-02`, `PP-STR-03`, `PP-STR-04` | 1 pass, 3 refused | 1 pass, 3 refused | — | — | — | — | — | 1 pass, 3 refused | 4 refused | — | — | — | — | — | — |
+| §3.3 Strategy (deterministic ≺ order) | `PP-STR-01`, `PP-STR-02`, `PP-STR-03`, `PP-STR-04` | 1 pass, 3 refused | 4 pass | — | — | — | — | — | 4 pass | 4 refused | — | — | — | — | — | — |
 | §3.4.2 RelationshipSubgraph by reachability | `CONE-01`, `CONE-02`, `CONE-05`, `CONE-06` | — | — | — | — | — | — | — | — | — | — | — | — | — | — | — |
 | §3.4.6 Anchor sets (AS1–AS3, N_𝒜, E_𝒜, Σ|_𝒜) | `AS-01` … `AS-GEN-11-edges` (50) | — | — | — | — | — | 50 pass | — | — | — | — | — | — | — | — | — |
 | §3.5 Evaluation contexts (Refs in C ∪ L) | `PP-ALIAS-01`, `PP-ALIAS-02`, `PP-ALIAS-03` | 3 pass | 3 pass | — | — | — | — | — | 3 pass | 3 refused | — | — | — | — | — | — |
@@ -151,77 +151,35 @@ implement the area.
 | `CTL-A-c0-AX-VAC` | `duckdb-plan-ir` | n/e | PathPred has no `on_empty` field, so VACUOUS cannot be requested |
 | `CTL-A-c0-AX-VAC` | `pg-duckdb-plan-ir` | n/e | PathPred has no `on_empty` field, so VACUOUS cannot be requested |
 | `CTL-A-c0-AX-VAC` | `planner-refusals` | n/e | PathPred has no `on_empty` field, so VACUOUS cannot be requested |
-| `CTL-B-a0-EF` | `duckdb-dgmquery` | refused | DGMQuery.to_sql() raises for a Repeat (plan with DGMPlanner) |
-| `CTL-B-a0-EF` | `duckdb-plan-ir` | refused | a Repeat inside a PathPred is not emitted (UnsupportedConstruct): a trace has several evaluation positions, and SIMPLE needs node identities a hop does not declare |
-| `CTL-B-a0-EF` | `pg-duckdb-plan-ir` | refused | a Repeat inside a PathPred is not emitted (UnsupportedConstruct): a trace has several evaluation positions, and SIMPLE needs node identities a hop does not declare |
+| `CTL-B-a0-EF` | `duckdb-dgmquery` | refused | DGMQuery.to_sql() reads no model: a Repeat PathJoin and a temporal mode over a Repeat's iterations need node identities, so it raises (plan with DGMPlanner(model=…)) |
 | `CTL-B-a0-EF` | `planner-refusals` | refused | every target without an emitter (SQL_POSTGRESQL, CYPHER, SPARQL, DGM_JSON, DGM_YAML) raises UnsupportedCapability |
-| `CTL-B-a0-EG` | `duckdb-dgmquery` | refused | DGMQuery.to_sql() raises for a Repeat (plan with DGMPlanner) |
-| `CTL-B-a0-EG` | `duckdb-plan-ir` | refused | a Repeat inside a PathPred is not emitted (UnsupportedConstruct): a trace has several evaluation positions, and SIMPLE needs node identities a hop does not declare |
-| `CTL-B-a0-EG` | `pg-duckdb-plan-ir` | refused | a Repeat inside a PathPred is not emitted (UnsupportedConstruct): a trace has several evaluation positions, and SIMPLE needs node identities a hop does not declare |
+| `CTL-B-a0-EG` | `duckdb-dgmquery` | refused | DGMQuery.to_sql() reads no model: a Repeat PathJoin and a temporal mode over a Repeat's iterations need node identities, so it raises (plan with DGMPlanner(model=…)) |
 | `CTL-B-a0-EG` | `planner-refusals` | refused | every target without an emitter (SQL_POSTGRESQL, CYPHER, SPARQL, DGM_JSON, DGM_YAML) raises UnsupportedCapability |
-| `CTL-B-a0-EX` | `duckdb-dgmquery` | refused | DGMQuery.to_sql() raises for a Repeat (plan with DGMPlanner) |
-| `CTL-B-a0-EX` | `duckdb-plan-ir` | refused | a Repeat inside a PathPred is not emitted (UnsupportedConstruct): a trace has several evaluation positions, and SIMPLE needs node identities a hop does not declare |
-| `CTL-B-a0-EX` | `pg-duckdb-plan-ir` | refused | a Repeat inside a PathPred is not emitted (UnsupportedConstruct): a trace has several evaluation positions, and SIMPLE needs node identities a hop does not declare |
 | `CTL-B-a0-EX` | `planner-refusals` | refused | every target without an emitter (SQL_POSTGRESQL, CYPHER, SPARQL, DGM_JSON, DGM_YAML) raises UnsupportedCapability |
-| `CTL-B-a0-AF` | `duckdb-dgmquery` | refused | DGMQuery.to_sql() raises for a Repeat (plan with DGMPlanner) |
-| `CTL-B-a0-AF` | `duckdb-plan-ir` | refused | a Repeat inside a PathPred is not emitted (UnsupportedConstruct): a trace has several evaluation positions, and SIMPLE needs node identities a hop does not declare |
-| `CTL-B-a0-AF` | `pg-duckdb-plan-ir` | refused | a Repeat inside a PathPred is not emitted (UnsupportedConstruct): a trace has several evaluation positions, and SIMPLE needs node identities a hop does not declare |
+| `CTL-B-a0-AF` | `duckdb-dgmquery` | refused | DGMQuery.to_sql() reads no model: a Repeat PathJoin and a temporal mode over a Repeat's iterations need node identities, so it raises (plan with DGMPlanner(model=…)) |
 | `CTL-B-a0-AF` | `planner-refusals` | refused | every target without an emitter (SQL_POSTGRESQL, CYPHER, SPARQL, DGM_JSON, DGM_YAML) raises UnsupportedCapability |
-| `CTL-B-a0-AG` | `duckdb-dgmquery` | refused | DGMQuery.to_sql() raises for a Repeat (plan with DGMPlanner) |
-| `CTL-B-a0-AG` | `duckdb-plan-ir` | refused | a Repeat inside a PathPred is not emitted (UnsupportedConstruct): a trace has several evaluation positions, and SIMPLE needs node identities a hop does not declare |
-| `CTL-B-a0-AG` | `pg-duckdb-plan-ir` | refused | a Repeat inside a PathPred is not emitted (UnsupportedConstruct): a trace has several evaluation positions, and SIMPLE needs node identities a hop does not declare |
+| `CTL-B-a0-AG` | `duckdb-dgmquery` | refused | DGMQuery.to_sql() reads no model: a Repeat PathJoin and a temporal mode over a Repeat's iterations need node identities, so it raises (plan with DGMPlanner(model=…)) |
 | `CTL-B-a0-AG` | `planner-refusals` | refused | every target without an emitter (SQL_POSTGRESQL, CYPHER, SPARQL, DGM_JSON, DGM_YAML) raises UnsupportedCapability |
-| `CTL-B-a0-AX` | `duckdb-dgmquery` | refused | DGMQuery.to_sql() raises for a Repeat (plan with DGMPlanner) |
-| `CTL-B-a0-AX` | `duckdb-plan-ir` | refused | a Repeat inside a PathPred is not emitted (UnsupportedConstruct): a trace has several evaluation positions, and SIMPLE needs node identities a hop does not declare |
-| `CTL-B-a0-AX` | `pg-duckdb-plan-ir` | refused | a Repeat inside a PathPred is not emitted (UnsupportedConstruct): a trace has several evaluation positions, and SIMPLE needs node identities a hop does not declare |
 | `CTL-B-a0-AX` | `planner-refusals` | refused | every target without an emitter (SQL_POSTGRESQL, CYPHER, SPARQL, DGM_JSON, DGM_YAML) raises UnsupportedCapability |
-| `CTL-B-a1-EF` | `duckdb-dgmquery` | refused | DGMQuery.to_sql() raises for a Repeat (plan with DGMPlanner) |
-| `CTL-B-a1-EF` | `duckdb-plan-ir` | refused | a Repeat inside a PathPred is not emitted (UnsupportedConstruct): a trace has several evaluation positions, and SIMPLE needs node identities a hop does not declare |
-| `CTL-B-a1-EF` | `pg-duckdb-plan-ir` | refused | a Repeat inside a PathPred is not emitted (UnsupportedConstruct): a trace has several evaluation positions, and SIMPLE needs node identities a hop does not declare |
+| `CTL-B-a1-EF` | `duckdb-dgmquery` | refused | DGMQuery.to_sql() reads no model: a Repeat PathJoin and a temporal mode over a Repeat's iterations need node identities, so it raises (plan with DGMPlanner(model=…)) |
 | `CTL-B-a1-EF` | `planner-refusals` | refused | every target without an emitter (SQL_POSTGRESQL, CYPHER, SPARQL, DGM_JSON, DGM_YAML) raises UnsupportedCapability |
-| `CTL-B-a1-EG` | `duckdb-dgmquery` | refused | DGMQuery.to_sql() raises for a Repeat (plan with DGMPlanner) |
-| `CTL-B-a1-EG` | `duckdb-plan-ir` | refused | a Repeat inside a PathPred is not emitted (UnsupportedConstruct): a trace has several evaluation positions, and SIMPLE needs node identities a hop does not declare |
-| `CTL-B-a1-EG` | `pg-duckdb-plan-ir` | refused | a Repeat inside a PathPred is not emitted (UnsupportedConstruct): a trace has several evaluation positions, and SIMPLE needs node identities a hop does not declare |
+| `CTL-B-a1-EG` | `duckdb-dgmquery` | refused | DGMQuery.to_sql() reads no model: a Repeat PathJoin and a temporal mode over a Repeat's iterations need node identities, so it raises (plan with DGMPlanner(model=…)) |
 | `CTL-B-a1-EG` | `planner-refusals` | refused | every target without an emitter (SQL_POSTGRESQL, CYPHER, SPARQL, DGM_JSON, DGM_YAML) raises UnsupportedCapability |
-| `CTL-B-a1-EX` | `duckdb-dgmquery` | refused | DGMQuery.to_sql() raises for a Repeat (plan with DGMPlanner) |
-| `CTL-B-a1-EX` | `duckdb-plan-ir` | refused | a Repeat inside a PathPred is not emitted (UnsupportedConstruct): a trace has several evaluation positions, and SIMPLE needs node identities a hop does not declare |
-| `CTL-B-a1-EX` | `pg-duckdb-plan-ir` | refused | a Repeat inside a PathPred is not emitted (UnsupportedConstruct): a trace has several evaluation positions, and SIMPLE needs node identities a hop does not declare |
 | `CTL-B-a1-EX` | `planner-refusals` | refused | every target without an emitter (SQL_POSTGRESQL, CYPHER, SPARQL, DGM_JSON, DGM_YAML) raises UnsupportedCapability |
-| `CTL-B-a1-AF` | `duckdb-dgmquery` | refused | DGMQuery.to_sql() raises for a Repeat (plan with DGMPlanner) |
-| `CTL-B-a1-AF` | `duckdb-plan-ir` | refused | a Repeat inside a PathPred is not emitted (UnsupportedConstruct): a trace has several evaluation positions, and SIMPLE needs node identities a hop does not declare |
-| `CTL-B-a1-AF` | `pg-duckdb-plan-ir` | refused | a Repeat inside a PathPred is not emitted (UnsupportedConstruct): a trace has several evaluation positions, and SIMPLE needs node identities a hop does not declare |
+| `CTL-B-a1-AF` | `duckdb-dgmquery` | refused | DGMQuery.to_sql() reads no model: a Repeat PathJoin and a temporal mode over a Repeat's iterations need node identities, so it raises (plan with DGMPlanner(model=…)) |
 | `CTL-B-a1-AF` | `planner-refusals` | refused | every target without an emitter (SQL_POSTGRESQL, CYPHER, SPARQL, DGM_JSON, DGM_YAML) raises UnsupportedCapability |
-| `CTL-B-a1-AG` | `duckdb-dgmquery` | refused | DGMQuery.to_sql() raises for a Repeat (plan with DGMPlanner) |
-| `CTL-B-a1-AG` | `duckdb-plan-ir` | refused | a Repeat inside a PathPred is not emitted (UnsupportedConstruct): a trace has several evaluation positions, and SIMPLE needs node identities a hop does not declare |
-| `CTL-B-a1-AG` | `pg-duckdb-plan-ir` | refused | a Repeat inside a PathPred is not emitted (UnsupportedConstruct): a trace has several evaluation positions, and SIMPLE needs node identities a hop does not declare |
+| `CTL-B-a1-AG` | `duckdb-dgmquery` | refused | DGMQuery.to_sql() reads no model: a Repeat PathJoin and a temporal mode over a Repeat's iterations need node identities, so it raises (plan with DGMPlanner(model=…)) |
 | `CTL-B-a1-AG` | `planner-refusals` | refused | every target without an emitter (SQL_POSTGRESQL, CYPHER, SPARQL, DGM_JSON, DGM_YAML) raises UnsupportedCapability |
-| `CTL-B-a1-AX` | `duckdb-dgmquery` | refused | DGMQuery.to_sql() raises for a Repeat (plan with DGMPlanner) |
-| `CTL-B-a1-AX` | `duckdb-plan-ir` | refused | a Repeat inside a PathPred is not emitted (UnsupportedConstruct): a trace has several evaluation positions, and SIMPLE needs node identities a hop does not declare |
-| `CTL-B-a1-AX` | `pg-duckdb-plan-ir` | refused | a Repeat inside a PathPred is not emitted (UnsupportedConstruct): a trace has several evaluation positions, and SIMPLE needs node identities a hop does not declare |
 | `CTL-B-a1-AX` | `planner-refusals` | refused | every target without an emitter (SQL_POSTGRESQL, CYPHER, SPARQL, DGM_JSON, DGM_YAML) raises UnsupportedCapability |
-| `CTL-B-a2-EF-REQ` | `duckdb-dgmquery` | refused | DGMQuery.to_sql() raises for a Repeat (plan with DGMPlanner) |
-| `CTL-B-a2-EF-REQ` | `duckdb-plan-ir` | refused | a Repeat inside a PathPred is not emitted (UnsupportedConstruct): a trace has several evaluation positions, and SIMPLE needs node identities a hop does not declare |
-| `CTL-B-a2-EF-REQ` | `pg-duckdb-plan-ir` | refused | a Repeat inside a PathPred is not emitted (UnsupportedConstruct): a trace has several evaluation positions, and SIMPLE needs node identities a hop does not declare |
+| `CTL-B-a2-EF-REQ` | `duckdb-dgmquery` | refused | DGMQuery.to_sql() reads no model: a Repeat PathJoin and a temporal mode over a Repeat's iterations need node identities, so it raises (plan with DGMPlanner(model=…)) |
 | `CTL-B-a2-EF-REQ` | `planner-refusals` | refused | every target without an emitter (SQL_POSTGRESQL, CYPHER, SPARQL, DGM_JSON, DGM_YAML) raises UnsupportedCapability |
-| `CTL-B-a2-EG-REQ` | `duckdb-dgmquery` | refused | DGMQuery.to_sql() raises for a Repeat (plan with DGMPlanner) |
-| `CTL-B-a2-EG-REQ` | `duckdb-plan-ir` | refused | a Repeat inside a PathPred is not emitted (UnsupportedConstruct): a trace has several evaluation positions, and SIMPLE needs node identities a hop does not declare |
-| `CTL-B-a2-EG-REQ` | `pg-duckdb-plan-ir` | refused | a Repeat inside a PathPred is not emitted (UnsupportedConstruct): a trace has several evaluation positions, and SIMPLE needs node identities a hop does not declare |
+| `CTL-B-a2-EG-REQ` | `duckdb-dgmquery` | refused | DGMQuery.to_sql() reads no model: a Repeat PathJoin and a temporal mode over a Repeat's iterations need node identities, so it raises (plan with DGMPlanner(model=…)) |
 | `CTL-B-a2-EG-REQ` | `planner-refusals` | refused | every target without an emitter (SQL_POSTGRESQL, CYPHER, SPARQL, DGM_JSON, DGM_YAML) raises UnsupportedCapability |
-| `CTL-B-a2-EX-REQ` | `duckdb-dgmquery` | refused | DGMQuery.to_sql() raises for a Repeat (plan with DGMPlanner) |
-| `CTL-B-a2-EX-REQ` | `duckdb-plan-ir` | refused | a Repeat inside a PathPred is not emitted (UnsupportedConstruct): a trace has several evaluation positions, and SIMPLE needs node identities a hop does not declare |
-| `CTL-B-a2-EX-REQ` | `pg-duckdb-plan-ir` | refused | a Repeat inside a PathPred is not emitted (UnsupportedConstruct): a trace has several evaluation positions, and SIMPLE needs node identities a hop does not declare |
 | `CTL-B-a2-EX-REQ` | `planner-refusals` | refused | every target without an emitter (SQL_POSTGRESQL, CYPHER, SPARQL, DGM_JSON, DGM_YAML) raises UnsupportedCapability |
-| `CTL-B-a2-AF-REQ` | `duckdb-dgmquery` | refused | DGMQuery.to_sql() raises for a Repeat (plan with DGMPlanner) |
-| `CTL-B-a2-AF-REQ` | `duckdb-plan-ir` | refused | a Repeat inside a PathPred is not emitted (UnsupportedConstruct): a trace has several evaluation positions, and SIMPLE needs node identities a hop does not declare |
-| `CTL-B-a2-AF-REQ` | `pg-duckdb-plan-ir` | refused | a Repeat inside a PathPred is not emitted (UnsupportedConstruct): a trace has several evaluation positions, and SIMPLE needs node identities a hop does not declare |
+| `CTL-B-a2-AF-REQ` | `duckdb-dgmquery` | refused | DGMQuery.to_sql() reads no model: a Repeat PathJoin and a temporal mode over a Repeat's iterations need node identities, so it raises (plan with DGMPlanner(model=…)) |
 | `CTL-B-a2-AF-REQ` | `planner-refusals` | refused | every target without an emitter (SQL_POSTGRESQL, CYPHER, SPARQL, DGM_JSON, DGM_YAML) raises UnsupportedCapability |
-| `CTL-B-a2-AG-REQ` | `duckdb-dgmquery` | refused | DGMQuery.to_sql() raises for a Repeat (plan with DGMPlanner) |
-| `CTL-B-a2-AG-REQ` | `duckdb-plan-ir` | refused | a Repeat inside a PathPred is not emitted (UnsupportedConstruct): a trace has several evaluation positions, and SIMPLE needs node identities a hop does not declare |
-| `CTL-B-a2-AG-REQ` | `pg-duckdb-plan-ir` | refused | a Repeat inside a PathPred is not emitted (UnsupportedConstruct): a trace has several evaluation positions, and SIMPLE needs node identities a hop does not declare |
+| `CTL-B-a2-AG-REQ` | `duckdb-dgmquery` | refused | DGMQuery.to_sql() reads no model: a Repeat PathJoin and a temporal mode over a Repeat's iterations need node identities, so it raises (plan with DGMPlanner(model=…)) |
 | `CTL-B-a2-AG-REQ` | `planner-refusals` | refused | every target without an emitter (SQL_POSTGRESQL, CYPHER, SPARQL, DGM_JSON, DGM_YAML) raises UnsupportedCapability |
-| `CTL-B-a2-AX-REQ` | `duckdb-dgmquery` | refused | DGMQuery.to_sql() raises for a Repeat (plan with DGMPlanner) |
-| `CTL-B-a2-AX-REQ` | `duckdb-plan-ir` | refused | a Repeat inside a PathPred is not emitted (UnsupportedConstruct): a trace has several evaluation positions, and SIMPLE needs node identities a hop does not declare |
-| `CTL-B-a2-AX-REQ` | `pg-duckdb-plan-ir` | refused | a Repeat inside a PathPred is not emitted (UnsupportedConstruct): a trace has several evaluation positions, and SIMPLE needs node identities a hop does not declare |
 | `CTL-B-a2-AX-REQ` | `planner-refusals` | refused | every target without an emitter (SQL_POSTGRESQL, CYPHER, SPARQL, DGM_JSON, DGM_YAML) raises UnsupportedCapability |
 | `CTL-B-a2-EF-VAC` | `duckdb-dgmquery` | n/e | PathPred has no `on_empty` field, so VACUOUS cannot be requested |
 | `CTL-B-a2-EF-VAC` | `duckdb-plan-ir` | n/e | PathPred has no `on_empty` field, so VACUOUS cannot be requested |
@@ -279,25 +237,15 @@ implement the area.
 | `CTL-G2-NOT-EF` | `duckdb-plan-ir` | n/e | PathPred has no `on_empty` field, so VACUOUS cannot be requested |
 | `CTL-G2-NOT-EF` | `pg-duckdb-plan-ir` | n/e | PathPred has no `on_empty` field, so VACUOUS cannot be requested |
 | `CTL-G2-NOT-EF` | `planner-refusals` | n/e | PathPred has no `on_empty` field, so VACUOUS cannot be requested |
-| `CTL-U-01` | `duckdb-dgmquery` | refused | DGMQuery.to_sql() raises for a Repeat (plan with DGMPlanner) |
-| `CTL-U-01` | `duckdb-plan-ir` | refused | a Repeat inside a PathPred is not emitted (UnsupportedConstruct): a trace has several evaluation positions, and SIMPLE needs node identities a hop does not declare |
-| `CTL-U-01` | `pg-duckdb-plan-ir` | refused | a Repeat inside a PathPred is not emitted (UnsupportedConstruct): a trace has several evaluation positions, and SIMPLE needs node identities a hop does not declare |
+| `CTL-U-01` | `duckdb-dgmquery` | refused | DGMQuery.to_sql() reads no model: a Repeat PathJoin and a temporal mode over a Repeat's iterations need node identities, so it raises (plan with DGMPlanner(model=…)) |
 | `CTL-U-01` | `planner-refusals` | refused | every target without an emitter (SQL_POSTGRESQL, CYPHER, SPARQL, DGM_JSON, DGM_YAML) raises UnsupportedCapability |
-| `CTL-U-02` | `duckdb-dgmquery` | refused | DGMQuery.to_sql() raises for a Repeat (plan with DGMPlanner) |
-| `CTL-U-02` | `duckdb-plan-ir` | refused | a Repeat inside a PathPred is not emitted (UnsupportedConstruct): a trace has several evaluation positions, and SIMPLE needs node identities a hop does not declare |
-| `CTL-U-02` | `pg-duckdb-plan-ir` | refused | a Repeat inside a PathPred is not emitted (UnsupportedConstruct): a trace has several evaluation positions, and SIMPLE needs node identities a hop does not declare |
+| `CTL-U-02` | `duckdb-dgmquery` | refused | DGMQuery.to_sql() reads no model: a Repeat PathJoin and a temporal mode over a Repeat's iterations need node identities, so it raises (plan with DGMPlanner(model=…)) |
 | `CTL-U-02` | `planner-refusals` | refused | every target without an emitter (SQL_POSTGRESQL, CYPHER, SPARQL, DGM_JSON, DGM_YAML) raises UnsupportedCapability |
-| `CTL-U-03` | `duckdb-dgmquery` | refused | DGMQuery.to_sql() raises for a Repeat (plan with DGMPlanner) |
-| `CTL-U-03` | `duckdb-plan-ir` | refused | a Repeat inside a PathPred is not emitted (UnsupportedConstruct): a trace has several evaluation positions, and SIMPLE needs node identities a hop does not declare |
-| `CTL-U-03` | `pg-duckdb-plan-ir` | refused | a Repeat inside a PathPred is not emitted (UnsupportedConstruct): a trace has several evaluation positions, and SIMPLE needs node identities a hop does not declare |
+| `CTL-U-03` | `duckdb-dgmquery` | refused | DGMQuery.to_sql() reads no model: a Repeat PathJoin and a temporal mode over a Repeat's iterations need node identities, so it raises (plan with DGMPlanner(model=…)) |
 | `CTL-U-03` | `planner-refusals` | refused | every target without an emitter (SQL_POSTGRESQL, CYPHER, SPARQL, DGM_JSON, DGM_YAML) raises UnsupportedCapability |
-| `CTL-U-04` | `duckdb-dgmquery` | refused | DGMQuery.to_sql() raises for a Repeat (plan with DGMPlanner) |
-| `CTL-U-04` | `duckdb-plan-ir` | refused | a Repeat inside a PathPred is not emitted (UnsupportedConstruct): a trace has several evaluation positions, and SIMPLE needs node identities a hop does not declare |
-| `CTL-U-04` | `pg-duckdb-plan-ir` | refused | a Repeat inside a PathPred is not emitted (UnsupportedConstruct): a trace has several evaluation positions, and SIMPLE needs node identities a hop does not declare |
+| `CTL-U-04` | `duckdb-dgmquery` | refused | DGMQuery.to_sql() reads no model: a Repeat PathJoin and a temporal mode over a Repeat's iterations need node identities, so it raises (plan with DGMPlanner(model=…)) |
 | `CTL-U-04` | `planner-refusals` | refused | every target without an emitter (SQL_POSTGRESQL, CYPHER, SPARQL, DGM_JSON, DGM_YAML) raises UnsupportedCapability |
-| `CTL-U-05` | `duckdb-dgmquery` | refused | DGMQuery.to_sql() raises for a Repeat (plan with DGMPlanner) |
-| `CTL-U-05` | `duckdb-plan-ir` | refused | a Repeat inside a PathPred is not emitted (UnsupportedConstruct): a trace has several evaluation positions, and SIMPLE needs node identities a hop does not declare |
-| `CTL-U-05` | `pg-duckdb-plan-ir` | refused | a Repeat inside a PathPred is not emitted (UnsupportedConstruct): a trace has several evaluation positions, and SIMPLE needs node identities a hop does not declare |
+| `CTL-U-05` | `duckdb-dgmquery` | refused | DGMQuery.to_sql() reads no model: a Repeat PathJoin and a temporal mode over a Repeat's iterations need node identities, so it raises (plan with DGMPlanner(model=…)) |
 | `CTL-U-05` | `planner-refusals` | refused | every target without an emitter (SQL_POSTGRESQL, CYPHER, SPARQL, DGM_JSON, DGM_YAML) raises UnsupportedCapability |
 | `PP-EX-01` | `planner-refusals` | refused | every target without an emitter (SQL_POSTGRESQL, CYPHER, SPARQL, DGM_JSON, DGM_YAML) raises UnsupportedCapability |
 | `PP-EX-02` | `planner-refusals` | refused | every target without an emitter (SQL_POSTGRESQL, CYPHER, SPARQL, DGM_JSON, DGM_YAML) raises UnsupportedCapability |
@@ -314,18 +262,12 @@ implement the area.
 | `PP-NULL-02` | `planner-refusals` | refused | every target without an emitter (SQL_POSTGRESQL, CYPHER, SPARQL, DGM_JSON, DGM_YAML) raises UnsupportedCapability |
 | `PP-NULL-03` | `planner-refusals` | refused | every target without an emitter (SQL_POSTGRESQL, CYPHER, SPARQL, DGM_JSON, DGM_YAML) raises UnsupportedCapability |
 | `PP-NULL-04` | `planner-refusals` | refused | every target without an emitter (SQL_POSTGRESQL, CYPHER, SPARQL, DGM_JSON, DGM_YAML) raises UnsupportedCapability |
-| `PP-STR-01` | `duckdb-dgmquery` | refused | DGMQuery.to_sql() renders only strategy ALL (UnsupportedConstruct): ≺ (§3.3) breaks ties by node keys a hop does not declare |
-| `PP-STR-01` | `duckdb-plan-ir` | refused | the plan IR executes only strategy ALL (UnsupportedConstruct): ≺ (§3.3) breaks ties by node keys a hop does not declare |
-| `PP-STR-01` | `pg-duckdb-plan-ir` | refused | the plan IR executes only strategy ALL (UnsupportedConstruct): ≺ (§3.3) breaks ties by node keys a hop does not declare |
+| `PP-STR-01` | `duckdb-dgmquery` | refused | DGMQuery.to_sql() renders only strategy ALL (UnsupportedConstruct): ≺ (§3.3) breaks ties by entity keys, and to_sql() reads no model |
 | `PP-STR-01` | `planner-refusals` | refused | every target without an emitter (SQL_POSTGRESQL, CYPHER, SPARQL, DGM_JSON, DGM_YAML) raises UnsupportedCapability |
 | `PP-STR-02` | `planner-refusals` | refused | every target without an emitter (SQL_POSTGRESQL, CYPHER, SPARQL, DGM_JSON, DGM_YAML) raises UnsupportedCapability |
-| `PP-STR-03` | `duckdb-dgmquery` | refused | DGMQuery.to_sql() renders only strategy ALL (UnsupportedConstruct): ≺ (§3.3) breaks ties by node keys a hop does not declare |
-| `PP-STR-03` | `duckdb-plan-ir` | refused | the plan IR executes only strategy ALL (UnsupportedConstruct): ≺ (§3.3) breaks ties by node keys a hop does not declare |
-| `PP-STR-03` | `pg-duckdb-plan-ir` | refused | the plan IR executes only strategy ALL (UnsupportedConstruct): ≺ (§3.3) breaks ties by node keys a hop does not declare |
+| `PP-STR-03` | `duckdb-dgmquery` | refused | DGMQuery.to_sql() renders only strategy ALL (UnsupportedConstruct): ≺ (§3.3) breaks ties by entity keys, and to_sql() reads no model |
 | `PP-STR-03` | `planner-refusals` | refused | every target without an emitter (SQL_POSTGRESQL, CYPHER, SPARQL, DGM_JSON, DGM_YAML) raises UnsupportedCapability |
-| `PP-STR-04` | `duckdb-dgmquery` | refused | DGMQuery.to_sql() renders only strategy ALL (UnsupportedConstruct): ≺ (§3.3) breaks ties by node keys a hop does not declare |
-| `PP-STR-04` | `duckdb-plan-ir` | refused | the plan IR executes only strategy ALL (UnsupportedConstruct): ≺ (§3.3) breaks ties by node keys a hop does not declare |
-| `PP-STR-04` | `pg-duckdb-plan-ir` | refused | the plan IR executes only strategy ALL (UnsupportedConstruct): ≺ (§3.3) breaks ties by node keys a hop does not declare |
+| `PP-STR-04` | `duckdb-dgmquery` | refused | DGMQuery.to_sql() renders only strategy ALL (UnsupportedConstruct): ≺ (§3.3) breaks ties by entity keys, and to_sql() reads no model |
 | `PP-STR-04` | `planner-refusals` | refused | every target without an emitter (SQL_POSTGRESQL, CYPHER, SPARQL, DGM_JSON, DGM_YAML) raises UnsupportedCapability |
 | `PP-ALIAS-01` | `planner-refusals` | refused | every target without an emitter (SQL_POSTGRESQL, CYPHER, SPARQL, DGM_JSON, DGM_YAML) raises UnsupportedCapability |
 | `PP-ALIAS-02` | `planner-refusals` | refused | every target without an emitter (SQL_POSTGRESQL, CYPHER, SPARQL, DGM_JSON, DGM_YAML) raises UnsupportedCapability |
@@ -337,23 +279,17 @@ implement the area.
 | `PP-PAST-03` | `planner-refusals` | n/e | the query is rejected while it is built (§3.5, §4.1), before planning: it says nothing about the targets |
 | `PP-UNTIL-01` | `planner-refusals` | refused | every target without an emitter (SQL_POSTGRESQL, CYPHER, SPARQL, DGM_JSON, DGM_YAML) raises UnsupportedCapability |
 | `PP-UNTIL-02` | `planner-refusals` | refused | every target without an emitter (SQL_POSTGRESQL, CYPHER, SPARQL, DGM_JSON, DGM_YAML) raises UnsupportedCapability |
-| `RJ-01` | `duckdb-dgmquery` | refused | DGMQuery.to_sql() raises for a Repeat (plan with DGMPlanner) |
+| `RJ-01` | `duckdb-dgmquery` | refused | DGMQuery.to_sql() reads no model: a Repeat PathJoin and a temporal mode over a Repeat's iterations need node identities, so it raises (plan with DGMPlanner(model=…)) |
 | `RJ-01` | `planner-refusals` | refused | every target without an emitter (SQL_POSTGRESQL, CYPHER, SPARQL, DGM_JSON, DGM_YAML) raises UnsupportedCapability |
-| `RJ-02` | `duckdb-dgmquery` | refused | DGMQuery.to_sql() raises for a Repeat (plan with DGMPlanner) |
+| `RJ-02` | `duckdb-dgmquery` | refused | DGMQuery.to_sql() reads no model: a Repeat PathJoin and a temporal mode over a Repeat's iterations need node identities, so it raises (plan with DGMPlanner(model=…)) |
 | `RJ-02` | `planner-refusals` | refused | every target without an emitter (SQL_POSTGRESQL, CYPHER, SPARQL, DGM_JSON, DGM_YAML) raises UnsupportedCapability |
-| `RJ-03` | `duckdb-dgmquery` | refused | DGMQuery.to_sql() raises for a Repeat (plan with DGMPlanner) |
+| `RJ-03` | `duckdb-dgmquery` | refused | DGMQuery.to_sql() reads no model: a Repeat PathJoin and a temporal mode over a Repeat's iterations need node identities, so it raises (plan with DGMPlanner(model=…)) |
 | `RJ-03` | `planner-refusals` | refused | every target without an emitter (SQL_POSTGRESQL, CYPHER, SPARQL, DGM_JSON, DGM_YAML) raises UnsupportedCapability |
-| `RJ-04` | `duckdb-dgmquery` | refused | DGMQuery.to_sql() raises for a Repeat (plan with DGMPlanner) |
-| `RJ-04` | `duckdb-plan-ir` | refused | the plan IR emits only WALK with 1 ≤ min (SIMPLE/TRAIL need node identities; min = 0 not emitted) |
-| `RJ-04` | `pg-duckdb-plan-ir` | refused | the plan IR emits only WALK with 1 ≤ min (SIMPLE/TRAIL need node identities; min = 0 not emitted) |
+| `RJ-04` | `duckdb-dgmquery` | refused | DGMQuery.to_sql() reads no model: a Repeat PathJoin and a temporal mode over a Repeat's iterations need node identities, so it raises (plan with DGMPlanner(model=…)) |
 | `RJ-04` | `planner-refusals` | refused | every target without an emitter (SQL_POSTGRESQL, CYPHER, SPARQL, DGM_JSON, DGM_YAML) raises UnsupportedCapability |
-| `RJ-05` | `duckdb-dgmquery` | refused | DGMQuery.to_sql() raises for a Repeat (plan with DGMPlanner) |
-| `RJ-05` | `duckdb-plan-ir` | refused | the plan IR emits only WALK with 1 ≤ min (SIMPLE/TRAIL need node identities; min = 0 not emitted) |
-| `RJ-05` | `pg-duckdb-plan-ir` | refused | the plan IR emits only WALK with 1 ≤ min (SIMPLE/TRAIL need node identities; min = 0 not emitted) |
+| `RJ-05` | `duckdb-dgmquery` | refused | DGMQuery.to_sql() reads no model: a Repeat PathJoin and a temporal mode over a Repeat's iterations need node identities, so it raises (plan with DGMPlanner(model=…)) |
 | `RJ-05` | `planner-refusals` | refused | every target without an emitter (SQL_POSTGRESQL, CYPHER, SPARQL, DGM_JSON, DGM_YAML) raises UnsupportedCapability |
-| `RJ-06` | `duckdb-dgmquery` | refused | DGMQuery.to_sql() raises for a Repeat (plan with DGMPlanner) |
-| `RJ-06` | `duckdb-plan-ir` | refused | the plan IR emits only WALK with 1 ≤ min (SIMPLE/TRAIL need node identities; min = 0 not emitted) |
-| `RJ-06` | `pg-duckdb-plan-ir` | refused | the plan IR emits only WALK with 1 ≤ min (SIMPLE/TRAIL need node identities; min = 0 not emitted) |
+| `RJ-06` | `duckdb-dgmquery` | refused | DGMQuery.to_sql() reads no model: a Repeat PathJoin and a temporal mode over a Repeat's iterations need node identities, so it raises (plan with DGMPlanner(model=…)) |
 | `RJ-06` | `planner-refusals` | refused | every target without an emitter (SQL_POSTGRESQL, CYPHER, SPARQL, DGM_JSON, DGM_YAML) raises UnsupportedCapability |
 | `AGG-OVER-01` | `planner-refusals` | refused | every target without an emitter (SQL_POSTGRESQL, CYPHER, SPARQL, DGM_JSON, DGM_YAML) raises UnsupportedCapability |
 | `AGG-OVER-02` | `planner-refusals` | refused | every target without an emitter (SQL_POSTGRESQL, CYPHER, SPARQL, DGM_JSON, DGM_YAML) raises UnsupportedCapability |
