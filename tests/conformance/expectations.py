@@ -49,10 +49,6 @@ _LEG_CONTEXT = (
     "DGMQuery.to_sql() raises UnsupportedConstruct for a TemporalContext "
     "(fail-closed, as the plan IR)"
 )
-_DRILL_IR = (
-    "the plan IR raises UnsupportedConstruct for a declared constellation: it has "
-    "no node for per-branch aggregation aligned by FULL OUTER JOIN (fail-closed)"
-)
 EXPECTATIONS: dict[tuple[str, str], tuple[Status, str]] = {}
 
 
@@ -72,9 +68,6 @@ _add(R, _IR_STRATEGY, (IR,), "PP-STR-01", "PP-STR-03", "PP-STR-04")
 _add(R, _LEG_STRATEGY, (LEG,), "PP-STR-01", "PP-STR-03", "PP-STR-04")
 _add(R, "the plan IR emits only WALK with 1 ≤ min (SIMPLE/TRAIL need node "
         "identities; min = 0 not emitted)", (IR,), "RJ-04", "RJ-05", "RJ-06")  # fmt: skip
-
-# --- Aggregation ------------------------------------------------------------
-_add(R, _DRILL_IR, (IR,), "DA-01", "DA-02")
 
 # --- SCD and validity -------------------------------------------------------
 _add(R, _LEG_CONTEXT, (LEG,), "SCD-V-01", "SCD-TAU-01")
@@ -110,8 +103,6 @@ PG, REF, WP = "pg-duckdb-plan-ir", "planner-refusals", "dgm-write-plan"
 for (_pattern, _b), _v in list(EXPECTATIONS.items()):
     if _b == IR:
         EXPECTATIONS[(_pattern, PG)] = _v
-# construction only: not in the scope of PG(DD), which executes queries
-_add(R, _DRILL_IR, (IR,), "DA-WF-04")
 _add(R, "POSTGRESQL_VIA_DUCKDB declares window_aggregate unsupported: DuckDB "
         "1.5.0's postgres extension raises NotImplementedException "
         "(PostgresScanSerialize) for a SUM window over a PostgreSQL table, so "

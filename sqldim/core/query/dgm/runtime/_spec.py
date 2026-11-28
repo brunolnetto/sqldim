@@ -37,6 +37,7 @@ from sqldim.core.query.dgm.planner._ir import (
     Conj,
     Cte,
     Disj,
+    DrillAcross,
     Fragment,
     Join,
     Literal,
@@ -160,6 +161,16 @@ def _band_out(q: BandQuery) -> dict:
     }
 
 
+def _drill_out(d: DrillAcross) -> dict:
+    return {
+        "type": "drill_across",
+        "branches": [_band_out(b) for b in d.branches],
+        "keys": list(d.key_names),
+        "select": [[n, e.sql] for n, e in d.select],
+        "having": _pred_out(d.having),
+    }
+
+
 class _Encoder:
     def __init__(self) -> None:
         self.nodes: list[dict] = []
@@ -170,6 +181,8 @@ class _Encoder:
             return self.index[n]
         if isinstance(n, BandQuery):
             out = _band_out(n)
+        elif isinstance(n, DrillAcross):
+            out = _drill_out(n)
         else:
             left, right = self.node(n.left), self.node(n.right)
             on = None if n.on is None else n.on.sql
@@ -246,6 +259,7 @@ _BAND_KEYS = frozenset(
      "windows", "qualify"}
 )  # fmt: skip
 _COMPOSE_KEYS = frozenset({"type", "op", "left", "right", "on"})
+_DRILL_KEYS = frozenset({"type", "branches", "keys", "select", "having"})
 _TOP_KEYS = frozenset({"format", "nodes", "root", "ctes", "params"})
 
 
@@ -409,6 +423,26 @@ def _band_in(d: dict) -> BandQuery:
     )
 
 
+def _drill_in(d: dict) -> DrillAcross:
+    _obj(d, _DRILL_KEYS, "drill_across node")
+    branches = []
+    for raw in _list(d["branches"], "branches"):
+        if not isinstance(raw, dict) or raw.get("type") != "band":
+            raise InvalidSpec("a drill-across branch is a band node")
+        branches.append(_band_in(raw))
+    refs = frozenset(f"b{i}" for i in range(len(branches)))
+    keys = tuple(
+        check_identifier(_str(k, "key name"), "output name")
+        for k in _list(d["keys"], "keys")
+    )
+    return DrillAcross(
+        branches=tuple(branches),
+        key_names=keys,
+        select=_named_in(d["select"], refs, "select"),
+        having=_opt_pred_in(d["having"], frozenset({"da"})),
+    )
+
+
 def _child(value: object, built: list[PlanNode]) -> PlanNode:
     if isinstance(value, bool) or not isinstance(value, int):
         raise InvalidSpec(f"a child reference is a node index, got {value!r}")
@@ -436,6 +470,8 @@ def _node_in(value: object, built: list[PlanNode]) -> PlanNode:
         return _band_in(value)
     if kind == "compose":
         return _compose_in(value, built)
+    if kind == "drill_across":
+        return _drill_in(value)
     raise InvalidSpec(f"unknown node type {kind!r}")
 
 
@@ -483,6 +519,9 @@ def band_coverage(ir: PlanIR) -> list[str]:
         n = stack.pop()
         if isinstance(n, Compose):
             stack += [n.left, n.right]
+            continue
+        if isinstance(n, DrillAcross):
+            bands.add("B2")  # §5.2.2 aggregates per branch
             continue
         if n.group_by or n.aggregates or n.having is not None:
             bands.add("B2")

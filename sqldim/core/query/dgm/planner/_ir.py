@@ -58,6 +58,7 @@ __all__ = [
     "PathExists",
     "Pred",
     "BandQuery",
+    "DrillAcross",
     "Compose",
     "PlanNode",
     "Cte",
@@ -419,7 +420,46 @@ class Compose:
     on: Fragment | None = None
 
 
-PlanNode = Union[BandQuery, Compose]
+@dataclass(frozen=True)
+class DrillAcross:
+    """A constellation query evaluated by drill-across (§5.2.2).
+
+    Step 1: each of *branches* is the context restricted to the shared
+    aliases and one fact branch, grouped by the same keys, with one aggregate
+    per column.  Step 2: the branch results ``b0, b1, …`` are aligned by
+    ``FULL OUTER JOIN`` on the keys (``ON TRUE`` without keys).  Step 3:
+    *select* are the named expressions over ``b<i>.<column>``, and *having*
+    filters the aligned rows by their output names.  *key_names* are the
+    output names of the aligned keys.  The branches are in a canonical order
+    (by ``dag_hash``), so the order in which they were declared is not part
+    of the node.
+    """
+
+    branches: tuple[BandQuery, ...]
+    key_names: tuple[str, ...]
+    select: tuple[tuple[str, Fragment], ...]
+    having: "Pred | None" = None
+
+    def __post_init__(self) -> None:
+        if len(self.branches) < 2:
+            raise UnsupportedConstruct("a drill-across has two or more branches")
+        for b in self.branches:
+            if len(b.group_by) != len(self.key_names) or not b.aggregates:
+                raise UnsupportedConstruct(
+                    "every drill-across branch groups by the aligned keys and "
+                    "computes at least one aggregate"
+                )
+            if b.windows or b.qualify is not None or b.having is not None:
+                raise UnsupportedConstruct(
+                    "a drill-across branch has no Having and no Band 3"
+                )
+
+    def scans(self) -> tuple[Scan, ...]:
+        """Every Scan of every branch."""
+        return tuple(s for b in self.branches for s in b.scans())
+
+
+PlanNode = Union[BandQuery, DrillAcross, Compose]
 
 
 @dataclass(frozen=True)

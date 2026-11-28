@@ -31,6 +31,7 @@ from __future__ import annotations
 import copy
 import re
 from collections.abc import Iterable, Sequence
+from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
 from sqldim.core.query.dgm._entities import _CALL, _close, _referenced
@@ -39,7 +40,14 @@ from sqldim.exceptions import SemanticError
 if TYPE_CHECKING:
     from sqldim.core.query.dgm.core import DGMQuery
 
-__all__ = ["check_branches", "drill_across_sql", "null_on_zero"]
+__all__ = [
+    "DrillPlan",
+    "aligned_sql",
+    "check_branches",
+    "drill_across_sql",
+    "drill_plan",
+    "null_on_zero",
+]
 
 _NAME = re.compile(r"^[A-Za-z_]\w*$")
 
@@ -236,7 +244,7 @@ def _conj(preds: list[object]) -> object | None:
     return preds[0] if len(preds) == 1 else AND(*preds)  # type: ignore[arg-type]
 
 
-def _branch_query(c: _Constellation, i: int, calls: dict[str, tuple]) -> str:
+def _branch_query(c: _Constellation, i: int, calls: dict[str, tuple]) -> "DGMQuery":
     q = c.q
     others = [b for j, b in enumerate(c.branches) if j != i]
     keep = set(c.aliases) - set().union(*others)
@@ -250,7 +258,7 @@ def _branch_query(c: _Constellation, i: int, calls: dict[str, tuple]) -> str:
     sub._agg_exprs = {col: call for col, (call, _) in calls.items()}
     sub._agg_over = {col: over for col, (_, over) in calls.items()}
     sub._having_pred = None
-    return sub.to_sql()
+    return sub
 
 
 def _key_name(key: str, n: int) -> str:
@@ -273,23 +281,58 @@ def _aligned(sources: list[str], keys: list[str]) -> list[str]:
     return lines
 
 
-def drill_across_sql(q: "DGMQuery") -> str:
-    """The SQL of a constellation query by §5.2.2 steps 1–3."""
+@dataclass(frozen=True)
+class DrillPlan:
+    """A constellation query by §5.2.2: *branches* are the per-branch queries
+    of step 1 (grouped by the keys, one column per aggregate call), *outer*
+    the named expressions of step 3 over ``b<i>.<column>``, *key_names* the
+    output names of the aligned keys, *having* the Having of the query."""
+
+    branches: tuple["DGMQuery", ...]
+    key_names: tuple[str, ...]
+    outer: tuple[tuple[str, str], ...]
+    having: object | None
+
+
+def drill_plan(q: "DGMQuery") -> DrillPlan:
+    """Check DA1–DA3 on *q* and split it into the steps of §5.2.2."""
     c = _Constellation(q)
     outer, per_branch = _split(c)
-    keys = [f"k{n}" for n in range(len(q._group_by_cols))]
+    return DrillPlan(
+        branches=tuple(
+            _branch_query(c, i, calls) for i, calls in enumerate(per_branch)
+        ),
+        key_names=tuple(_key_name(k, n) for n, k in enumerate(q._group_by_cols)),
+        outer=tuple(outer.items()),
+        having=q._having_pred,
+    )
+
+
+def aligned_sql(
+    branches: Sequence[tuple[str, Sequence[str]]],
+    key_names: Sequence[str],
+    outer: Sequence[tuple[str, str]],
+    having: str | None,
+) -> str:
+    """Steps 2 and 3: *branches* are ``(SQL, aggregate columns)`` of step 1,
+    each selecting the keys first; *having* is the SQL of the Having."""
+    keys = [f"k{n}" for n in range(len(key_names))]
     sources = [
-        f"(\n{_branch_query(c, i, calls)}\n) AS b{i}"
-        f"({', '.join(keys + (list(calls) or ['a_']))})"
-        for i, calls in enumerate(per_branch)
+        f"(\n{sql}\n) AS b{i}({', '.join(keys + list(cols))})"
+        for i, (sql, cols) in enumerate(branches)
     ]
     every = range(len(sources))
-    select = [
-        f"{_coalesce(k, every)} AS {_key_name(key, n)}"
-        for n, (k, key) in enumerate(zip(keys, q._group_by_cols))
-    ]
-    select += [f"{expr} AS {name}" for name, expr in outer.items()]
+    select = [f"{_coalesce(k, every)} AS {name}" for k, name in zip(keys, key_names)]
+    select += [f"{expr} AS {name}" for name, expr in outer]
     sql = "\n".join(["SELECT " + ", ".join(select), *_aligned(sources, keys)])
-    if q._having_pred is not None:
-        sql = f"SELECT * FROM (\n{sql}\n) AS da\nWHERE {q._having_pred.to_sql()}"
+    if having is not None:
+        sql = f"SELECT * FROM (\n{sql}\n) AS da\nWHERE {having}"
     return sql
+
+
+def drill_across_sql(q: "DGMQuery") -> str:
+    """The SQL of a constellation query by §5.2.2 steps 1–3."""
+    plan = drill_plan(q)
+    branches = [(b.to_sql(), list(b._agg_exprs)) for b in plan.branches]
+    having = None if plan.having is None else plan.having.to_sql()  # type: ignore[attr-defined]
+    return aligned_sql(branches, plan.key_names, plan.outer, having)

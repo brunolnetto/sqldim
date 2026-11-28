@@ -88,8 +88,8 @@ implement the area.
 | §4.1 Recorded traces and monitoring verdicts | `MON-01` … `MON-15` (15) | — | — | — | — | — | — | — | — | — | — | — | — | — | — | — |
 | §4.2 TemporalWindow LATEST / EARLIEST | `TAGG-01`, `TAGG-02` | — | — | — | — | — | — | — | — | — | — | — | — | — | — | — |
 | §4.2 What an aggregate counts (ENTITIES / PATHS) | `AGG-OVER-01`, `AGG-OVER-02`, `AGG-OVER-03`, `AGG-OVER-04` | 4 pass | 4 pass | — | — | — | — | — | 4 pass | 4 refused | — | — | — | — | — | — |
-| §5.2.2 Drill-across (steps 1–3, DA4) | `DA-01`, `DA-02` | 2 pass | 2 refused | — | — | — | — | — | 2 refused | 2 refused | — | — | — | — | — | — |
-| §5.2.2 Well-formedness of a constellation (DA1–DA3) | `DA-WF-01`, `DA-WF-02`, `DA-WF-03`, `DA-WF-04` | 4 pass | 3 pass, 1 refused | — | — | — | — | — | — | — | — | — | — | — | — | — |
+| §5.2.2 Drill-across (steps 1–3, DA4) | `DA-01`, `DA-02` | 2 pass | 2 pass | — | — | — | — | — | 2 pass | 2 refused | — | — | — | — | — | — |
+| §5.2.2 Well-formedness of a constellation (DA1–DA3) | `DA-WF-01`, `DA-WF-02`, `DA-WF-03`, `DA-WF-04` | 4 pass | 4 pass | — | — | — | — | — | — | — | — | — | — | — | — | — |
 | §6.1 / §8.3 propositional equivalence, tautology, implication | `BDD-P-01` … `BDD-P-GEN-23` (31) | — | — | — | 31 pass | — | — | — | — | — | — | — | — | — | — | — |
 | §6.1 Order theory of atoms (Δ_ord, O1–O6) | `BDD-O-01` … `BDD-O-08` (8) | — | — | — | 8 pass | — | — | — | — | — | — | — | — | — | — | — |
 | §6.1 Order theory of atoms: String equality always, order under a collation | `BDD-S-01` … `BDD-S-12` (12) | — | — | — | 12 pass | — | — | — | — | — | — | — | — | — | — | — |
@@ -391,13 +391,8 @@ implement the area.
 | `ADD-07` | `dgm-annotations` | refused | the question lattice does not offer AVG over a NON_ADDITIVE measure: AD3 accepts it only with a warning, and a skeleton of the enumeration has no field to carry one (§12.3) |
 | `ADD-09` | `dgm-annotations` | refused | the question lattice does not enumerate SUM over a SEMI_ADDITIVE measure: AD2 decides it by the period of the fact or the entity of a dimension, which the declaration does not identify (Grain names no period property; §12.3); rejected for that reason, not by AD2 |
 | `ADD-10` | `dgm-annotations` | refused | the question lattice does not enumerate SUM over a SEMI_ADDITIVE measure: AD2 decides it by the period of the fact or the entity of a dimension, which the declaration does not identify (Grain names no period property; §12.3) |
-| `DA-01` | `duckdb-plan-ir` | refused | the plan IR raises UnsupportedConstruct for a declared constellation: it has no node for per-branch aggregation aligned by FULL OUTER JOIN (fail-closed) |
-| `DA-01` | `pg-duckdb-plan-ir` | refused | the plan IR raises UnsupportedConstruct for a declared constellation: it has no node for per-branch aggregation aligned by FULL OUTER JOIN (fail-closed) |
 | `DA-01` | `planner-refusals` | refused | every target without an emitter (SQL_POSTGRESQL, CYPHER, SPARQL, DGM_JSON, DGM_YAML) raises UnsupportedCapability |
-| `DA-02` | `duckdb-plan-ir` | refused | the plan IR raises UnsupportedConstruct for a declared constellation: it has no node for per-branch aggregation aligned by FULL OUTER JOIN (fail-closed) |
-| `DA-02` | `pg-duckdb-plan-ir` | refused | the plan IR raises UnsupportedConstruct for a declared constellation: it has no node for per-branch aggregation aligned by FULL OUTER JOIN (fail-closed) |
 | `DA-02` | `planner-refusals` | refused | every target without an emitter (SQL_POSTGRESQL, CYPHER, SPARQL, DGM_JSON, DGM_YAML) raises UnsupportedCapability |
-| `DA-WF-04` | `duckdb-plan-ir` | refused | the plan IR raises UnsupportedConstruct for a declared constellation: it has no node for per-branch aggregation aligned by FULL OUTER JOIN (fail-closed) |
 | `SINK-CL-01` | `sink-delta` | refused | §6.2 Delta writes: DuckDB's delta extension rejects UPDATE, DELETE and MERGE INTO, so DeltaLakeSink.close_versions() raises SinkUnsupported and sends nothing |
 | `SINK-CL-02` | `sink-delta` | refused | §6.2 Delta writes: DuckDB's delta extension rejects UPDATE, DELETE and MERGE INTO, so DeltaLakeSink.close_versions() raises SinkUnsupported and sends nothing |
 | `SINK-CL-03` | `sink-delta` | refused | §6.2 Delta writes: DuckDB's delta extension rejects UPDATE, DELETE and MERGE INTO, so DeltaLakeSink.close_versions() raises SinkUnsupported and sends nothing |

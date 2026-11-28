@@ -36,6 +36,7 @@ from sqldim.core.query.dgm.planner._gate import RewriteProvider
 from sqldim.core.query.dgm.planner._ir import (
     BandQuery,
     Compose,
+    DrillAcross,
     PlanIdentityUnavailable,
     PlanIR,
     PlanNode,
@@ -223,12 +224,15 @@ class _Decomposer:
     def visit(self, n: PlanNode) -> int:
         if n in self.index:
             return self.index[n]
-        step = self._leaf(n) if isinstance(n, BandQuery) else self._compose(n)
+        if isinstance(n, (BandQuery, DrillAcross)):
+            step = self._leaf(n)
+        else:
+            step = self._compose(n)
         self.index[n] = step.index
         self.steps.append(step)
         return step.index
 
-    def _leaf(self, n: BandQuery) -> DecompositionStep:
+    def _leaf(self, n: BandQuery | DrillAcross) -> DecompositionStep:
         self.questions += 1
         label = f"question {self.questions}"
         body = json.dumps(encode_spec(PlanIR(root=n))["nodes"][0], sort_keys=True)

@@ -9,9 +9,17 @@ from __future__ import annotations
 import duckdb
 import pytest
 
-from sqldim.core.query.dgm import DGMPlanner, DGMQuery, QueryTarget, VerbHop
+from sqldim.core.query.dgm import DGMPlanner, DGMQuery, PropRef, QueryTarget, VerbHop
 from sqldim.core.query.dgm._drill_across import null_on_zero
 from sqldim.core.query.dgm.planner import UnsupportedConstruct
+from sqldim.core.query.dgm.planner._ir import DrillAcross, UnknownRelation
+from sqldim.core.query.dgm.planner._ir_emit import emit_sql
+from sqldim.core.query.dgm.planner._ir_identity import (
+    StaticCatalog,
+    dag_hash,
+    deps,
+)
+from sqldim.core.query.dgm.runtime._spec import band_coverage, decode_spec, encode_spec
 from sqldim.core.query.dgm.refs import AggRef
 from sqldim.core.query.dgm.preds import ScalarPred
 from sqldim.exceptions import SemanticError
@@ -143,13 +151,86 @@ def test_anchor_inside_a_branch_is_refused():
         q.to_sql()
 
 
-def test_plan_ir_refuses_a_constellation_after_the_da_checks():
-    planner = DGMPlanner(None, None, None, None, QueryTarget.SQL_DUCKDB)  # type: ignore[arg-type]
-    with pytest.raises(UnsupportedConstruct, match="drill-across"):
-        planner.plan_query(_q().group_by("c.id").agg(n="COUNT(s.id)"))
-    bad = _q().agg(x="SUM(s.revenue + r.amount)")
+def _planner() -> DGMPlanner:
+    return DGMPlanner(None, None, None, None, QueryTarget.SQL_DUCKDB)  # type: ignore[arg-type]
+
+
+def _example(q: DGMQuery) -> DGMQuery:
+    return (
+        q.where(ScalarPred(PropRef("c", "region"), "=", "N"))
+        .group_by("c.id")
+        .agg(
+            n_sales="COUNT(s.id)",
+            n_returns="COUNT(r.id)",
+            rate="COUNT(r.id) / COUNT(s.id)",
+        )
+        .having(ScalarPred(AggRef("n_sales"), ">", 0))
+    )
+
+
+def test_plan_ir_lowers_a_constellation_to_a_drill_across_node():
+    plan = _planner().plan_query(_example(_q()))
+    assert isinstance(plan.ir.root, DrillAcross)
+    assert len(plan.ir.root.branches) == 2
+    con = _db()
+    assert sorted(con.execute(plan.query_text).fetchall()) == sorted(
+        _example(_q()).execute(con)
+    )
+
+
+def test_plan_ir_checks_da1_to_da3_as_to_sql_does():
     with pytest.raises(SemanticError, match="DA1"):
-        planner.plan_query(bad)
+        _planner().plan_query(_q().agg(x="SUM(s.revenue + r.amount)"))
+
+
+def _reversed() -> DGMQuery:
+    return (
+        DGMQuery()
+        .anchor("customer", "c")
+        .path_join(VerbHop("c", "placed", "s", table="sale", on="s.customer_id = c.id"))
+        .path_join(
+            VerbHop("c", "returned", "r", table="ret", on="r.customer_id = c.id")
+        )
+        .drill_across(["r"], ["s"])
+    )
+
+
+def test_branch_declaration_order_is_not_part_of_the_identity():
+    a = _planner().plan_query(_example(_q())).ir
+    b = _planner().plan_query(_example(_reversed())).ir
+    assert dag_hash(a) == dag_hash(b)
+    assert emit_sql(a) == emit_sql(b)
+
+
+def test_identity_tells_constellations_apart():
+    a = _planner().plan_query(_example(_q())).ir
+    q = _q().group_by("c.id").agg(n_sales="COUNT(s.id)", n_returns="COUNT(r.id)")
+    b = _planner().plan_query(q).ir
+    assert dag_hash(a) != dag_hash(b)
+
+
+def test_deps_are_the_reads_of_every_branch():
+    ir = _planner().plan_query(_example(_q())).ir
+    catalog = StaticCatalog(base=frozenset({"customer", "sale", "ret"}))
+    assert [d.relation for d in deps(ir, catalog)] == ["customer", "ret", "sale"]
+    with pytest.raises(UnknownRelation):
+        deps(ir, StaticCatalog(base=frozenset({"customer", "sale"})))
+
+
+def test_spec_round_trip_keeps_the_node_and_its_hash():
+    ir = _planner().plan_query(_example(_q())).ir
+    spec = encode_spec(ir)
+    back = decode_spec(spec).ir
+    assert back.root == ir.root
+    assert dag_hash(back) == dag_hash(ir)
+    assert band_coverage(back) == ["B1", "B2"]
+
+
+def test_spec_decoding_refuses_a_select_outside_the_branches():
+    spec = encode_spec(_planner().plan_query(_example(_q())).ir)
+    spec["nodes"][0]["select"][0][1] = "COALESCE(b9.a0, 0)"
+    with pytest.raises(UnsupportedConstruct):
+        decode_spec(spec)
 
 
 @pytest.mark.parametrize(
